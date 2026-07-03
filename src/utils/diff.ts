@@ -6,7 +6,7 @@
  * analyze and contributions services.
  */
 
-import { spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
@@ -143,10 +143,10 @@ ${prerenderedHTML}
 /** Open a file or URL with the platform's default handler. */
 function openWithDefaultApp(target: string): void {
   if (process.platform === 'win32') {
-    spawnSync('cmd', ['/c', 'start', '', target], { stdio: 'ignore' });
+    execFileSync('rundll32', ['url.dll,FileProtocolHandler', target], { stdio: 'ignore' });
     return;
   }
-  spawnSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
+  execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
 }
 
 /**
