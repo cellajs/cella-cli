@@ -10,32 +10,14 @@ import process from 'node:process';
 import { Separator, select } from '@inquirer/prompts';
 import type { ForkConfig, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import { DEFAULT_SYNC_BRANCH, loadConfig, resolveUpstream } from '../utils/config';
-import { warningMark } from '../utils/display';
-import { assertClean, getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
+import { loadConfig, resolveUpstream } from '../utils/config';
+import { getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
 import { printNoForksHint, validateForkPath } from './fork-utils';
-import { runPackages } from './packages';
-import { runSync } from './sync';
-
-/**
- * Run preflight checks for the selected fork.
- */
-async function preflightFork(forkPath: string, forkBranch: string): Promise<void> {
-  const currentBranch = await getCurrentBranch(forkPath);
-  if (currentBranch !== forkBranch) {
-    throw new Error(
-      `fork must be on branch '${forkBranch}'. currently on '${currentBranch}'. run: git switch ${forkBranch}`,
-    );
-  }
-
-  await assertClean(forkPath, 'fork');
-}
+import { runSyncCommand } from './sync';
 
 /** Status info gathered from a fork repository */
 interface ForkStatus {
   branch: string;
-  expectedBranch: string;
-  branchMatch: boolean;
   dirty: number;
   lastSync: { date: string; message: string } | null;
 }
@@ -43,7 +25,7 @@ interface ForkStatus {
 /**
  * Gather git status info for a fork: branch, dirty state, last sync.
  */
-async function gatherForkStatus(forkPath: string, expectedBranch: string): Promise<ForkStatus> {
+async function gatherForkStatus(forkPath: string): Promise<ForkStatus> {
   const [branch, porcelain, syncRef] = await Promise.all([
     getCurrentBranch(forkPath).catch(() => 'unknown'),
     git(['status', '--porcelain'], forkPath, { ignoreErrors: true }),
@@ -51,7 +33,6 @@ async function gatherForkStatus(forkPath: string, expectedBranch: string): Promi
   ]);
 
   const dirty = porcelain ? porcelain.split('\n').filter(Boolean).length : 0;
-  const branchMatch = branch === expectedBranch;
 
   let lastSync: { date: string; message: string } | null = null;
   if (syncRef) {
@@ -59,7 +40,7 @@ async function gatherForkStatus(forkPath: string, expectedBranch: string): Promi
     lastSync = { date: commitInfo?.date ?? 'unknown', message: commitInfo?.message ?? '' };
   }
 
-  return { branch, expectedBranch, branchMatch, dirty, lastSync };
+  return { branch, dirty, lastSync };
 }
 
 /**
@@ -68,12 +49,7 @@ async function gatherForkStatus(forkPath: string, expectedBranch: string): Promi
 function formatForkChoice(name: string, status: ForkStatus | null): string {
   if (!status) return name;
 
-  // Branch: cyan if matching expected, yellow with mismatch indicator if not
-  const branchPart = status.branchMatch
-    ? pc.dim(`[${status.branch}]`)
-    : pc.yellow(`[${status.branch} ≠ ${status.expectedBranch}]`);
-
-  // Sync: date and truncated commit message
+  // Sync: date and truncated commit message.
   let syncPart: string;
   if (status.lastSync) {
     const msg =
@@ -87,7 +63,7 @@ function formatForkChoice(name: string, status: ForkStatus | null): string {
   // Dirty state: only show if there are uncommitted changes
   const dirtyPart = status.dirty > 0 ? pc.yellow(`${status.dirty} uncommitted`) : '';
 
-  const parts = [name, branchPart, syncPart];
+  const parts = [name, pc.dim(`[${status.branch}]`), syncPart];
   if (dirtyPart) parts.push(dirtyPart);
 
   return parts.join(pc.dim(' · '));
@@ -107,7 +83,7 @@ async function buildForkChoices(
     validated
       .filter((v) => v.valid)
       .map(async (v) => {
-        const status = await gatherForkStatus(v.resolvedPath, DEFAULT_SYNC_BRANCH);
+        const status = await gatherForkStatus(v.resolvedPath);
         return { path: v.fork.localPath, status };
       }),
   );
@@ -129,7 +105,7 @@ async function buildForkChoices(
 }
 
 /**
- * Sync a single fork: preflight, sync, and optionally run packages.
+ * Sync a single fork by running the same command flow the fork owner would run locally.
  */
 async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: string): Promise<void> {
   console.info();
@@ -139,10 +115,7 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
 
   const forkConfig = await loadConfig(forkPath);
 
-  // Preflight
-  await preflightFork(forkPath, DEFAULT_SYNC_BRANCH);
-
-  // Build runtime config for the fork
+  // Build runtime config for the fork.
   const { branchRef } = resolveUpstream(forkConfig.settings);
   const upstreamRef = branchRef;
 
@@ -158,17 +131,7 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
     hard: config.hard,
   };
 
-  // Run sync
-  const result = await runSync(forkRuntimeConfig);
-
-  // Auto-run packages if enabled and sync succeeded
-  if (forkConfig.settings.syncWithPackages !== false && result.success) {
-    await runPackages(forkRuntimeConfig);
-  } else if (forkConfig.settings.syncWithPackages !== false) {
-    console.warn(
-      `${warningMark} package sync skipped because the merge has unresolved conflicts. resolve them, commit the merge, then rerun sync.`,
-    );
-  }
+  await runSyncCommand(forkRuntimeConfig);
 }
 
 /**

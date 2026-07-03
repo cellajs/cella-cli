@@ -77,7 +77,7 @@ export interface SyncSettings {
  *
  * Cella is the upstream/source-of-truth. For each fork it can:
  * - pull contributions FROM the fork's `pullBranch` (contributions service)
- * - sync changes INTO the fork's internal `cella-sync` branch (forks service)
+ * - run the normal temporary-branch sync flow inside the fork (forks service)
  */
 export interface ForkConfig {
   /** Display name for the fork (also used as the contrib/<name> branch slug) */
@@ -98,7 +98,7 @@ export interface ForkConfig {
 
 /**
  * User-configurable sync options for cella.config.ts.
- * Simplified for v2 - no sync branch or squash options.
+ * Simplified for v2 - no long-lived sync branch or squash options.
  */
 export interface CellaCliConfig {
   /** Core sync settings */

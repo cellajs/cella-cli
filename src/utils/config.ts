@@ -17,19 +17,11 @@ export const DEFAULT_UPSTREAM_REMOTE = 'cella-upstream';
 export const DEFAULT_BRANCH = 'main';
 
 /**
- * Internal branch a fork receives upstream syncs on via the **forks** (maintainer→fork)
- * service. This is a real, checked-out branch in the fork clone the maintainer pushes onto —
- * distinct from the temporary `cella/sync/*` branches the fork owner's own `cella sync` cuts.
- */
-export const DEFAULT_SYNC_BRANCH = 'cella-sync';
-
-/**
  * Prefix for the temporary integration branches that `cella sync` cuts per run
  * (e.g. `cella/sync/20260702-1430`).
  *
  * The three-segment shape (`cella/sync/<stamp>`) means it can never collide with a real branch
- * named `cella` or `cella/sync`, and there is no long-lived `cella-sync` branch to conflict with
- * git's ref namespacing (`refs/heads/cella-sync` file vs `refs/heads/cella-sync/` dir).
+ * named `cella` or `cella/sync`.
  */
 const DEFAULT_SYNC_PREFIX = 'cella/sync';
 

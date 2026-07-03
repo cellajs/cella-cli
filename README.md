@@ -22,7 +22,7 @@ pnpm cella contributions --fork raak --json
 | `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
 | `audit` | Check for outdated packages & vulnerabilities |
 | `stats` | Count files by category and workspace package |
-| `forks` * | Sync downstream to local fork repositories |
+| `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
 
 \* `forks` and `contributions` only appear in the menu when you have `forks` configured in `cella.config.ts`. These are for upstream template developers who maintain multiple downstream forks.
@@ -96,8 +96,7 @@ upstream branch's entire history, because the fork doesn't share pushed ancestry
 and the local `git replace` graft that makes merges incremental is never pushed. Ancestry lives
 in `refs/cella/last-sync` (and the committed `cella.manifest.json` for fresh clones), so
 `git merge-base` keeps working across throwaway branches — each is safe to delete once its PR
-lands. The three-segment name can't collide with git's ref namespacing, so there's no long-lived
-`cella-sync` branch to conflict with.
+lands. The three-segment name can't collide with git's ref namespacing.
 
 If conflicts remain when you re-run, `sync` lists them and stops (never starting a second cycle
 mid-merge). If `pnpm check`, the push, or `gh` fails, it degrades gracefully — reporting the
