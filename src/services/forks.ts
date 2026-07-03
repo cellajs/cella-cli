@@ -10,27 +10,12 @@ import process from 'node:process';
 import { Separator, select } from '@inquirer/prompts';
 import type { ForkConfig, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import { DEFAULT_SYNC_BRANCH, loadConfig, resolveSyncBranch, resolveUpstream } from '../utils/config';
+import { DEFAULT_SYNC_BRANCH, loadConfig, resolveUpstream } from '../utils/config';
 import { warningMark } from '../utils/display';
 import { assertClean, getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
 import { printNoForksHint, validateForkPath } from './fork-utils';
 import { runPackages } from './packages';
 import { runSync } from './sync';
-
-/**
- * Resolve the branch a fork receives syncs on.
- *
- * The fork's own `cella.config.ts` (`settings.syncBranch`) is the source of truth.
- * Falls back to the default sync branch when the fork config can't be read.
- */
-async function resolveForkBranch(forkPath: string): Promise<string> {
-  try {
-    const forkConfig = await loadConfig(forkPath);
-    return resolveSyncBranch(forkConfig.settings);
-  } catch {
-    return DEFAULT_SYNC_BRANCH;
-  }
-}
 
 /**
  * Run preflight checks for the selected fork.
@@ -122,8 +107,7 @@ async function buildForkChoices(
     validated
       .filter((v) => v.valid)
       .map(async (v) => {
-        const expectedBranch = await resolveForkBranch(v.resolvedPath);
-        const status = await gatherForkStatus(v.resolvedPath, expectedBranch);
+        const status = await gatherForkStatus(v.resolvedPath, DEFAULT_SYNC_BRANCH);
         return { path: v.fork.localPath, status };
       }),
   );
@@ -155,11 +139,8 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
 
   const forkConfig = await loadConfig(forkPath);
 
-  // The fork's own config is the source of truth for its sync branch.
-  const forkBranch = resolveSyncBranch(forkConfig.settings);
-
   // Preflight
-  await preflightFork(forkPath, forkBranch);
+  await preflightFork(forkPath, DEFAULT_SYNC_BRANCH);
 
   // Build runtime config for the fork
   const { branchRef } = resolveUpstream(forkConfig.settings);

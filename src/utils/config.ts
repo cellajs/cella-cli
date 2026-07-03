@@ -17,7 +17,7 @@ export const DEFAULT_UPSTREAM_REMOTE = 'cella-upstream';
 export const DEFAULT_BRANCH = 'main';
 
 /**
- * Default branch a fork receives upstream syncs on via the **forks** (maintainer→fork)
+ * Internal branch a fork receives upstream syncs on via the **forks** (maintainer→fork)
  * service. This is a real, checked-out branch in the fork clone the maintainer pushes onto —
  * distinct from the temporary `cella/sync/*` branches the fork owner's own `cella sync` cuts.
  */
@@ -37,15 +37,6 @@ const DEFAULT_SYNC_PREFIX = 'cella/sync';
  * Default trunk branch that `cella sync` cuts from and opens PRs into.
  */
 export const DEFAULT_RELEASE_BASE = 'main';
-
-/**
- * Resolve the branch a fork must be on to receive upstream syncs via the forks service.
- *
- * The fork's own `cella.config.ts` (`settings.syncBranch`) is the source of truth.
- */
-export function resolveSyncBranch(settings: SyncSettings): string {
-  return settings.syncBranch ?? DEFAULT_SYNC_BRANCH;
-}
 
 /**
  * Whether `branch` is one of the temporary integration branches `cella sync` cuts, i.e. it

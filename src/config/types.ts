@@ -46,17 +46,6 @@ export interface SyncSettings {
   upstreamTrack?: 'release' | 'branch';
 
   /**
-   * Branch a fork receives upstream syncs on via the **forks** (maintainer→fork) service.
-   * Defaults to 'cella-sync'. This is a real, checked-out branch in the fork clone that a
-   * cella maintainer pushes onto; it is the single source of truth read from the fork's own
-   * config when cella pushes downstream.
-   *
-   * Note: the fork owner's own `pnpm cella sync` does NOT use this branch — it cuts fresh
-   * temporary `cella/sync/<stamp>` branches from `releaseBase` instead.
-   */
-  syncBranch?: string;
-
-  /**
    * Trunk branch that `pnpm cella sync` cuts the temporary branch from and that you open the
    * squash-merge PR into. Defaults to 'main'. Cutting fresh from trunk each cycle keeps every
    * PR limited to that cycle's upstream delta (no accumulation) and `main` linear.
@@ -88,7 +77,7 @@ export interface SyncSettings {
  *
  * Cella is the upstream/source-of-truth. For each fork it can:
  * - pull contributions FROM the fork's `pullBranch` (contributions service)
- * - sync changes INTO the fork's own `settings.syncBranch` (forks service)
+ * - sync changes INTO the fork's internal `cella-sync` branch (forks service)
  */
 export interface ForkConfig {
   /** Display name for the fork (also used as the contrib/<name> branch slug) */
@@ -169,7 +158,6 @@ export const cellaConfigSchema = z
         upstreamUrl: z.string().min(1),
         upstreamBranch: z.string().min(1).optional(),
         upstreamTrack: z.enum(['release', 'branch']).optional(),
-        syncBranch: z.string().min(1).optional(),
         releaseBase: z.string().min(1).optional(),
         packageJsonSync: z
           .array(
