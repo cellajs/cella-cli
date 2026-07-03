@@ -113,9 +113,9 @@ export async function cleanupWorktree(repoPath: string, worktreePath: string): P
  */
 export async function cleanupLeftoverWorktrees(repoPath: string): Promise<void> {
   const worktreePath = getWorktreePath(repoPath);
-  if (!existsSync(worktreePath)) return;
-
-  await cleanupWorktree(repoPath, worktreePath);
+  if (existsSync(worktreePath)) {
+    await cleanupWorktree(repoPath, worktreePath);
+  }
 
   // Also prune any orphaned git worktree references for our managed prefixes.
   const prefixes = Object.values(WORKTREE_PREFIXES);
