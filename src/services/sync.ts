@@ -90,7 +90,7 @@ async function ensureBaseUpToDate(forkPath: string, base: string): Promise<void>
 /**
  * Cut a fresh temporary sync branch from the trunk.
  *
- * Switches to `releaseBase`, fast-forwards it, then creates `<syncBranchPrefix>/<stamp>` so the
+ * Switches to `releaseBase`, fast-forwards it, then creates `cella/sync/<stamp>` so the
  * merge lands on an isolated throwaway branch rather than a long-lived integration branch.
  */
 async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<TemporarySyncBranch> {
@@ -102,7 +102,7 @@ async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<Temporar
   await switchBranch(forkPath, base);
   await ensureBaseUpToDate(forkPath, base);
 
-  const temporaryBranch = buildTemporarySyncBranch(settings);
+  const temporaryBranch = buildTemporarySyncBranch();
 
   console.info(pc.dim(`creating temporary sync branch '${temporaryBranch}' from '${base}'...`));
   console.info();
@@ -364,9 +364,9 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
  * - Anywhere else: require a clean tree, then cut a fresh temporary branch and merge upstream.
  */
 export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
-  const { forkPath, settings } = config;
+  const { forkPath } = config;
   const currentBranch = await getCurrentBranch(forkPath);
-  const onSyncBranch = isTemporarySyncBranch(settings, currentBranch);
+  const onSyncBranch = isTemporarySyncBranch(currentBranch);
 
   // Resume path: an earlier run left a merge staged on this temporary branch (e.g. after
   // conflicts). Re-running finishes it instead of starting over.

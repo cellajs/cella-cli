@@ -74,10 +74,7 @@ pnpm cella sync --track branch   # follow the tip once, without editing config
 
 ## Sync workflow
 
-`pnpm cella sync` never commits to `main` directly. Under release-please, `main` is
-squash-merge-only with linear history, so each run cuts a **fresh temporary branch** from the
-trunk (`settings.releaseBase`, default `main`), named with `settings.syncBranchPrefix` (default
-`cella/sync`):
+`pnpm cella sync` never commits to `main` directly. 
 
 ```
 main ──▶ cella/sync/<stamp> ──(3-way merge)──▶ PR ──(squash)──▶ main

@@ -24,7 +24,7 @@ export const DEFAULT_BRANCH = 'main';
 export const DEFAULT_SYNC_BRANCH = 'cella-sync';
 
 /**
- * Default prefix for the temporary integration branches that `cella sync` cuts per run
+ * Prefix for the temporary integration branches that `cella sync` cuts per run
  * (e.g. `cella/sync/20260702-1430`).
  *
  * The three-segment shape (`cella/sync/<stamp>`) means it can never collide with a real branch
@@ -48,20 +48,11 @@ export function resolveSyncBranch(settings: SyncSettings): string {
 }
 
 /**
- * Resolve the prefix for the temporary sync branches cut by `cella sync`.
- *
- * The fork's own `cella.config.ts` (`settings.syncBranchPrefix`) is the source of truth.
- */
-function resolveSyncPrefix(settings: SyncSettings): string {
-  return settings.syncBranchPrefix ?? DEFAULT_SYNC_PREFIX;
-}
-
-/**
  * Whether `branch` is one of the temporary integration branches `cella sync` cuts, i.e. it
- * lives under the `<syncBranchPrefix>/` namespace (default `cella/sync/`).
+ * lives under the internal `cella/sync/` namespace.
  */
-export function isTemporarySyncBranch(settings: SyncSettings, branch: string): boolean {
-  return branch.startsWith(`${resolveSyncPrefix(settings)}/`);
+export function isTemporarySyncBranch(branch: string): boolean {
+  return branch.startsWith(`${DEFAULT_SYNC_PREFIX}/`);
 }
 
 /**
@@ -76,11 +67,11 @@ export function resolveReleaseBase(settings: SyncSettings): string {
  * `cella/sync/20260702-1430`. Cutting a fresh branch per cycle keeps each PR
  * scoped to that sync's upstream delta.
  */
-export function buildTemporarySyncBranch(settings: SyncSettings): string {
+export function buildTemporarySyncBranch(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-  return `${resolveSyncPrefix(settings)}/${stamp}`;
+  return `${DEFAULT_SYNC_PREFIX}/${stamp}`;
 }
 
 /**

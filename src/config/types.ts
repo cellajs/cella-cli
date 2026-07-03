@@ -51,23 +51,10 @@ export interface SyncSettings {
    * cella maintainer pushes onto; it is the single source of truth read from the fork's own
    * config when cella pushes downstream.
    *
-   * Note: the fork owner's own `pnpm cella sync` does NOT use this branch — it cuts temporary
-   * `syncBranchPrefix` branches from `releaseBase` instead.
+   * Note: the fork owner's own `pnpm cella sync` does NOT use this branch — it cuts fresh
+   * temporary `cella/sync/<stamp>` branches from `releaseBase` instead.
    */
   syncBranch?: string;
-
-  /**
-   * Prefix for the temporary integration branches that `pnpm cella sync` cuts per run.
-   * Defaults to 'cella/sync'.
-   *
-   * Each run cuts a fresh, uniquely named branch from `releaseBase` (e.g.
-   * `cella/sync/20260702-1430`), lands the upstream merge there, and leaves it for you
-   * to commit and open a PR into `releaseBase`. Cutting fresh each cycle keeps every PR scoped
-   * to that cycle's upstream delta (no accumulation) and keeps `main` linear. The three-segment
-   * shape means it never collides with git's ref namespacing (no long-lived `cella-sync`
-   * file-vs-dir conflict).
-   */
-  syncBranchPrefix?: string;
 
   /**
    * Trunk branch that `pnpm cella sync` cuts the temporary branch from and that you open the
