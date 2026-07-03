@@ -11,6 +11,7 @@ import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
+import { isManagedFile } from './managed-files';
 
 /** CLI name */
 export const NAME = 'cella cli';
@@ -389,6 +390,8 @@ interface StatusConfig {
   description?: string;
 }
 
+type SummaryStatus = FileStatus | 'managed';
+
 /** Unified status display config: icon, label, color, and description for each status. Key order defines sort priority. */
 const statusConfig: Record<FileStatus, StatusConfig> = {
   behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will sync' },
@@ -403,6 +406,17 @@ const statusConfig: Record<FileStatus, StatusConfig> = {
   renamed: { icon: pc.blue('→'), label: 'renamed', color: pc.blue },
 };
 
+const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
+  ...statusConfig,
+  managed: {
+    icon: pc.cyan('◇'),
+    label: 'managed',
+    color: pc.cyan,
+    description: 'package/config files handled separately',
+  },
+  ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
+};
+
 /** Ordered status keys derived from statusConfig key order */
 const statusOrder = Object.keys(statusConfig) as FileStatus[];
 
@@ -412,26 +426,35 @@ const statusOrder = Object.keys(statusConfig) as FileStatus[];
 export function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   printSectionHeader(pc.cyan(title));
 
-  // Format counts with padding (exclude ignored from max calculation)
+  // Format counts with padding.
   const maxCount = Math.max(
+    summary.managed,
+    summary.ignored,
     summary.identical,
     summary.ahead,
+    summary.local,
     summary.drifted,
     summary.behind,
     summary.diverged,
     summary.pinned,
+    summary.deleted,
+    summary.renamed,
   );
   const countWidth = String(maxCount).length + 1;
 
   // Helper to print a status line using unified config
-  const printLine = (status: FileStatus, count: number) => {
-    const { icon, label, color, description } = statusConfig[status];
+  const printLine = (status: SummaryStatus, count: number) => {
+    const { icon, label, color, description } = summaryStatusConfig[status];
     const countStr = color(String(count).padStart(countWidth));
     const desc = description ? pc.dim(description) : '';
     console.info(`  ${icon} ${countStr}  ${label.padEnd(15)}${desc}`);
   };
 
   // Grouped layout with blank lines between groups
+  printLine('managed', summary.managed);
+  printLine('ignored', summary.ignored);
+
+  console.info();
   printLine('identical', summary.identical);
 
   console.info();
@@ -463,7 +486,7 @@ function printFileGroup(
     dateSource?: 'fork' | 'upstream';
   },
 ): void {
-  const filtered = files.filter((f) => f.status === status);
+  const filtered = files.filter((f) => f.status === status && !isManagedFile(f.path));
   if (filtered.length === 0) return;
 
   const config = statusConfig[status];
@@ -558,8 +581,9 @@ export function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
  * Print sync completion message.
  */
 export function printSyncComplete(result: MergeResult): void {
-  const updated = result.summary.behind + result.summary.diverged;
-  const merged = result.autoMergedFiles?.length ?? Math.max(0, result.summary.diverged - result.conflicts.length);
+  const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
+  const diverged = result.files.filter((file) => file.status === 'diverged').length;
+  const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
   const conflicts = result.conflicts.length;
 
   console.info();

@@ -182,8 +182,7 @@ function printFinishSteps(): void {
 
 /** Whether sync applied changes that need a finishing rerun. */
 function hasStagedSyncChanges(result: MergeResult): boolean {
-  const { summary } = result;
-  return summary.behind + summary.diverged + summary.renamed + summary.ignored + summary.pinned > 0;
+  return result.files.some((file) => ['behind', 'diverged', 'renamed', 'ignored', 'pinned'].includes(file.status));
 }
 
 /** Guidance shown immediately after a clean sync summary. */

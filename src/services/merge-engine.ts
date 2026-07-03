@@ -51,6 +51,7 @@ import {
   stagePath,
   storeLastSyncRef,
 } from '../utils/git';
+import { isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
 import { isIgnored, isPinnedForSync } from '../utils/overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
@@ -309,6 +310,7 @@ async function applyDirectMerge(
  */
 function calculateSummary(files: AnalyzedFile[]): AnalysisSummary {
   const summary: AnalysisSummary = {
+    managed: 0,
     identical: 0,
     ahead: 0,
     local: 0,
@@ -323,6 +325,11 @@ function calculateSummary(files: AnalyzedFile[]): AnalysisSummary {
   };
 
   for (const file of files) {
+    if (file.status !== 'identical' && isManagedFile(file.path)) {
+      summary.managed++;
+      continue;
+    }
+
     summary[file.status]++;
   }
 
@@ -489,10 +496,12 @@ async function runSyncMerge(
   );
 
   const summary = calculateSummary(analyzedFiles);
-  const synced = summary.behind + summary.diverged + summary.renamed;
+  const synced = analyzedFiles.filter((file) => ['behind', 'diverged', 'renamed'].includes(file.status)).length;
 
   // Count total resolved changes (includes ignored/pinned resolutions)
-  const totalResolved = synced + summary.ignored + summary.pinned;
+  const totalResolved = analyzedFiles.filter((file) =>
+    ['behind', 'diverged', 'renamed', 'ignored', 'pinned'].includes(file.status),
+  ).length;
 
   // Record the upstream sync point in lockstep: the local `refs/cella/last-sync` ref plus
   // the committed `cella.manifest.json` (staged so it rides in the sync commit and travels

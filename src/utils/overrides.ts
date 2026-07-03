@@ -9,6 +9,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { CellaCliConfig } from '../config/types';
 import { warningMark } from './display';
+import { isManagedFile } from './managed-files';
 
 /**
  * Check if a file path is owned by any of the given folders.
@@ -34,19 +35,11 @@ export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
 }
 
 /**
- * Check if a file path is a package.json file.
- * Package.json files are always auto-pinned (handled by the packages service).
- */
-export function isPackageJson(filePath: string): boolean {
-  return filePath === 'package.json' || filePath.endsWith('/package.json');
-}
-
-/**
  * Check if a file is in the pinned list.
- * Package.json files are always considered pinned (auto-handled by packages service).
+ * Managed files are always considered pinned (handled separately by cella).
  */
 export function isPinned(filePath: string, config: CellaCliConfig): boolean {
-  if (isPackageJson(filePath)) return true;
+  if (isManagedFile(filePath)) return true;
   return isUnderAnyFolder(filePath, config.overrides?.pinned || []);
 }
 
@@ -54,11 +47,11 @@ export function isPinned(filePath: string, config: CellaCliConfig): boolean {
  * Resolve effective pin status for a sync run, honoring the --unpinned flag.
  *
  * When `unpinned` is true, configured pins are disabled so upstream versions
- * surface as behind/diverged — but package.json files stay pinned (their content
- * is reconciled separately by the packages service).
+ * surface as behind/diverged — but managed files stay pinned (their content is
+ * reconciled separately by cella).
  */
 export function isPinnedForSync(filePath: string, config: CellaCliConfig, unpinned?: boolean): boolean {
-  if (isPackageJson(filePath)) return true;
+  if (isManagedFile(filePath)) return true;
   if (unpinned) return false;
   return isPinned(filePath, config);
 }

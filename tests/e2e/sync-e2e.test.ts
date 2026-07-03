@@ -119,6 +119,32 @@ describe('sync e2e', () => {
       expect(pinnedFile?.status).toBe('pinned');
     });
 
+    it('should summarize changed managed files separately from protected files', async () => {
+      makeCommit(env.forkPath, {
+        files: {
+          'package.json': '{"name": "test-fork", "dependencies": {"fork-only": "1.0.0"}}\n',
+          'pnpm-lock.yaml': 'lockfileVersion: "9.0"\n\npackages:\n  fork-only: {}\n',
+          'cella.config.ts': 'export default { settings: { upstreamUrl: "fork" } };\n',
+          'backend/src/index.ts': '// Fork custom backend\nexport const backend = "fork";\n',
+        },
+        message: 'chore: customize managed files and backend',
+      });
+
+      fetchUpstream(env.forkPath);
+      const config = buildRuntimeConfig(env, {
+        service: 'analyze',
+        pinned: ['backend/src/index.ts'],
+      });
+
+      const result = await runAnalyze(config);
+
+      expect(result.summary.managed).toBe(3);
+      expect(result.summary.ahead).toBe(1);
+      expect(result.files.find((f) => f.path === 'package.json')?.status).toBe('ahead');
+      expect(result.files.find((f) => f.path === 'pnpm-lock.yaml')?.status).toBe('local');
+      expect(result.files.find((f) => f.path === 'cella.config.ts')?.status).toBe('local');
+    });
+
     it('should mark ignored files correctly', async () => {
       // Add file in ignored path to upstream
       makeCommit(env.upstreamPath, {

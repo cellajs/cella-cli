@@ -250,8 +250,8 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /**
    * Disable pinned entries (cella.config.ts overrides.pinned) for this sync so upstream
-   * versions surface as behind/diverged. package.json files stay pinned (handled
-   * by the packages service). Like --hard, uses the natural merge-base to resurface
+   * versions surface as behind/diverged. Managed files stay pinned because cella
+   * handles them separately. Like --hard, uses the natural merge-base to resurface
    * full upstream history.
    */
   unpinned?: boolean;
@@ -313,6 +313,8 @@ export interface AnalyzedFile {
 
 /** Summary counts by status */
 export interface AnalysisSummary {
+  /** Changed package/config files that are handled separately from normal sync categories */
+  managed: number;
   identical: number;
   ahead: number;
   local: number;

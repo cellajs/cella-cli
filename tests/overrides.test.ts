@@ -6,6 +6,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { CellaCliConfig } from '../src/config/types';
+import { isManagedFile } from '../src/utils/managed-files';
 import { isIgnored, isPinned, isUnderAnyFolder } from '../src/utils/overrides';
 
 /** Helper to build a minimal config with overrides */
@@ -80,10 +81,20 @@ describe('overrides', () => {
       expect(isPinned('frontend/src/modules/marketing/logo.tsx', config)).toBe(false);
     });
 
-    it('should auto-pin package.json files', () => {
+    it('should auto-pin managed files', () => {
       const config = buildConfig({ pinned: [] });
       expect(isPinned('package.json', config)).toBe(true);
       expect(isPinned('frontend/package.json', config)).toBe(true);
+      expect(isPinned('pnpm-lock.yaml', config)).toBe(true);
+      expect(isPinned('cella.config.ts', config)).toBe(true);
+    });
+
+    it('should identify managed files', () => {
+      expect(isManagedFile('package.json')).toBe(true);
+      expect(isManagedFile('frontend/package.json')).toBe(true);
+      expect(isManagedFile('pnpm-lock.yaml')).toBe(true);
+      expect(isManagedFile('cella.config.ts')).toBe(true);
+      expect(isManagedFile('frontend/src/index.ts')).toBe(false);
     });
 
     it('should return false with empty pinned list', () => {

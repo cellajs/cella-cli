@@ -132,7 +132,7 @@ Two opt-in flags make `sync` more aggressive. Both resurface full upstream histo
 | Flag | Effect |
 |------|--------|
 | `--hard` | Overwrites `drifted` files with upstream (local-only changes are replaced) |
-| `--unpinned` | Ignores `pinned` files so upstream surfaces as `behind`/`diverged`; `package.json` stays pinned |
+| `--unpinned` | Ignores `pinned` files so upstream surfaces as `behind`/`diverged`; managed files stay pinned |
 
 ## Status indicators
 
@@ -140,13 +140,15 @@ During analysis and sync, files are displayed with status indicators:
 
 | Symbol | Label | Meaning | Action |
 |:------:|-------|---------|--------|
+| ◇ | `managed` | Package/config file changed | Handled separately by cella |
+| ⨂ | `ignored` | Protected by ignored config | Excluded from sync |
 | ✓ | `identical` | Fork matches upstream | No action needed |
-| ↑ | `ahead` | Fork changed (pinned/ignored) | Protected, keeping fork |
+| ↑ | `ahead` | Fork changed (pinned) | Protected, keeping fork |
 | ! | `drifted` | Fork changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream has changes | Will sync from upstream |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
 | ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork |
-| ◌ | `local` | Only in fork, never in upstream | No action needed |
+| + | `local` | Only in fork, never in upstream | No action needed |
 
 ## Package.json sync
 
