@@ -95,7 +95,7 @@ describe('diff helpers', () => {
 
       expect(html).toContain('<!doctype html>');
       // Syntax highlighting splits lines into token spans; compare visible text.
-      const text = html.replace(/<[^>]+>/g, '');
+      const text = html.replace(/[<>]/g, '');
       expect(text).toContain('upstream content');
       expect(text).toContain('fork content');
       // Self-contained: styles inline, no external requests.
