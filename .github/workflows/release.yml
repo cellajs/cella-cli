@@ -1,0 +1,83 @@
+name: Release
+
+# release-please maintains a "release PR" from Conventional Commits. Merging it
+# bumps the version, updates the CHANGELOG, creates the git tag and GitHub
+# Release. When a release is cut, the package is built and published to npm.
+
+permissions: {}
+
+on:
+  push:
+    branches: [main]
+  # Manual trigger to (re)run the publish job for the current main/tag, e.g. if a
+  # transient install/build failure blocked publishing after a release was cut.
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    outputs:
+      release-created: ${{ steps.release.outputs.release_created }}
+      tag-name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      # Mint a short-lived token from the org release GitHub App. The org blocks
+      # the default GITHUB_TOKEN from creating pull requests, so release-please
+      # needs an App token to open (and later merge-detect) the release PR.
+      # Requires the App installed on this repo and the RELEASE_APP_ID /
+      # RELEASE_APP_PRIVATE_KEY org secrets shared with this repo.
+      - name: Generate app token
+        id: app-token
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          client-id: ${{ secrets.RELEASE_APP_ID }}
+          private-key: ${{ secrets.RELEASE_APP_PRIVATE_KEY }}
+
+      - name: Run release-please
+        id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          token: ${{ steps.app-token.outputs.token }}
+          config-file: .github/release-please-config.json
+          manifest-file: .github/release-please-manifest.json
+
+  publish:
+    needs: release-please
+    if: ${{ needs.release-please.outputs.release-created == 'true' || github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write # npm provenance + OIDC trusted publishing
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 24
+          cache: "pnpm"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        run: pnpm build
+
+      # Prefer OIDC trusted publishing (tokenless). Configure the npm Trusted
+      # Publisher for cellajs/create-cella + this workflow. NPM_TOKEN is a
+      # fallback if trusted publishing is not yet set up.
+      - name: Publish to npm
+        run: pnpm publish --no-git-checks --access public --provenance
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

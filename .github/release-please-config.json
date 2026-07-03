@@ -1,0 +1,65 @@
+{
+  "$schema": "https://raw.githubusercontent.com/googleapis/release-please/main/schemas/config.json",
+  "pull-request-header": "Automated release PR. Review the changelog below, then merge to cut the release.",
+  "bump-minor-pre-major": true,
+  "bump-patch-for-minor-pre-major": true,
+  "include-v-in-tag": false,
+  "changelog-sections": [
+    {
+      "type": "feat",
+      "section": "🎉 New features"
+    },
+    {
+      "type": "fix",
+      "section": "🐞 Bug fixes"
+    },
+    {
+      "type": "perf",
+      "section": "🔧 Small improvements"
+    },
+    {
+      "type": "refactor",
+      "section": "🔧 Small improvements"
+    },
+    {
+      "type": "revert",
+      "section": "⏪ Reverts"
+    },
+    {
+      "type": "docs",
+      "section": "📖 Documentation"
+    },
+    {
+      "type": "build",
+      "section": "🏗️ Build & deps",
+      "hidden": true
+    },
+    {
+      "type": "ci",
+      "section": "🏗️ Build & deps",
+      "hidden": true
+    },
+    {
+      "type": "chore",
+      "section": "🧹 Chores",
+      "hidden": true
+    },
+    {
+      "type": "style",
+      "section": "🎨 Styles",
+      "hidden": true
+    },
+    {
+      "type": "test",
+      "section": "🧪 Tests",
+      "hidden": true
+    }
+  ],
+  "packages": {
+    ".": {
+      "release-type": "node",
+      "package-name": "@cellajs/cli",
+      "changelog-path": "CHANGELOG.md"
+    }
+  }
+}

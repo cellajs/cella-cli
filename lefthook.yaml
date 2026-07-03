@@ -1,0 +1,23 @@
+---
+# Keep hook output minimal and readable in editors.
+colors: false
+output:
+  - summary
+  - failure
+
+commit-msg:
+  commands:
+    commitlint:
+      # Enforce Conventional Commits so release-please can derive versions and
+      # changelog sections. {1} is the path to the commit message file.
+      run: pnpm exec commitlint --edit {1}
+
+pre-commit:
+  parallel: true
+  commands:
+    biome:
+      glob: '*.{js,ts,cjs,mjs,jsx,tsx,json,jsonc}'
+      run: pnpm biome check --write --no-errors-on-unmatched --files-ignore-unknown=true {staged_files} && git update-index --again
+    typescript:
+      priority: 1
+      run: pnpm ts

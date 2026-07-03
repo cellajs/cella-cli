@@ -1,0 +1,9 @@
+# Supply-chain guard: reject dependency versions published less than a day ago.
+# Value is in minutes. This makes the policy explicit (not reliant on pnpm's
+# default) and, because it lives in config, it is inherited by every pnpm
+# invocation — including the implicit install that `pnpm build` spawns.
+minimumReleaseAge: 1440
+
+allowBuilds:
+  '@evilmartians/lefthook': true
+  esbuild: true
