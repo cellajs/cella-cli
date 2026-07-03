@@ -92,7 +92,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
       { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
       { flags: '--diff <path>', description: 'print unified diff for one file, then exit' },
-      { flags: '--open-diff <path>', description: 'open VS Code side-by-side diff for one file, then exit' },
+      { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },

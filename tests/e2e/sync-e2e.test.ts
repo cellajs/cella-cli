@@ -560,10 +560,11 @@ describe('sync e2e', () => {
 
       fetchUpstream(env.forkPath);
 
-      // Clear any leftover view worktree (persists in tmpdir across runs by design)
-      // so we can assert sync does not create one.
-      const { getViewWorktreePath } = await import('../../src/utils/cleanup');
-      const viewPath = getViewWorktreePath(env.forkPath);
+      // Clear any leftover legacy view worktree so we can assert sync does not
+      // create one (browser diffs replaced the view worktree entirely).
+      const os = await import('node:os');
+      const path = await import('node:path');
+      const viewPath = path.join(os.tmpdir(), `cella-view-${path.basename(env.forkPath)}`);
       fs.rmSync(viewPath, { recursive: true, force: true });
 
       // Capture human-facing output to assert the diff link is rendered.
@@ -586,7 +587,7 @@ describe('sync e2e', () => {
       // The merge-in-progress detail emitted a clickable VS Code file link (into the fork).
       expect(logs.join('\n')).toContain('vscode://file');
 
-      // Sync no longer materializes the upstream view worktree (only analyze does).
+      // No code path materializes the upstream view worktree anymore.
       expect(fs.existsSync(viewPath)).toBe(false);
     });
   });

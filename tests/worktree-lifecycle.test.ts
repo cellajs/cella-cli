@@ -1,21 +1,17 @@
 /**
- * Tests for the upstream view worktree lifecycle.
+ * Tests for leftover-worktree cleanup.
  *
- * Covers `refreshViewWorktree` (the persistent "clean at next start" worktree
- * backing VS Code diffs) and `cleanupLeftoverWorktrees` (pruning orphaned refs
- * for both the sync and view worktree prefixes).
+ * Covers `cleanupLeftoverWorktrees`: removing interrupted sync worktrees,
+ * removing legacy upstream-view worktrees created by older CLI versions
+ * (before browser diffs replaced the view worktree), and pruning orphaned
+ * git worktree registrations for both prefixes.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  cleanupLeftoverWorktrees,
-  getViewWorktreePath,
-  getWorktreePath,
-  refreshViewWorktree,
-} from '../src/utils/cleanup';
+import { cleanupLeftoverWorktrees, getWorktreePath } from '../src/utils/cleanup';
 import { createWorktree, listWorktrees, removeWorktree } from '../src/utils/git';
 
 function exec(cmd: string, cwd?: string): string {
@@ -31,7 +27,12 @@ function createRepo(): string {
   return dir;
 }
 
-describe('view worktree lifecycle', () => {
+/** Path older CLI versions used for the persistent upstream-view worktree. */
+function legacyViewWorktreePath(repoPath: string): string {
+  return path.join(os.tmpdir(), `cella-view-${path.basename(repoPath)}`);
+}
+
+describe('cleanupLeftoverWorktrees', () => {
   let repoPath: string;
 
   beforeEach(() => {
@@ -39,70 +40,53 @@ describe('view worktree lifecycle', () => {
   });
 
   afterEach(async () => {
-    // Remove any worktrees we materialized in tmpdir, then the repo itself.
-    for (const wtPath of [getViewWorktreePath(repoPath), getWorktreePath(repoPath)]) {
+    for (const wtPath of [legacyViewWorktreePath(repoPath), getWorktreePath(repoPath)]) {
       await removeWorktree(repoPath, wtPath);
       fs.rmSync(wtPath, { recursive: true, force: true });
     }
     fs.rmSync(repoPath, { recursive: true, force: true });
   });
 
-  describe('refreshViewWorktree', () => {
-    it('checks out the upstream ref into the view worktree path', async () => {
-      const viewPath = await refreshViewWorktree(repoPath, 'HEAD');
+  it('removes a leftover sync worktree from an interrupted run', async () => {
+    const syncPath = getWorktreePath(repoPath);
+    await createWorktree(repoPath, syncPath, 'HEAD');
 
-      expect(viewPath).toBe(getViewWorktreePath(repoPath));
-      expect(fs.existsSync(viewPath)).toBe(true);
-      expect(fs.readFileSync(path.join(viewPath, 'initial.txt'), 'utf-8')).toBe('initial\n');
-    });
+    await cleanupLeftoverWorktrees(repoPath);
 
-    it('removes and recreates a stale worktree on a subsequent run', async () => {
-      await refreshViewWorktree(repoPath, 'HEAD');
-
-      // Advance HEAD, then refresh again — the worktree should reflect new content.
-      fs.writeFileSync(path.join(repoPath, 'initial.txt'), 'updated\n');
-      exec('git add -A && git commit -m "update"', repoPath);
-
-      const viewPath = await refreshViewWorktree(repoPath, 'HEAD');
-      expect(fs.readFileSync(path.join(viewPath, 'initial.txt'), 'utf-8')).toBe('updated\n');
-    });
-
-    it('recovers when the worktree directory was deleted out from under git', async () => {
-      const viewPath = await refreshViewWorktree(repoPath, 'HEAD');
-
-      // Simulate a crash that left an orphaned git worktree registration.
-      fs.rmSync(viewPath, { recursive: true, force: true });
-
-      // Refresh should prune the orphan and recreate cleanly.
-      const recreated = await refreshViewWorktree(repoPath, 'HEAD');
-      expect(fs.existsSync(recreated)).toBe(true);
-    });
+    expect(fs.existsSync(syncPath)).toBe(false);
+    expect(await listWorktrees(repoPath)).not.toContain(syncPath);
   });
 
-  describe('cleanupLeftoverWorktrees', () => {
-    it('prunes orphaned refs for both sync and view prefixes', async () => {
-      const syncPath = getWorktreePath(repoPath);
-      const viewPath = getViewWorktreePath(repoPath);
-      await createWorktree(repoPath, syncPath, 'HEAD');
-      await createWorktree(repoPath, viewPath, 'HEAD');
+  it('removes a legacy upstream-view worktree from an older CLI version', async () => {
+    const viewPath = legacyViewWorktreePath(repoPath);
+    await createWorktree(repoPath, viewPath, 'HEAD');
 
-      // Orphan both by deleting their directories (registrations remain in git).
-      fs.rmSync(syncPath, { recursive: true, force: true });
-      fs.rmSync(viewPath, { recursive: true, force: true });
+    await cleanupLeftoverWorktrees(repoPath);
 
-      await cleanupLeftoverWorktrees(repoPath);
+    expect(fs.existsSync(viewPath)).toBe(false);
+    expect(await listWorktrees(repoPath)).not.toContain(viewPath);
+  });
 
-      const worktrees = await listWorktrees(repoPath);
-      expect(worktrees).not.toContain(syncPath);
-      expect(worktrees).not.toContain(viewPath);
-    });
+  it('prunes orphaned refs for both sync and view prefixes', async () => {
+    const syncPath = getWorktreePath(repoPath);
+    const viewPath = legacyViewWorktreePath(repoPath);
+    await createWorktree(repoPath, syncPath, 'HEAD');
+    await createWorktree(repoPath, viewPath, 'HEAD');
 
-    it('leaves a live view worktree intact', async () => {
-      const viewPath = await refreshViewWorktree(repoPath, 'HEAD');
+    // Orphan both by deleting their directories (registrations remain in git).
+    fs.rmSync(syncPath, { recursive: true, force: true });
+    fs.rmSync(viewPath, { recursive: true, force: true });
 
-      await cleanupLeftoverWorktrees(repoPath);
+    await cleanupLeftoverWorktrees(repoPath);
 
-      expect(fs.existsSync(viewPath)).toBe(true);
-    });
+    const worktrees = await listWorktrees(repoPath);
+    expect(worktrees).not.toContain(syncPath);
+    expect(worktrees).not.toContain(viewPath);
+  });
+
+  it('is a no-op when nothing is left over', async () => {
+    await cleanupLeftoverWorktrees(repoPath);
+
+    expect(await listWorktrees(repoPath)).toHaveLength(1); // just the main worktree
   });
 });

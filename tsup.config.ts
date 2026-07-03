@@ -19,5 +19,5 @@ export default defineConfig({
     options.mainFields = ['module', 'main'];
     options.conditions = ['module'];
   },
-  external: ['@inquirer/core', '@inquirer/prompts', 'commander', 'ts-morph', 'zod'],
+  external: ['@inquirer/core', '@inquirer/prompts', '@pierre/diffs', 'commander', 'ts-morph', 'zod'],
 });

@@ -1,6 +1,6 @@
 # @cellajs/cli
 
-Keep your Cella-based app in sync with upstream template updates while preserving your
+Keep your app in sync with upstream [cella template](https://github.com/cellajs/cella) updates while preserving your
 customizations.
 
 ## Usage
@@ -9,9 +9,8 @@ From your monorepo root, run `pnpm cella` for the interactive menu, or call a se
 
 ```bash
 pnpm cella analyze
-pnpm cella sync --hard
-pnpm cella audit --check-overrides
-pnpm cella contributions --fork raak --json
+pnpm cella sync
+pnpm cella audit
 ```
 
 ## Services
@@ -25,7 +24,7 @@ pnpm cella contributions --fork raak --json
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
 
-\* `forks` and `contributions` only appear in the menu when you have `forks` configured in `cella.config.ts`. These are for upstream template developers who maintain multiple downstream forks.
+\* `forks` and `contributions` only appear when you have `forks` configured in `cella.config.ts`. 
 
 ## CLI options
 
@@ -167,9 +166,7 @@ that only exist in your fork — so extra dependencies and scripts survive each 
 
 Upstream can pull modifications from local forks and selectively adopt them.
 
-### Configuration
-
-List your local forks in `cella.config.ts`:
+To use it, list your local forks in `cella.config.ts`:
 
 ```typescript
 forks: [

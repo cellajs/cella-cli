@@ -10,11 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
+  flattenBranch,
   getEffectiveMergeBase,
   getFileChanges,
   getFileHashesAtRef,
   getStoredSyncRef,
   isAncestor,
+  listBranchMergeCommits,
   listCommitsBetween,
   storeLastSyncRef,
 } from '../src/utils/git';
@@ -382,6 +384,64 @@ describe('git parsing', () => {
       expect(result.storedRef).toBeNull();
       expect(result.isStale).toBe(false);
       expect(result.base).toBe(gitBase);
+    });
+  });
+
+  describe('listBranchMergeCommits / flattenBranch', () => {
+    /**
+     * Build the shape of a manually-committed sync merge: an "upstream" branch whose history
+     * contains its own internal merge commit, merged into a sync branch cut from main.
+     */
+    function setupMergedSyncBranch(): void {
+      // Upstream history with an internal merge (fa merges fb).
+      exec('git checkout -b fa main', repoPath);
+      fs.writeFileSync(path.join(repoPath, 'a.txt'), 'a\n');
+      exec('git add -A && git commit -m "upstream a"', repoPath);
+      exec('git checkout -b fb main', repoPath);
+      fs.writeFileSync(path.join(repoPath, 'b.txt'), 'b\n');
+      exec('git add -A && git commit -m "upstream b"', repoPath);
+      exec('git checkout fa', repoPath);
+      exec('git merge fb --no-ff -m "upstream internal merge"', repoPath);
+
+      // Sync branch from main: one normal commit, then a manual merge of the upstream branch.
+      exec('git checkout -b cella/sync/test main', repoPath);
+      fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
+      exec('git add -A && git commit -m "own commit"', repoPath);
+      exec('git merge fa --no-ff -m "manual merge of upstream"', repoPath);
+    }
+
+    it('should return no merge commits for a branch of plain commits', async () => {
+      exec('git checkout -b cella/sync/plain main', repoPath);
+      fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
+      exec('git add -A && git commit -m "own commit"', repoPath);
+
+      expect(await listBranchMergeCommits(repoPath, 'main')).toEqual([]);
+    });
+
+    it("should list the branch's own merge commits but not merges inside merged-in history", async () => {
+      setupMergedSyncBranch();
+
+      const merges = await listBranchMergeCommits(repoPath, 'main');
+      expect(merges).toHaveLength(1);
+      expect(exec(`git log -1 --format=%s ${merges[0]}`, repoPath)).toBe('manual merge of upstream');
+    });
+
+    it('should flatten a merged branch to one commit with identical content', async () => {
+      setupMergedSyncBranch();
+      const treeBefore = exec('git rev-parse HEAD^{tree}', repoPath);
+
+      await flattenBranch(repoPath, 'main', 'chore: sync upstream cella abc1234');
+
+      // One single-parent commit on top of main, same tree, upstream history unreachable.
+      expect(exec('git rev-list --count main..HEAD', repoPath)).toBe('1');
+      expect(exec('git rev-parse HEAD^{tree}', repoPath)).toBe(treeBefore);
+      expect(exec('git rev-parse HEAD^', repoPath)).toBe(exec('git rev-parse main', repoPath));
+      expect(exec('git log -1 --format=%s', repoPath)).toBe('chore: sync upstream cella abc1234');
+      expect(await listBranchMergeCommits(repoPath, 'main')).toEqual([]);
+      // Content from both upstream sides and the branch's own commit is intact.
+      expect(fs.existsSync(path.join(repoPath, 'a.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(repoPath, 'b.txt'))).toBe(true);
+      expect(fs.existsSync(path.join(repoPath, 'own.txt'))).toBe(true);
     });
   });
 });

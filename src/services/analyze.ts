@@ -7,9 +7,8 @@
 
 import { basename } from 'node:path';
 import type { MergeResult, RuntimeConfig } from '../config/types';
-import { refreshViewWorktree } from '../utils/cleanup';
 import pc from '../utils/colors';
-import { gitDiffFile, openVsCodeDiff } from '../utils/diff';
+import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import {
   createSpinner,
   type LinkOptions,
@@ -46,7 +45,6 @@ function printUnifiedDiff(config: RuntimeConfig, filePath: string): void {
   // so the diff reads cella/<path> vs <fork>/<path> instead of opaque a/ and b/.
   const diff = gitDiffFile(config.forkPath, `${config.upstreamRef}..HEAD`, filePath, {
     dstPrefix: basename(config.forkPath),
-    color: 'never',
   });
   writeStdout(diff.toString());
 }
@@ -101,17 +99,31 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     return result;
   }
 
-  // Remaining paths (--open-diff and interactive output) need the upstream view
-  // worktree for VS Code file links and exact `code --diff` commands, so
-  // materialize it exactly once here. Machine-readable modes (--json/--list)
-  // and the unified --diff return above and never pay this cost.
-  const upstreamViewPath = await refreshViewWorktree(config.forkPath, config.upstreamRef);
-
   if (config.openDiff) {
     const file = findTargetFile(scopedFiles, config.openDiff) ?? findTargetFile(result.files, config.openDiff);
     if (!file) throw new Error(`file not found in analysis results: ${config.openDiff}`);
-    openVsCodeDiff(config.forkPath, config.upstreamRef, upstreamViewPath, file.path);
-    console.info(`${pc.green('✓')} opened VS Code diff for ${file.path}`);
+
+    // Diff the upstream ref against the working tree (single ref, no range) so
+    // the rendered page includes uncommitted local changes — the same live view
+    // the old VS Code diff gave.
+    const patch = gitDiffFile(config.forkPath, config.upstreamRef, file.path);
+    if (patch.length === 0) {
+      console.info(`${pc.green('✓')} ${file.path} is identical to upstream`);
+      return result;
+    }
+
+    const pagePath = await openDiffInBrowser(
+      patch.toString(),
+      {
+        filePath: file.path,
+        srcLabel: 'cella',
+        dstLabel: basename(config.forkPath),
+        note: 'local working tree',
+      },
+      config.forkPath,
+    );
+    console.info(`${pc.green('✓')} opened browser diff for ${file.path}`);
+    console.info(pc.dim(`  ${pagePath}`));
     return result;
   }
 
@@ -120,7 +132,6 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     upstreamGitHubUrl: result.upstreamGitHubUrl,
     upstreamBranch: result.upstreamBranch,
     fileLinkMode: config.settings.fileLinkMode,
-    upstreamViewPath,
     forkPath: config.forkPath,
   };
 

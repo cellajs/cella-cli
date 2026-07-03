@@ -11,7 +11,6 @@ import type { MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { buildTemporarySyncBranch, isTemporarySyncBranch, resolveReleaseBase } from '../utils/config';
 import {
-  checkMark,
   createSpinner,
   printFlagWarnings,
   printSummary,
@@ -27,11 +26,13 @@ import {
   commitSquash,
   createBranchFrom,
   deleteBranch,
+  flattenBranch,
   getConflictedFiles,
   getCurrentBranch,
   getShortSha,
   getUpstreamStatus,
   isClean,
+  listBranchMergeCommits,
   mergeInProgress,
   pullFastForward,
   pushBranch,
@@ -121,7 +122,7 @@ async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<Temporar
 export async function runSync(
   config: RuntimeConfig,
   options?: {
-    onAfterSummary?: (result: MergeResult) => void;
+    stagedBranch?: string;
   },
 ): Promise<MergeResult> {
   createSpinner('starting sync...');
@@ -145,7 +146,6 @@ export async function runSync(
 
   // Print summary only (no file lists for sync)
   printSummary(result.summary, 'merge summary');
-  options?.onAfterSummary?.(result);
 
   // Write log file if requested
   if (config.logFile) {
@@ -154,7 +154,11 @@ export async function runSync(
     console.info(pc.dim(`full file list written to: ${logPath}`));
   }
 
-  printSyncComplete(result);
+  const stagedBranch =
+    options?.stagedBranch && result.conflicts.length === 0 && hasStagedSyncChanges(result)
+      ? options.stagedBranch
+      : undefined;
+  printSyncComplete(result, { stagedBranch });
 
   printFlagWarnings({ hard: config.hard, unpinned: config.unpinned });
 
@@ -185,22 +189,52 @@ function hasStagedSyncChanges(result: MergeResult): boolean {
   return result.files.some((file) => ['behind', 'diverged', 'renamed', 'ignored', 'pinned'].includes(file.status));
 }
 
-/** Guidance shown immediately after a clean sync summary. */
-function printCleanSyncNextStep(branch: string): void {
-  console.info();
-  console.info(`${checkMark} ${pc.green(`Sync merge staged on '${branch}'. No conflicts. Review, then finish with:`)}`);
-  printFinishSteps();
-  console.info(pc.dim('  rerun commits the sync, pushes the branch, and opens a PR.'));
-}
-
 /** Whether the GitHub CLI is available on PATH. */
 function ghAvailable(): boolean {
   return spawnSync('gh', ['--version'], { stdio: 'ignore' }).status === 0;
 }
 
+/** Extract the first URL from command output, usually the PR URL emitted by GitHub CLI. */
+function extractFirstUrl(output: string): string | undefined {
+  return output.match(/https?:\/\/\S+/)?.[0];
+}
+
+/**
+ * Safety net run before a sync branch goes public: flatten away merge commits.
+ *
+ * The finishing rerun commits the sync as a single-parent commit (`commitSquash`), but a manual
+ * `git commit` while the merge is staged records a two-parent merge commit instead. Upstream's
+ * history isn't shared with `origin` (sync PRs are squash-merged), so such a commit makes the PR
+ * list every upstream commit ever made — and that list grows with every upstream release.
+ *
+ * When the branch contains merge commits, rewrite it as one commit with identical content
+ * (the PR diff is unchanged). Returns true if the branch was rewritten, so the caller can
+ * force-push over a previously pushed version.
+ */
+async function flattenSyncBranch(forkPath: string, branch: string, base: string): Promise<boolean> {
+  const mergeCommits = await listBranchMergeCommits(forkPath, base);
+  if (mergeCommits.length === 0) return false;
+
+  // The most recent merge's second parent is the upstream tip that was merged in.
+  const upstreamSha = await getShortSha(forkPath, `${mergeCommits[0]}^2`).catch(() => '');
+  const message = upstreamSha ? `${SYNC_PR_TITLE} ${upstreamSha}` : SYNC_PR_TITLE;
+
+  console.info(
+    pc.yellow(
+      `'${branch}' contains ${mergeCommits.length} merge commit(s) — the PR would list the entire upstream history.`,
+    ),
+  );
+  console.info(pc.dim(`flattening '${branch}' to a single commit (same content)...`));
+  await flattenBranch(forkPath, base, message);
+  return true;
+}
+
 /**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
  * trunk. Runs automatically once a rerun completes the merge cleanly.
+ *
+ * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
+ * so the PR never lists the upstream branch's entire history.
  *
  * Every step degrades gracefully: a failed push (no `origin`, auth) prints the manual steps and
  * leaves you on the branch; a missing/failed `gh` (or an existing PR) prints the `gh` command but
@@ -210,9 +244,13 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   const { forkPath, settings } = config;
   const base = resolveReleaseBase(settings);
 
+  const flattened = await flattenSyncBranch(forkPath, branch, base);
+  let prUrl: string | undefined;
+  let prOpened = false;
+
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {
-    await pushBranch(forkPath, 'origin', branch);
+    await pushBranch(forkPath, 'origin', branch, { forceWithLease: flattened });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.info(pc.yellow(`push failed (${detail.split('\n')[0]}). finish manually:`));
@@ -224,10 +262,14 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     console.info(pc.dim('opening a pull request...'));
     const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', SYNC_PR_TITLE, '--fill'], {
       cwd: forkPath,
-      stdio: 'inherit',
+      encoding: 'utf-8',
+      stdio: ['ignore', 'pipe', 'pipe'],
     });
-    if (pr.status !== 0) {
+    prUrl = extractFirstUrl(`${pr.stdout ?? ''}\n${pr.stderr ?? ''}`);
+    prOpened = pr.status === 0;
+    if (!prOpened) {
       console.info(pc.yellow('could not open the PR automatically (it may already exist). open it with:'));
+      if (prUrl) console.info(pc.dim(`  ${prUrl}`));
       printPrCreateStep(branch, base);
     }
   } else {
@@ -238,7 +280,15 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   console.info(pc.dim(`switching back to '${base}'...`));
   await switchBranch(forkPath, base);
   await pullFastForward(forkPath).catch(() => {});
-  console.info(pc.green(`done — '${branch}' is pushed and you're back on '${base}'.`));
+
+  console.info();
+  if (prUrl) {
+    console.info(`${pc.green('✓')} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
+    console.info(pc.dim(`  ${prUrl} · branch pushed, back on '${base}'`));
+  } else {
+    console.info(`${pc.green('✓')} Sync branch pushed`);
+    console.info(pc.dim(`  '${branch}' is on origin, back on '${base}'`));
+  }
 }
 
 /**
@@ -277,13 +327,7 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
   const { forkPath } = config;
   const branch = await setupTemporarySyncBranch(config);
 
-  const result = await runSync(config, {
-    onAfterSummary: (syncResult) => {
-      if (syncResult.conflicts.length === 0 && hasStagedSyncChanges(syncResult)) {
-        printCleanSyncNextStep(branch.temporaryBranch);
-      }
-    },
-  });
+  const result = await runSync(config, { stagedBranch: branch.temporaryBranch });
 
   if (config.settings.syncWithPackages !== false) {
     // Run package sync even when the merge left conflicts: package.json files that are
@@ -320,7 +364,7 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   if (conflicts.length > 0) {
     console.info(pc.yellow(`${conflicts.length} file(s) still conflict on '${branch}':`));
     for (const file of conflicts) console.info(pc.dim(`  ${file}`));
-    console.info(pc.dim('resolve and stage them, then re-run `pnpm cella sync` to finish.'));
+    console.info(pc.dim('resolve and stage them, then re-run `pnpm cella sync` to finish (it commits for you).'));
     return;
   }
 
@@ -382,14 +426,12 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
       console.info();
       console.info(
         pc.yellow(
-          `sync branch '${currentBranch}' has uncommitted changes that would not be shipped.\n` +
-            'commit them (`git commit --amend --no-edit` or a new commit), then re-run `pnpm cella sync`.',
+          `sync branch '${currentBranch}' has uncommitted changes.\n` +
+            'commit them first (`git commit --amend --no-edit` or a new commit).',
         ),
       );
       return;
     }
-    console.info();
-    console.info(pc.green(`sync branch '${currentBranch}' is already committed.`));
     await shipSyncBranch(config, currentBranch);
     return;
   }
@@ -406,7 +448,9 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   const { temporaryBranch } = outcome.branch;
   if (outcome.status === 'conflicts') {
-    console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve them and then:`)}`);
+    console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve and stage them, then:`)}`);
     printFinishSteps();
+    console.info(pc.dim('  rerun commits the sync, pushes the branch, and opens a PR.'));
+    console.info(pc.dim('  let the rerun commit — a manual `git commit` records a merge commit that bloats the PR.'));
   }
 }

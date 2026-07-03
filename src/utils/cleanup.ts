@@ -11,16 +11,16 @@ import { basename, join } from 'node:path';
 import process from 'node:process';
 import pc from './colors';
 import { warningMark } from './display';
-import { createWorktree, listWorktrees, mergeAbort, removeWorktree } from './git';
+import { listWorktrees, mergeAbort, removeWorktree } from './git';
 
 /**
  * Managed worktree kinds and their system-temp directory prefixes.
  *
  * - `sync`: temporary merge preview worktree. Registered for signal cleanup and
  *   removed when the process exits.
- * - `view`: persistent "upstream view" worktree backing VS Code diff/open links.
- *   Must outlive the process, so it is refreshed (removed + recreated) on the next
- *   run instead of being cleaned up on exit.
+ * - `view`: legacy "upstream view" worktree that backed VS Code diff links in
+ *   older CLI versions (before browser diffs). No longer created; the prefix is
+ *   kept so leftovers from previous versions are removed on the next run.
  */
 const WORKTREE_PREFIXES = {
   sync: 'cella-sync-',
@@ -37,36 +37,6 @@ function buildWorktreePath(kind: WorktreeKind, repoPath: string): string {
 /** Get the temporary sync worktree path in system temp directory (invisible to VSCode). */
 export function getWorktreePath(repoPath: string): string {
   return buildWorktreePath('sync', repoPath);
-}
-
-/** Get the persistent upstream-view worktree path in system temp. */
-export function getViewWorktreePath(repoPath: string): string {
-  return buildWorktreePath('view', repoPath);
-}
-
-/**
- * Refresh the persistent "upstream view" worktree used for VS Code diffs.
- *
- * Unlike the sync worktree, this one must survive process exit so asynchronous
- * `code --diff` invocations and copyable diff commands printed by the CLI still
- * point at valid files after the process returns. It is therefore NOT registered
- * for signal cleanup. Instead, each run removes the previous worktree and
- * recreates it at the current upstream ref, so a leftover is simply cleaned up
- * when the next process starts.
- *
- * @returns Absolute path to the checked-out upstream worktree.
- */
-export async function refreshViewWorktree(repoPath: string, upstreamRef: string): Promise<string> {
-  const viewPath = getViewWorktreePath(repoPath);
-
-  // Remove any leftover from a previous run before recreating at the current ref.
-  await removeWorktree(repoPath, viewPath);
-  if (existsSync(viewPath)) {
-    rmSync(viewPath, { recursive: true, force: true });
-  }
-
-  await createWorktree(repoPath, viewPath, upstreamRef);
-  return viewPath;
 }
 
 /** Track if cleanup is registered */
@@ -108,13 +78,16 @@ export async function cleanupWorktree(repoPath: string, worktreePath: string): P
 }
 
 /**
- * Clean up any leftover worktrees from a previous (interrupted) run.
- * No-op when no leftover sync worktree exists (the common case).
+ * Clean up any leftover worktrees from a previous (interrupted) run, including
+ * the legacy upstream-view worktree created by older CLI versions.
+ * No-op when no leftovers exist (the common case).
  */
 export async function cleanupLeftoverWorktrees(repoPath: string): Promise<void> {
-  const worktreePath = getWorktreePath(repoPath);
-  if (existsSync(worktreePath)) {
-    await cleanupWorktree(repoPath, worktreePath);
+  for (const kind of Object.keys(WORKTREE_PREFIXES) as WorktreeKind[]) {
+    const worktreePath = buildWorktreePath(kind, repoPath);
+    if (existsSync(worktreePath)) {
+      await cleanupWorktree(repoPath, worktreePath);
+    }
   }
 
   // Also prune any orphaned git worktree references for our managed prefixes.

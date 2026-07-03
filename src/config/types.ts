@@ -67,7 +67,7 @@ export interface SyncSettings {
    * How to link files in CLI output.
    * - 'commit' (default): Link to the commit that changed the file on GitHub.
    * - 'file': Link to the file in the repo at the upstream branch on GitHub.
-   * - 'local': Open the upstream file in VS Code from the auto-managed upstream view worktree.
+   * - 'local': Deprecated (the upstream view worktree was replaced by browser diffs); treated as 'file'.
    */
   fileLinkMode?: 'commit' | 'file' | 'local';
 }
@@ -233,7 +233,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Print the unified diff for a single contributed file, then exit (contributions; for tooling/agents) */
   diff?: string;
 
-  /** Open a VS Code side-by-side diff for one file, then exit (analyze) */
+  /** Open a browser diff for one file, then exit (analyze) */
   openDiff?: string;
 
   /** Scope of files returned in analyze list/json output */

@@ -24,16 +24,8 @@ import { select } from '@inquirer/prompts';
 import type { FileStatus, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { DEFAULT_BRANCH, loadConfig } from '../utils/config';
-import { gitDiffFile } from '../utils/diff';
-import {
-  createSpinner,
-  DIVIDER,
-  showDiffInPager,
-  spinnerFail,
-  spinnerSuccess,
-  warningMark,
-  writeStdout,
-} from '../utils/display';
+import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
+import { createSpinner, DIVIDER, spinnerFail, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { getCurrentBranch, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
 import { buildContribBranch, countDetection, detectContributableFiles } from './contrib-core';
 import { printNoForksHint, type ValidatedFork, validateForkPath } from './fork-utils';
@@ -76,11 +68,18 @@ interface ContribPromptConfig {
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /**
- * Show diff in terminal for a contrib file using a pager.
+ * Open a browser diff for a contrib file (cella base vs the fork's version).
+ * Returns the written page path, or null when the file has no changes.
  */
-function showContribDiff(item: ContribItem, baseRef: string, cwd: string, forkName: string): void {
-  const diff = gitDiffFile(cwd, `${baseRef}..${item.ref}`, item.path, { dstPrefix: forkName, color: 'always' });
-  showDiffInPager(diff);
+async function showContribDiff(
+  item: ContribItem,
+  baseRef: string,
+  cwd: string,
+  forkName: string,
+): Promise<string | null> {
+  const patch = gitDiffFile(cwd, `${baseRef}..${item.ref}`, item.path);
+  if (patch.length === 0) return null;
+  return openDiffInBrowser(patch.toString(), { filePath: item.path, srcLabel: 'cella', dstLabel: forkName }, cwd);
 }
 
 function shouldApplyContributionsUnstaged(repoPath: string): boolean {
@@ -162,10 +161,14 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       return;
     }
 
-    // d = show diff in terminal (blocks until pager exits)
+    // d = open diff in browser (non-blocking, the list stays up)
     if (key.name === 'd') {
-      showContribDiff(items[active], baseRef, cwd, forkName);
-      setStatusMsg(`viewed ${items[active].path}`);
+      try {
+        const pagePath = await showContribDiff(items[active], baseRef, cwd, forkName);
+        setStatusMsg(pagePath ? `opened ${items[active].path} in browser` : `no changes for ${items[active].path}`);
+      } catch (error) {
+        setStatusMsg(`diff failed: ${error instanceof Error ? error.message : 'unknown error'}`);
+      }
       return;
     }
 
@@ -218,7 +221,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
 
   const keys: [string, string][] = [
     ['↑↓', 'navigate'],
-    ['d', 'diff'],
+    ['d', 'diff in browser'],
     ['a', '(de)select all'],
     ['space', 'select'],
     ['⏎', 'accept'],
