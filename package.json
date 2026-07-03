@@ -1,6 +1,6 @@
 {
   "name": "@cellajs/cli",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "private": false,
   "license": "MIT",
   "description": "CLI for syncing and managing apps with upstream Cella.",
