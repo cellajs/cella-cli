@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.3](https://github.com/cellajs/cella-cli/compare/cli-0.0.2...cli-0.0.3) (2026-07-04)
+
+
+### 🎉 New features
+
+* diff in browser ([#2](https://github.com/cellajs/cella-cli/issues/2)) ([deb997c](https://github.com/cellajs/cella-cli/commit/deb997c2394a47752df11c8c9c0ada949bdabda7))
+
 ## [0.0.2](https://github.com/cellajs/cella-cli/compare/cli-0.0.1...cli-0.0.2) (2026-07-03)
 
 
