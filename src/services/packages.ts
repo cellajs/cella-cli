@@ -361,7 +361,7 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
 
   // Dynamically discover package locations
   const locations = await discoverPackageLocations(config.forkPath, config.upstreamRef);
-  const results: { location: string; changes: string[] }[] = [];
+  let changedCount = 0;
   const skipped: string[] = [];
 
   for (const location of locations) {
@@ -376,26 +376,17 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
 
     spinnerText(`syncing ${location || 'root'}/package.json...`);
 
-    const { updated, changes } = await syncPackageJson(config.forkPath, config.upstreamRef, location, keysToSync);
+    const { updated } = await syncPackageJson(config.forkPath, config.upstreamRef, location, keysToSync);
 
     if (updated) {
-      results.push({ location: location || 'root', changes });
+      changedCount += 1;
     }
   }
 
-  spinnerSuccess('package sync complete');
-
-  // Print results
-  if (results.length === 0) {
-    console.info(pc.dim('  no package.json changes needed'));
-  } else {
-    for (const { location, changes } of results) {
-      console.info(`  ${pc.green('✓')} ${location}/package.json`);
-      for (const change of changes) {
-        console.info(`    ${pc.dim('→')} ${change}`);
-      }
-    }
-  }
+  spinnerSuccess(
+    'package sync complete',
+    `${changedCount} package.json${changedCount === 1 ? ' was' : 's were'} changed`,
+  );
 
   // Report any package.json files deferred due to merge conflicts
   if (skipped.length > 0) {

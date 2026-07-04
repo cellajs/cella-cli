@@ -150,8 +150,10 @@ async function applyDirectMerge(
     }
   }
 
-  // Phase 3: Start real merge in fork. Left staged with MERGE_HEAD intact so the
-  // commit the user creates is a two-parent merge commit with true upstream ancestry.
+  // Phase 3: Start real merge in fork. Left staged with MERGE_HEAD intact so git and the IDE
+  // treat it as a real in-progress merge (3-way conflict view, `git merge --abort` works).
+  // The finishing rerun squashes the commit to a single parent (`commitSquash`) — upstream
+  // ancestry is tracked via the manifest, never via a pushed two-parent merge commit.
   onProgress?.('starting merge in fork...');
   await merge(forkPath, upstreamRef, { noCommit: true, noEdit: true });
 
@@ -527,8 +529,10 @@ async function runSyncMerge(
   };
 
   if (remainingConflicts.length > 0) {
-    // Conflicts: leave MERGE_HEAD intact for IDE 3-way merge resolution.
-    // When user commits, it becomes a merge commit (self-healing ancestry).
+    // Conflicts: leave MERGE_HEAD intact for IDE 3-way merge resolution. The finishing
+    // `cella sync` rerun commits single-parent (`commitSquash`); if the user commits manually
+    // instead, the resulting merge commit is flattened away before the branch is pushed
+    // (`flattenSyncBranch`) so the PR never lists the whole upstream history.
     await recordSyncPoint();
     onStep?.(
       'merge in progress',
@@ -536,9 +540,9 @@ async function runSyncMerge(
     );
   } else if (totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
-    // Keep MERGE_HEAD so the commit the user creates is a two-parent merge commit
-    // with full upstream ancestry (native git merge-base). The sync branch is a
-    // dedicated integration branch; PRs into `main` are squash-merged separately.
+    // Keep MERGE_HEAD so the finishing rerun can tell a staged sync from a plain dirty
+    // tree (`mergeInProgress`) and `git merge --abort` still works. The commit itself is
+    // made single-parent at commit time (`commitSquash`).
     await recordSyncPoint();
     onStep?.('synced', `${label} (staged, commit to finish)`);
   } else {

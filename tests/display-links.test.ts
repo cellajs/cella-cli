@@ -2,8 +2,8 @@
  * Unit tests for CLI output link formatting.
  *
  * Covers the pure display helpers `formatFetchedUpstreamDetail` and
- * `formatMergeInProgressDetail`, including the VS Code diff/open link behavior
- * that backs the auto-managed upstream view worktree.
+ * `formatMergeInProgressDetail`, including the VS Code open-file links for
+ * auto-merged files.
  */
 import fs from 'node:fs';
 import os from 'node:os';
@@ -12,8 +12,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { LinkOptions } from '../src/utils/display';
 import { formatFetchedUpstreamDetail, formatMergeInProgressDetail } from '../src/utils/display';
 
-/** A short OSC-8 hyperlink contains the URL between the open/close sequences. */
-const VSCODE_DIFF = 'command:vscode.diff';
 const VSCODE_FILE = 'vscode://file';
 
 function makeCommits(count: number) {
@@ -57,16 +55,13 @@ describe('formatFetchedUpstreamDetail', () => {
 });
 
 describe('formatMergeInProgressDetail', () => {
-  let viewDir: string;
   let forkDir: string;
 
   beforeEach(() => {
-    viewDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-view-test-'));
     forkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-fork-test-'));
   });
 
   afterEach(() => {
-    fs.rmSync(viewDir, { recursive: true, force: true });
     fs.rmSync(forkDir, { recursive: true, force: true });
   });
 
@@ -83,32 +78,19 @@ describe('formatMergeInProgressDetail', () => {
     expect(out).toContain('... + 1 more');
   });
 
-  it('emits a VS Code file link when the file exists in the view worktree', () => {
-    fs.writeFileSync(path.join(viewDir, 'a.ts'), 'upstream\n');
-    const options: LinkOptions = { upstreamViewPath: viewDir, forkPath: forkDir };
-
-    const out = formatMergeInProgressDetail(1, ['a.ts'], options);
-
-    expect(out).toContain(VSCODE_FILE); // fork file open link
-    expect(out).not.toContain(VSCODE_DIFF); // terminal diff commands are intentionally suppressed
-  });
-
-  it('omits the diff link for files absent from the view worktree', () => {
-    // 'b.ts' does not exist in viewDir.
-    const options: LinkOptions = { upstreamViewPath: viewDir, forkPath: forkDir };
-
-    const out = formatMergeInProgressDetail(1, ['b.ts'], options);
-
-    expect(out).toContain(VSCODE_FILE); // open link still rendered
-    expect(out).not.toContain(VSCODE_DIFF); // but no diff link
-  });
-
-  it('omits the diff link when no view worktree path is provided', () => {
-    fs.writeFileSync(path.join(viewDir, 'a.ts'), 'upstream\n');
+  it('emits a VS Code open-file link for auto-merged files', () => {
     const options: LinkOptions = { forkPath: forkDir };
 
     const out = formatMergeInProgressDetail(1, ['a.ts'], options);
 
-    expect(out).not.toContain(VSCODE_DIFF);
+    expect(out).toContain(VSCODE_FILE);
+    expect(out).toContain(path.join(forkDir, 'a.ts'));
+  });
+
+  it('falls back to the bare path without a fork path', () => {
+    const out = formatMergeInProgressDetail(1, ['a.ts'], {});
+
+    expect(out).toContain('a.ts');
+    expect(out).not.toContain(VSCODE_FILE);
   });
 });

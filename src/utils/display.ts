@@ -4,13 +4,13 @@
  * Handles console output formatting, progress tracking, and result display.
  */
 
-import { spawnSync } from 'node:child_process';
-import { existsSync, writeFileSync } from 'node:fs';
+import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
+import { getEnv } from './env';
 import { isManagedFile } from './managed-files';
 
 /** CLI name */
@@ -25,10 +25,8 @@ export interface LinkOptions {
   upstreamGitHubUrl?: string;
   /** Upstream branch name for file links */
   upstreamBranch?: string;
-  /** File link mode: 'commit' links to commit, 'file' links to file in repo, 'local' opens in VS Code */
+  /** File link mode: 'commit' links to commit, 'file' links to file in repo ('local' is deprecated, treated as 'file') */
   fileLinkMode?: 'commit' | 'file' | 'local';
-  /** Absolute path to a checked-out worktree of the upstream ref, used for VS Code diff/open links */
-  upstreamViewPath?: string;
   /** Fork repository path for resolving file paths */
   forkPath?: string;
 }
@@ -157,7 +155,7 @@ function printStep(label: string, detail?: string): void {
  * Uses isSilent in test environments to suppress output.
  */
 export function createSpinner(text: string): Spinner {
-  const isTestEnv = !!process.env.VITEST || process.env.NODE_ENV === 'test';
+  const isTestEnv = !!getEnv('VITEST') || getEnv('NODE_ENV') === 'test';
   activeSpinner = new TerminalSpinner(text, isTestEnv || jsonMode);
   activeSpinner.start();
   return activeSpinner;
@@ -198,35 +196,6 @@ function stopSpinner(): void {
     activeSpinner.stop();
     activeSpinner = null;
   }
-}
-
-/**
- * Show a diff buffer in a terminal pager (bat or less).
- * Blocks until the user exits the pager. Clears screen on return
- * so inquirer re-renders cleanly.
- */
-export function showDiffInPager(diffOutput: Buffer): void {
-  if (diffOutput.length === 0) return;
-
-  const hasBat = spawnSync('which', ['bat'], { stdio: 'pipe' }).status === 0;
-
-  // Show cursor before handing off to pager
-  process.stdout.write('\x1B[?25h');
-
-  if (hasBat) {
-    spawnSync('bat', ['--language', 'diff', '--paging', 'always', '--style', 'plain'], {
-      input: diffOutput,
-      stdio: ['pipe', 'inherit', 'inherit'],
-    });
-  } else {
-    spawnSync('less', ['-R'], {
-      input: diffOutput,
-      stdio: ['pipe', 'inherit', 'inherit'],
-    });
-  }
-
-  // Clear screen so inquirer re-renders cleanly after pager exit
-  process.stdout.write('\x1B[2J\x1B[0;0H');
 }
 
 /**
@@ -297,22 +266,15 @@ function getFileLink(
   commitHash: string | undefined,
   options: LinkOptions,
 ): { label: string; url?: string } {
-  const { upstreamGitHubUrl, upstreamBranch, fileLinkMode = 'commit', upstreamViewPath, forkPath } = options;
-
-  if (fileLinkMode === 'local' && upstreamViewPath && forkPath) {
-    // Open the upstream version of the file from the auto-managed view worktree.
-    const absolutePath = resolve(upstreamViewPath, filePath);
-    if (existsSync(absolutePath)) {
-      const url = `vscode://file${absolutePath}`;
-      return { label: filePath.split('/').pop() || filePath, url };
-    }
-  }
+  const { upstreamGitHubUrl, upstreamBranch, fileLinkMode = 'commit' } = options;
+  // 'local' linked into the upstream view worktree before browser diffs replaced it.
+  const mode = fileLinkMode === 'local' ? 'file' : fileLinkMode;
 
   if (!upstreamGitHubUrl) {
     return { label: commitHash?.slice(0, 9) || '' };
   }
 
-  if (fileLinkMode === 'file' && upstreamBranch) {
+  if (mode === 'file' && upstreamBranch) {
     // Link to file in repo: https://github.com/org/repo/blob/branch/path/to/file
     const url = `${upstreamGitHubUrl}/blob/${upstreamBranch}/${filePath}`;
     return { label: filePath.split('/').pop() || filePath, url };
@@ -580,15 +542,24 @@ export function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
 /**
  * Print sync completion message.
  */
-export function printSyncComplete(result: MergeResult): void {
+export function printSyncComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
   const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
   const diverged = result.files.filter((file) => file.status === 'diverged').length;
   const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
   const conflicts = result.conflicts.length;
 
   console.info();
-  console.info(`${pc.green('✓')} sync complete`);
-  console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
+  if (options.stagedBranch) {
+    console.info(`${pc.green('✓')} Sync merge staged on '${options.stagedBranch}'`);
+    console.info(
+      pc.dim(
+        `  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. Review, then rerun \`pnpm cella sync\` to finish.`,
+      ),
+    );
+  } else {
+    console.info(`${pc.green('✓')} sync complete`);
+    console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
+  }
 
   console.info();
 }

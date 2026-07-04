@@ -8,8 +8,8 @@ import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import process from 'node:process';
 import { promisify } from 'node:util';
+import { getEnvSnapshot } from './env';
 import { MANIFEST_FILE, readManifestBase, type SyncManifest } from './manifest';
 
 const execFileAsync = promisify(execFile);
@@ -47,7 +47,7 @@ interface GitCommandOptions {
  */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
-    ...process.env,
+    ...getEnvSnapshot(),
     ...(options.skipEditor ? { GIT_EDITOR: 'true' } : {}),
     ...options.env,
   };
@@ -136,9 +136,45 @@ export async function getUpstreamStatus(cwd: string): Promise<UpstreamStatus> {
 
 /**
  * Push a branch to a remote, setting upstream tracking.
+ *
+ * `forceWithLease` allows a rewritten branch (see `flattenBranch`) to replace its previously
+ * pushed version, while still refusing to overwrite remote commits we haven't seen.
  */
-export async function pushBranch(cwd: string, remote: string, branch: string): Promise<void> {
-  await git(['push', '-u', remote, branch], cwd);
+export async function pushBranch(
+  cwd: string,
+  remote: string,
+  branch: string,
+  options: { forceWithLease?: boolean } = {},
+): Promise<void> {
+  await git(['push', '-u', ...(options.forceWithLease ? ['--force-with-lease'] : []), remote, branch], cwd);
+}
+
+/**
+ * List merge commits made on the current branch itself: commits with two parents on the
+ * first-parent chain from HEAD down to where the branch forked off `baseRef` (newest first).
+ *
+ * `--first-parent` keeps the walk on the branch's own commits, so merge commits that merely
+ * exist inside a merged-in history (e.g. upstream's internal merges) don't count.
+ */
+export async function listBranchMergeCommits(cwd: string, baseRef: string): Promise<string[]> {
+  const out = await git(['rev-list', '--merges', '--first-parent', `${baseRef}..HEAD`], cwd, { ignoreErrors: true });
+  return out ? out.split('\n').filter(Boolean) : [];
+}
+
+/**
+ * Rewrite the current branch as one commit with `message`, parented on the point where the
+ * branch forked off `baseRef`. The tree (content) is kept exactly as-is — only the commit
+ * graph changes, so the branch's diff against the base is untouched.
+ *
+ * Companion to `commitSquash` for commits that already happened: a manual `git commit` during
+ * a sync merge records a two-parent merge commit, which makes the PR list the upstream
+ * branch's entire (unshared) history. Flattening restores the single-commit shape.
+ */
+export async function flattenBranch(cwd: string, baseRef: string, message: string): Promise<void> {
+  const parent = await getMergeBase(cwd, baseRef, 'HEAD');
+  const tree = await git(['rev-parse', 'HEAD^{tree}'], cwd);
+  const commit = await git(['commit-tree', tree, '-p', parent, '-m', message], cwd);
+  await git(['reset', '--hard', commit], cwd);
 }
 
 /**

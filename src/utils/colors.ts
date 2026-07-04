@@ -1,11 +1,12 @@
 import process from 'node:process';
 import { styleText } from 'node:util';
+import { hasEnv } from './env';
 
 type ColorStyle = 'blue' | 'bold' | 'cyan' | 'dim' | 'gray' | 'green' | 'magenta' | 'red' | 'white' | 'yellow';
 
 function colorsEnabled(): boolean {
-  if ('NO_COLOR' in process.env) return false;
-  if ('FORCE_COLOR' in process.env) return true;
+  if (hasEnv('NO_COLOR')) return false;
+  if (hasEnv('FORCE_COLOR')) return true;
   return !!process.stdout.isTTY;
 }
 

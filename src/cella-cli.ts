@@ -20,6 +20,7 @@ import { runSyncCommand } from './services/sync';
 import { registerSignalHandlers } from './utils/cleanup';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
+import { getEnv } from './utils/env';
 
 /**
  * Determine the fork path.
@@ -31,7 +32,7 @@ import { loadConfig } from './utils/config';
  * Note: When run via pnpm filter, cwd may be cli/cella - we detect and navigate up.
  */
 function getForkPath(): string {
-  const envPath = process.env.CELLA_FORK_PATH;
+  const envPath = getEnv('CELLA_FORK_PATH');
   if (envPath) {
     const resolved = resolve(envPath);
     if (!existsSync(resolved) || !statSync(resolved).isDirectory()) {
