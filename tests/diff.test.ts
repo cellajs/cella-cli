@@ -95,7 +95,14 @@ describe('diff helpers', () => {
 
       expect(html).toContain('<!doctype html>');
       // Syntax highlighting splits lines into token spans; compare visible text.
-      const text = html.replace(/[<>]/g, '');
+      // Tags are stripped repeatedly until a fixed point so nested/partial
+      // brackets can't survive a single pass (CodeQL js/incomplete-multi-character-sanitization).
+      let text = html;
+      let previous: string;
+      do {
+        previous = text;
+        text = text.replace(/<[^>]*>/g, '');
+      } while (text !== previous);
       expect(text).toContain('upstream content');
       expect(text).toContain('fork content');
       // Self-contained: styles inline, no external requests.

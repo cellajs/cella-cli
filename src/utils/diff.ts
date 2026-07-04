@@ -36,12 +36,12 @@ export function gitDiffFile(
   if (options.dstPrefix) args.push('--src-prefix=cella/', `--dst-prefix=${options.dstPrefix}/`);
   args.push(range, '--', filePath);
 
-  const result = spawnSync('git', args, { cwd, maxBuffer: 50 * 1024 * 1024 });
-  if (result.status !== 0) {
-    const stderr = result.stderr?.toString().trim();
+  try {
+    return execFileSync('git', args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+  } catch (error) {
+    const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
     throw new Error(stderr || `failed to diff ${filePath}`);
   }
-  return result.stdout;
 }
 
 /** Labels shown in the header of a rendered diff page. */
@@ -140,13 +140,18 @@ ${prerenderedHTML}
 </html>`;
 }
 
-/** Open a file or URL with the platform's default handler. */
+/** Open a file or URL with the platform's default handler (best-effort: a
+ * missing or failing opener is not fatal — the page path is printed anyway). */
 function openWithDefaultApp(target: string): void {
-  if (process.platform === 'win32') {
-    execFileSync('rundll32', ['url.dll,FileProtocolHandler', target], { stdio: 'ignore' });
-    return;
+  try {
+    if (process.platform === 'win32') {
+      execFileSync('rundll32', ['url.dll,FileProtocolHandler', target], { stdio: 'ignore' });
+    } else {
+      execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
+    }
+  } catch {
+    // e.g. headless environment without a browser/opener
   }
-  execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
 }
 
 /**
