@@ -542,13 +542,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     spinnerSuccess(`applied ${applied} files ${pc.dim(applyUnstaged ? '(unstaged)' : '(staged)')}`);
   }
 
-  // Show summary of adopted files
-  console.info();
-  console.info(`  ${pc.cyan(forkName)} ${pc.dim(`(${selected.length} files)`)}`);
-  for (const item of selected) {
-    console.info(`    ${pc.dim('→')} ${item.deleted ? `(deleted) ${item.path}` : item.path}`);
-  }
-
+  // No per-file summary: the applied files are visible in the IDE's source control view.
   console.info();
   console.info(
     pc.dim(
