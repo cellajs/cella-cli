@@ -374,7 +374,7 @@ const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
     icon: pc.cyan('◇'),
     label: 'managed',
     color: pc.cyan,
-    description: 'package/config files handled separately',
+    description: 'package.jsons & cella.config.ts handled separately',
   },
   ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
 };
