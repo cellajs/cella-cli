@@ -2,7 +2,7 @@
  * Unit tests for app-module territory resolution.
  *
  * Builds a temporary repo fixture with module files declaring different owners
- * and asserts that only `owner: 'app'` module folders are returned.
+ * and asserts that only `owner: 'app'` module territory is returned.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -31,7 +31,7 @@ afterEach(() => {
 });
 
 describe('resolveAppModuleFolders', () => {
-  it('returns folders for app-owned modules only', () => {
+  it('returns source folders for app-owned modules only', () => {
     writeModule('backend', 'projects', 'app');
     writeModule('backend', 'attachment', 'cella');
     writeModule('frontend', 'projects', 'app');
@@ -40,6 +40,23 @@ describe('resolveAppModuleFolders', () => {
     const folders = resolveAppModuleFolders(repoPath);
 
     expect(folders.sort()).toEqual(['backend/src/modules/projects', 'frontend/src/modules/projects']);
+  });
+
+  it('returns existing static asset folders for app-owned modules', () => {
+    writeModule('frontend', 'marketing', 'app');
+    writeModule('frontend', 'ui', 'cella');
+    mkdirSync(join(repoPath, 'frontend', 'public', 'static', 'marketing'), { recursive: true });
+    mkdirSync(join(repoPath, 'frontend', 'public', 'static', 'ui'), { recursive: true });
+
+    const folders = resolveAppModuleFolders(repoPath);
+
+    expect(folders.sort()).toEqual(['frontend/public/static/marketing', 'frontend/src/modules/marketing']);
+  });
+
+  it('does not return missing static asset folders for app-owned modules', () => {
+    writeModule('frontend', 'marketing', 'app');
+
+    expect(resolveAppModuleFolders(repoPath)).toEqual(['frontend/src/modules/marketing']);
   });
 
   it('returns an empty array when no app modules exist', () => {

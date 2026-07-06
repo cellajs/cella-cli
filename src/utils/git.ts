@@ -848,12 +848,104 @@ async function commitObjectExists(cwd: string, sha: string): Promise<boolean> {
 
 /**
  * Get the root (parentless) commit of a ref's history. A create-cella scaffold has a
- * single rootless "Initial commit". Returns null when no root is found.
+ * single rootless "Initial commit" whose tree is a frozen snapshot of the upstream
+ * template at scaffold time. Returns null when no root is found.
  */
 async function getRootCommit(cwd: string, ref: string): Promise<string | null> {
   const out = await git(['rev-list', '--max-parents=0', ref], cwd, { ignoreErrors: true });
   const roots = out.split('\n').filter(Boolean);
   return roots.length > 0 ? roots[roots.length - 1] : null;
+}
+
+/** Max upstream commits scored when inferring a scaffold base by tree similarity. */
+const SCAFFOLD_CANDIDATE_LIMIT = 400;
+
+/** Concurrent diff-tree scoring calls during scaffold-base inference. */
+const SCAFFOLD_SCORE_CONCURRENCY = 10;
+
+/**
+ * Reject an inferred scaffold base when more than this fraction of the root snapshot's
+ * paths differ from the best-matching upstream commit. The template cleaner rewrites a
+ * fixed handful of files and deselected optional modules remove a few folders, so a real
+ * scaffold stays far below this; a hand-rolled repo blows past it.
+ */
+const SCAFFOLD_MATCH_MAX_DIFF_RATIO = 0.3;
+
+/**
+ * Infer the upstream commit a scaffold was created from, by tree similarity.
+ *
+ * A create-cella scaffold's root commit is a frozen snapshot of the upstream tree at
+ * scaffold time: the template cleaner only rewrites a handful of files (project name,
+ * ports, changelog) and drops deselected module folders, so the vast majority of paths
+ * stay byte-identical to exactly one upstream commit. Diff the root tree against recent
+ * upstream commits and take the closest match — no provenance file needed.
+ *
+ * Candidates are bounded to upstream commits no newer than the root commit (plus a
+ * clock-skew margin): the scaffold cannot come from a commit that didn't exist yet.
+ * Neighboring candidates can tie when the commits between them only touch files the
+ * scaffold rewrote anyway (upstream release commits do exactly this) — either tie is a
+ * correct base for the 3-way merge, and newest wins.
+ *
+ * Returns null when no candidate matches convincingly (see SCAFFOLD_MATCH_MAX_DIFF_RATIO).
+ */
+async function inferScaffoldBase(cwd: string, headRef: string, upstreamRef: string): Promise<string | null> {
+  const root = await getRootCommit(cwd, headRef);
+  if (!root) return null;
+
+  const rootDate = await git(['show', '-s', '--format=%cI', root], cwd, { ignoreErrors: true });
+  if (!rootDate) return null;
+  // A day of margin absorbs clock skew between the scaffolding machine and upstream committers.
+  const before = new Date(new Date(rootDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
+
+  const revList = await git(
+    ['rev-list', `--max-count=${SCAFFOLD_CANDIDATE_LIMIT}`, `--before=${before}`, upstreamRef],
+    cwd,
+    { ignoreErrors: true },
+  );
+  const candidates = revList.split('\n').filter(Boolean);
+  if (candidates.length === 0) return null;
+
+  const totalPaths = (await git(['ls-tree', '-r', '--name-only', root], cwd)).split('\n').filter(Boolean).length;
+  if (totalPaths === 0) return null;
+
+  // Score = differing paths between candidate and root snapshot. rev-list is newest-first
+  // and strict `<` keeps the first (newest) candidate on ties.
+  let best: { sha: string; diff: number } | null = null;
+  outer: for (let i = 0; i < candidates.length; i += SCAFFOLD_SCORE_CONCURRENCY) {
+    const chunk = candidates.slice(i, i + SCAFFOLD_SCORE_CONCURRENCY);
+    const scores = await Promise.all(
+      chunk.map(async (sha) => {
+        try {
+          const out = await git(['diff-tree', '-r', '--name-only', sha, root], cwd);
+          return { sha, diff: out ? out.split('\n').length : 0 };
+        } catch {
+          return { sha, diff: Number.POSITIVE_INFINITY };
+        }
+      }),
+    );
+    for (const score of scores) {
+      if (!best || score.diff < best.diff) best = score;
+      if (best.diff === 0) break outer; // byte-identical snapshot — cannot do better
+    }
+  }
+
+  if (!best || best.diff / totalPaths > SCAFFOLD_MATCH_MAX_DIFF_RATIO) return null;
+  return best.sha;
+}
+
+/**
+ * Read the scaffold provenance trailer from the fork's root commit message.
+ *
+ * create-cella stamps `Cella-Base: <sha>` on the initial commit, recording the exact
+ * upstream commit the scaffold snapshot was taken from. Riding in commit history, it
+ * travels with push/clone — unlike a local ref — and needs no file in the worktree.
+ */
+async function readRootTrailerBase(cwd: string, headRef: string): Promise<string | null> {
+  const root = await getRootCommit(cwd, headRef);
+  if (!root) return null;
+  const message = await git(['show', '-s', '--format=%B', root], cwd, { ignoreErrors: true });
+  const match = message.match(/^cella-base:\s*([0-9a-f]{40})$/im);
+  return match ? match[1].toLowerCase() : null;
 }
 
 /**
@@ -863,37 +955,45 @@ async function getRootCommit(cwd: string, ref: string): Promise<string | null> {
  * histories, so `git merge-base` finds nothing and every sync fails at the very first step.
  * This bootstraps ancestry non-destructively:
  *   1. If a native merge-base already exists, do nothing (the common case).
- *   2. Otherwise resolve the logical base commit: the stored `refs/cella/last-sync` ref, else
- *      the `cella.manifest.json` provenance committed by the last sync (or create-cella scaffold).
+ *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
+ *      one whose commit actually exists after the upstream fetch wins — the sync-point
+ *      record (`refs/cella/last-sync` ref, then committed/worktree `cella.manifest.json`),
+ *      then the scaffold origin (the root commit's `Cella-Base:` trailer, then tree-similarity
+ *      inference as reseed fallback for scaffolds whose trailer is absent or stale).
  *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native
  *      git operation (merge-base and the 3-way merge itself) sees correct ancestry. The replace
  *      ref is local-only and never pushed, so the fork's own published history stays clean.
  *
- * Throws an actionable error when no base can be determined or the recorded base is missing.
+ * Throws an actionable error when no valid base can be determined.
  */
 export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
   // Native ancestry already present — nothing to bootstrap.
   const nativeBase = await git(['merge-base', headRef, upstreamRef], cwd, { ignoreErrors: true });
   if (nativeBase) return;
 
-  // Ref first (the documented manual seed), then the manifest committed at HEAD, then the
-  // working-tree manifest as a last resort for repos in odd intermediate states.
-  const baseSha =
-    (await getStoredSyncRef(cwd)) ?? (await readManifestBaseAtRef(cwd, headRef)) ?? (await readManifestBase(cwd));
+  const sources: Array<() => Promise<string | null>> = [
+    () => getStoredSyncRef(cwd),
+    () => readManifestBaseAtRef(cwd, headRef),
+    () => readManifestBase(cwd),
+    () => readRootTrailerBase(cwd, headRef),
+    () => inferScaffoldBase(cwd, headRef, upstreamRef),
+  ];
+
+  let baseSha: string | null = null;
+  for (const source of sources) {
+    const sha = await source();
+    if (sha && (await commitObjectExists(cwd, sha))) {
+      baseSha = sha;
+      break;
+    }
+  }
   if (!baseSha) {
     throw new Error(
-      `no common ancestor between the fork and '${upstreamRef}', and no sync base recorded.\n\n` +
+      `no common ancestor between the fork and '${upstreamRef}', and no sync base could be determined.\n\n` +
         'This fork has unrelated history with upstream — typical for a create-cella scaffold, or after\n' +
-        'upstream squashed its history. Seed the base with the upstream commit the fork was created from,\n' +
-        'then re-run sync:\n\n' +
+        'upstream squashed its history — and no recorded or inferable base commit exists after fetching\n' +
+        'upstream. Seed it manually with the upstream commit the fork was created from, then re-run sync:\n\n' +
         '  git update-ref refs/cella/last-sync <upstream-sha>\n',
-    );
-  }
-
-  if (!(await commitObjectExists(cwd, baseSha))) {
-    throw new Error(
-      `recorded sync base ${baseSha.slice(0, 12)} is not present after fetching '${upstreamRef}'.\n` +
-        'It may belong to a different upstream, or have been dropped by an upstream history rewrite.',
     );
   }
 

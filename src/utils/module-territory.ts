@@ -3,19 +3,22 @@
  *
  * Each module declares ownership via a `registerModule({ owner, ... })` call in
  * its `*-module.ts` file. Modules with `owner: 'app'` are fork-specific: their
- * folders are fork territory and must never be added, modified, or deleted by
- * upstream during sync — nor offered back upstream by the contributions service.
+ * source folders, plus matching frontend static asset folders when present, are
+ * fork territory and must never be added, modified, or deleted by upstream during
+ * sync — nor offered back upstream by the contributions service.
  *
  * Parsing is syntax-only (no type-checker), so it is fast and tolerant of
  * formatting, comments, and property order. Built on ts-morph so the same
  * project/AST approach can be reused for other source-introspection tasks.
  */
 
-import { relative, sep } from 'node:path';
+import { existsSync } from 'node:fs';
+import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
 
 /** Glob patterns (relative to repo root) for module definition files. */
 const MODULE_FILE_GLOBS = ['backend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.ts'];
+const FRONTEND_STATIC_ROOT = 'frontend/public/static';
 
 /**
  * Read the string value of an object literal's `owner` property, if present.
@@ -27,7 +30,7 @@ function readOwner(call: import('ts-morph').CallExpression): string | undefined 
 }
 
 /**
- * Scan a repository for module folders owned by the app (`owner: 'app'`).
+ * Scan a repository for module territory owned by the app (`owner: 'app'`).
  *
  * @param repoPath - Absolute path to the repository root to scan.
  * @returns Repo-relative folder paths (POSIX separators), deduplicated.
@@ -42,6 +45,7 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
   const sourceFiles = project.addSourceFilesAtPaths(MODULE_FILE_GLOBS.map((glob) => `${repoPath}/${glob}`));
 
   const folders = new Set<string>();
+  const moduleNames = new Set<string>();
 
   for (const sourceFile of sourceFiles) {
     const ownsApp = sourceFile
@@ -52,6 +56,14 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
 
     const folder = relative(repoPath, sourceFile.getDirectoryPath()).split(sep).join('/');
     folders.add(folder);
+    moduleNames.add(basename(folder));
+  }
+
+  for (const moduleName of moduleNames) {
+    const staticFolder = `${FRONTEND_STATIC_ROOT}/${moduleName}`;
+    if (existsSync(join(repoPath, staticFolder))) {
+      folders.add(staticFolder);
+    }
   }
 
   return [...folders];
