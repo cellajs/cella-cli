@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.4](https://github.com/cellajs/cella-cli/compare/cli-0.0.3...cli-0.0.4) (2026-07-06)
+
+
+### 🎉 New features
+
+* bootstrap scaffold sync base from Cella-Base trailer with tree-similarity fallback ([#4](https://github.com/cellajs/cella-cli/issues/4)) ([fb492d1](https://github.com/cellajs/cella-cli/commit/fb492d11b6f8c0296cc66566e74643329771a945))
+* versioned sync commit subject and upstream commit list in PR body ([#6](https://github.com/cellajs/cella-cli/issues/6)) ([db63de6](https://github.com/cellajs/cella-cli/commit/db63de62a6931cbe9a9124e24e3f93340aa5bdd9))
+
 ## [0.0.3](https://github.com/cellajs/cella-cli/compare/cli-0.0.2...cli-0.0.3) (2026-07-04)
 
 
