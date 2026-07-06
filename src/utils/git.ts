@@ -820,7 +820,7 @@ export async function getStoredSyncHead(cwd: string): Promise<string | null> {
  * This intentionally reads from git, not the working tree: a staged/aborted sync can leave the
  * worktree manifest ahead of the committed trunk, and that must not validate a sync point.
  */
-async function readManifestBaseAtRef(cwd: string, ref: string): Promise<string | null> {
+export async function readManifestAtRef(cwd: string, ref: string): Promise<SyncManifest | null> {
   const raw = await git(['show', `${ref}:${MANIFEST_FILE}`], cwd, { ignoreErrors: true });
   if (!raw) return null;
 
@@ -828,7 +828,29 @@ async function readManifestBaseAtRef(cwd: string, ref: string): Promise<string |
     const parsed = JSON.parse(raw) as SyncManifest;
     const commit = parsed?.upstream?.commit;
     if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/i.test(commit)) return null;
-    return commit.toLowerCase();
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** The upstream base commit SHA from the manifest committed at `ref`, or null. */
+export async function readManifestBaseAtRef(cwd: string, ref: string): Promise<string | null> {
+  const manifest = await readManifestAtRef(cwd, ref);
+  return manifest ? manifest.upstream.commit.toLowerCase() : null;
+}
+
+/**
+ * Read the `version` field of the root `package.json` committed at a ref.
+ * Returns null when the file is absent or unparsable.
+ */
+export async function readPackageVersionAtRef(cwd: string, ref: string): Promise<string | null> {
+  const raw = await git(['show', `${ref}:package.json`], cwd, { ignoreErrors: true });
+  if (!raw) return null;
+
+  try {
+    const version = (JSON.parse(raw) as { version?: unknown }).version;
+    return typeof version === 'string' && version ? version : null;
   } catch {
     return null;
   }

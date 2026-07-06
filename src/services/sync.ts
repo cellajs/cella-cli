@@ -23,22 +23,31 @@ import {
 } from '../utils/display';
 import {
   assertClean,
+  type CommitRangeEntry,
   commitSquash,
+  countCommitsBetween,
   createBranchFrom,
   deleteBranch,
   flattenBranch,
+  getCommitInfo,
   getConflictedFiles,
   getCurrentBranch,
+  getMergeBase,
   getShortSha,
   getUpstreamStatus,
   isClean,
   listBranchMergeCommits,
+  listCommitsBetween,
   mergeInProgress,
   pullFastForward,
   pushBranch,
+  readManifestAtRef,
+  readManifestBaseAtRef,
+  readPackageVersionAtRef,
   stageAll,
   switchBranch,
 } from '../utils/git';
+import { readSyncManifest } from '../utils/manifest';
 import { runMergeEngine } from './merge-engine';
 import { runPackages } from './packages';
 
@@ -165,18 +174,119 @@ export async function runSync(
   return result;
 }
 
-/** Conventional PR title required by release-please. */
+/** Conventional PR title prefix required by release-please. */
 const SYNC_PR_TITLE = 'chore: sync upstream cella';
 
+/** Most recent upstream commits listed in a sync PR body (mirrors the engine's fetch display cap). */
+const PR_BODY_COMMIT_MAX = 50;
+
+/**
+ * Build the sync commit subject, e.g. `chore: sync upstream cella v0.2.2 (4f7d87c)`.
+ *
+ * The upstream version comes from the manifest's release tag when tracking releases, else from
+ * upstream's root package.json at the merged commit. Falls back to the bare title (+ short sha)
+ * when a lookup fails, so committing never blocks on cosmetics.
+ */
+async function buildSyncCommitMessage(forkPath: string, upstreamRef: string): Promise<string> {
+  const shortSha = await getShortSha(forkPath, upstreamRef).catch(() => '');
+  if (!shortSha) return SYNC_PR_TITLE;
+
+  const manifest = await readSyncManifest(forkPath);
+  const version =
+    manifest?.upstream.release ?? (await readPackageVersionAtRef(forkPath, upstreamRef).catch(() => null));
+  return version ? `${SYNC_PR_TITLE} v${version.replace(/^v/, '')} (${shortSha})` : `${SYNC_PR_TITLE} ${shortSha}`;
+}
+
+/**
+ * Qualify bare `#123` references in an upstream commit subject with the upstream repo slug.
+ * Left bare, GitHub would auto-link them to the fork's own issue/PR #123 in the PR body.
+ */
+function qualifyPrRefs(subject: string, repoSlug?: string): string {
+  if (!repoSlug) return subject;
+  return subject.replace(/(^|[^\w/])#(\d+)\b/g, `$1${repoSlug}#$2`);
+}
+
+/** Inputs for {@link buildSyncPrBody}, recovered from the committed sync manifests. */
+export interface SyncPrBodyInput {
+  /** GitHub slug of the upstream repo, e.g. 'cellajs/cella'. */
+  repoSlug?: string;
+  /** Upstream version or release tag at the sync point (leading `v` optional). */
+  version?: string | null;
+  /** Previous upstream sync point (full sha), when known. */
+  fromSha?: string | null;
+  /** Upstream commit this sync moved to (full sha). */
+  toSha: string;
+  /** Upstream commits in the range, oldest first (possibly truncated to the newest N). */
+  commits: CommitRangeEntry[];
+  /** Total commits in the range (may exceed `commits.length` when truncated). */
+  totalCount: number;
+}
+
+/** Render the sync PR body: where the sync moved to, plus the upstream commits it brought in. */
+export function buildSyncPrBody(input: SyncPrBodyInput): string {
+  const { repoSlug, version, fromSha, toSha, commits, totalCount } = input;
+  const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
+  const short = (sha: string) => sha.slice(0, 7);
+  const commitRef = (sha: string) =>
+    githubUrl ? `[\`${short(sha)}\`](${githubUrl}/commit/${sha})` : `\`${short(sha)}\``;
+
+  const upstreamName = githubUrl ? `[${repoSlug}](${githubUrl})` : 'cella';
+  const versionSuffix = version ? ` (v${version.replace(/^v/, '')})` : '';
+  const lines = [`Syncs upstream ${upstreamName} to ${commitRef(toSha)}${versionSuffix}.`];
+
+  if (totalCount > 0 && fromSha) {
+    const compare = githubUrl ? ` ([compare](${githubUrl}/compare/${short(fromSha)}...${short(toSha)}))` : '';
+    lines.push('', `**${totalCount} upstream commit${totalCount === 1 ? '' : 's'} since last sync**${compare}:`, '');
+    if (totalCount > commits.length) lines.push(`- …${totalCount - commits.length} earlier commit(s) not shown`);
+    for (const commit of commits) {
+      lines.push(`- ${commitRef(commit.hash)} ${qualifyPrRefs(commit.message, repoSlug)}`);
+    }
+  }
+
+  return `${lines.join('\n')}\n`;
+}
+
+/**
+ * Build the PR body for a finished sync branch: the upstream commits between the trunk's last
+ * recorded sync point and the one this branch moves to (both read from committed manifests, so
+ * this works on the rerun that ships the branch, long after the merge engine ran).
+ *
+ * Returns undefined when the branch has no committed manifest — the caller falls back to `--fill`.
+ */
+async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise<string | undefined> {
+  const manifest = await readManifestAtRef(forkPath, 'HEAD');
+  if (!manifest) return undefined;
+
+  const toSha = manifest.upstream.commit.toLowerCase();
+  // The trunk's committed manifest is the previous sync point; merge-base covers forks whose
+  // last sync predates the manifest. `refs/cella/last-sync` is no help here: the merge already
+  // moved it to `toSha`.
+  const fromSha =
+    (await readManifestBaseAtRef(forkPath, base)) ?? (await getMergeBase(forkPath, base, toSha).catch(() => null));
+  const version = manifest.upstream.release ?? (await readPackageVersionAtRef(forkPath, toSha).catch(() => null));
+
+  const totalCount = fromSha ? await countCommitsBetween(forkPath, fromSha, toSha).catch(() => 0) : 0;
+  const commits =
+    fromSha && totalCount > 0
+      ? await listCommitsBetween(forkPath, fromSha, toSha, {
+          oldestFirst: true,
+          skip: totalCount > PR_BODY_COMMIT_MAX ? totalCount - PR_BODY_COMMIT_MAX : 0,
+          limit: PR_BODY_COMMIT_MAX,
+        })
+      : [];
+
+  return buildSyncPrBody({ repoSlug: manifest.upstream.repo, version, fromSha, toSha, commits, totalCount });
+}
+
 /** Print the GitHub CLI command for opening the finished sync PR. */
-function printPrCreateStep(branch: string, base: string): void {
-  console.info(pc.dim(`  gh pr create --base ${base} --head ${branch} --title "${SYNC_PR_TITLE}" --fill`));
+function printPrCreateStep(branch: string, base: string, title = SYNC_PR_TITLE): void {
+  console.info(pc.dim(`  gh pr create --base ${base} --head ${branch} --title "${title}" --fill`));
 }
 
 /** Print the "push + open a PR" steps for a sync branch whose merge is already committed. */
-function printShipSteps(temporaryBranch: string, base: string): void {
+function printShipSteps(temporaryBranch: string, base: string, title?: string): void {
   console.info(pc.dim(`  git push -u origin ${temporaryBranch}`));
-  printPrCreateStep(temporaryBranch, base);
+  printPrCreateStep(temporaryBranch, base, title);
 }
 
 /** Guidance shown after a fresh cycle stages a merge: re-run to finish and ship it. */
@@ -216,8 +326,7 @@ async function flattenSyncBranch(forkPath: string, branch: string, base: string)
   if (mergeCommits.length === 0) return false;
 
   // The most recent merge's second parent is the upstream tip that was merged in.
-  const upstreamSha = await getShortSha(forkPath, `${mergeCommits[0]}^2`).catch(() => '');
-  const message = upstreamSha ? `${SYNC_PR_TITLE} ${upstreamSha}` : SYNC_PR_TITLE;
+  const message = await buildSyncCommitMessage(forkPath, `${mergeCommits[0]}^2`);
 
   console.info(
     pc.yellow(
@@ -248,19 +357,26 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   let prUrl: string | undefined;
   let prOpened = false;
 
+  // The squash commit's subject is the versioned sync message — reuse it as the PR title so the
+  // PR name carries the upstream version and commit id (release-please only needs the prefix).
+  const headSubject = (await getCommitInfo(forkPath, 'HEAD').catch(() => null))?.message;
+  const prTitle = headSubject?.startsWith(SYNC_PR_TITLE) ? headSubject : SYNC_PR_TITLE;
+
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {
     await pushBranch(forkPath, 'origin', branch, { forceWithLease: flattened });
   } catch (error) {
     const detail = error instanceof Error ? error.message : String(error);
     console.info(pc.yellow(`push failed (${detail.split('\n')[0]}). finish manually:`));
-    printShipSteps(branch, base);
+    printShipSteps(branch, base, prTitle);
     return;
   }
 
   if (ghAvailable()) {
     console.info(pc.dim('opening a pull request...'));
-    const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', SYNC_PR_TITLE, '--fill'], {
+    const prBody = await buildSyncPrBodyForBranch(forkPath, base);
+    const bodyArgs = prBody ? ['--body', prBody] : ['--fill'];
+    const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', prTitle, ...bodyArgs], {
       cwd: forkPath,
       encoding: 'utf-8',
       stdio: ['ignore', 'pipe', 'pipe'],
@@ -270,11 +386,11 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     if (!prOpened) {
       console.info(pc.yellow('could not open the PR automatically (it may already exist). open it with:'));
       if (prUrl) console.info(pc.dim(`  ${prUrl}`));
-      printPrCreateStep(branch, base);
+      printPrCreateStep(branch, base, prTitle);
     }
   } else {
     console.info(pc.yellow('`gh` not found — open the PR manually:'));
-    printPrCreateStep(branch, base);
+    printPrCreateStep(branch, base, prTitle);
   }
 
   console.info(pc.dim(`switching back to '${base}'...`));
@@ -383,13 +499,12 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
     return;
   }
 
-  // Read the merged upstream sha before squashing (commitSquash clears MERGE_HEAD), re-stage (the
+  // Build the commit subject before squashing (commitSquash clears MERGE_HEAD), re-stage (the
   // install/check step may have touched files), then commit the staged delta as a single-parent
   // commit so the PR shows one clean commit instead of the whole upstream history (the merge's
   // upstream ancestry isn't shared on the remote).
-  const upstreamSha = await getShortSha(forkPath, 'MERGE_HEAD').catch(() => '');
+  const message = await buildSyncCommitMessage(forkPath, 'MERGE_HEAD');
   await stageAll(forkPath);
-  const message = upstreamSha ? `${SYNC_PR_TITLE} ${upstreamSha}` : SYNC_PR_TITLE;
   await commitSquash(forkPath, message);
   console.info();
   console.info(pc.green(`committed the sync on '${branch}' as '${message}'.`));
