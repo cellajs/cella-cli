@@ -278,12 +278,14 @@ export async function enrichChangeInfo(
       const info = forkInfo.get(file.path);
       if (info) {
         file.changedAt = info.date;
+        file.changedTs = info.timestamp;
         file.changedCommit = info.hash;
       }
     } else if (file.status === 'behind') {
       const info = upstreamInfo.get(file.path);
       if (info) {
         file.changedAt = info.date;
+        file.changedTs = info.timestamp;
         file.changedCommit = info.hash;
       }
     } else if (file.status === 'diverged' || file.status === 'pinned') {
@@ -292,10 +294,12 @@ export async function enrichChangeInfo(
       const upstreamFileInfo = upstreamInfo.get(file.path);
       if (forkFileInfo) {
         file.changedAt = forkFileInfo.date;
+        file.changedTs = forkFileInfo.timestamp;
         file.changedCommit = forkFileInfo.hash;
       }
       if (upstreamFileInfo) {
         file.upstreamChangedAt = upstreamFileInfo.date;
+        file.upstreamChangedTs = upstreamFileInfo.timestamp;
         file.upstreamCommit = upstreamFileInfo.hash;
       }
     }

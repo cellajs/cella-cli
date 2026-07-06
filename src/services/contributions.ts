@@ -45,6 +45,8 @@ interface ContribItem {
   status?: FileStatus;
   /** Relative date of the fork's change (e.g. '3 days ago') */
   changedAt?: string;
+  /** Unix epoch seconds of the fork's change, for sorting */
+  changedTs?: number;
   /** Lines added in the fork vs cella base (null for binary files) */
   additions?: number | null;
   /** Lines removed in the fork vs cella base (null for binary files) */
@@ -393,6 +395,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
             created: fileMeta?.kind === 'created',
             status: fileMeta?.status,
             changedAt: fileMeta?.changedAt,
+            changedTs: fileMeta?.changedTs,
             additions: stat.get(path)?.additions ?? null,
             deletions: stat.get(path)?.deletions ?? null,
             checked: false,
@@ -406,6 +409,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
             deleted: true,
             status: fileMeta?.status,
             changedAt: fileMeta?.changedAt,
+            changedTs: fileMeta?.changedTs,
             additions: stat.get(path)?.additions ?? null,
             deletions: stat.get(path)?.deletions ?? null,
             checked: false,
@@ -424,8 +428,9 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     return;
   }
 
-  // Sort by path
-  allItems.sort((a, b) => a.path.localeCompare(b.path));
+  // Sort by most recent fork change first (undated files last), path as tie-breaker,
+  // so the top of the list shows where the fork last drifted (further) apart.
+  allItems.sort((a, b) => (b.changedTs ?? 0) - (a.changedTs ?? 0) || a.path.localeCompare(b.path));
 
   spinnerSuccess(`${allItems.length} files from ${forkName}`);
 
@@ -461,6 +466,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
       status: item.status ?? null,
       kind: item.deleted ? 'deleted' : 'modified',
       changedAt: item.changedAt ?? null,
+      changedTs: item.changedTs ?? null,
       additions: item.additions ?? null,
       deletions: item.deletions ?? null,
     }));

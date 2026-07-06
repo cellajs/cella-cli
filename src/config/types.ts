@@ -301,10 +301,14 @@ export interface AnalyzedFile {
   hasConflict?: boolean;
   /** Relative date when file was last changed (since merge-base) */
   changedAt?: string;
+  /** Unix epoch seconds of the last change, for sorting */
+  changedTs?: number;
   /** Short commit hash of the last change */
   changedCommit?: string;
   /** For diverged files: relative date of upstream change */
   upstreamChangedAt?: string;
+  /** For diverged files: Unix epoch seconds of the upstream change, for sorting */
+  upstreamChangedTs?: number;
   /** For diverged files: short commit hash of the upstream change */
   upstreamCommit?: string;
   /** For renamed files: the original path before rename */

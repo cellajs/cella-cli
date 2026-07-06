@@ -378,6 +378,8 @@ export async function listCommitsBetween(
 interface FileChangeInfo {
   date: string;
   hash: string;
+  /** Unix epoch seconds of the change, for sorting */
+  timestamp: number;
 }
 
 /**
@@ -394,8 +396,8 @@ export async function getFileChangeInfo(
 
   try {
     // Get all commits in range with their files, dates, and hashes
-    // Format: hash, relative date, then list of files changed
-    const output = await git(['log', '--name-only', '--format=%h %ar', `${fromRef}..${toRef}`], cwd, {
+    // Format: hash, epoch timestamp, relative date, then list of files changed
+    const output = await git(['log', '--name-only', '--format=%h %ct %ar', `${fromRef}..${toRef}`], cwd, {
       ignoreErrors: true,
     });
 
@@ -404,18 +406,20 @@ export async function getFileChangeInfo(
     const lines = output.split('\n');
     let currentHash = '';
     let currentDate = '';
+    let currentTimestamp = 0;
 
     for (const line of lines) {
       if (!line) continue;
 
-      // Check if this is a hash+date line (starts with short hash)
-      const match = line.match(/^([a-f0-9]{7,})\s+(.+)$/);
+      // Check if this is a hash+timestamp+date line (starts with short hash)
+      const match = line.match(/^([a-f0-9]{7,})\s+(\d+)\s+(.+)$/);
       if (match) {
         currentHash = match[1];
-        currentDate = match[2];
+        currentTimestamp = Number(match[2]);
+        currentDate = match[3];
       } else if (currentHash && currentDate && !info.has(line)) {
         // This is a file path - only set if not already set (we want most recent)
-        info.set(line, { date: currentDate, hash: currentHash });
+        info.set(line, { date: currentDate, hash: currentHash, timestamp: currentTimestamp });
       }
     }
   } catch {

@@ -27,6 +27,8 @@ export interface ContribFile {
   status: FileStatus;
   /** Relative date of the fork's change (e.g. '3 days ago') */
   changedAt?: string;
+  /** Unix epoch seconds of the fork's change, for sorting */
+  changedTs?: number;
 }
 
 /** Files a fork contributes relative to the base branch. */
@@ -119,7 +121,8 @@ export async function detectContributableFiles(
 
     // Fork-side change date: 'behind' stores it in changedAt, 'diverged' in upstreamChangedAt
     const changedAt = file.status === 'diverged' ? file.upstreamChangedAt : file.changedAt;
-    files.push({ path: file.path, kind, status: file.status, changedAt });
+    const changedTs = file.status === 'diverged' ? file.upstreamChangedTs : file.changedTs;
+    files.push({ path: file.path, kind, status: file.status, changedAt, changedTs });
   }
 
   return {
