@@ -1097,3 +1097,47 @@ export async function getEffectiveMergeBase(
 
   return { base: gitBase, isStale: false, storedRef: recorded };
 }
+
+/**
+ * Run `fn` with a temporary local graft that makes `baseSha` an ancestor of `headRef`, so
+ * native git operations — merge-base resolution and the 3-way merge itself — see the recorded
+ * sync point instead of a stale historical ancestor.
+ *
+ * Squash syncs advance the recorded sync point (manifest + `refs/cella/last-sync`) without
+ * advancing git's commit graph, so a plain `git merge` replays every upstream change since the
+ * last true merge ancestor: hunks the fork already integrated (or deliberately resolved away)
+ * re-apply as clean auto-merges or re-conflict on every sync. The graft adds `baseSha` as an
+ * extra parent of the `headRef` commit via `git replace --graft`; replace refs are local-only
+ * and the ref is deleted right after `fn`, so nothing ever leaks into pushed history.
+ *
+ * Runs `fn` without grafting when the graft is unnecessary or unsafe:
+ * - `baseSha` is already an ancestor of `headRef` (git's own merge-base is not stale), or
+ * - a replacement object already exists for the `headRef` commit (never clobber, e.g. the
+ *   scaffold root graft from {@link ensureSyncBase} when the root commit is HEAD).
+ */
+export async function withTemporarySyncBaseGraft<T>(
+  cwd: string,
+  headRef: string,
+  baseSha: string,
+  fn: () => Promise<T>,
+): Promise<T> {
+  const headSha = await git(['rev-parse', headRef], cwd, { ignoreErrors: true });
+  if (!headSha || !(await commitObjectExists(cwd, baseSha))) return fn();
+
+  // Native ancestry already covers the base — nothing to graft.
+  if (await isAncestor(cwd, baseSha, headSha)) return fn();
+
+  // Never clobber an existing replacement object for this commit.
+  const existingReplacement = await git(['replace', '-l', headSha], cwd, { ignoreErrors: true });
+  if (existingReplacement) return fn();
+
+  const parentsRaw = await git(['log', '-1', '--format=%P', headSha], cwd, { ignoreErrors: true });
+  const parents = parentsRaw ? parentsRaw.split(/\s+/) : [];
+
+  await git(['replace', '-f', '--graft', headSha, ...parents, baseSha], cwd);
+  try {
+    return await fn();
+  } finally {
+    await git(['replace', '-d', headSha], cwd, { ignoreErrors: true });
+  }
+}
