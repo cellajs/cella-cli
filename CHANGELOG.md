@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.5](https://github.com/cellajs/cella-cli/compare/cli-0.0.4...cli-0.0.5) (2026-07-07)
+
+
+### 🎉 New features
+
+* sort contributions by most recent fork change ([#8](https://github.com/cellajs/cella-cli/issues/8)) ([bfe7400](https://github.com/cellajs/cella-cli/commit/bfe74001bfea6b1c3e7b435dcf8ade43e4c3c137))
+
 ## [0.0.4](https://github.com/cellajs/cella-cli/compare/cli-0.0.3...cli-0.0.4) (2026-07-06)
 
 
