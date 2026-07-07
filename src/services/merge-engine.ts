@@ -50,6 +50,7 @@ import {
   restoreToHead,
   stagePath,
   storeLastSyncRef,
+  withTemporarySyncBaseGraft,
 } from '../utils/git';
 import { isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
@@ -154,8 +155,13 @@ async function applyDirectMerge(
   // treat it as a real in-progress merge (3-way conflict view, `git merge --abort` works).
   // The finishing rerun squashes the commit to a single parent (`commitSquash`) — upstream
   // ancestry is tracked via the manifest, never via a pushed two-parent merge commit.
+  // The temporary graft makes the merge 3-way against the recorded sync point instead of
+  // git's own (squash-stale) merge-base — without it, upstream hunks already integrated by
+  // previous syncs re-apply or re-conflict on every run.
   onProgress?.('starting merge in fork...');
-  await merge(forkPath, upstreamRef, { noCommit: true, noEdit: true });
+  await withTemporarySyncBaseGraft(forkPath, 'HEAD', mergeBaseRef, () =>
+    merge(forkPath, upstreamRef, { noCommit: true, noEdit: true }),
+  );
 
   // Phase 4: Immediately batch-restore pinned/ignored files.
   // Single git command restores all files at once, minimizing the window
@@ -579,9 +585,13 @@ async function runAnalyzePreview(
   await createWorktree(forkPath, worktreePath, 'HEAD');
   onStep?.('worktree created', worktreePath);
 
-  // Perform merge in worktree (always real merge, never --squash, for correct 3-way)
+  // Perform merge in worktree (always real merge, never --squash, for correct 3-way).
+  // Replace refs are shared across worktrees, so the temporary graft on the fork's HEAD
+  // commit steers this worktree merge to the recorded sync point too.
   onProgress?.('performing merge in worktree...');
-  await merge(worktreePath, ctx.upstreamRef, { noCommit: true, noEdit: true });
+  await withTemporarySyncBaseGraft(worktreePath, 'HEAD', ctx.mergeBase, () =>
+    merge(worktreePath, ctx.upstreamRef, { noCommit: true, noEdit: true }),
+  );
   onStep?.('merge complete', 'upstream merged into worktree');
 
   // Analyze all files, then enrich with change dates and commit hashes
