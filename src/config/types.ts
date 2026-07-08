@@ -20,6 +20,7 @@ export type PackageJsonSyncKey =
   | 'engines'
   | 'packageManager'
   | 'overrides'
+  | 'exports'
   | 'pnpm';
 
 /**
@@ -170,6 +171,7 @@ export const cellaConfigSchema = z
               'engines',
               'packageManager',
               'overrides',
+              'exports',
               'pnpm',
             ]),
           )

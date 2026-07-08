@@ -319,17 +319,20 @@ async function syncPackageJson(
     }
 
     // All Record<string, string> keys — safe merge.
-    // Scripts are add-only (never overwrite fork scripts); the rest also bump versions.
+    // Scripts and exports are add-only (never overwrite fork entries — the fork owns its own
+    // subpaths / script bodies); the rest also bump versions. For exports this means the fork
+    // gains new upstream subpaths but keeps any it defines itself, and its values are never
+    // rewritten — a subpath a fork has repointed stays repointed.
     const forkValue = forkPkg[key] as Record<string, string> | undefined;
     const upstreamValue = upstreamPkg[key] as Record<string, string> | undefined;
 
-    const addOnly = key === 'scripts';
+    const addOnly = key === 'scripts' || key === 'exports';
     const result = safeMergeRecord(forkValue, upstreamValue, addOnly);
     if (result?.changed) {
       (forkPkg as Record<string, unknown>)[key] = result.merged;
       updated = true;
       if (addOnly) {
-        changes.push(...result.added.map((name) => `scripts.${name}: added`));
+        changes.push(...result.added.map((name) => `${key}.${name}: added`));
       } else {
         changes.push(`${key}: merged`);
       }
