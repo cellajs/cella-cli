@@ -223,6 +223,47 @@ describe('packages merge', () => {
     expect(scripts.test).toBe('vitest');
   });
 
+  it('should add new export subpaths from upstream but keep fork subpaths and order', async () => {
+    const forkPkg = readPkg(forkPath);
+    forkPkg.exports = { './fork-only': './dist/fork.js', '.': './dist/custom.js' };
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "add fork exports"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.exports = {
+      '.': './dist/index.js',
+      './config': { types: './dist/config.d.ts', import: './dist/config.js' },
+    };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "add exports"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'exports'] }));
+
+    const exportsMap = readPkg(forkPath).exports as Record<string, unknown>;
+    // Repointed subpath stays repointed, new subpath arrives with its conditions in upstream order
+    expect(exportsMap['.']).toBe('./dist/custom.js');
+    expect(Object.keys(exportsMap)).toEqual(['./fork-only', '.', './config']);
+    expect(Object.keys(exportsMap['./config'] as object)).toEqual(['types', 'import']);
+  });
+
+  it('should leave exports alone when either side is not a subpath map', async () => {
+    const forkPkg = readPkg(forkPath);
+    forkPkg.exports = './dist/index.js';
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "add fork exports"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.exports = { '.': './dist/index.js', './config': './dist/config.js' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "add exports"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'exports'] }));
+
+    expect(readPkg(forkPath).exports).toBe('./dist/index.js');
+  });
+
   it('should merge pnpm.overrides with add/bump-only logic', async () => {
     // Fork has pnpm overrides
     const forkPkg = readPkg(forkPath);
