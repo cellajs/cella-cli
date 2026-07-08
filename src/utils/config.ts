@@ -23,7 +23,7 @@ export const DEFAULT_BRANCH = 'main';
  * The three-segment shape (`cella/sync/<stamp>`) means it can never collide with a real branch
  * named `cella` or `cella/sync`.
  */
-const DEFAULT_SYNC_PREFIX = 'cella/sync';
+export const DEFAULT_SYNC_PREFIX = 'cella/sync';
 
 /**
  * Default trunk branch that `cella sync` cuts from and opens PRs into.

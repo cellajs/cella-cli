@@ -82,5 +82,15 @@ describe('parseCli', () => {
     expect(config.service).toBe('sync');
     expect(config.logFile).toBe(true);
     expect(config.hard).toBe(true);
+    expect(config.directMerge).toBe(false);
+  });
+
+  it('parses --direct-merge for sync', async () => {
+    process.argv = ['node', 'cella', 'sync', '--direct-merge'];
+
+    const config = await parseCli(baseConfig, '/tmp/fork');
+
+    expect(config.service).toBe('sync');
+    expect(config.directMerge).toBe(true);
   });
 });

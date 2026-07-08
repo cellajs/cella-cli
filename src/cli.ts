@@ -36,6 +36,7 @@ type CliOptionState = Pick<
   | 'force'
   | 'checkOverrides'
   | 'coverage'
+  | 'directMerge'
 >;
 
 type MenuContext = {
@@ -78,6 +79,7 @@ function readOptions(opts: Record<string, unknown>): CliOptionState {
     force: opts.force === true,
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
+    directMerge: opts.directMerge === true,
   };
 }
 
@@ -104,6 +106,10 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--hard', description: 'overwrite drifted files with upstream version (aggressive realignment)' },
       { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
       { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
+      {
+        flags: '--direct-merge',
+        description: 'auto-merge (squash) the sync PR once checks pass — needs auto-merge enabled on the repo',
+      },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
     menuDescription: () => 'merge upstream changes + sync package.json',
@@ -213,6 +219,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --hard',
         '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
+        '  $ cella sync --direct-merge',
         '  $ cella audit --check-overrides',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),
