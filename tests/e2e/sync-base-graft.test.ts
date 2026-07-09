@@ -148,7 +148,14 @@ describe('withTemporarySyncBaseGraft', () => {
   it('never clobbers an existing replacement object on the HEAD commit', async () => {
     const head = exec('git rev-parse HEAD', forkPath);
     const parent = exec('git rev-parse HEAD^', forkPath);
-    exec(`git replace -f --graft ${head} ${parent}`, forkPath);
+    // Graft HEAD onto its existing parent PLUS a fabricated orphan commit, so the
+    // replacement object genuinely differs from the original (a same-parents graft is a
+    // byte-identical commit when unsigned, which git refuses). The orphan does not make
+    // upstreamBlockSha reachable, so the helper still hits the existing-replacement guard
+    // rather than the native-ancestor guard.
+    const tree = exec('git rev-parse HEAD^{tree}', forkPath);
+    const orphan = exec(`git commit-tree ${tree} -m "distinct graft parent"`, forkPath);
+    exec(`git replace -f --graft ${head} ${parent} ${orphan}`, forkPath);
 
     await withTemporarySyncBaseGraft(forkPath, 'HEAD', upstreamBlockSha, async () => 'ok');
 
