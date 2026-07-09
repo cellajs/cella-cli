@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.0.6](https://github.com/cellajs/cella-cli/compare/cli-0.0.5...cli-0.0.6) (2026-07-09)
+
+
+### 🎉 New features
+
+* graft recorded sync point so merges ignore squash-stale base ([#10](https://github.com/cellajs/cella-cli/issues/10)) ([2196855](https://github.com/cellajs/cella-cli/commit/21968551392f031f5e46a8ba3c6a1ea3e7e03e5c))
+* warn on unmerged sync PR and add --direct-merge ([#13](https://github.com/cellajs/cella-cli/issues/13)) ([9a7411c](https://github.com/cellajs/cella-cli/commit/9a7411c0f158c1afbe1d4a8ce26d0a5826a9f9f3))
+
 ## [0.0.5](https://github.com/cellajs/cella-cli/compare/cli-0.0.4...cli-0.0.5) (2026-07-07)
 
 
