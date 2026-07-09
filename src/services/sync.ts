@@ -7,9 +7,15 @@
  */
 
 import { spawnSync } from 'node:child_process';
+import { select } from '@inquirer/prompts';
 import type { MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import { buildTemporarySyncBranch, isTemporarySyncBranch, resolveReleaseBase } from '../utils/config';
+import {
+  buildTemporarySyncBranch,
+  DEFAULT_SYNC_PREFIX,
+  isTemporarySyncBranch,
+  resolveReleaseBase,
+} from '../utils/config';
 import {
   createSpinner,
   printFlagWarnings,
@@ -21,6 +27,7 @@ import {
   warningMark,
   writeLogFile,
 } from '../utils/display';
+import { closePr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
 import {
   assertClean,
   type CommitRangeEntry,
@@ -299,11 +306,6 @@ function hasStagedSyncChanges(result: MergeResult): boolean {
   return result.files.some((file) => ['behind', 'diverged', 'renamed', 'ignored', 'pinned'].includes(file.status));
 }
 
-/** Whether the GitHub CLI is available on PATH. */
-function ghAvailable(): boolean {
-  return spawnSync('gh', ['--version'], { stdio: 'ignore' }).status === 0;
-}
-
 /** Extract the first URL from command output, usually the PR URL emitted by GitHub CLI. */
 function extractFirstUrl(output: string): string | undefined {
   return output.match(/https?:\/\/\S+/)?.[0];
@@ -338,12 +340,39 @@ async function flattenSyncBranch(forkPath: string, branch: string, base: string)
   return true;
 }
 
+/** Indent every line of `text` by two spaces, for nesting captured `gh` output under a message. */
+function indentLines(text: string): string {
+  return text
+    .split('\n')
+    .map((line) => `  ${line}`)
+    .join('\n');
+}
+
+/**
+ * Turn on GitHub auto-merge (squash) for the just-opened sync PR: it merges itself once required
+ * checks pass, so `--direct-merge` needs no babysitting. Returns whether it was enabled; on failure
+ * (the repo doesn't allow auto-merge, `gh` too old) it prints the manual command and returns false.
+ */
+function enableAutoMerge(forkPath: string, branch: string): boolean {
+  console.info(pc.dim('enabling auto-merge (squash) once checks pass...'));
+  const merge = mergePrSquash(forkPath, branch, { auto: true, deleteBranch: true });
+  if (merge.ok) return true;
+
+  console.info(pc.yellow('could not enable auto-merge (is it enabled for the repo?). merge it manually:'));
+  if (merge.output) console.info(pc.dim(indentLines(merge.output)));
+  console.info(pc.dim(`  gh pr merge ${branch} --squash --delete-branch`));
+  return false;
+}
+
 /**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
  * trunk. Runs automatically once a rerun completes the merge cleanly.
  *
  * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
  * so the PR never lists the upstream branch's entire history.
+ *
+ * With `--direct-merge`, once the PR is open GitHub auto-merge is enabled (see `enableAutoMerge`)
+ * so it squash-merges itself as soon as required checks pass — no forgotten open PR to trip over.
  *
  * Every step degrades gracefully: a failed push (no `origin`, auth) prints the manual steps and
  * leaves you on the branch; a missing/failed `gh` (or an existing PR) prints the `gh` command but
@@ -356,6 +385,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   const flattened = await flattenSyncBranch(forkPath, branch, base);
   let prUrl: string | undefined;
   let prOpened = false;
+  let autoMergeEnabled = false;
 
   // The squash commit's subject is the versioned sync message — reuse it as the PR title so the
   // PR name carries the upstream version and commit id (release-please only needs the prefix).
@@ -383,7 +413,9 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     });
     prUrl = extractFirstUrl(`${pr.stdout ?? ''}\n${pr.stderr ?? ''}`);
     prOpened = pr.status === 0;
-    if (!prOpened) {
+    if (prOpened) {
+      if (config.directMerge) autoMergeEnabled = enableAutoMerge(forkPath, branch);
+    } else {
       console.info(pc.yellow('could not open the PR automatically (it may already exist). open it with:'));
       if (prUrl) console.info(pc.dim(`  ${prUrl}`));
       printPrCreateStep(branch, base, prTitle);
@@ -400,7 +432,10 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   console.info();
   if (prUrl) {
     console.info(`${pc.green('✓')} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
-    console.info(pc.dim(`  ${prUrl} · branch pushed, back on '${base}'`));
+    const status = autoMergeEnabled
+      ? `auto-merge on — squashes into '${base}' when checks pass`
+      : `branch pushed, back on '${base}'`;
+    console.info(pc.dim(`  ${prUrl} · ${status}`));
   } else {
     console.info(`${pc.green('✓')} Sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, back on '${base}'`));
@@ -512,6 +547,98 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
 }
 
 /**
+ * Merge the open sync PR(s) so the trunk carries the recorded sync point before a new cycle cuts
+ * from it. The newest PR is a content superset of any older ones (each cycle re-syncs from the
+ * same stale trunk base), so the newest is squash-merged and the rest are closed.
+ *
+ * A merge GitHub refuses — conflicts with the trunk, or failing required checks (the "breaking
+ * changes" to fix first) — stops the run: those must be resolved on the PR before syncing again.
+ * On success the trunk is fast-forwarded locally so the fresh cycle cuts from it.
+ */
+async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): Promise<'continue' | 'cancel'> {
+  const { forkPath, settings } = config;
+  const base = resolveReleaseBase(settings);
+  const [newest, ...superseded] = open;
+
+  console.info();
+  console.info(pc.dim(`squash-merging #${newest.number} into '${base}'...`));
+  const merged = mergePrSquash(forkPath, newest.number, { deleteBranch: true });
+  if (!merged.ok) {
+    console.info();
+    console.info(pc.yellow(`could not merge #${newest.number} — resolve it first, then re-run \`pnpm cella sync\`:`));
+    if (merged.output) console.info(pc.dim(indentLines(merged.output)));
+    console.info(pc.dim(`  ${newest.url}`));
+    return 'cancel';
+  }
+  console.info(`${pc.green('✓')} merged #${newest.number}`);
+  // Drop the stale local branch that tracked the merged PR (the remote one went with --delete-branch).
+  await deleteBranch(forkPath, newest.headRefName);
+
+  for (const pr of superseded) {
+    console.info(pc.dim(`closing #${pr.number} — its changes are included in #${newest.number}...`));
+    closePr(forkPath, pr.number);
+    await deleteBranch(forkPath, pr.headRefName);
+  }
+
+  // Bring the merged commit into the local trunk so the new cycle cuts from an up-to-date base.
+  console.info(pc.dim(`switching to '${base}' and fast-forwarding...`));
+  await switchBranch(forkPath, base);
+  await pullFastForward(forkPath);
+
+  return 'continue';
+}
+
+/**
+ * Before cutting a fresh sync branch, warn when an earlier sync PR is still open and unmerged.
+ *
+ * The last-sync point is recorded in the manifest committed *on the sync branch*, not on the
+ * trunk. So a new cycle cut from a trunk that still lacks a merged sync PR re-includes that PR's
+ * whole delta on top of the new upstream commits — the "why are there suddenly so many changes"
+ * surprise. This offers to squash-merge the open PR first (so the new cycle cuts from an
+ * up-to-date trunk), continue anyway, or cancel.
+ *
+ * Degrades to a silent no-op (`continue`) when it can't help: no `gh`, no open sync PR, or a
+ * non-interactive session (no TTY to prompt on).
+ */
+async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue' | 'cancel'> {
+  const { forkPath } = config;
+
+  if (!ghAvailable() || !process.stdout.isTTY) return 'continue';
+
+  const open = listOpenSyncPrs(forkPath, DEFAULT_SYNC_PREFIX);
+  if (open.length === 0) return 'continue';
+
+  const many = open.length > 1;
+  console.info();
+  console.info(
+    `${warningMark} ${pc.yellow(`${many ? `${open.length} earlier sync PRs are` : 'an earlier sync PR is'} still open and unmerged:`)}`,
+  );
+  for (const pr of open) {
+    console.info(pc.dim(`  #${pr.number}  ${pr.title}`));
+    console.info(pc.dim(`         ${pr.url}`));
+  }
+  console.info(pc.dim(`  starting a new sync now produces a PR that re-includes ${many ? 'these' : 'those'} changes.`));
+  console.info();
+
+  const choice = await select<'merge' | 'continue' | 'cancel'>({
+    message: 'how do you want to proceed?',
+    choices: [
+      {
+        value: 'merge',
+        name: `merge ${many ? 'them' : `#${open[0].number}`} first, then sync   ${pc.dim('(recommended)')}`,
+      },
+      { value: 'continue', name: `continue anyway   ${pc.dim('(new PR will re-include the unmerged changes)')}` },
+      { value: 'cancel', name: pc.red('cancel') },
+    ],
+    loop: false,
+  });
+
+  if (choice === 'cancel') return 'cancel';
+  if (choice === 'continue') return 'continue';
+  return mergeOpenSyncPrs(config, open);
+}
+
+/**
  * Run the standalone `cella sync` command.
  *
  * Idempotent. Behaviour depends on where you are:
@@ -553,6 +680,11 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   // Fresh cycle: only ever cut the temporary branch from a clean tree.
   await assertClean(forkPath);
+
+  // Guard against stacking: if an earlier sync PR is still open, its delta would re-appear in
+  // this cycle's PR. Offer to merge it first (or bail) before cutting a new branch.
+  if ((await guardAgainstOpenSyncPr(config)) === 'cancel') return;
+
   const outcome = await runSyncCycle(config);
   console.info();
 

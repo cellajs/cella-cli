@@ -270,6 +270,13 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Regenerate test coverage before showing the stats summary (stats service) */
   coverage?: boolean;
+
+  /**
+   * After opening the sync PR, enable GitHub auto-merge (squash) so it merges itself once
+   * required checks pass (sync service). Opt-in per run via `--direct-merge`; needs auto-merge
+   * enabled on the repo. Not the advised default — a sync PR is usually worth a human look.
+   */
+  directMerge?: boolean;
 }
 
 /** File status after analysis */
