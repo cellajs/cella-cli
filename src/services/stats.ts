@@ -17,7 +17,7 @@ import { parseYamlBlockList } from '../utils/yaml';
 const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
 
 /** File category for classification */
-type FileCategory = 'test' | 'generated' | 'json' | 'other';
+type FileCategory = 'test' | 'stories' | 'generated' | 'json' | 'other';
 
 /** Stats result for display or JSON output */
 interface StatsResult {
@@ -69,6 +69,11 @@ function classifyFile(filePath: string): FileCategory {
     filePath.includes('/__tests__/')
   ) {
     return 'test';
+  }
+
+  // Storybook stories
+  if (filePath.includes('.stories.')) {
+    return 'stories';
   }
 
   // Generated files
@@ -141,6 +146,7 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
   const skipped = allFilesCount - entries.length;
   const emptyCat = () => ({
     test: { files: 0, loc: 0 },
+    stories: { files: 0, loc: 0 },
     generated: { files: 0, loc: 0 },
     json: { files: 0, loc: 0 },
     other: { files: 0, loc: 0 },
@@ -222,6 +228,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   const catEntries: [string, { files: number; loc: number }][] = [
     ['source & config', stats.categories.other],
     ['test', stats.categories.test],
+    ['stories', stats.categories.stories],
     ['generated', stats.categories.generated],
     ['json', stats.categories.json],
   ];
@@ -237,7 +244,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
 
   if (verbose) {
     // Verbose: show per-package category breakdown
-    const header = `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`;
+    const header = `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'story'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`;
     console.info(pc.dim(header));
     for (const [name, data] of Object.entries(stats.packages)) {
       const c = data.categories;
@@ -245,7 +252,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
       const srcLoc = c.other.loc;
       if (srcFiles === 0) continue;
       console.info(
-        `  ${pc.dim(pad(srcFiles))}  ${name.padEnd(18)} ${pc.cyan(formatLocColumn(srcLoc))} ${pc.dim(pad(c.test.files))} ${pc.dim(pad(c.generated.files))} ${pc.dim(pad(c.json.files))} ${pc.dim(pad(srcFiles))}`,
+        `  ${pc.dim(pad(srcFiles))}  ${name.padEnd(18)} ${pc.cyan(formatLocColumn(srcLoc))} ${pc.dim(pad(c.test.files))} ${pc.dim(pad(c.stories.files))} ${pc.dim(pad(c.generated.files))} ${pc.dim(pad(c.json.files))} ${pc.dim(pad(srcFiles))}`,
       );
     }
   } else {
