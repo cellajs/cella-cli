@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.0.7](https://github.com/cellajs/cella-cli/compare/cli-0.0.6...cli-0.0.7) (2026-07-19)
+
+
+### 🐞 Bug fixes
+
+* stats without stories ([2f2a1cf](https://github.com/cellajs/cella-cli/commit/2f2a1cf95547b10e63e5a2b954aa8afa26b53c89))
+
 ## [0.0.6](https://github.com/cellajs/cella-cli/compare/cli-0.0.5...cli-0.0.6) (2026-07-09)
 
 
