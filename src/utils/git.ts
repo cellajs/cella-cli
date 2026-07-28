@@ -975,11 +975,46 @@ async function readRootTrailerBase(cwd: string, headRef: string): Promise<string
 }
 
 /**
+ * Whether the repository is a shallow clone (created with `git clone --depth`, or otherwise
+ * carrying a `.git/shallow` graft). Shallow history is truncated below the graft point, so the
+ * real common ancestor with upstream is absent: `git merge-base` finds nothing even when one
+ * exists in the full history, and the 3-way file analysis walks an incomplete commit graph.
+ */
+export async function isShallowRepository(cwd: string): Promise<boolean> {
+  const out = await git(['rev-parse', '--is-shallow-repository'], cwd, { ignoreErrors: true });
+  return out === 'true';
+}
+
+/**
+ * Restore full history on a shallow clone by fetching from its own origin, so merge-base and the
+ * 3-way analysis see the real commit graph. Grafting cannot recover this case (the intermediate
+ * commits are genuinely missing, not just disconnected), so the history is deepened for real.
+ *
+ * Throws an actionable error when the history cannot be restored (e.g. no reachable origin),
+ * because sync cannot run correctly against truncated history.
+ */
+export async function unshallowRepository(cwd: string): Promise<void> {
+  try {
+    await git(['fetch', '--unshallow'], cwd, { skipEditor: true });
+  } catch (error) {
+    const detail = error instanceof Error ? `\n\n${error.message}` : '';
+    throw new Error(
+      'this is a shallow clone and its full history could not be restored automatically.\n' +
+        'Sync needs the complete history to find the common ancestor with upstream. Restore it with:\n\n' +
+        '  git fetch --unshallow\n\n' +
+        `then re-run sync.${detail}`,
+    );
+  }
+}
+
+/**
  * Ensure a native git merge-base exists between the fork and upstream.
  *
  * A create-cella scaffold — or a fork whose upstream squashed its history — has unrelated
  * histories, so `git merge-base` finds nothing and every sync fails at the very first step.
  * This bootstraps ancestry non-destructively:
+ *   0. If the repo is a shallow clone, restore its full history first — the real ancestor is
+ *      truncated away, so no graft can recover it; deepening the history brings it back.
  *   1. If a native merge-base already exists, do nothing (the common case).
  *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
  *      one whose commit actually exists after the upstream fetch wins — the sync-point
@@ -993,6 +1028,13 @@ async function readRootTrailerBase(cwd: string, headRef: string): Promise<string
  * Throws an actionable error when no valid base can be determined.
  */
 export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
+  // A shallow clone has its history truncated below the graft point, so the real common ancestor
+  // is absent and merge-base finds nothing. Restore the full history first: this is not unrelated
+  // history to graft over, it is real history to bring back.
+  if (await isShallowRepository(cwd)) {
+    await unshallowRepository(cwd);
+  }
+
   // Native ancestry already present — nothing to bootstrap.
   const nativeBase = await git(['merge-base', headRef, upstreamRef], cwd, { ignoreErrors: true });
   if (nativeBase) return;
