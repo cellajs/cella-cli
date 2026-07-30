@@ -360,7 +360,7 @@ const statusConfig: Record<FileStatus, StatusConfig> = {
   diverged: { icon: pc.magenta('⇅'), label: 'diverged', color: pc.magenta, description: 'both changed, will merge' },
   drifted: { icon: pc.yellow('!'), label: 'drifted', color: pc.yellow, description: 'fork changed (at risk)' },
   ahead: { icon: pc.blue('↑'), label: 'ahead', color: pc.blue, description: 'fork changed (protected)' },
-  local: { icon: pc.green('+'), label: 'local', color: pc.green, description: 'local file' },
+  local: { icon: pc.green('+'), label: 'local', color: pc.green, description: 'local file in cella folders' },
   pinned: { icon: pc.green('⨀'), label: 'pinned', color: pc.green, description: 'both changed, fork wins' },
   ignored: { icon: pc.gray('⨂'), label: 'ignored', color: pc.gray },
   identical: { icon: pc.gray('✓'), label: 'identical', color: pc.gray, description: 'no changes' },
@@ -487,7 +487,7 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
   });
   printFileGroup(files, 'ahead', linkOptions, {
     title: `${pc.blue('↑ protected in fork')}`,
-    hint: 'these files have fork changes and are protected by pinned or ignored config.',
+    hint: 'these files have fork changes but are protected (pinned).',
   });
   printFileGroup(files, 'drifted', linkOptions, {
     title: `${warningMark} ${pc.yellow('drifted from upstream')}`,
