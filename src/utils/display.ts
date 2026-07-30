@@ -374,7 +374,7 @@ const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
     icon: pc.cyan('◇'),
     label: 'managed',
     color: pc.cyan,
-    description: 'package.jsons & cella.config.ts handled separately',
+    description: 'package.jsons & cella/cella.config.ts handled separately',
   },
   ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
 };
@@ -500,7 +500,7 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
   });
   printFileGroup(files, 'pinned', linkOptions, {
     title: `${pc.green('⨀ pinned')}`,
-    hint: 'both changed, fork wins (pinned in cella.config.ts).',
+    hint: 'both changed, fork wins (pinned in cella/cella.config.ts).',
     dateSource: 'upstream',
   });
 }
@@ -579,7 +579,9 @@ export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean 
   }
   if (unpinned) {
     console.info(
-      pc.yellow('⚠ --unpinned used: pinned files in cella.config.ts were ignored, this can result in more drifts.'),
+      pc.yellow(
+        '⚠ --unpinned used: pinned files in cella/cella.config.ts were ignored, this can result in more drifts.',
+      ),
     );
   }
   console.info(pc.yellow('  Be extra careful & cherrypick what you want only.'));

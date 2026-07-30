@@ -10,7 +10,7 @@ This repo provides a controlled git history for testing merge scenarios in the s
 
 ```
 sync-test-fixture/
-├── cella.config.ts          # Config with pinned/ignored entries
+├── cella/cella.config.ts          # Config with pinned/ignored entries
 ├── package.json
 ├── README.md
 ├── backend/
@@ -20,8 +20,8 @@ sync-test-fixture/
 │   └── src/
 │       └── index.ts         # Sample frontend file
 ├── docs/
-│   └── setup.md             # Ignored file (in cella.config.ts)
-└── custom-file.ts           # Pinned file (in cella.config.ts)
+│   └── setup.md             # Ignored file (in cella/cella.config.ts)
+└── custom-file.ts           # Pinned file (in cella/cella.config.ts)
 ```
 
 ## Tags (Versions)
@@ -34,7 +34,7 @@ sync-test-fixture/
 | `v1.3.0` | Cleanup | Deletes `deprecated.ts` |
 | `v1.4.0` | Custom change | Modifies `custom-file.ts` |
 
-## cella.config.ts
+## cella/cella.config.ts
 
 ```typescript
 import { defineConfig } from './cli/cella/src/config/types';
@@ -45,7 +45,7 @@ export default defineConfig({
     upstreamBranch: 'main',
   },
   overrides: {
-    pinned: ['custom-file.ts', 'cella.config.ts'],
+    pinned: ['custom-file.ts', 'cella/cella.config.ts'],
     ignored: ['docs/*'],
   },
 });
@@ -70,15 +70,15 @@ echo '// Will be deprecated' > deprecated.ts
 echo '{"name": "sync-test-fixture"}' > package.json
 echo '# sync-test-fixture' > README.md
 
-# Create cella.config.ts (simplified for testing)
-cat > cella.config.ts << 'EOF'
+# Create cella/cella.config.ts (simplified for testing)
+cat > cella/cella.config.ts << 'EOF'
 export default {
   settings: {
     upstreamUrl: 'git@github.com:cellajs/sync-test-fixture.git',
     upstreamBranch: 'main',
   },
   overrides: {
-    pinned: ['custom-file.ts', 'cella.config.ts'],
+    pinned: ['custom-file.ts', 'cella/cella.config.ts'],
     ignored: ['docs/*'],
   },
 };

@@ -378,7 +378,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
       const forkConfig = await loadConfig(resolvedPath);
       forkTerritory = forkConfig.overrides?.ignored ?? [];
     } catch {
-      // Fork may not have a cella.config.ts — no extra territory to exclude
+      // Fork may not have a cella/cella.config.ts — no extra territory to exclude
     }
 
     const detection = await detectContributableFiles(config.forkPath, baseRef, forkRef, config, forkTerritory);

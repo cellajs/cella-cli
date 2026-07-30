@@ -512,7 +512,7 @@ async function runSyncMerge(
   ).length;
 
   // Record the upstream sync point in lockstep: the local `refs/cella/last-sync` ref plus
-  // the committed `cella.manifest.json` (staged so it rides in the sync commit and travels
+  // the committed `cella/cella.manifest.json` (staged so it rides in the sync commit and travels
   // with the repo for fresh-clone bootstrap).
   const syncManifest: SyncManifest = {
     upstream: {

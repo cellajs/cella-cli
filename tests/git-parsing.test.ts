@@ -32,6 +32,7 @@ function createRepo(): string {
   // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
   exec('git init -b main', dir);
   exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
+  fs.mkdirSync(path.join(dir, 'cella')); // sync manifest lives at cella/cella.manifest.json
   fs.writeFileSync(path.join(dir, 'initial.txt'), 'initial\n');
   exec('git add -A && git commit -m "initial"', dir);
   return dir;
@@ -325,7 +326,7 @@ describe('git parsing', () => {
       // Simulate a squash-merged sync on main. The upstream commit is not in main's ancestry,
       // but the committed manifest records it as integrated.
       fs.writeFileSync(
-        path.join(repoPath, 'cella.manifest.json'),
+        path.join(repoPath, 'cella', 'cella.manifest.json'),
         `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
       );
       exec('git add -A && git commit -m "sync manifest"', repoPath);
@@ -351,7 +352,7 @@ describe('git parsing', () => {
       // Commit a manifest recording the squash-synced upstream commit, without storing any
       // local refs — the state of a fresh clone or a second maintainer's machine.
       fs.writeFileSync(
-        path.join(repoPath, 'cella.manifest.json'),
+        path.join(repoPath, 'cella', 'cella.manifest.json'),
         `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
       );
       exec('git add -A && git commit -m "sync manifest"', repoPath);
@@ -375,7 +376,7 @@ describe('git parsing', () => {
       // An aborted sync can leave the manifest in the working tree and the refs recorded at an
       // unadvanced HEAD. Nothing was committed, so nothing was integrated.
       fs.writeFileSync(
-        path.join(repoPath, 'cella.manifest.json'),
+        path.join(repoPath, 'cella', 'cella.manifest.json'),
         `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
       );
       await storeLastSyncRef(repoPath, featureHash);
