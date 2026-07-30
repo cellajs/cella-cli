@@ -3,9 +3,23 @@
  */
 
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { dirname, resolve } from 'node:path';
 import type { ForkConfig } from '../config/types';
 import pc from '../utils/colors';
+import { git } from '../utils/git';
+
+/**
+ * Base directory that relative fork `localPath` values resolve against.
+ *
+ * A `localPath` like `../my-app` is written relative to the repository's main checkout. When
+ * the CLI runs inside a linked worktree (e.g. `.claude/worktrees/x`), resolving against the
+ * worktree would point inside the worktrees directory, so resolve against the main repository
+ * root: the parent of the shared git common dir. Falls back to `repoPath` outside a repository.
+ */
+export async function resolveForkBasePath(repoPath: string): Promise<string> {
+  const commonDir = await git(['rev-parse', '--git-common-dir'], repoPath, { ignoreErrors: true });
+  return commonDir ? dirname(resolve(repoPath, commonDir)) : repoPath;
+}
 
 /** A fork config paired with its validation result. */
 export interface ValidatedFork {

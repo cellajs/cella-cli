@@ -12,7 +12,7 @@ import type { ForkConfig, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { loadConfig, resolveUpstream } from '../utils/config';
 import { getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
-import { printNoForksHint, validateForkPath } from './fork-utils';
+import { printNoForksHint, resolveForkBasePath, validateForkPath } from './fork-utils';
 import { runSyncCommand } from './sync';
 
 /** Status info gathered from a fork repository */
@@ -155,15 +155,16 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
       console.error(pc.red(`fork '${config.fork}' not found in config`));
       return;
     }
-    const resolvedPath = resolve(config.forkPath, match.localPath);
+    const resolvedPath = resolve(await resolveForkBasePath(config.forkPath), match.localPath);
     await syncFork(config, match, resolvedPath);
     return;
   }
 
   // Interactive loop: select fork → sync → return to selection
   // Choices are rebuilt each iteration to reflect updated status
+  const forkBasePath = await resolveForkBasePath(config.forkPath);
   while (true) {
-    const choices = await buildForkChoices(forks, config.forkPath);
+    const choices = await buildForkChoices(forks, forkBasePath);
     const forkChoices = [...choices, new Separator('─'.repeat(40)), { value: '_exit', name: pc.dim('exit') }];
 
     const selectedPath = await select<string>({
@@ -176,7 +177,7 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
       process.exit(0);
     }
 
-    const resolvedForkPath = resolve(config.forkPath, selectedPath);
+    const resolvedForkPath = resolve(forkBasePath, selectedPath);
     const selectedFork = forks.find((f) => f.localPath === selectedPath);
     if (!selectedFork) {
       console.error(pc.red(`fork '${selectedPath}' not found in config`));

@@ -28,7 +28,7 @@ import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import { createSpinner, DIVIDER, spinnerFail, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { getCurrentBranch, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
 import { buildContribBranch, countDetection, detectContributableFiles } from './contrib-core';
-import { printNoForksHint, type ValidatedFork, validateForkPath } from './fork-utils';
+import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from './fork-utils';
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -312,7 +312,8 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     console.info('');
   }
 
-  const validated = forks.map((fork) => validateForkPath(fork, config.forkPath));
+  const forkBasePath = await resolveForkBasePath(config.forkPath);
+  const validated = forks.map((fork) => validateForkPath(fork, forkBasePath));
   const validForks = validated.filter((v) => v.valid);
 
   // Select a single fork to pull from

@@ -11,7 +11,7 @@
  * object store), never from the filesystem.
  */
 
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { CellaCliConfig, FileStatus } from '../config/types';
 import { git } from '../utils/git';
 import { isIgnored, isPinned, isUnderAnyFolder } from '../utils/overrides';
@@ -175,7 +175,10 @@ export async function buildContribBranch(
   forkName: string,
 ): Promise<{ branch: string; appliedFiles: string[] }> {
   const branch = `contrib/${forkName}`;
-  const tmpIndex = join(repoPath, '.git', `tmp-contrib-index-${forkName.replace(/[^\w.-]/g, '_')}`);
+  // Resolve the actual git dir: in a linked worktree `.git` is a pointer file, and the
+  // worktree's git dir lives under the main checkout's `.git/worktrees/<name>`.
+  const gitDir = resolve(repoPath, await git(['rev-parse', '--git-dir'], repoPath));
+  const tmpIndex = join(gitDir, `tmp-contrib-index-${forkName.replace(/[^\w.-]/g, '_')}`);
   const indexEnv = { GIT_INDEX_FILE: tmpIndex };
 
   try {
