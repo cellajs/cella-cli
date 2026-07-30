@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -17,8 +17,9 @@ describe('release package', () => {
     const appDir = mkdtempSync(join(tmpdir(), 'cella-cli-app-'));
     writeFileSync(join(appDir, 'package.json'), '{"type":"module"}\n');
     execFileSync('pnpm', ['add', join(packDir, tarball!)], { cwd: appDir, stdio: 'pipe' });
+    mkdirSync(join(appDir, 'cella'));
     writeFileSync(
-      join(appDir, 'cella.config.ts'),
+      join(appDir, 'cella', 'cella.config.ts'),
       [
         "import { defineConfig } from '@cellajs/cli/config';",
         '',

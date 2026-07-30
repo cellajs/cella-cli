@@ -7,7 +7,7 @@
 import { z } from 'zod';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC API - for cella.config.ts
+// PUBLIC API - for cella/cella.config.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Valid package.json keys that can be synced */
@@ -97,7 +97,7 @@ export interface ForkConfig {
 }
 
 /**
- * User-configurable sync options for cella.config.ts.
+ * User-configurable sync options for cella/cella.config.ts.
  * Simplified for v2 - no long-lived sync branch or squash options.
  */
 export interface CellaCliConfig {
@@ -134,7 +134,7 @@ export interface CellaCliConfig {
 }
 
 /**
- * Helper function for defining cella.config.ts with type checking.
+ * Helper function for defining cella/cella.config.ts with type checking.
  */
 export function defineConfig(config: CellaCliConfig): CellaCliConfig {
   return config;
@@ -249,7 +249,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   hard?: boolean;
 
   /**
-   * Disable pinned entries (cella.config.ts overrides.pinned) for this sync so upstream
+   * Disable pinned entries (cella/cella.config.ts overrides.pinned) for this sync so upstream
    * versions surface as behind/diverged. Managed files stay pinned because cella
    * handles them separately. Like --hard, uses the natural merge-base to resurface
    * full upstream history.

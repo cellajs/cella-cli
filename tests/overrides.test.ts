@@ -60,8 +60,8 @@ describe('overrides', () => {
     });
 
     it('should handle exact path in ignored folders', () => {
-      const config = buildConfig({ ignored: ['cella.config.ts'] });
-      expect(isIgnored('cella.config.ts', config)).toBe(true);
+      const config = buildConfig({ ignored: ['cella/cella.config.ts'] });
+      expect(isIgnored('cella/cella.config.ts', config)).toBe(true);
       expect(isIgnored('other.config.ts', config)).toBe(false);
     });
   });
@@ -86,14 +86,14 @@ describe('overrides', () => {
       expect(isPinned('package.json', config)).toBe(true);
       expect(isPinned('frontend/package.json', config)).toBe(true);
       expect(isPinned('pnpm-lock.yaml', config)).toBe(true);
-      expect(isPinned('cella.config.ts', config)).toBe(true);
+      expect(isPinned('cella/cella.config.ts', config)).toBe(true);
     });
 
     it('should identify managed files', () => {
       expect(isManagedFile('package.json')).toBe(true);
       expect(isManagedFile('frontend/package.json')).toBe(true);
       expect(isManagedFile('pnpm-lock.yaml')).toBe(true);
-      expect(isManagedFile('cella.config.ts')).toBe(true);
+      expect(isManagedFile('cella/cella.config.ts')).toBe(true);
       expect(isManagedFile('frontend/src/index.ts')).toBe(false);
     });
 

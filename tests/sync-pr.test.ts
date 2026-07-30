@@ -23,6 +23,7 @@ function createRepo(): string {
   // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
   exec('git init -b main', dir);
   exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
+  fs.mkdirSync(path.join(dir, 'cella')); // sync manifest lives at cella/cella.manifest.json
   fs.writeFileSync(path.join(dir, 'initial.txt'), 'initial\n');
   exec('git add -A && git commit -m "initial"', dir);
   return dir;
@@ -119,11 +120,14 @@ describe('manifest and version readers', () => {
 
   it('reads the manifest committed at a ref, not the working tree', async () => {
     const committed = { upstream: { repo: 'cellajs/cella', commit: SHA_A, release: null } };
-    fs.writeFileSync(path.join(repoPath, 'cella.manifest.json'), JSON.stringify(committed));
+    fs.writeFileSync(path.join(repoPath, 'cella', 'cella.manifest.json'), JSON.stringify(committed));
     exec('git add -A && git commit -m "chore: manifest"', repoPath);
 
     // Worktree moves ahead (staged sync) — the committed manifest must still win.
-    fs.writeFileSync(path.join(repoPath, 'cella.manifest.json'), JSON.stringify({ upstream: { commit: SHA_B } }));
+    fs.writeFileSync(
+      path.join(repoPath, 'cella', 'cella.manifest.json'),
+      JSON.stringify({ upstream: { commit: SHA_B } }),
+    );
 
     const manifest = await readManifestAtRef(repoPath, 'HEAD');
     expect(manifest?.upstream.repo).toBe('cellajs/cella');
@@ -133,7 +137,7 @@ describe('manifest and version readers', () => {
   it('returns null for a missing or malformed manifest', async () => {
     expect(await readManifestAtRef(repoPath, 'HEAD')).toBeNull();
 
-    fs.writeFileSync(path.join(repoPath, 'cella.manifest.json'), '{"upstream":{"commit":"nope"}}');
+    fs.writeFileSync(path.join(repoPath, 'cella', 'cella.manifest.json'), '{"upstream":{"commit":"nope"}}');
     exec('git add -A && git commit -m "chore: bad manifest"', repoPath);
     expect(await readManifestAtRef(repoPath, 'HEAD')).toBeNull();
     expect(await readManifestBaseAtRef(repoPath, 'HEAD')).toBeNull();

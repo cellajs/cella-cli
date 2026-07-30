@@ -7,6 +7,7 @@ import { dirname, resolve } from 'node:path';
 import type { ForkConfig } from '../config/types';
 import pc from '../utils/colors';
 import { git } from '../utils/git';
+import { CONFIG_FILE } from '../utils/managed-files';
 
 /**
  * Base directory that relative fork `localPath` values resolve against.
@@ -32,7 +33,7 @@ export interface ValidatedFork {
 /**
  * Validate a fork's local path resolves safely and points at a git repository.
  *
- * @param requireConfig when true, the fork must also contain a `cella.config.ts`.
+ * @param requireConfig when true, the fork must also contain a `cella/cella.config.ts`.
  */
 export function validateForkPath(fork: ForkConfig, basePath: string, requireConfig = false): ValidatedFork {
   const resolvedPath = resolve(basePath, fork.localPath);
@@ -43,8 +44,8 @@ export function validateForkPath(fork: ForkConfig, basePath: string, requireConf
   }
   if (!existsSync(resolvedPath)) return { fork, resolvedPath, valid: false, error: 'path does not exist' };
   if (!existsSync(`${resolvedPath}/.git`)) return { fork, resolvedPath, valid: false, error: 'not a git repository' };
-  if (requireConfig && !existsSync(`${resolvedPath}/cella.config.ts`)) {
-    return { fork, resolvedPath, valid: false, error: 'missing cella.config.ts' };
+  if (requireConfig && !existsSync(`${resolvedPath}/${CONFIG_FILE}`)) {
+    return { fork, resolvedPath, valid: false, error: `missing ${CONFIG_FILE}` };
   }
 
   return { fork, resolvedPath, valid: true };
@@ -56,7 +57,7 @@ export function validateForkPath(fork: ForkConfig, basePath: string, requireConf
  * @param action a short dim line describing what forks enable (e.g. 'add forks to your config:').
  */
 export function printNoForksHint(action: string): void {
-  console.info(pc.yellow('no forks configured in cella.config.ts'));
+  console.info(pc.yellow('no forks configured in cella/cella.config.ts'));
   console.info(pc.dim(action));
   console.info(pc.dim(`  forks: [{ name: 'my-app', localPath: '../my-app', pullBranch: 'development' }]`));
 }

@@ -1018,7 +1018,7 @@ export async function unshallowRepository(cwd: string): Promise<void> {
  *   1. If a native merge-base already exists, do nothing (the common case).
  *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
  *      one whose commit actually exists after the upstream fetch wins — the sync-point
- *      record (`refs/cella/last-sync` ref, then committed/worktree `cella.manifest.json`),
+ *      record (`refs/cella/last-sync` ref, then committed/worktree `cella/cella.manifest.json`),
  *      then the scaffold origin (the root commit's `Cella-Base:` trailer, then tree-similarity
  *      inference as reseed fallback for scaffolds whose trailer is absent or stale).
  *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native

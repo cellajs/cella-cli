@@ -8,6 +8,7 @@ import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { type CellaCliConfig, cellaConfigSchema, type SyncSettings } from '../config/types';
+import { CONFIG_FILE } from './managed-files';
 import { resolveAppModuleFolders } from './module-territory';
 
 /** Default git remote name used to point at the upstream repository. */
@@ -78,10 +79,10 @@ export function resolveUpstream(settings: SyncSettings): {
 }
 
 /**
- * Load cella.config.ts from a fork/repo path.
+ * Load cella/cella.config.ts from a fork/repo path.
  */
 export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
-  const configPath = join(forkPath, 'cella.config.ts');
+  const configPath = join(forkPath, CONFIG_FILE);
 
   if (!existsSync(configPath)) {
     throw new Error(`config file not found: ${configPath}`);

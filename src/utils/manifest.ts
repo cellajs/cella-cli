@@ -1,8 +1,8 @@
 /**
  * Cella sync manifest.
  *
- * A committed record of the last upstream sync point, living at the fork repo root as
- * `cella.manifest.json`. It serves two purposes:
+ * A committed record of the last upstream sync point, living in the fork's `cella/` folder as
+ * `cella/cella.manifest.json`. It serves two purposes:
  *  1. Machine: `upstream.commit` is the bootstrap seed `ensureSyncBase` uses to reconstruct
  *     the merge-base on a clone that has no local `refs/cella/last-sync` (fresh clone, CI, a
  *     second maintainer). Committed, so it travels with the repo — unlike the local ref.
@@ -13,11 +13,11 @@
  * `refs/cella/last-sync` and rides along in the sync commit.
  */
 
-import { readFile, writeFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { mkdir, readFile, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 
-/** Committed manifest filename at the fork repo root. */
-export const MANIFEST_FILE = 'cella.manifest.json';
+/** Committed manifest path, relative to the fork repo root. */
+export const MANIFEST_FILE = 'cella/cella.manifest.json';
 
 /** The last upstream sync point recorded in {@link MANIFEST_FILE}. */
 export interface SyncManifest {
@@ -60,5 +60,8 @@ export async function readManifestBase(cwd: string): Promise<string | null> {
 
 /** Write the manifest as pretty JSON with a trailing newline. */
 export async function writeSyncManifest(cwd: string, manifest: SyncManifest): Promise<void> {
-  await writeFile(join(cwd, MANIFEST_FILE), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  const manifestPath = join(cwd, MANIFEST_FILE);
+  // Ensure the cella/ folder exists (a fresh fork may not have it yet on first sync).
+  await mkdir(dirname(manifestPath), { recursive: true });
+  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }

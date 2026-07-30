@@ -124,7 +124,7 @@ describe('sync e2e', () => {
         files: {
           'package.json': '{"name": "test-fork", "dependencies": {"fork-only": "1.0.0"}}\n',
           'pnpm-lock.yaml': 'lockfileVersion: "9.0"\n\npackages:\n  fork-only: {}\n',
-          'cella.config.ts': 'export default { settings: { upstreamUrl: "fork" } };\n',
+          'cella/cella.config.ts': 'export default { settings: { upstreamUrl: "fork" } };\n',
           'backend/src/index.ts': '// Fork custom backend\nexport const backend = "fork";\n',
         },
         message: 'chore: customize managed files and backend',
@@ -142,7 +142,7 @@ describe('sync e2e', () => {
       expect(result.summary.ahead).toBe(1);
       expect(result.files.find((f) => f.path === 'package.json')?.status).toBe('ahead');
       expect(result.files.find((f) => f.path === 'pnpm-lock.yaml')?.status).toBe('local');
-      expect(result.files.find((f) => f.path === 'cella.config.ts')?.status).toBe('local');
+      expect(result.files.find((f) => f.path === 'cella/cella.config.ts')?.status).toBe('local');
     });
 
     it('should mark ignored files correctly', async () => {

@@ -71,7 +71,7 @@ describe('withTemporarySyncBaseGraft', () => {
     // stays at the initial commit) and resolves the block away, recording the sync point
     // in the committed manifest exactly like the sync engine does.
     write(forkPath, {
-      'cella.manifest.json': `${JSON.stringify({ upstream: { commit: upstreamBlockSha } }, null, 2)}\n`,
+      'cella/cella.manifest.json': `${JSON.stringify({ upstream: { commit: upstreamBlockSha } }, null, 2)}\n`,
     });
     commitAll(forkPath, 'chore: sync upstream (squash, block resolved away)');
 
