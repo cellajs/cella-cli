@@ -1,5 +1,25 @@
 # Changelog
 
+## [0.1.0](https://github.com/cellajs/cella-cli/compare/cli-0.0.6...cli-0.1.0) (2026-07-30)
+
+
+### ⚠ BREAKING CHANGES
+
+* **config:** forks must move cella.config.ts and cella.manifest.json into their cella/ folder; the CLI no longer looks at the repo root.
+
+### 🎉 New features
+
+* **config:** discover cella files under the cella/ folder ([#16](https://github.com/cellajs/cella-cli/issues/16)) ([872e177](https://github.com/cellajs/cella-cli/commit/872e1775e3b997d8fe31b48939eb9783d78eac5f))
+* recognize defineBackendModule/defineFrontendModule in module territory scan ([#15](https://github.com/cellajs/cella-cli/issues/15)) ([2568f9e](https://github.com/cellajs/cella-cli/commit/2568f9eed5cb265e9f51c4170272705a77d87ec9))
+
+
+### 🐞 Bug fixes
+
+* **analyze:** clarify local and ahead status descriptions ([fecf3a0](https://github.com/cellajs/cella-cli/commit/fecf3a02fdb0f6201054b6ad26073d41246bdfad))
+* **forks:** support running from a linked git worktree ([ef4138a](https://github.com/cellajs/cella-cli/commit/ef4138ac5650a2acd8f29d85a4e7613ab8daaa9a))
+* stats without stories ([2f2a1cf](https://github.com/cellajs/cella-cli/commit/2f2a1cf95547b10e63e5a2b954aa8afa26b53c89))
+* **sync:** recover shallow clones before resolving the merge-base ([10aec72](https://github.com/cellajs/cella-cli/commit/10aec724ec8e50353063e7c6bedddd2ed6360348))
+
 ## [0.0.6](https://github.com/cellajs/cella-cli/compare/cli-0.0.5...cli-0.0.6) (2026-07-09)
 
 
