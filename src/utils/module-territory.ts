@@ -1,8 +1,9 @@
 /**
  * Static analysis of module ownership for sync CLI.
  *
- * Each module declares ownership via a `registerModule({ owner, ... })` call in
- * its `*-module.ts` file. Modules with `owner: 'app'` are fork-specific: their
+ * Each module declares ownership via a `registerModule`, `defineBackendModule`, or
+ * `defineFrontendModule` call ({ owner, ... }) in its `*-module.ts` file.
+ * Modules with `owner: 'app'` are fork-specific: their
  * source folders, plus matching frontend static asset folders when present, are
  * fork territory and must never be added, modified, or deleted by upstream during
  * sync — nor offered back upstream by the contributions service.
@@ -17,7 +18,14 @@ import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
 
 /** Glob patterns (relative to repo root) for module definition files. */
-const MODULE_FILE_GLOBS = ['backend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.ts'];
+const MODULE_FILE_GLOBS = [
+  'backend/src/modules/*/*-module.ts',
+  'frontend/src/modules/*/*-module.ts',
+  'frontend/src/modules/*/*-module.tsx',
+];
+
+/** Call names that register a module and carry its `owner` in the first argument. */
+const MODULE_REGISTER_CALLS = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);
 const FRONTEND_STATIC_ROOT = 'frontend/public/static';
 
 /**
@@ -50,7 +58,7 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
   for (const sourceFile of sourceFiles) {
     const ownsApp = sourceFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .some((call) => call.getExpression().getText() === 'registerModule' && readOwner(call) === 'app');
+      .some((call) => MODULE_REGISTER_CALLS.has(call.getExpression().getText()) && readOwner(call) === 'app');
 
     if (!ownsApp) continue;
 
