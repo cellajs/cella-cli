@@ -93,4 +93,21 @@ describe('parseCli', () => {
     expect(config.service).toBe('sync');
     expect(config.directMerge).toBe(true);
   });
+
+  it('parses --no-ship for sync', async () => {
+    process.argv = ['node', 'cella', 'sync', '--no-ship'];
+
+    const config = await parseCli(baseConfig, '/tmp/fork');
+
+    expect(config.service).toBe('sync');
+    expect(config.noShip).toBe(true);
+  });
+
+  it('defaults noShip to false when --no-ship is absent', async () => {
+    process.argv = ['node', 'cella', 'sync'];
+
+    const config = await parseCli(baseConfig, '/tmp/fork');
+
+    expect(config.noShip).toBe(false);
+  });
 });

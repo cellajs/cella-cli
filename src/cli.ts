@@ -37,6 +37,7 @@ type CliOptionState = Pick<
   | 'checkOverrides'
   | 'coverage'
   | 'directMerge'
+  | 'noShip'
 >;
 
 type MenuContext = {
@@ -80,6 +81,8 @@ function readOptions(opts: Record<string, unknown>): CliOptionState {
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
     directMerge: opts.directMerge === true,
+    // commander parses `--no-ship` as the negation of a `ship` option (default true)
+    noShip: opts.ship === false,
   };
 }
 
@@ -109,6 +112,10 @@ const serviceDefinitions: ServiceDefinition[] = [
       {
         flags: '--direct-merge',
         description: 'auto-merge (squash) the sync PR once checks pass — needs auto-merge enabled on the repo',
+      },
+      {
+        flags: '--no-ship',
+        description: 'commit the finished merge but stop before push/PR — run drift triage, then rerun sync to ship',
       },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
@@ -220,6 +227,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
         '  $ cella sync --direct-merge',
+        '  $ cella sync --no-ship',
         '  $ cella audit --check-overrides',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),

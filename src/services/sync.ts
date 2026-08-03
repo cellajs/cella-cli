@@ -547,7 +547,20 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   await commitSquash(forkPath, message);
   console.info();
   console.info(pc.green(`committed the sync on '${branch}' as '${message}'.`));
+
+  if (config.noShip) {
+    printNoShipNextSteps(branch);
+    return;
+  }
+
   await shipSyncBranch(config, branch);
+}
+
+/** Guidance after `--no-ship` stops a finished merge before push/PR. */
+function printNoShipNextSteps(branch: string): void {
+  console.info(pc.dim(`--no-ship: staying on '${branch}' without pushing.`));
+  console.info(pc.dim('  run drift triage (`pnpm cella analyze`), commit any follow-ups, then:'));
+  console.info(pc.dim('  pnpm cella sync   (pushes the branch and opens the PR)'));
 }
 
 /**
@@ -666,6 +679,15 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   // On a sync branch with the merge already committed: ship it (push + PR + back to trunk).
   if (onSyncBranch) {
+    // `--no-ship` on an already-committed branch has nothing left to do — shipping is exactly
+    // what the flag suppresses. Say so instead of silently shipping.
+    if (config.noShip) {
+      console.info();
+      console.info(pc.dim(`the sync on '${currentBranch}' is already committed — nothing to do with --no-ship.`));
+      console.info(pc.dim('  rerun without the flag to push the branch and open the PR:'));
+      console.info(pc.dim('  pnpm cella sync'));
+      return;
+    }
     // shipSyncBranch only pushes HEAD, so any edits made after the squash commit would be silently
     // left out of the pushed branch/PR. Refuse to ship over a dirty tree and make them commit.
     if (!(await isClean(forkPath))) {
@@ -703,5 +725,6 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
     printFinishSteps();
     console.info(pc.dim('  rerun commits the sync, pushes the branch, and opens a PR.'));
     console.info(pc.dim('  let the rerun commit — a manual `git commit` records a merge commit that bloats the PR.'));
+    console.info(pc.dim('  add --no-ship to stop after the commit (e.g. to run `pnpm cella analyze` first).'));
   }
 }

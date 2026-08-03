@@ -277,6 +277,13 @@ export interface RuntimeConfig extends CellaCliConfig {
    * enabled on the repo. Not the advised default — a sync PR is usually worth a human look.
    */
   directMerge?: boolean;
+
+  /**
+   * Commit the finished sync merge but stop before pushing/opening the PR (sync service).
+   * Gives the fork a committed HEAD to run drift triage against (`cella analyze` diffs committed
+   * state) and to stack follow-up commits on, before a plain rerun ships the branch.
+   */
+  noShip?: boolean;
 }
 
 /** File status after analysis */

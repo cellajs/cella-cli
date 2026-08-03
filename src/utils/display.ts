@@ -556,6 +556,12 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
         `  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. Review, then rerun \`pnpm cella sync\` to finish.`,
       ),
     );
+    console.info(
+      pc.dim(
+        '  let the rerun commit — a manual `git commit` records a merge commit that makes the PR list the entire upstream history.',
+      ),
+    );
+    console.info(pc.dim('  add --no-ship to stop after the commit (e.g. to run `pnpm cella analyze` first).'));
   } else {
     console.info(`${pc.green('✓')} sync complete`);
     console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
