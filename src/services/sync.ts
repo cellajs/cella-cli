@@ -300,7 +300,7 @@ function printShipSteps(temporaryBranch: string, base: string, title?: string): 
   printPrCreateStep(temporaryBranch, base, title);
 }
 
-/** Guidance shown after a fresh cycle stages a merge: re-run to finish and ship it. */
+/** Guidance shown after a fresh cycle stops at conflicts: re-run to commit once resolved. */
 function printFinishSteps(): void {
   console.info(pc.dim('  pnpm cella sync'));
 }
@@ -370,7 +370,8 @@ function enableAutoMerge(forkPath: string, branch: string): boolean {
 
 /**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
- * trunk. Runs automatically once a rerun completes the merge cleanly.
+ * trunk. Runs when `cella sync` is invoked on a sync branch whose merge is already committed —
+ * shipping is always its own run, after the commit stage stopped for drift triage.
  *
  * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
  * so the PR never lists the upstream branch's entire history.
@@ -503,15 +504,16 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
 }
 
 /**
- * Finish an in-progress merge left by an earlier `cella sync` run on the same temporary branch.
+ * Commit an in-progress merge on the temporary sync branch — never shipping in the same run.
  *
- * This is what makes the command idempotent: after a run stops at conflicts, resolve and stage
- * them, then run `cella sync` again. If conflicts remain we point them out and stop; once none
- * remain we reconcile dependencies (`pnpm install` + `pnpm check`), stage everything, commit the
- * staged delta as a single squashed commit (see `commitSquash`), then push the branch and open
- * the PR (see `shipSyncBranch`).
+ * Runs directly after a clean merge, or on a rerun once a conflicted merge is resolved and
+ * staged. If conflicts remain we point them out and stop; once none remain we reconcile
+ * dependencies (`pnpm install` + `pnpm check`), stage everything, and commit the staged delta
+ * as a single squashed commit (see `commitSquash`). It then stops on the committed branch:
+ * that is the window for drift triage (`cella analyze` diffs committed HEAD) and follow-up
+ * commits. Shipping (push + PR) is always its own rerun (see `runSyncCommand`).
  */
-async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<void> {
+async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<void> {
   const { forkPath } = config;
   const conflicts = await getConflictedFiles(forkPath);
 
@@ -547,7 +549,14 @@ async function resumeSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   await commitSquash(forkPath, message);
   console.info();
   console.info(pc.green(`committed the sync on '${branch}' as '${message}'.`));
-  await shipSyncBranch(config, branch);
+  printTriageSteps(branch);
+}
+
+/** Guidance after the commit stage stops on the committed sync branch. */
+function printTriageSteps(branch: string): void {
+  console.info(pc.dim(`staying on '${branch}' without pushing.`));
+  console.info(pc.dim('  run drift triage (`pnpm cella analyze`), commit any follow-ups, then:'));
+  console.info(pc.dim('  pnpm cella sync   (pushes the branch and opens the PR)'));
 }
 
 /**
@@ -645,12 +654,14 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
 /**
  * Run the standalone `cella sync` command.
  *
- * Idempotent. Behaviour depends on where you are:
- * - On a sync branch with a merge in progress: finish that merge (resume after conflicts), then
- *   push and open the PR.
- * - On a sync branch with the merge already committed: push and open the PR (e.g. a previous
- *   push failed), then switch back to the trunk.
- * - Anywhere else: require a clean tree, then cut a fresh temporary branch and merge upstream.
+ * Idempotent. Each run advances the sync one stage and never commits and ships in the same run:
+ * - Anywhere else: require a clean tree, cut a fresh temporary branch and merge upstream; a
+ *   clean merge is committed right away (the run stops there, for drift triage), a conflicted
+ *   one stops for IDE resolution.
+ * - On a sync branch with a merge in progress: commit it (resume after conflicts), then stop.
+ * - On a sync branch with the merge already committed: push and open the PR, then switch back
+ *   to the trunk. Shipping is deliberately its own run — the pause before it is where drift
+ *   triage and follow-up commits happen.
  */
 export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
@@ -658,9 +669,9 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   const onSyncBranch = isTemporarySyncBranch(currentBranch);
 
   // Resume path: an earlier run left a merge staged on this temporary branch (e.g. after
-  // conflicts). Re-running finishes it instead of starting over.
+  // conflicts). Re-running commits it instead of starting over.
   if (onSyncBranch && mergeInProgress(forkPath)) {
-    await resumeSyncMerge(config, currentBranch);
+    await commitSyncMerge(config, currentBranch);
     return;
   }
 
@@ -701,7 +712,11 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   if (outcome.status === 'conflicts') {
     console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve and stage them, then:`)}`);
     printFinishSteps();
-    console.info(pc.dim('  rerun commits the sync, pushes the branch, and opens a PR.'));
+    console.info(pc.dim('  rerun commits the sync and stops for drift triage; a further rerun ships (push + PR).'));
     console.info(pc.dim('  let the rerun commit — a manual `git commit` records a merge commit that bloats the PR.'));
+    return;
   }
+
+  // Clean merge: commit it in the same run (never shipping — that stays a separate rerun).
+  await commitSyncMerge(config, temporaryBranch);
 }

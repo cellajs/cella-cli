@@ -79,16 +79,18 @@ pnpm cella sync --track branch   # follow the tip once, without editing config
 main ──▶ cella/sync/<stamp> ──(3-way merge)──▶ PR ──(squash)──▶ main
 ```
 
-It runs a real git 3-way merge and leaves the result **staged** — it never auto-commits on the
-first pass. `sync` is **idempotent and two-phase**:
+It runs a real git 3-way merge. `sync` is **idempotent and staged**: each run advances the sync
+one stage, and the run that commits never ships — the pause on the committed branch is where
+drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits happen.
 
-1. **First run** cuts the branch and stages the merge, then stops so you can review (and resolve
-   any conflicts in your IDE — `git add` the resolved files).
-2. **Re-run `pnpm cella sync`** on the same branch to finish: it reconciles dependencies
-   (`pnpm install` + `pnpm check`), stages everything, commits the delta, pushes to `origin`,
+1. **First run** cuts the branch and merges. A clean merge is committed right away: dependencies
+   are reconciled (`pnpm install` + `pnpm check`), everything is staged, and the delta is
+   committed — then the run stops on the branch. A conflicted merge stops earlier so you can
+   resolve in your IDE (`git add` the resolved files) and re-run to commit.
+2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
    opens a PR into `main` (via `gh`), and switches you back to `main`.
 
-When you commit, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
+When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: sync upstream cella <sha>`). This keeps the PR
 to one clean commit with the incremental diff — a two-parent merge commit would instead list the
 upstream branch's entire history, because the fork doesn't share pushed ancestry with upstream
