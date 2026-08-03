@@ -19,6 +19,7 @@ import {
 import {
   createSpinner,
   printFlagWarnings,
+  printMaskingPinWarning,
   printSummary,
   printSyncComplete,
   spinnerFail,
@@ -162,6 +163,9 @@ export async function runSync(
 
   // Print summary only (no file lists for sync)
   printSummary(result.summary, 'merge summary');
+
+  // Surface pins that silently froze a file at the old upstream (no conflict, no type error)
+  printMaskingPinWarning(result.files);
 
   // Write log file if requested
   if (config.logFile) {

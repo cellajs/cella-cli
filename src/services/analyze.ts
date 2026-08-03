@@ -13,6 +13,7 @@ import {
   createSpinner,
   type LinkOptions,
   printAnalysisFileGroups,
+  printMaskingPinWarning,
   printSummary,
   spinnerSuccess,
   spinnerText,
@@ -140,6 +141,9 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   // Print summary at the end
   printSummary(result.summary, 'analysis summary');
+
+  // Surface pins that would silently freeze a file at the old upstream on the next sync
+  printMaskingPinWarning(result.files);
 
   // Write log file if requested
   if (config.logFile) {
