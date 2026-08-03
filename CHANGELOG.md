@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.1.1](https://github.com/cellajs/cella-cli/compare/cli-0.1.0...cli-0.1.1) (2026-08-03)
+
+
+### 🐞 Bug fixes
+
+* **sync:** recognize legacy config path on the cella/ move + warn on masking pins ([#17](https://github.com/cellajs/cella-cli/issues/17)) ([7818c13](https://github.com/cellajs/cella-cli/commit/7818c13a7512a3c5274da5f7e1c5195163ab73e3))
+
 ## [0.1.0](https://github.com/cellajs/cella-cli/compare/cli-0.0.6...cli-0.1.0) (2026-07-30)
 
 
