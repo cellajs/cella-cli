@@ -570,6 +570,44 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
  * Explains what each active flag did and its consequence, and adds a shared
  * caution to cherry-pick deliberately when either is used.
  */
+/**
+ * A pinned file whose fork content is byte-identical to the previous upstream (status
+ * `behind`) never actually diverged — the pin is silently freezing it at the old upstream
+ * version and dropping upstream's new changes. Because the fork copy equals the old
+ * upstream, this produces no merge conflict and no type error, so it slips through unseen
+ * (e.g. a pinned nav-config losing new upstream entries). These are the pins worth a look.
+ */
+export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
+  return files.filter(
+    (file) => file.isPinned && file.status === 'behind' && file.existsInFork && file.existsInUpstream,
+  );
+}
+
+/**
+ * Warn when pins are masking upstream changes (see `findMaskingPins`). Silent by design
+ * when there is nothing to report, so it is safe to call unconditionally after a summary.
+ */
+export function printMaskingPinWarning(files: AnalyzedFile[]): void {
+  const masking = findMaskingPins(files);
+  if (masking.length === 0) return;
+
+  const many = masking.length > 1;
+  console.info();
+  console.info(
+    `${warningMark} ${pc.yellow(
+      `${masking.length} pinned ${many ? 'files match' : 'file matches'} the previous upstream but changed upstream —`,
+    )}`,
+  );
+  console.info(pc.yellow('  the pin keeps the old fork copy and silently drops those upstream changes:'));
+  for (const file of masking) {
+    console.info(pc.dim(`  ⨀ ${file.path}`));
+  }
+  console.info(
+    pc.yellow('  If the fork never customized these, unpin them in cella/cella.config.ts to take upstream.'),
+  );
+  console.info();
+}
+
 export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean }): void {
   const { hard, unpinned } = options;
   if (!hard && !unpinned) return;
