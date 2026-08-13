@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.2.0](https://github.com/cellajs/cella-cli/compare/cli-0.1.1...cli-0.2.0) (2026-08-13)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sync:** `cella sync` no longer pushes/opens the PR in the same run that commits the merge; rerun it on the committed branch to ship.
+
+### 🎉 New features
+
+* **sync:** commit and ship in separate runs, no flag needed ([#19](https://github.com/cellajs/cella-cli/issues/19)) ([42b2216](https://github.com/cellajs/cella-cli/commit/42b22168e53ff052471985e2319ad91442ec33af))
+
 ## [0.1.1](https://github.com/cellajs/cella-cli/compare/cli-0.1.0...cli-0.1.1) (2026-08-03)
 
 
