@@ -552,9 +552,7 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
   if (options.stagedBranch) {
     console.info(`${pc.green('✓')} Sync merge staged on '${options.stagedBranch}'`);
     console.info(
-      pc.dim(
-        `  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. Review, then rerun \`pnpm cella sync\` to finish.`,
-      ),
+      pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. Committing next...`),
     );
   } else {
     console.info(`${pc.green('✓')} sync complete`);
