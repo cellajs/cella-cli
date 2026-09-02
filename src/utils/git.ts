@@ -626,6 +626,41 @@ export async function getFileChanges(
   return changes;
 }
 
+/** Lines added/removed for one path (`null` for binary files, where git reports `-`). */
+export interface DiffStat {
+  additions: number | null;
+  deletions: number | null;
+}
+
+/**
+ * Lines added/removed per file between two refs (`git diff --numstat`), optionally limited
+ * to `paths`. Renames are not detected (`--no-renames`) so every entry is keyed by its plain
+ * path instead of git's `old => new` notation.
+ */
+export async function getDiffStat(
+  cwd: string,
+  fromRef: string,
+  toRef: string,
+  paths: string[] = [],
+): Promise<Map<string, DiffStat>> {
+  const args = ['diff', '--numstat', '--no-renames', fromRef, toRef];
+  if (paths.length > 0) args.push('--', ...paths);
+  const out = await git(args, cwd, { ignoreErrors: true });
+
+  const stat = new Map<string, DiffStat>();
+  for (const line of out.split('\n')) {
+    if (!line.trim()) continue;
+    const [a, d, ...rest] = line.split('\t');
+    const path = rest.join('\t');
+    if (!path) continue;
+    stat.set(path, {
+      additions: a === '-' ? null : Number(a),
+      deletions: d === '-' ? null : Number(d),
+    });
+  }
+  return stat;
+}
+
 /**
  * Get all file hashes at a ref using ls-tree (batch operation).
  * Returns a Map of filePath -> hash for quick lookups.

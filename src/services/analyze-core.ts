@@ -12,10 +12,14 @@
  *
  * The result fields `existsInFork`/`existsInUpstream` map to local/incoming
  * respectively (named for the sync direction, reused as-is for contributions).
+ *
+ * Protected files (pinned/ignored) additionally get `upstreamChanged` when both sides
+ * changed since the merge-base: the local side wins whole-file there, so incoming's hunks
+ * are dropped silently unless surfaced.
  */
 
 import type { AnalyzedFile, FileStatus } from '../config/types';
-import { getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
+import { getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
 
 /** Predicates and options that steer classification (direction-specific). */
 export interface AnalyzePredicates {
@@ -86,6 +90,9 @@ export async function analyzeRefs(
   const analyzedFiles: AnalyzedFile[] = [];
   // Track old paths that have been handled as part of a rename
   const handledOldPaths = new Set<string>();
+  // Protected files flagged `upstreamChanged` via a rename: their numstat at the new path
+  // would count the whole file as added, so they get no line count.
+  const renamedProtected = new Set<string>();
   let processed = 0;
 
   for (const filePath of allFiles) {
@@ -149,9 +156,15 @@ export async function analyzeRefs(
       // pinned list may still reference the old path.
       const oldPathPinned = predicates.isPinned(oldPath);
 
+      let upstreamChanged: boolean | undefined;
       if (fileIsPinned || oldPathPinned || predicates.isIgnored(oldPath)) {
         // Pinned or ignored - keep local's version at the new path
         status = 'pinned';
+        // Local edited the old file and incoming changed its content beyond the rename
+        if (forkModifiedOld && upstreamHash !== baseOldHash) {
+          upstreamChanged = true;
+          renamedProtected.add(filePath);
+        }
       } else if (!oldPathInFork) {
         // Old path doesn't exist locally (already deleted or moved it)
         // Treat as normal behind - let git's merge handle it
@@ -175,6 +188,7 @@ export async function analyzeRefs(
         existsInFork: inFork,
         existsInUpstream: true,
         renamedFrom,
+        upstreamChanged,
       });
       continue;
     }
@@ -236,6 +250,14 @@ export async function analyzeRefs(
       }
     }
 
+    // Protected file where BOTH sides changed since the merge-base (a local edit or deletion,
+    // and incoming content that differs from base). Local wins whole-file, so incoming's
+    // hunks are dropped — flag it so analyze/sync can surface the loss. A protected file
+    // that only changed locally is plain `ahead`; one that only changed incoming (`behind`
+    // with the local copy still equal to base) is reported separately as a masking pin.
+    const upstreamChanged =
+      (fileIsPinned || fileIsIgnored) && inUpstream && upstreamHash !== baseHash && forkHash !== baseHash;
+
     analyzedFiles.push({
       path: filePath,
       status,
@@ -243,7 +265,25 @@ export async function analyzeRefs(
       isPinned: fileIsPinned,
       existsInFork: inFork,
       existsInUpstream: inUpstream,
+      upstreamChanged: upstreamChanged || undefined,
     });
+  }
+
+  // Size the dropped incoming changes: one numstat call limited to the flagged paths.
+  const flagged = analyzedFiles.filter((file) => file.upstreamChanged && !renamedProtected.has(file.path));
+  if (flagged.length > 0) {
+    const stat = await getDiffStat(
+      repoPath,
+      mergeBaseRef,
+      incomingRef,
+      flagged.map((file) => file.path),
+    );
+    for (const file of flagged) {
+      const entry = stat.get(file.path);
+      if (entry && entry.additions !== null && entry.deletions !== null) {
+        file.upstreamChangedLines = entry.additions + entry.deletions;
+      }
+    }
   }
 
   return analyzedFiles;
@@ -288,8 +328,8 @@ export async function enrichChangeInfo(
         file.changedTs = info.timestamp;
         file.changedCommit = info.hash;
       }
-    } else if (file.status === 'diverged' || file.status === 'pinned') {
-      // For diverged/pinned: store both local and incoming info
+    } else if (file.status === 'diverged' || file.status === 'pinned' || file.upstreamChanged) {
+      // For diverged/pinned (and protected files incoming also changed): store both sides
       const forkFileInfo = forkInfo.get(file.path);
       const upstreamFileInfo = upstreamInfo.get(file.path);
       if (forkFileInfo) {

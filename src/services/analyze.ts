@@ -28,9 +28,14 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
   protected: new Set(['ahead']),
 };
 
+/**
+ * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
+ * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing.
+ */
 function filterByScope(files: MergeResult['files'], scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
   const statuses = scopeStatuses[scope];
-  return files.filter((f) => statuses.has(f.status));
+  const includeProtectedBehind = scope !== 'risk';
+  return files.filter((f) => statuses.has(f.status) || (includeProtectedBehind && f.upstreamChanged === true));
 }
 
 function findTargetFile(files: MergeResult['files'], targetPath: string) {
@@ -88,6 +93,8 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       changedCommit: f.changedCommit ?? null,
       upstreamChangedAt: f.upstreamChangedAt ?? null,
       upstreamCommit: f.upstreamCommit ?? null,
+      upstreamChanged: f.upstreamChanged ?? false,
+      upstreamChangedLines: f.upstreamChangedLines ?? null,
     }));
     writeStdout(JSON.stringify(out, null, 2));
     return result;

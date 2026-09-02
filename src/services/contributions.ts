@@ -26,7 +26,7 @@ import pc from '../utils/colors';
 import { DEFAULT_BRANCH, loadConfig } from '../utils/config';
 import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import { createSpinner, DIVIDER, spinnerFail, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
-import { getCurrentBranch, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
+import { getCurrentBranch, getDiffStat, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
 import { buildContribBranch, countDetection, detectContributableFiles } from './contrib-core';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from './fork-utils';
 
@@ -254,30 +254,6 @@ async function forkRefMeta(cellaPath: string, forkRef: string): Promise<{ sha: s
   return { sha, date };
 }
 
-/**
- * Lines added/removed per file between cella base and the contrib branch.
- * Binary files report null. Used to enrich `--json` output for triage.
- */
-async function diffStat(
-  cellaPath: string,
-  baseRef: string,
-  ref: string,
-): Promise<Map<string, { additions: number | null; deletions: number | null }>> {
-  const out = await git(['diff', '--numstat', `${baseRef}..${ref}`], cellaPath, { ignoreErrors: true });
-  const stat = new Map<string, { additions: number | null; deletions: number | null }>();
-  for (const line of out.split('\n')) {
-    if (!line.trim()) continue;
-    const [a, d, ...rest] = line.split('\t');
-    const path = rest.join('\t');
-    if (!path) continue;
-    stat.set(path, {
-      additions: a === '-' ? null : Number(a),
-      deletions: d === '-' ? null : Number(d),
-    });
-  }
-  return stat;
-}
-
 // ── Main entry ───────────────────────────────────────────────────────────────
 
 /**
@@ -385,7 +361,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     if (countDetection(detection) > 0) {
       const { branch, appliedFiles } = await buildContribBranch(config.forkPath, baseRef, forkRef, detection, forkName);
       if (appliedFiles.length > 0) {
-        const stat = await diffStat(config.forkPath, baseRef, branch);
+        const stat = await getDiffStat(config.forkPath, baseRef, branch);
         const metaByPath = new Map(detection.files.map((f) => [f.path, f]));
         for (const path of [...detection.modified, ...detection.created]) {
           const fileMeta = metaByPath.get(path);

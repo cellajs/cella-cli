@@ -320,6 +320,13 @@ export interface AnalyzedFile {
   upstreamCommit?: string;
   /** For renamed files: the original path before rename */
   renamedFrom?: string;
+  /**
+   * Protected (pinned/ignored) files only: both sides changed since the merge-base. The fork
+   * side wins whole-file, so upstream's changes to this path are dropped by the sync.
+   */
+  upstreamChanged?: boolean;
+  /** For `upstreamChanged` files: lines upstream changed since the merge-base (undefined for binary) */
+  upstreamChangedLines?: number;
 }
 
 /** Summary counts by status */
@@ -367,4 +374,9 @@ export interface MergeResult {
   }>;
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
+  /**
+   * Protected (pinned/ignored) files resolved to the fork side although upstream also changed
+   * them: upstream's hunks were dropped, not merged. Review each against upstream.
+   */
+  protectedConflicts?: string[];
 }
