@@ -164,7 +164,10 @@ missing new upstream utilities that synced components rely on), so both commands
 
 Diff each against upstream (`cella analyze --open-diff <path>`) and adopt what you need. The
 check is relative to the last sync point: a drop that happened in an earlier sync only shows up
-as plain `ahead` afterwards, so review the list on every sync.
+as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
+files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
+tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
+deliberately or not: diff and decide. Ignored files are not annotated.
 
 ## Package.json sync
 

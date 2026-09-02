@@ -327,6 +327,12 @@ export interface AnalyzedFile {
   upstreamChanged?: boolean;
   /** For `upstreamChanged` files: lines upstream changed since the merge-base (undefined for binary) */
   upstreamChangedLines?: number;
+  /**
+   * Pinned `ahead` files only: lines present upstream but absent from the fork (undefined for
+   * binary). Independent of the sync point, so it also shows upstream content dropped by an
+   * earlier sync — or removed on purpose; only a diff can tell.
+   */
+  upstreamLinesAbsent?: number;
 }
 
 /** Summary counts by status */

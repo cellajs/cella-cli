@@ -436,10 +436,12 @@ export function printSummary(summary: AnalysisSummary, title = 'summary'): void 
 interface FileSectionOptions {
   /** Override section header title */
   title?: string;
-  /** Footer hint text (dimmed) */
-  hint?: string;
+  /** Footer hint text (dimmed), one line per entry */
+  hint?: string | string[];
   /** Which commit/date fields to use: 'fork' or 'upstream' */
   dateSource?: 'fork' | 'upstream';
+  /** Per-file detail appended after the date/link info */
+  suffix?: (file: AnalyzedFile) => string;
 }
 
 /**
@@ -450,10 +452,7 @@ function printFileSection(
   files: AnalyzedFile[],
   title: string,
   linkOptions: LinkOptions,
-  options: FileSectionOptions & {
-    icon: string | ((file: AnalyzedFile) => string);
-    suffix?: (file: AnalyzedFile) => string;
-  },
+  options: FileSectionOptions & { icon: string | ((file: AnalyzedFile) => string) },
 ): void {
   if (files.length === 0) return;
 
@@ -477,7 +476,9 @@ function printFileSection(
 
   if (options.hint) {
     console.info();
-    console.info(pc.dim(`  ${options.hint}`));
+    for (const line of Array.isArray(options.hint) ? options.hint : [options.hint]) {
+      console.info(pc.dim(`  ${line}`));
+    }
   }
 }
 
@@ -522,6 +523,12 @@ function formatUpstreamChangedLines(file: AnalyzedFile): string {
   return pc.yellow(` · ${n} ${n === 1 ? 'line' : 'lines'} changed upstream`);
 }
 
+/** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
+function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
+  const n = file.upstreamLinesAbsent ?? 0;
+  return n > 0 ? pc.yellow(` · ${n} upstream ${n === 1 ? 'line' : 'lines'} absent`) : '';
+}
+
 /**
  * Print all analyze-mode file group sections in review order:
  * behind, ahead (protected), protected-but-behind, drifted, and diverged.
@@ -535,7 +542,12 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
   });
   printFileGroup(files, 'ahead', linkOptions, {
     title: `${pc.blue('↑ protected in fork')}`,
-    hint: 'these files have fork changes but are protected (pinned); upstream did not change them since the last sync.',
+    suffix: formatUpstreamLinesAbsent,
+    hint: [
+      'these files have fork changes but are protected (pinned); upstream did not change them since the last sync.',
+      'pinned files keep the fork side on every conflict; a count here is upstream content the fork never received, ' +
+        'deliberately or not: diff and decide.',
+    ],
   });
   printFileSection(
     findProtectedBehind(files),

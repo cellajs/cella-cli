@@ -286,6 +286,32 @@ export async function analyzeRefs(
     }
   }
 
+  // Retroactive signal for pinned `ahead` files (incoming untouched since the merge-base, so
+  // the check above cannot fire): count lines incoming has that local lacks, relative to
+  // the tips rather than the sync point. Pinned only — ignored territory is noise by design.
+  const stale = analyzedFiles.filter(
+    (file) =>
+      file.status === 'ahead' &&
+      file.isPinned &&
+      !file.isIgnored &&
+      file.existsInFork &&
+      file.existsInUpstream &&
+      forkHashes.get(file.path) !== upstreamHashes.get(file.path),
+  );
+  if (stale.length > 0) {
+    // from = incoming, to = local: numstat deletions are incoming lines absent locally
+    const stat = await getDiffStat(
+      repoPath,
+      incomingRef,
+      localRef,
+      stale.map((file) => file.path),
+    );
+    for (const file of stale) {
+      const deletions = stat.get(file.path)?.deletions;
+      if (deletions !== null && deletions !== undefined) file.upstreamLinesAbsent = deletions;
+    }
+  }
+
   return analyzedFiles;
 }
 

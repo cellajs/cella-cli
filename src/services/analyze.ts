@@ -95,6 +95,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       upstreamCommit: f.upstreamCommit ?? null,
       upstreamChanged: f.upstreamChanged ?? false,
       upstreamChangedLines: f.upstreamChangedLines ?? null,
+      upstreamLinesAbsent: f.upstreamLinesAbsent ?? null,
     }));
     writeStdout(JSON.stringify(out, null, 2));
     return result;

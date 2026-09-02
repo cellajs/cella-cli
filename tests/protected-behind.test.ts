@@ -13,7 +13,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyzedFile, FileStatus, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
-import { findProtectedBehind, printSyncComplete } from '../src/utils/display';
+import { findProtectedBehind, printAnalysisFileGroups, printSyncComplete } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
 
 function exec(cmd: string, cwd: string): string {
@@ -32,6 +32,8 @@ function write(dir: string, file: string, content: string): void {
  * - masking.css:   upstream changed, fork untouched  → behind (masking pin, not flagged)
  * - own/mine.ts:   ignored, both changed             → flagged
  * - plain.ts:      unprotected, upstream changed     → behind, never flagged
+ * - stale.css:     pinned, fork dropped 2 base lines, upstream untouched → ahead, 2 lines absent
+ * - own/stale.ts:  ignored, same shape as stale.css  → ignored, never annotated
  */
 function createRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-protected-behind-'));
@@ -43,6 +45,8 @@ function createRepo(): string {
   write(dir, 'masking.css', 'a\n');
   write(dir, 'own/mine.ts', 'a\n');
   write(dir, 'plain.ts', 'a\n');
+  write(dir, 'stale.css', 'a\nb\nc\n');
+  write(dir, 'own/stale.ts', 'a\nb\n');
   exec('git add -A && git commit -q -m base', dir);
 
   exec('git checkout -q -b upstream', dir);
@@ -56,6 +60,8 @@ function createRepo(): string {
   write(dir, 'pinned.css', 'a\nb\nc\nfork\n');
   write(dir, 'only-fork.css', 'a\nfork\n');
   write(dir, 'own/mine.ts', 'a\nfork\n');
+  write(dir, 'stale.css', 'a\nfork\n'); // b, c gone: 2 upstream lines absent
+  write(dir, 'own/stale.ts', 'a\n');
   exec('git add -A && git commit -q -m fork', dir);
 
   return dir;
@@ -115,6 +121,46 @@ describe('analyzeRefs upstreamChanged', () => {
     const plain = byPath.get('plain.ts');
     expect(plain?.status).toBe('behind');
     expect(plain?.upstreamChanged).toBeUndefined();
+  });
+
+  it('counts upstream lines absent from a pinned ahead file', () => {
+    const stale = byPath.get('stale.css');
+    expect(stale?.status).toBe('ahead');
+    expect(stale?.upstreamLinesAbsent).toBe(2);
+    // fork only added lines: nothing absent
+    expect(byPath.get('only-fork.css')?.upstreamLinesAbsent).toBe(0);
+  });
+
+  it('never counts absent lines for ignored or unprotected files', () => {
+    expect(byPath.get('own/stale.ts')?.status).toBe('ignored');
+    expect(byPath.get('own/stale.ts')?.upstreamLinesAbsent).toBeUndefined();
+    expect(byPath.get('plain.ts')?.upstreamLinesAbsent).toBeUndefined();
+  });
+});
+
+describe('printAnalysisFileGroups upstream lines absent', () => {
+  function capture(files: AnalyzedFile[]): string {
+    const lines: string[] = [];
+    const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    try {
+      printAnalysisFileGroups(files, {});
+    } finally {
+      spy.mockRestore();
+    }
+    return lines.join('\n');
+  }
+
+  it('annotates pinned ahead files with a positive count and prints the hint', () => {
+    const out = capture([
+      file({ path: 'frontend/src/styling/tailwind.css', status: 'ahead', isPinned: true, upstreamLinesAbsent: 7 }),
+      file({ path: 'clean.css', status: 'ahead', isPinned: true, upstreamLinesAbsent: 0 }),
+    ]);
+    expect(out).toContain('frontend/src/styling/tailwind.css');
+    expect(out).toContain('7 upstream lines absent');
+    expect(out).toMatch(/clean\.css\n/);
+    expect(out).toContain('diff and decide');
   });
 });
 
