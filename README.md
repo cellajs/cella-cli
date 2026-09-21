@@ -144,12 +144,30 @@ During analysis and sync, files are displayed with status indicators:
 | ◇ | `managed` | Package/config file changed | Handled separately by cella |
 | ⨂ | `ignored` | Protected by ignored config | Excluded from sync |
 | ✓ | `identical` | Fork matches upstream | No action needed |
-| ↑ | `ahead` | Fork changed (pinned) | Protected, keeping fork |
+| ↑ | `ahead` | Fork changed (pinned), upstream did not | Protected, keeping fork |
 | ! | `drifted` | Fork changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream has changes | Will sync from upstream |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
-| ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork |
+| ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork — review, see below |
 | + | `local` | Only in fork, never in upstream | No action needed |
+
+### Protected but behind upstream
+
+A pinned or ignored file wins whole-file: when upstream also changed it since the last sync,
+upstream's hunks are dropped, not merged. That is easy to miss (a pinned stylesheet quietly
+missing new upstream utilities that synced components rely on), so both commands call it out:
+
+- `analyze` lists them in a `⚠ protected but behind upstream` section (pinned files as ⨀,
+  ignored as ⨂) with the number of lines upstream changed; `--list`/`--json` include them in
+  `--scope all` and `--scope protected` (`--json` adds `upstreamChanged` and `upstreamChangedLines`).
+- `sync` prints the same list at the end of its summary, right when the drop happens.
+
+Diff each against upstream (`cella analyze --open-diff <path>`) and adopt what you need. The
+check is relative to the last sync point: a drop that happened in an earlier sync only shows up
+as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
+files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
+tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
+deliberately or not: diff and decide. Ignored files are not annotated.
 
 ## Package.json sync
 

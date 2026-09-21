@@ -432,6 +432,56 @@ export function printSummary(summary: AnalysisSummary, title = 'summary'): void 
   printLine('behind', summary.behind);
 }
 
+/** Options shared by the file-list section printers. */
+interface FileSectionOptions {
+  /** Override section header title */
+  title?: string;
+  /** Footer hint text (dimmed), one line per entry */
+  hint?: string | string[];
+  /** Which commit/date fields to use: 'fork' or 'upstream' */
+  dateSource?: 'fork' | 'upstream';
+  /** Per-file detail appended after the date/link info */
+  suffix?: (file: AnalyzedFile) => string;
+}
+
+/**
+ * Print a list of files as a section: header, one line per file (capped), optional hint.
+ * `icon` may vary per file (e.g. pinned vs ignored) and `suffix` appends per-file detail.
+ */
+function printFileSection(
+  files: AnalyzedFile[],
+  title: string,
+  linkOptions: LinkOptions,
+  options: FileSectionOptions & { icon: string | ((file: AnalyzedFile) => string) },
+): void {
+  if (files.length === 0) return;
+
+  printSectionHeader(`${title} ${pc.dim(`· ${files.length} files`)}`);
+
+  const useUpstream = options.dateSource === 'upstream';
+  const maxLines = 100;
+  const shown = files.length > maxLines ? files.slice(0, maxLines) : files;
+
+  for (const file of shown) {
+    const icon = typeof options.icon === 'string' ? options.icon : options.icon(file);
+    const commit = useUpstream ? file.upstreamCommit : file.changedCommit;
+    const date = useUpstream ? file.upstreamChangedAt : file.changedAt;
+    const dateInfo = formatFileDateInfo(file.path, commit, date, linkOptions);
+    console.info(`  ${icon} ${file.path}${dateInfo}${options.suffix?.(file) ?? ''}`);
+  }
+
+  if (files.length > maxLines) {
+    console.info(pc.dim(`  ... + ${files.length - maxLines} more`));
+  }
+
+  if (options.hint) {
+    console.info();
+    for (const line of Array.isArray(options.hint) ? options.hint : [options.hint]) {
+      console.info(pc.dim(`  ${line}`));
+    }
+  }
+}
+
 /**
  * Print a group of files with a specific status, including section header and footer.
  */
@@ -439,47 +489,52 @@ function printFileGroup(
   files: AnalyzedFile[],
   status: FileStatus,
   linkOptions: LinkOptions,
-  options?: {
-    /** Override section header title */
-    title?: string;
-    /** Footer hint text (dimmed) */
-    hint?: string;
-    /** Which commit/date fields to use: 'fork' or 'upstream' */
-    dateSource?: 'fork' | 'upstream';
-  },
+  options?: FileSectionOptions,
 ): void {
   const filtered = files.filter((f) => f.status === status && !isManagedFile(f.path));
-  if (filtered.length === 0) return;
-
   const config = statusConfig[status];
   const title = options?.title ?? `${config.icon} ${config.label}`;
+  printFileSection(filtered, title, linkOptions, { ...options, icon: config.icon });
+}
 
-  printSectionHeader(`${title} ${pc.dim(`· ${filtered.length} files`)}`);
+/**
+ * Protected (pinned/ignored) files that upstream also changed since the last sync. The fork
+ * side wins whole-file on these, so upstream's hunks are dropped — the regression class where
+ * a pinned stylesheet misses new upstream utilities that synced components rely on.
+ */
+export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
+  return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path));
+}
 
-  const useUpstream = options?.dateSource === 'upstream';
-  const maxLines = 100;
-  const shown = filtered.length > maxLines ? filtered.slice(0, maxLines) : filtered;
+/** Shared hint for protected-but-behind output (analyze section and sync summary). */
+const PROTECTED_BEHIND_HINT =
+  'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
+  'so diff each against upstream (analyze --open-diff <path>) and adopt what you need.';
 
-  for (const file of shown) {
-    const commit = useUpstream ? file.upstreamCommit : file.changedCommit;
-    const date = useUpstream ? file.upstreamChangedAt : file.changedAt;
-    const dateInfo = formatFileDateInfo(file.path, commit, date, linkOptions);
-    console.info(`  ${config.icon} ${file.path}${dateInfo}`);
-  }
+/** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
+function protectionIcon(file: AnalyzedFile): string {
+  return file.isIgnored ? statusConfig.ignored.icon : statusConfig.pinned.icon;
+}
 
-  if (filtered.length > maxLines) {
-    console.info(pc.dim(`  ... + ${filtered.length - maxLines} more`));
-  }
+/** Per-file detail: how many lines upstream changed (dropped by the fork-wins resolution). */
+function formatUpstreamChangedLines(file: AnalyzedFile): string {
+  if (file.upstreamChangedLines === undefined) return '';
+  const n = file.upstreamChangedLines;
+  return pc.yellow(` · ${n} ${n === 1 ? 'line' : 'lines'} changed upstream`);
+}
 
-  if (options?.hint) {
-    console.info();
-    console.info(pc.dim(`  ${options.hint}`));
-  }
+/** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
+function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
+  const n = file.upstreamLinesAbsent ?? 0;
+  return n > 0 ? pc.yellow(` · ${n} upstream ${n === 1 ? 'line' : 'lines'} absent`) : '';
 }
 
 /**
  * Print all analyze-mode file group sections in review order:
- * behind, ahead (protected), drifted, diverged, and pinned.
+ * behind, ahead (protected), protected-but-behind, drifted, and diverged.
+ *
+ * Protected-but-behind covers every `pinned`-status file (both changed, fork wins) plus
+ * ignored files upstream also changed, so there is no separate `pinned` group.
  */
 export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: LinkOptions): void {
   printFileGroup(files, 'behind', linkOptions, {
@@ -487,8 +542,24 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
   });
   printFileGroup(files, 'ahead', linkOptions, {
     title: `${pc.blue('↑ protected in fork')}`,
-    hint: 'these files have fork changes but are protected (pinned).',
+    suffix: formatUpstreamLinesAbsent,
+    hint: [
+      'these files have fork changes but are protected (pinned); upstream did not change them since the last sync.',
+      'pinned files keep the fork side on every conflict; a count here is upstream content the fork never received, ' +
+        'deliberately or not: diff and decide.',
+    ],
   });
+  printFileSection(
+    findProtectedBehind(files),
+    `${warningMark} ${pc.yellow('protected but behind upstream')}`,
+    linkOptions,
+    {
+      icon: protectionIcon,
+      suffix: formatUpstreamChangedLines,
+      dateSource: 'upstream',
+      hint: PROTECTED_BEHIND_HINT,
+    },
+  );
   printFileGroup(files, 'drifted', linkOptions, {
     title: `${warningMark} ${pc.yellow('drifted from upstream')}`,
     hint: 'these files have fork changes but are not pinned or ignored.',
@@ -496,11 +567,6 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
   printFileGroup(files, 'diverged', linkOptions, {
     title: `${pc.magenta('⇅ diverged')}`,
     hint: 'both fork and upstream changed.',
-    dateSource: 'upstream',
-  });
-  printFileGroup(files, 'pinned', linkOptions, {
-    title: `${pc.green('⨀ pinned')}`,
-    hint: 'both changed, fork wins (pinned in cella/cella.config.ts).',
     dateSource: 'upstream',
   });
 }
@@ -559,7 +625,32 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
     console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
   }
 
+  printProtectedConflicts(result);
   console.info();
+}
+
+/**
+ * List protected files the sync resolved to the fork side although upstream changed them
+ * (`MergeResult.protectedConflicts`). Printed right when the drop happens so it is not
+ * discovered weeks later as a styling or behavior regression. Silent when empty.
+ */
+function printProtectedConflicts(result: MergeResult): void {
+  const paths = result.protectedConflicts ?? [];
+  if (paths.length === 0) return;
+
+  const byPath = new Map(result.files.map((file) => [file.path, file]));
+  console.info();
+  console.info(
+    `${warningMark} ${pc.yellow(
+      `${paths.length} protected ${paths.length === 1 ? 'file kept' : 'files kept'} the fork version, dropping upstream changes:`,
+    )}`,
+  );
+  for (const path of paths) {
+    const file = byPath.get(path);
+    const icon = file ? protectionIcon(file) : statusConfig.pinned.icon;
+    console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
+  }
+  console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
 }
 
 /**

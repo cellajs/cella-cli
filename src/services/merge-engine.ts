@@ -115,6 +115,7 @@ async function applyDirectMerge(
   remainingConflicts: string[];
   analyzedFiles: AnalyzedFile[];
   autoMergedFiles: string[];
+  protectedConflicts: string[];
 }> {
   // Phase 1: Pre-analyze using git refs (invisible to IDE).
   // analyzeRefs only uses git plumbing (ls-tree, diff-tree) on refs,
@@ -273,6 +274,11 @@ async function applyDirectMerge(
     }
   }
 
+  // Protected files where upstream's changes were dropped by the fork-wins resolution above:
+  // the batch-restored pinned/ignored files that upstream also changed since the merge-base.
+  // Surfaced in the sync summary so the loss is visible right when it happens.
+  const protectedConflicts = analyzedFiles.filter((file) => file.upstreamChanged).map((file) => file.path);
+
   // Handle remaining git conflicts: auto-resolve only ignored/pinned (fork wins);
   // everything else keeps its markers for IDE 3-way resolution.
   const gitConflicts = await getConflictedFiles(forkPath);
@@ -283,6 +289,7 @@ async function applyDirectMerge(
     if (await fileExistsAtRef(forkPath, 'HEAD', filePath)) {
       onProgress?.(`→ ${filePath}: keeping fork (protected conflict)`);
       await restoreToHead(forkPath, filePath);
+      if (!protectedConflicts.includes(filePath)) protectedConflicts.push(filePath);
     } else {
       onProgress?.(`→ ${filePath}: removing (protected conflict, not in fork)`);
       await removeFileFully(forkPath, filePath);
@@ -310,7 +317,7 @@ async function applyDirectMerge(
     }
   }
 
-  return { remainingConflicts, analyzedFiles, autoMergedFiles };
+  return { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts };
 }
 
 /**
@@ -495,7 +502,7 @@ async function runSyncMerge(
   const { forkPath } = config;
   const { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit } = ctx;
 
-  const { remainingConflicts, analyzedFiles, autoMergedFiles } = await applyDirectMerge(
+  const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
     forkPath,
     upstreamRef,
     mergeBase,
@@ -563,6 +570,7 @@ async function runSyncMerge(
     summary,
     conflicts: remainingConflicts,
     autoMergedFiles,
+    protectedConflicts,
     ...resultMeta(config, ctx),
   };
 }
@@ -616,6 +624,7 @@ async function runAnalyzePreview(
     summary: calculateSummary(analyzedFiles),
     // For analyze mode, count diverged files as potential conflicts
     conflicts: analyzedFiles.filter((f) => f.status === 'diverged').map((f) => f.path),
+    protectedConflicts: analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path),
     ...resultMeta(config, ctx),
   };
 }
