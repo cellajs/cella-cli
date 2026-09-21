@@ -133,6 +133,31 @@ function safeMergeRecord(
   return { merged: sorted, changed, added };
 }
 
+/** A subpath map (`{ ".": …, "./config": … }`), as opposed to a string or a conditions object. */
+function isSubpathMap(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.keys(value).every((name) => name.startsWith('.'));
+}
+
+/**
+ * Safe merge for the `exports` key — add upstream subpaths the fork lacks, never touch the
+ * fork's own. Only merges when both sides are subpath maps: a string or conditions object
+ * can't take extra subpaths, and condition order is significant. Keeps the fork's key order.
+ */
+function safeMergeExports(
+  forkExports: unknown,
+  upstreamExports: unknown,
+): { merged: Record<string, unknown>; changed: boolean; added: string[] } | undefined {
+  if (!isSubpathMap(upstreamExports)) return undefined;
+  if (forkExports !== undefined && !isSubpathMap(forkExports)) return undefined;
+
+  const merged = { ...(forkExports || {}) };
+  const added = Object.keys(upstreamExports).filter((name) => !(name in merged));
+  for (const name of added) merged[name] = upstreamExports[name];
+
+  return { merged, changed: added.length > 0, added };
+}
+
 /**
  * Safe merge for the `pnpm` key — recurse into sub-objects with add/bump-only logic.
  */
@@ -314,6 +339,18 @@ async function syncPackageJson(
         forkPkg[key] = upstreamValue;
         updated = true;
         changes.push(`${key}: bumped`);
+      }
+      continue;
+    }
+
+    if (key === 'exports') {
+      // Add-only, subpath maps only: the fork gains new upstream subpaths, keeps any it defines
+      // itself, and a subpath it has repointed stays repointed.
+      const result = safeMergeExports(forkPkg.exports, upstreamPkg.exports);
+      if (result?.changed) {
+        forkPkg.exports = result.merged;
+        updated = true;
+        changes.push(...result.added.map((name) => `exports.${name}: added`));
       }
       continue;
     }

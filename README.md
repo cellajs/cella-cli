@@ -177,10 +177,12 @@ deliberately or not: diff and decide. Ignored files are not annotated.
 packageJsonSync: ['dependencies', 'devDependencies', 'scripts']
 ```
 
-**Supported keys:** `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `scripts`, `engines`, `packageManager`, `overrides`
+**Supported keys:** `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `scripts`, `engines`, `packageManager`, `overrides`, `exports`, `pnpm`
 
 It **adds** new keys and **updates** existing ones to match upstream, but never **removes** keys
-that only exist in your fork — so extra dependencies and scripts survive each sync.
+that only exist in your fork — so extra dependencies and scripts survive each sync. `scripts` and
+`exports` are add-only: an entry your fork already defines is never rewritten. `exports` only
+merges when both sides are subpath maps (`{ ".": …, "./config": … }`).
 
 ## Contributions (pull from forks)
 
