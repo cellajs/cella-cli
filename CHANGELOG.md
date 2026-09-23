@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.2.1](https://github.com/cellajs/cella-cli/compare/cli-0.2.0...cli-0.2.1) (2026-09-23)
+
+
+### 🎉 New features
+
+* **analyze:** surface pinned files that are behind upstream ([#21](https://github.com/cellajs/cella-cli/issues/21)) ([411a788](https://github.com/cellajs/cella-cli/commit/411a788f695f701340a4a26e0f3248eeb90420c6))
+* **packages:** sync package.json exports, add-only ([#22](https://github.com/cellajs/cella-cli/issues/22)) ([e59b8c5](https://github.com/cellajs/cella-cli/commit/e59b8c5eb87e8a5e1fc1f2106c464ddd870ea84d))
+* require Node.js 26 ([#24](https://github.com/cellajs/cella-cli/issues/24)) ([8143536](https://github.com/cellajs/cella-cli/commit/81435365942fc4fe8661db48af7b9cf59f8803c3))
+
 ## [0.2.0](https://github.com/cellajs/cella-cli/compare/cli-0.1.1...cli-0.2.0) (2026-08-13)
 
 
