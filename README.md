@@ -183,7 +183,11 @@ Each section merges three-way against the merge-base package.json (upstream as o
 sync). An entry your fork never touched follows upstream: it is **added**, **updated** (a rewritten
 script, a changed range) or **removed** when upstream dropped it. An entry your fork added or
 changed stays as it is; only a strictly higher upstream version still bumps it, and never for
-`scripts`. An entry your fork removed is not re-added. `exports` are add-only: an entry your fork
+`scripts`. An entry your fork removed is not re-added. A dependency or script upstream dropped
+stays while your own code still uses it: files that differ from upstream and scripts your fork
+added or changed are searched for an import of the package, a run of its CLI, or a package manager
+command that runs the script. The sync lists every change and warns about each entry it kept this
+way, so you can remove it once your code no longer needs it. `exports` are add-only: an entry your fork
 already defines is never rewritten, and `exports` only merges when both sides are subpath maps
 (`{ ".": …, "./config": … }`). A workspace upstream added since your last sync arrives with its
 package.json copied verbatim.

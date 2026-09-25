@@ -194,6 +194,70 @@ describe('packages merge', () => {
     expect((readPkg(forkPath).dependencies as Record<string, string>).zod).toBe('^3.23.0');
   });
 
+  it('keeps a dependency upstream dropped while fork code still imports it', async () => {
+    fs.mkdirSync(path.join(forkPath, 'src'));
+    fs.writeFileSync(path.join(forkPath, 'src', 'schema.ts'), "import { z } from 'zod/v4';\n");
+    exec('git add -A && git commit -m "fork schema"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    delete (upstreamPkg.dependencies as Record<string, string>).zod;
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "remove zod"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect((readPkg(forkPath).dependencies as Record<string, string>).zod).toBe('^3.22.0');
+  });
+
+  it('keeps a devDependency whose CLI a fork script runs, by the bin name it installs', async () => {
+    const forkPkg = readPkg(forkPath);
+    forkPkg.scripts = { typecheck: 'tsc --noEmit' };
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "fork typecheck script"', forkPath);
+    // Installed (untracked): the bin names come from here
+    fs.mkdirSync(path.join(forkPath, 'node_modules', 'typescript'), { recursive: true });
+    writePkg(
+      forkPath,
+      { name: 'typescript', bin: { tsc: './bin/tsc', tsserver: './bin/tsserver' } },
+      'node_modules/typescript',
+    );
+
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.devDependencies = {};
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "drop dev dependencies"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    const devDeps = readPkg(forkPath).devDependencies as Record<string, string>;
+    expect(devDeps.typescript).toBe('^5.3.0');
+    expect(devDeps.vitest).toBeUndefined();
+  });
+
+  it('only counts fork code inside the workspace whose dependency upstream dropped', async () => {
+    fs.mkdirSync(path.join(upstreamPath, 'backend'));
+    writePkg(upstreamPath, { name: 'backend', dependencies: { 'pg-format': '^1.0.0', postgres: '^3.4.0' } }, 'backend');
+    exec('git add -A && git commit -m "add backend"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    fs.mkdirSync(path.join(forkPath, 'frontend'));
+    fs.writeFileSync(path.join(forkPath, 'frontend', 'query.ts'), "import format from 'pg-format';\n");
+    fs.writeFileSync(path.join(forkPath, 'backend', 'db.ts'), "import postgres from 'postgres';\n");
+    exec('git add -A && git commit -m "fork modules"', forkPath);
+
+    writePkg(upstreamPath, { name: 'backend', dependencies: {} }, 'backend');
+    exec('git add -A && git commit -m "drop backend dependencies"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    const deps = readPkg(forkPath, 'backend').dependencies as Record<string, string>;
+    expect(deps['pg-format']).toBeUndefined();
+    expect(deps.postgres).toBe('^3.4.0');
+  });
+
   it('does not re-add a dependency the fork removed', async () => {
     const forkPkg = readPkg(forkPath);
     delete (forkPkg.dependencies as Record<string, string>).zod;
@@ -289,6 +353,32 @@ describe('packages merge', () => {
     const scripts = readPkg(forkPath).scripts as Record<string, string>;
     expect(scripts.build).toBe('tsc -b');
     expect(scripts.lint).toBe('my-linter');
+  });
+
+  it('removes a script upstream dropped unless a fork file still runs it', async () => {
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.scripts = { build: 'tsc', 'geoip:download': 'node geoip.js', 'old:task': 'node old.js' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "add scripts"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    fs.mkdirSync(path.join(forkPath, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(
+      path.join(forkPath, '.github', 'workflows', 'geoip.yml'),
+      'steps:\n  - run: pnpm --filter backend geoip:download\n',
+    );
+    exec('git add -A && git commit -m "fork workflow"', forkPath);
+
+    upstreamPkg.scripts = { build: 'tsc' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "drop scripts"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+
+    const scripts = readPkg(forkPath).scripts as Record<string, string>;
+    expect(scripts['geoip:download']).toBe('node geoip.js');
+    expect(scripts['old:task']).toBeUndefined();
   });
 
   it('copies the package.json of a workspace upstream added since the base', async () => {
