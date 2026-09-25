@@ -1,8 +1,8 @@
 /**
  * Unit tests for package.json merge logic.
  *
- * Tests the safe merge behavior (add-only, bump-only, never remove/downgrade)
- * using real git repos with package.json files.
+ * Tests the three-way merge against the merge-base (add, follow upstream where the fork never
+ * touched an entry, keep the fork's own changes) using real git repos with package.json files.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -163,11 +163,7 @@ describe('packages merge', () => {
     expect(deps.hono).toBe('^4.0.0');
   });
 
-  it('should preserve fork deps even when upstream removes them', async () => {
-    // Fork has the dep from upstream
-    exec('git fetch cella-upstream', forkPath);
-
-    // Upstream removes the dep
+  it('removes a dependency upstream dropped when the fork never touched it', async () => {
     const upstreamPkg = readPkg(upstreamPath);
     delete (upstreamPkg.dependencies as Record<string, string>).zod;
     writePkg(upstreamPath, upstreamPkg);
@@ -176,10 +172,121 @@ describe('packages merge', () => {
 
     await runPackages(buildConfig());
 
-    const resultPkg = readPkg(forkPath);
-    const deps = resultPkg.dependencies as Record<string, string>;
-    // Fork should still have zod — never remove
-    expect(deps.zod).toBe('^3.22.0');
+    const deps = readPkg(forkPath).dependencies as Record<string, string>;
+    expect(deps.zod).toBeUndefined();
+    expect(deps.hono).toBe('^4.0.0');
+  });
+
+  it('keeps a dependency upstream dropped when the fork changed it', async () => {
+    const forkPkg = readPkg(forkPath);
+    (forkPkg.dependencies as Record<string, string>).zod = '^3.23.0';
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "bump zod in fork"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    delete (upstreamPkg.dependencies as Record<string, string>).zod;
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "remove zod"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect((readPkg(forkPath).dependencies as Record<string, string>).zod).toBe('^3.23.0');
+  });
+
+  it('keeps a dependency upstream dropped while fork code still imports it', async () => {
+    fs.mkdirSync(path.join(forkPath, 'src'));
+    fs.writeFileSync(path.join(forkPath, 'src', 'schema.ts'), "import { z } from 'zod/v4';\n");
+    exec('git add -A && git commit -m "fork schema"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    delete (upstreamPkg.dependencies as Record<string, string>).zod;
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "remove zod"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect((readPkg(forkPath).dependencies as Record<string, string>).zod).toBe('^3.22.0');
+  });
+
+  it('keeps a devDependency whose CLI a fork script runs, by the bin name it installs', async () => {
+    const forkPkg = readPkg(forkPath);
+    forkPkg.scripts = { typecheck: 'tsc --noEmit' };
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "fork typecheck script"', forkPath);
+    // Installed (untracked): the bin names come from here
+    fs.mkdirSync(path.join(forkPath, 'node_modules', 'typescript'), { recursive: true });
+    writePkg(
+      forkPath,
+      { name: 'typescript', bin: { tsc: './bin/tsc', tsserver: './bin/tsserver' } },
+      'node_modules/typescript',
+    );
+
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.devDependencies = {};
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "drop dev dependencies"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    const devDeps = readPkg(forkPath).devDependencies as Record<string, string>;
+    expect(devDeps.typescript).toBe('^5.3.0');
+    expect(devDeps.vitest).toBeUndefined();
+  });
+
+  it('only counts fork code inside the workspace whose dependency upstream dropped', async () => {
+    fs.mkdirSync(path.join(upstreamPath, 'backend'));
+    writePkg(upstreamPath, { name: 'backend', dependencies: { 'pg-format': '^1.0.0', postgres: '^3.4.0' } }, 'backend');
+    exec('git add -A && git commit -m "add backend"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    fs.mkdirSync(path.join(forkPath, 'frontend'));
+    fs.writeFileSync(path.join(forkPath, 'frontend', 'query.ts'), "import format from 'pg-format';\n");
+    fs.writeFileSync(path.join(forkPath, 'backend', 'db.ts'), "import postgres from 'postgres';\n");
+    exec('git add -A && git commit -m "fork modules"', forkPath);
+
+    writePkg(upstreamPath, { name: 'backend', dependencies: {} }, 'backend');
+    exec('git add -A && git commit -m "drop backend dependencies"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    const deps = readPkg(forkPath, 'backend').dependencies as Record<string, string>;
+    expect(deps['pg-format']).toBeUndefined();
+    expect(deps.postgres).toBe('^3.4.0');
+  });
+
+  it('does not re-add a dependency the fork removed', async () => {
+    const forkPkg = readPkg(forkPath);
+    delete (forkPkg.dependencies as Record<string, string>).zod;
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "drop zod in fork"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    (upstreamPkg.dependencies as Record<string, string>).hono = '^5.0.0';
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "bump hono"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    const deps = readPkg(forkPath).dependencies as Record<string, string>;
+    expect(deps.zod).toBeUndefined();
+    expect(deps.hono).toBe('^5.0.0');
+  });
+
+  it('follows an upstream range change the fork never touched, even a downgrade', async () => {
+    const upstreamPkg = readPkg(upstreamPath);
+    (upstreamPkg.dependencies as Record<string, string>).hono = '^3.12.0';
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "pin hono lower"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect((readPkg(forkPath).dependencies as Record<string, string>).hono).toBe('^3.12.0');
   });
 
   it('should sort dependencies alphabetically after merge', async () => {
@@ -221,6 +328,93 @@ describe('packages merge', () => {
     expect(scripts.lint).toBe('my-linter');
     // New script from upstream should be added
     expect(scripts.test).toBe('vitest');
+  });
+
+  it('updates a script the fork never touched and keeps one it changed', async () => {
+    // Base: upstream ships scripts, the fork takes them as they are
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.scripts = { build: 'tsc', lint: 'biome check .' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "add scripts"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    // Fork rewrites lint; upstream rewrites both
+    const forkPkg = readPkg(forkPath);
+    forkPkg.scripts = { build: 'tsc', lint: 'my-linter' };
+    writePkg(forkPath, forkPkg);
+    exec('git add -A && git commit -m "own linter"', forkPath);
+    upstreamPkg.scripts = { build: 'tsc -b', lint: 'biome check --write .' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "rewrite scripts"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+
+    const scripts = readPkg(forkPath).scripts as Record<string, string>;
+    expect(scripts.build).toBe('tsc -b');
+    expect(scripts.lint).toBe('my-linter');
+  });
+
+  it('removes a script upstream dropped unless a fork file still runs it', async () => {
+    const upstreamPkg = readPkg(upstreamPath);
+    upstreamPkg.scripts = { build: 'tsc', 'geoip:download': 'node geoip.js', 'old:task': 'node old.js' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "add scripts"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    fs.mkdirSync(path.join(forkPath, '.github', 'workflows'), { recursive: true });
+    fs.writeFileSync(
+      path.join(forkPath, '.github', 'workflows', 'geoip.yml'),
+      'steps:\n  - run: pnpm --filter backend geoip:download\n',
+    );
+    exec('git add -A && git commit -m "fork workflow"', forkPath);
+
+    upstreamPkg.scripts = { build: 'tsc' };
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "drop scripts"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+
+    const scripts = readPkg(forkPath).scripts as Record<string, string>;
+    expect(scripts['geoip:download']).toBe('node geoip.js');
+    expect(scripts['old:task']).toBeUndefined();
+  });
+
+  it('copies the package.json of a workspace upstream added since the base', async () => {
+    fs.mkdirSync(path.join(upstreamPath, 'oauth'));
+    writePkg(upstreamPath, { name: 'oauth', dependencies: { hono: '^4.0.0' } }, 'oauth');
+    fs.writeFileSync(path.join(upstreamPath, 'oauth', 'index.ts'), 'export {};\n');
+    exec('git add -A && git commit -m "add oauth workspace"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    // The file merge brought the workspace without its (always ignored) package.json
+    fs.mkdirSync(path.join(forkPath, 'oauth'));
+    fs.writeFileSync(path.join(forkPath, 'oauth', 'index.ts'), 'export {};\n');
+
+    await runPackages(buildConfig());
+
+    const raw = fs.readFileSync(path.join(forkPath, 'oauth', 'package.json'), 'utf-8');
+    expect(raw).toBe(exec('git show cella-upstream/main:oauth/package.json', forkPath).concat('\n'));
+  });
+
+  it('leaves out a workspace package.json the fork deleted since the base', async () => {
+    fs.mkdirSync(path.join(upstreamPath, 'sdk'));
+    writePkg(upstreamPath, { name: 'sdk', dependencies: {} }, 'sdk');
+    fs.writeFileSync(path.join(upstreamPath, 'sdk', 'index.ts'), 'export {};\n');
+    exec('git add -A && git commit -m "add sdk workspace"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+    exec('git rm -q sdk/package.json && git commit -m "drop sdk package"', forkPath);
+
+    const upstreamPkg = readPkg(upstreamPath);
+    (upstreamPkg.dependencies as Record<string, string>).hono = '^5.0.0';
+    writePkg(upstreamPath, upstreamPkg);
+    exec('git add -A && git commit -m "bump hono"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect(fs.existsSync(path.join(forkPath, 'sdk', 'package.json'))).toBe(false);
   });
 
   it('should add new export subpaths from upstream but keep fork subpaths and order', async () => {
