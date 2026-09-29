@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.2](https://github.com/cellajs/cella-cli/compare/cli-0.2.1...cli-0.2.2) (2026-09-29)
+
+
+### 🎉 New features
+
+* **packages:** merge package.json keys three-way against the merge-base ([#25](https://github.com/cellajs/cella-cli/issues/25)) ([8f890ad](https://github.com/cellajs/cella-cli/commit/8f890ad11cc8c96beca4400291fc26e7e82812a8))
+
+
+### 🐞 Bug fixes
+
+* handle unknown ([ad11d6c](https://github.com/cellajs/cella-cli/commit/ad11d6c10f73fc6075ba83391bf0461f8a7c5198))
+
 ## [0.2.1](https://github.com/cellajs/cella-cli/compare/cli-0.2.0...cli-0.2.1) (2026-09-23)
 
 
