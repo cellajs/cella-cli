@@ -179,10 +179,18 @@ packageJsonSync: ['dependencies', 'devDependencies', 'scripts']
 
 **Supported keys:** `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `scripts`, `engines`, `packageManager`, `overrides`, `exports`, `pnpm`
 
-It **adds** new keys and **updates** existing ones to match upstream, but never **removes** keys
-that only exist in your fork — so extra dependencies and scripts survive each sync. `scripts` and
-`exports` are add-only: an entry your fork already defines is never rewritten. `exports` only
-merges when both sides are subpath maps (`{ ".": …, "./config": … }`).
+Each section merges three-way against the merge-base package.json (upstream as of your last
+sync). An entry your fork never touched follows upstream: it is **added**, **updated** (a rewritten
+script, a changed range) or **removed** when upstream dropped it. An entry your fork added or
+changed stays as it is; only a strictly higher upstream version still bumps it, and never for
+`scripts`. An entry your fork removed is not re-added. A dependency or script upstream dropped
+stays while your own code still uses it: files that differ from upstream and scripts your fork
+added or changed are searched for an import of the package, a run of its CLI, or a package manager
+command that runs the script. The sync lists every change and warns about each entry it kept this
+way, so you can remove it once your code no longer needs it. `exports` are add-only: an entry your fork
+already defines is never rewritten, and `exports` only merges when both sides are subpath maps
+(`{ ".": …, "./config": … }`). A workspace upstream added since your last sync arrives with its
+package.json copied verbatim.
 
 ## Contributions (pull from forks)
 

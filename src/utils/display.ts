@@ -665,10 +665,17 @@ function printProtectedConflicts(result: MergeResult): void {
  * version and dropping upstream's new changes. Because the fork copy equals the old
  * upstream, this produces no merge conflict and no type error, so it slips through unseen
  * (e.g. a pinned nav-config losing new upstream entries). These are the pins worth a look.
+ * Managed files (package.json, the lockfile, the sync config) are always pinned but stay out:
+ * the package sync reconciles their keys, so the pin masks nothing there.
  */
 export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
   return files.filter(
-    (file) => file.isPinned && file.status === 'behind' && file.existsInFork && file.existsInUpstream,
+    (file) =>
+      file.isPinned &&
+      !isManagedFile(file.path) &&
+      file.status === 'behind' &&
+      file.existsInFork &&
+      file.existsInUpstream,
   );
 }
 

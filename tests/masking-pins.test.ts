@@ -41,6 +41,16 @@ describe('findMaskingPins', () => {
     expect(findMaskingPins([forkDeleted, upstreamGone])).toEqual([]);
   });
 
+  it('leaves managed files out: the package sync reconciles them, so the pin masks nothing', () => {
+    const files = [
+      file({ path: 'package.json', status: 'behind', isPinned: true }),
+      file({ path: 'cdc/package.json', status: 'behind', isPinned: true }),
+      file({ path: 'pnpm-lock.yaml', status: 'behind', isPinned: true }),
+      file({ path: 'cella/cella.config.ts', status: 'behind', isPinned: true }),
+    ];
+    expect(findMaskingPins(files)).toEqual([]);
+  });
+
   it('returns only the masking pins from a mixed set', () => {
     const files = [
       file({ path: 'keep.ts', status: 'behind', isPinned: true }),
