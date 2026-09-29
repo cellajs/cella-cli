@@ -18,7 +18,7 @@ interface CoverageMetric {
   total: number;
   covered: number;
   skipped: number;
-  pct: number;
+  pct: number | 'Unknown';
 }
 
 /** One file (or the `total`) entry in coverage-summary.json. */
@@ -41,7 +41,9 @@ function summaryPath(forkPath: string): string {
 }
 
 /** Color a percentage: green ≥ 80, yellow ≥ 50, red below. */
-function colorPct(pct: number): string {
+function colorPct(pct: CoverageMetric['pct']): string {
+  if (typeof pct !== 'number' || !Number.isFinite(pct)) return pc.dim('n/a');
+
   const label = `${pct.toFixed(2)}%`;
   if (pct >= 80) return pc.green(label);
   if (pct >= 50) return pc.yellow(label);
@@ -126,6 +128,12 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   console.info(pc.bold('coverage'), pc.dim(`(updated ${ageLabel})`));
   if (stale) {
     console.info(pc.yellow('  ⚠ data is older than 7 days — run `pnpm test` to refresh'));
+  }
+
+  if (!Object.keys(summary).some((key) => key !== 'total')) {
+    console.info(pc.yellow('  no coverage data found — run `pnpm test` to regenerate'));
+    console.info();
+    return;
   }
 
   // Overall totals.
