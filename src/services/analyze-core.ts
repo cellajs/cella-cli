@@ -15,11 +15,13 @@
  *
  * Protected files (pinned/ignored) additionally get `upstreamChanged` when both sides
  * changed since the merge-base: the local side wins whole-file there, so incoming's hunks
- * are dropped silently unless surfaced.
+ * are dropped silently unless surfaced. Ignored files only incoming changed get
+ * `upstreamOnly`: nothing local is at stake, but the change never syncs.
  */
 
 import type { AnalyzedFile, FileStatus } from '../config/types';
 import { getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
+import { isManagedFile } from '../utils/managed-files';
 
 /** Predicates and options that steer classification (direction-specific). */
 export interface AnalyzePredicates {
@@ -180,6 +182,10 @@ export async function analyzeRefs(
         renamedFrom = oldPath;
       }
 
+      // Incoming moved a file into (or within) ignored territory and the local side never
+      // touched the source: an upstream-only change at the new path.
+      const upstreamOnly = fileIsIgnored && !forkModifiedOld && !isManagedFile(filePath);
+
       analyzedFiles.push({
         path: filePath,
         status,
@@ -189,6 +195,7 @@ export async function analyzeRefs(
         existsInUpstream: true,
         renamedFrom,
         upstreamChanged,
+        upstreamOnly: upstreamOnly || undefined,
       });
       continue;
     }
@@ -258,6 +265,12 @@ export async function analyzeRefs(
     const upstreamChanged =
       (fileIsPinned || fileIsIgnored) && inUpstream && upstreamHash !== baseHash && forkHash !== baseHash;
 
+    // Ignored file only incoming changed, added or deleted since the merge-base (the local copy,
+    // or its absence, still equals base). Nothing local is dropped, but ignored paths never sync,
+    // so the change would stay unseen. The pinned counterpart is the masking pin (`behind`).
+    const upstreamOnly =
+      fileIsIgnored && !isManagedFile(filePath) && upstreamHash !== baseHash && forkHash === baseHash;
+
     analyzedFiles.push({
       path: filePath,
       status,
@@ -266,6 +279,7 @@ export async function analyzeRefs(
       existsInFork: inFork,
       existsInUpstream: inUpstream,
       upstreamChanged: upstreamChanged || undefined,
+      upstreamOnly: upstreamOnly || undefined,
     });
   }
 

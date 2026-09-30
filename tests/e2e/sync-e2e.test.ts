@@ -744,6 +744,10 @@ describe('sync e2e', () => {
       // Released file is synced; the untagged commit is not pulled in.
       expect(fileExists(env.forkPath, 'released.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'unreleased.ts')).toBe(false);
+      // The diff hint range ends at the released commit, not the annotated tag object.
+      const tagged = result.upstreamCommit?.hash ?? '';
+      expect(result.upstreamDiffRange).toMatch(/^[0-9a-f]+\.\.[0-9a-f]+$/);
+      expect(tagged.startsWith(result.upstreamDiffRange?.split('..')[1] ?? '-')).toBe(true);
     });
 
     it('should error when release tracking finds no release tags', async () => {
@@ -776,6 +780,102 @@ describe('sync e2e', () => {
       expect(result.success).toBe(true);
       expect(result.upstreamTag).toBeUndefined();
       expect(fileExists(env.forkPath, 'tip.ts')).toBe(true);
+    });
+  });
+
+  describe('upstream changes the sync never brings in', () => {
+    /** Upstream sync config with the given pinned entries (a comment inside the array on purpose). */
+    const upstreamConfig = (pinned: string[]) =>
+      `export default defineConfig({\n  settings: { upstreamUrl: 'x' },\n  overrides: {\n` +
+      `    ignored: ['shared/config'],\n    pinned: [\n      // app-owned seams\n` +
+      `${pinned.map((entry) => `      '${entry}',\n`).join('')}    ],\n  },\n});\n`;
+
+    /** Base both sides share: upstream config + an ignored config folder, fast-forwarded into the fork. */
+    async function setupBase(): Promise<void> {
+      const { execSync } = await import('node:child_process');
+      makeCommit(env.upstreamPath, {
+        files: {
+          'cella/cella.config.ts': upstreamConfig(['a.ts']),
+          'shared/config/default.ts': 'export const config = { a: 1 };\n',
+        },
+        message: 'chore: add sync config',
+      });
+      fetchUpstream(env.forkPath);
+      execSync('git merge -q --ff-only cella-upstream/main', { cwd: env.forkPath });
+
+      makeCommit(env.upstreamPath, {
+        files: {
+          'cella/cella.config.ts': upstreamConfig(['a.ts', 'backend/src/bundle-config.ts']),
+          'shared/config/default.ts': 'export const config = { a: 1, newKey: true };\n',
+          'shared/config/staging.ts': 'export const staging = {};\n',
+        },
+        message: 'feat: new config key and pin',
+      });
+      fetchUpstream(env.forkPath);
+    }
+
+    it('analyze reports new upstream override entries and ignored paths only upstream changed', async () => {
+      await setupBase();
+      const config = buildRuntimeConfig(env, { service: 'analyze', pinned: ['a.ts'], ignored: ['shared/config'] });
+
+      const result = await runAnalyze(config);
+
+      expect(result.upstreamOverrides).toEqual({
+        kind: 'changes',
+        pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
+        ignored: { added: [], removed: [] },
+      });
+      expect(result.ignoredUpstreamChanges).toEqual([
+        {
+          entry: 'shared/config',
+          paths: ['shared/config/default.ts', 'shared/config/staging.ts'],
+          added: 1,
+          deleted: 0,
+        },
+      ]);
+      expect(result.upstreamDiffRange).toMatch(/^[0-9a-f]{7,}\.\.[0-9a-f]{7,}$/);
+    });
+
+    it('analyze --json flags the files and carries the override changes on the sync config', async () => {
+      await setupBase();
+      const config = buildRuntimeConfig(env, { service: 'analyze', pinned: ['a.ts'], ignored: ['shared/config'] });
+      config.json = true;
+
+      const chunks: string[] = [];
+      const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+      const write = vi.spyOn(process.stdout, 'write').mockImplementation((chunk) => {
+        chunks.push(String(chunk));
+        return true;
+      });
+      try {
+        await runAnalyze(config);
+      } finally {
+        write.mockRestore();
+        info.mockRestore();
+      }
+
+      const out = JSON.parse(chunks.join('')) as Array<Record<string, unknown>>;
+      const byPath = new Map(out.map((entry) => [entry.path, entry]));
+      expect(byPath.get('shared/config/staging.ts')).toMatchObject({ status: 'ignored', upstreamOnly: true });
+      expect(byPath.get('shared/config/default.ts')).toMatchObject({ upstreamOnly: true, upstreamOverrides: null });
+      expect(byPath.get('cella/cella.config.ts')?.upstreamOverrides).toEqual({
+        pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
+        ignored: { added: [], removed: [] },
+      });
+    });
+
+    it('sync reports the same and leaves the fork config and ignored files alone', async () => {
+      await setupBase();
+      const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'], ignored: ['shared/config'] });
+
+      const result = await runSync(config);
+
+      expect(result.success).toBe(true);
+      expect(result.upstreamOverrides?.kind).toBe('changes');
+      expect(result.ignoredUpstreamChanges?.map((group) => group.entry)).toEqual(['shared/config']);
+      expect(readRepoFile(env.forkPath, 'cella/cella.config.ts')).not.toContain('bundle-config');
+      expect(readRepoFile(env.forkPath, 'shared/config/default.ts')).not.toContain('newKey');
+      expect(fileExists(env.forkPath, 'shared/config/staging.ts')).toBe(false);
     });
   });
 });

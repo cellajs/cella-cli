@@ -19,9 +19,11 @@ import {
 import {
   createSpinner,
   printFlagWarnings,
+  printIgnoredUpstreamChanges,
   printMaskingPinWarning,
   printSummary,
   printSyncComplete,
+  printUpstreamOverrideChanges,
   spinnerFail,
   spinnerSuccess,
   spinnerText,
@@ -163,6 +165,10 @@ export async function runSync(
 
   // Print summary only (no file lists for sync)
   printSummary(result.summary, 'merge summary');
+
+  // Surface upstream changes the sync left out: ignored paths and upstream's own overrides
+  printIgnoredUpstreamChanges(result);
+  printUpstreamOverrideChanges(result);
 
   // Surface pins that silently froze a file at the old upstream (no conflict, no type error)
   printMaskingPinWarning(result.files);

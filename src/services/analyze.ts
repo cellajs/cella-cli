@@ -13,13 +13,16 @@ import {
   createSpinner,
   type LinkOptions,
   printAnalysisFileGroups,
+  printIgnoredUpstreamChanges,
   printMaskingPinWarning,
   printSummary,
+  printUpstreamOverrideChanges,
   spinnerSuccess,
   spinnerText,
   writeLogFile,
   writeStdout,
 } from '../utils/display';
+import { CONFIG_FILE } from '../utils/managed-files';
 import { runMergeEngine } from './merge-engine';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
@@ -30,12 +33,21 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
 
 /**
  * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
- * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing.
+ * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing. So do
+ * ignored files only upstream changed (`upstreamOnly`), and the sync config when upstream's
+ * overrides changed in ways the fork config does not follow.
  */
-function filterByScope(files: MergeResult['files'], scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
+function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
   const statuses = scopeStatuses[scope];
-  const includeProtectedBehind = scope !== 'risk';
-  return files.filter((f) => statuses.has(f.status) || (includeProtectedBehind && f.upstreamChanged === true));
+  if (scope === 'risk') return result.files.filter((f) => statuses.has(f.status));
+  const overridesChanged = result.upstreamOverrides?.kind === 'changes';
+  return result.files.filter(
+    (f) =>
+      statuses.has(f.status) ||
+      f.upstreamChanged === true ||
+      f.upstreamOnly === true ||
+      (overridesChanged && f.path === CONFIG_FILE),
+  );
 }
 
 function findTargetFile(files: MergeResult['files'], targetPath: string) {
@@ -76,7 +88,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   spinnerSuccess();
 
-  const scopedFiles = filterByScope(result.files, config.scope ?? 'all');
+  const scopedFiles = filterByScope(result, config.scope ?? 'all');
 
   if (config.diff) {
     const file = findTargetFile(scopedFiles, config.diff) ?? findTargetFile(result.files, config.diff);
@@ -86,6 +98,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   }
 
   if (config.json) {
+    const overrides = result.upstreamOverrides?.kind === 'changes' ? result.upstreamOverrides : undefined;
     const out = scopedFiles.map((f) => ({
       path: f.path,
       status: f.status,
@@ -96,6 +109,10 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       upstreamChanged: f.upstreamChanged ?? false,
       upstreamChangedLines: f.upstreamChangedLines ?? null,
       upstreamLinesAbsent: f.upstreamLinesAbsent ?? null,
+      upstreamOnly: f.upstreamOnly ?? false,
+      // Only on the sync config: upstream override entries the fork config does not follow
+      upstreamOverrides:
+        overrides && f.path === CONFIG_FILE ? { pinned: overrides.pinned, ignored: overrides.ignored } : null,
     }));
     writeStdout(JSON.stringify(out, null, 2));
     return result;
@@ -149,6 +166,10 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   // Print summary at the end
   printSummary(result.summary, 'analysis summary');
+
+  // Surface upstream changes the sync never brings in: ignored paths and upstream's own overrides
+  printIgnoredUpstreamChanges(result);
+  printUpstreamOverrideChanges(result);
 
   // Surface pins that would silently freeze a file at the old upstream on the next sync
   printMaskingPinWarning(result.files);

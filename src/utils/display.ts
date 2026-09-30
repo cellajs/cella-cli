@@ -11,7 +11,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
-import { isManagedFile } from './managed-files';
+import { CONFIG_FILE, isManagedFile } from './managed-files';
 
 /** CLI name */
 export const NAME = 'cella cli';
@@ -651,6 +651,76 @@ function printProtectedConflicts(result: MergeResult): void {
     console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
   }
   console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
+}
+
+/** `1 file`, `2 files`: a count with its noun. */
+function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : pluralForm}`;
+}
+
+/** Quote a path for a pasteable shell command when it holds characters the shell would interpret. */
+function shellPath(path: string): string {
+  return /^[\w./@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Ignored paths upstream changed since the last sync while the fork left them untouched
+ * (`MergeResult.ignoredUpstreamChanges`). Ignored paths never sync, so this is where new config
+ * keys or version bumps under e.g. `shared/config` surface. One line per `ignored` entry with a
+ * file count, plus a pasteable `git diff` of upstream's side. Silent when empty.
+ */
+export function printIgnoredUpstreamChanges(result: MergeResult): void {
+  const groups = result.ignoredUpstreamChanges ?? [];
+  if (groups.length === 0) return;
+
+  const total = groups.reduce((count, group) => count + group.paths.length, 0);
+  console.info();
+  console.info(
+    `${warningMark} ${pc.yellow(`ignored paths changed upstream · ${plural(total, 'file')} under ${plural(groups.length, 'entry', 'entries')}`)}`,
+  );
+  for (const group of groups) {
+    const counts = [plural(group.paths.length, 'file')];
+    if (group.added > 0) counts.push(`${group.added} new`);
+    if (group.deleted > 0) counts.push(`${group.deleted} deleted`);
+    console.info(`  ${statusConfig.ignored.icon} ${group.entry} ${pc.dim(`· ${counts.join(', ')}`)}`);
+    if (result.upstreamDiffRange) {
+      console.info(pc.dim(`    git diff ${result.upstreamDiffRange} -- ${shellPath(group.entry)}`));
+    }
+  }
+  console.info(pc.dim('  the fork left these untouched and ignored paths never sync: diff and adopt what you need.'));
+}
+
+/**
+ * Upstream `overrides` entries the fork config does not follow (`MergeResult.upstreamOverrides`):
+ * entries upstream added that the fork lacks, and entries upstream dropped that the fork still
+ * has. The sync config is managed and never merges, so these only reach the fork by hand.
+ * Silent when there is nothing to report; one dim line when upstream's config was unreadable.
+ */
+export function printUpstreamOverrideChanges(result: MergeResult): void {
+  const report = result.upstreamOverrides;
+  if (!report) return;
+
+  console.info();
+  if (report.kind === 'unreadable') {
+    const side = report.side === 'base' ? 'the last sync point' : 'the incoming ref';
+    console.info(
+      pc.dim(`upstream overrides not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
+    );
+    return;
+  }
+
+  const lines: string[] = [];
+  for (const list of ['pinned', 'ignored'] as const) {
+    for (const entry of report[list].added) lines.push(`  ${pc.green('+')} ${list}: ${entry}`);
+    for (const entry of report[list].removed) {
+      lines.push(`  ${pc.red('−')} ${list}: ${entry}${pc.dim(' · dropped upstream, still in your config')}`);
+    }
+  }
+  console.info(
+    `${warningMark} ${pc.yellow(`upstream changed its sync overrides · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
+  );
+  for (const line of lines) console.info(line);
+  console.info(pc.dim(`  ${CONFIG_FILE} never syncs: add or drop these by hand where they fit your app.`));
 }
 
 /**
