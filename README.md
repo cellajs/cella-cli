@@ -178,8 +178,9 @@ its summary, and `sync` after its merge summary:
   entry (app-owned module folders included) and the fork left it untouched. No conflict marks it,
   so this is where new config keys and version bumps under `shared/config` show up. Each `ignored`
   entry gets one line with a file count and a `git diff <last-sync>..<upstream> -- <entry>` line to
-  paste. Files both sides changed stay in the section above. `--list`/`--json` include these files
-  in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
+  paste. Files both sides changed stay in the section above, and generated output the fork
+  regenerates itself (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
+  files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
 - **Upstream override changes.** `cella/cella.config.ts` never syncs, so entries upstream adds to
   its own `overrides.pinned` or `overrides.ignored` (the template your config started from) never
   arrive. The report names each entry upstream added that your config lacks (`+`) and each entry
@@ -188,9 +189,7 @@ its summary, and `sync` after its merge summary:
   (`upstreamOverrides`).
 
 ```
-⚠ ignored paths changed upstream · 2 files under 2 entries
-  ⨂ sdk/gen · 1 file
-    git diff e9a8d485e..a81e3353b -- sdk/gen
+⚠ ignored paths changed upstream · 1 file under 1 entry
   ⨂ frontend/src/modules/marketing · 1 file
     git diff e9a8d485e..a81e3353b -- frontend/src/modules/marketing
   the fork left these untouched and ignored paths never sync: diff and adopt what you need.

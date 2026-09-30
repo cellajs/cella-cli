@@ -33,6 +33,16 @@ export function isPackageJson(filePath: string): boolean {
 }
 
 /**
+ * Check if a file path is generated output a fork regenerates itself: a `gen` path segment
+ * (`sdk/gen/...`) or a `.gen.` file name (`routeTree.gen.ts`, `compose.gen.yml`). Upstream's
+ * copy is never adopted, so upstream changes to it are not worth reporting.
+ */
+export function isGeneratedFile(filePath: string): boolean {
+  const segments = filePath.split('/');
+  return segments.includes('gen') || (segments.at(-1) ?? '').includes('.gen.');
+}
+
+/**
  * Check if a file path is managed by cella outside normal file sync categories.
  */
 export function isManagedFile(filePath: string): boolean {

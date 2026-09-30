@@ -16,12 +16,13 @@
  * Protected files (pinned/ignored) additionally get `upstreamChanged` when both sides
  * changed since the merge-base: the local side wins whole-file there, so incoming's hunks
  * are dropped silently unless surfaced. Ignored files only incoming changed get
- * `upstreamOnly`: nothing local is at stake, but the change never syncs.
+ * `upstreamOnly`: nothing local is at stake, but the change never syncs. Managed files and
+ * generated output (regenerated locally, never adopted) are left out of that flag.
  */
 
 import type { AnalyzedFile, FileStatus } from '../config/types';
 import { getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
-import { isManagedFile } from '../utils/managed-files';
+import { isGeneratedFile, isManagedFile } from '../utils/managed-files';
 
 /** Predicates and options that steer classification (direction-specific). */
 export interface AnalyzePredicates {
@@ -31,6 +32,11 @@ export interface AnalyzePredicates {
   isPinned: (path: string) => boolean;
   /** Treat drifted files as behind (overwrite local with incoming). */
   hard?: boolean;
+}
+
+/** Whether an ignored path can carry `upstreamOnly`: not managed and not generated output. */
+function isReportableIgnored(filePath: string): boolean {
+  return !isManagedFile(filePath) && !isGeneratedFile(filePath);
 }
 
 /** Progress callback type - receives a message string. */
@@ -184,7 +190,7 @@ export async function analyzeRefs(
 
       // Incoming moved a file into (or within) ignored territory and the local side never
       // touched the source: an upstream-only change at the new path.
-      const upstreamOnly = fileIsIgnored && !forkModifiedOld && !isManagedFile(filePath);
+      const upstreamOnly = fileIsIgnored && !forkModifiedOld && isReportableIgnored(filePath);
 
       analyzedFiles.push({
         path: filePath,
@@ -269,7 +275,7 @@ export async function analyzeRefs(
     // or its absence, still equals base). Nothing local is dropped, but ignored paths never sync,
     // so the change would stay unseen. The pinned counterpart is the masking pin (`behind`).
     const upstreamOnly =
-      fileIsIgnored && !isManagedFile(filePath) && upstreamHash !== baseHash && forkHash === baseHash;
+      fileIsIgnored && isReportableIgnored(filePath) && upstreamHash !== baseHash && forkHash === baseHash;
 
     analyzedFiles.push({
       path: filePath,

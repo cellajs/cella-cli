@@ -15,6 +15,7 @@ import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
 import { findProtectedBehind, printIgnoredUpstreamChanges } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
+import { isGeneratedFile } from '../src/utils/managed-files';
 import { groupIgnoredUpstreamChanges, isUnderAnyFolder } from '../src/utils/overrides';
 
 function exec(cmd: string, cwd: string): string {
@@ -26,7 +27,14 @@ function write(dir: string, file: string, content: string): void {
   fs.writeFileSync(path.join(dir, file), content);
 }
 
-const IGNORED = ['own', 'own/nested', 'untouched'];
+const IGNORED = [
+  'own',
+  'own/nested',
+  'untouched',
+  'sdk/gen',
+  'frontend/src/routes/routeTree.gen.ts',
+  'backend/drizzle',
+];
 
 /**
  * Repo with a `main` (fork) and `upstream` branch off one base commit, `own` and `own/nested` ignored:
@@ -39,6 +47,8 @@ const IGNORED = ['own', 'own/nested', 'untouched'];
  * - own/nested/deep.ts:  upstream changed                 → upstreamOnly, grouped under own/nested
  * - untouched/keep.ts:   nobody changed                   → no group
  * - plain.ts:            unprotected, upstream changed    → behind, never flagged
+ * - sdk/gen/sdk.ts, frontend/src/routes/routeTree.gen.ts: upstream changed → generated, never flagged
+ * - backend/drizzle/0001_init.sql: upstream changed, 0002_add_column.sql added → upstreamOnly
  */
 function createRepo(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-ignored-upstream-'));
@@ -53,6 +63,9 @@ function createRepo(): string {
   write(dir, 'own/nested/deep.ts', 'a\n');
   write(dir, 'untouched/keep.ts', 'a\n');
   write(dir, 'plain.ts', 'a\n');
+  write(dir, 'sdk/gen/sdk.ts', 'export const sdk = 1;\n');
+  write(dir, 'frontend/src/routes/routeTree.gen.ts', 'export const routeTree = [];\n');
+  write(dir, 'backend/drizzle/0001_init.sql', 'CREATE TABLE users (id text);\n');
   exec('git add -A && git commit -q -m base', dir);
 
   exec('git checkout -q -b upstream', dir);
@@ -63,6 +76,10 @@ function createRepo(): string {
   write(dir, 'own/package.json', '{ "version": "2" }\n');
   write(dir, 'own/nested/deep.ts', 'a\nupstream\n');
   write(dir, 'plain.ts', 'a\nupstream\n');
+  write(dir, 'sdk/gen/sdk.ts', 'export const sdk = 2;\n');
+  write(dir, 'frontend/src/routes/routeTree.gen.ts', "export const routeTree = ['/about'];\n");
+  write(dir, 'backend/drizzle/0001_init.sql', 'CREATE TABLE users (id text PRIMARY KEY);\n');
+  write(dir, 'backend/drizzle/0002_add_column.sql', 'ALTER TABLE users ADD COLUMN name text;\n');
   exec('git add -A && git commit -q -m upstream', dir);
 
   exec('git checkout -q main', dir);
@@ -114,11 +131,42 @@ describe('ignored paths only upstream changed', () => {
     expect(byPath.get('plain.ts')?.upstreamOnly).toBeUndefined();
   });
 
+  it('leaves out generated output but keeps upstream migrations', () => {
+    for (const p of ['sdk/gen/sdk.ts', 'frontend/src/routes/routeTree.gen.ts']) {
+      expect(byPath.get(p)?.status, p).toBe('ignored');
+      expect(byPath.get(p)?.upstreamOnly, p).toBeUndefined();
+    }
+    expect(byPath.get('backend/drizzle/0001_init.sql')?.upstreamOnly).toBe(true);
+    expect(byPath.get('backend/drizzle/0002_add_column.sql')?.upstreamOnly).toBe(true);
+  });
+
   it('groups flagged files under the most specific ignored entry, in config order', () => {
     expect(groupIgnoredUpstreamChanges(files, IGNORED)).toEqual([
       { entry: 'own', paths: ['own/changed.ts', 'own/gone.ts', 'own/new.ts'], added: 1, deleted: 1 },
       { entry: 'own/nested', paths: ['own/nested/deep.ts'], added: 0, deleted: 0 },
+      {
+        entry: 'backend/drizzle',
+        paths: ['backend/drizzle/0001_init.sql', 'backend/drizzle/0002_add_column.sql'],
+        added: 1,
+        deleted: 0,
+      },
     ]);
+  });
+});
+
+describe('isGeneratedFile', () => {
+  it('matches a gen path segment or a .gen. file name', () => {
+    expect(isGeneratedFile('sdk/gen/sdk.ts')).toBe(true);
+    expect(isGeneratedFile('sdk/gen/docs.gen/details.gen/tenants.gen.json')).toBe(true);
+    expect(isGeneratedFile('frontend/src/routes/routeTree.gen.ts')).toBe(true);
+    expect(isGeneratedFile('infra/compose.gen.yml')).toBe(true);
+  });
+
+  it('leaves other paths alone, migrations included', () => {
+    expect(isGeneratedFile('backend/drizzle/0001_init.sql')).toBe(false);
+    expect(isGeneratedFile('shared/config/default.ts')).toBe(false);
+    expect(isGeneratedFile('frontend/src/generator.ts')).toBe(false);
+    expect(isGeneratedFile('backend/src/gen-token.ts')).toBe(false);
   });
 });
 

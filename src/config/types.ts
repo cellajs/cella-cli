@@ -332,7 +332,8 @@ export interface AnalyzedFile {
   /**
    * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
    * fork did not touch it. Ignored paths never sync, so without this flag the change stays unseen
-   * (new config keys, version bumps). Managed files are never flagged.
+   * (new config keys, version bumps). Managed files and generated output (`isGeneratedFile`) are
+   * never flagged.
    */
   upstreamOnly?: boolean;
   /**

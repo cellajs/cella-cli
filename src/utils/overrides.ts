@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { warningMark } from './display';
-import { isManagedFile } from './managed-files';
+import { isGeneratedFile, isManagedFile } from './managed-files';
 
 /**
  * Check if a file path is owned by any of the given folders.
@@ -48,7 +48,7 @@ export function isPinned(filePath: string, config: CellaCliConfig): boolean {
  * folder from the config (plus derived app-module folders) with one diff hint per entry.
  *
  * A file under nested entries lands on the most specific one. Groups follow the order of
- * `ignored`; managed files are left out.
+ * `ignored`; managed files and generated output are left out.
  *
  * @param files - Analyzed files (only those flagged `upstreamOnly` count)
  * @param ignored - The fork's effective `ignored` entries
@@ -59,7 +59,7 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
   const groups = new Map<string, IgnoredUpstreamGroup>();
 
   for (const file of files) {
-    if (!file.upstreamOnly || isManagedFile(file.path)) continue;
+    if (!file.upstreamOnly || isManagedFile(file.path) || isGeneratedFile(file.path)) continue;
     const entry = mostSpecificFirst.find((candidate) => isUnderAnyFolder(file.path, [candidate]));
     if (!entry) continue;
 
