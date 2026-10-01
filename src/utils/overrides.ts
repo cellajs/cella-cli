@@ -7,9 +7,9 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { CellaCliConfig } from '../config/types';
+import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { warningMark } from './display';
-import { isManagedFile } from './managed-files';
+import { isGeneratedFile, isManagedFile } from './managed-files';
 
 /**
  * Check if a file path is owned by any of the given folders.
@@ -41,6 +41,37 @@ export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
 export function isPinned(filePath: string, config: CellaCliConfig): boolean {
   if (isManagedFile(filePath)) return true;
   return isUnderAnyFolder(filePath, config.overrides?.pinned || []);
+}
+
+/**
+ * Group `upstreamOnly` files by the `ignored` entry they fall under, so a report can name the
+ * folder from the config (plus derived app-module folders) with one diff hint per entry.
+ *
+ * A file under nested entries lands on the most specific one. Groups follow the order of
+ * `ignored`; managed files and generated output are left out.
+ *
+ * @param files - Analyzed files (only those flagged `upstreamOnly` count)
+ * @param ignored - The fork's effective `ignored` entries
+ */
+export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: string[]): IgnoredUpstreamGroup[] {
+  const entries = [...new Set(ignored.map((entry) => entry.replace(/\/+$/, '')).filter(Boolean))];
+  const mostSpecificFirst = [...entries].sort((a, b) => b.length - a.length);
+  const groups = new Map<string, IgnoredUpstreamGroup>();
+
+  for (const file of files) {
+    if (!file.upstreamOnly || isManagedFile(file.path) || isGeneratedFile(file.path)) continue;
+    const entry = mostSpecificFirst.find((candidate) => isUnderAnyFolder(file.path, [candidate]));
+    if (!entry) continue;
+
+    const group = groups.get(entry) ?? { entry, paths: [], added: 0, deleted: 0 };
+    group.paths.push(file.path);
+    if (!file.existsInFork) group.added++;
+    if (!file.existsInUpstream) group.deleted++;
+    groups.set(entry, group);
+  }
+
+  for (const group of groups.values()) group.paths.sort();
+  return entries.flatMap((entry) => groups.get(entry) ?? []);
 }
 
 /**

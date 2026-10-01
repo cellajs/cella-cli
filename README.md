@@ -17,7 +17,7 @@ pnpm cella audit
 
 | Service | Description |
 |---------|-------------|
-| `analyze` | Dry run to see what would change on sync |
+| `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
 | `audit` | Check for outdated packages & vulnerabilities |
 | `stats` | Count files by category and workspace package |
@@ -168,6 +168,36 @@ as plain `ahead` afterwards. For that case the `↑ protected in fork` section a
 files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
 tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
 deliberately or not: diff and decide. Ignored files are not annotated.
+
+### Upstream changes that never sync
+
+Two more kinds of upstream change never reach the fork on their own. `analyze` prints both after
+its summary, and `sync` after its merge summary:
+
+- **Ignored paths changed upstream.** Upstream changed, added or deleted a file under an `ignored`
+  entry (app-owned module folders included) and the fork left it untouched. No conflict marks it,
+  so this is where new config keys and version bumps under `shared/config` show up. Each `ignored`
+  entry gets one line with a file count and a `git diff <last-sync>..<upstream> -- <entry>` line to
+  paste. Files both sides changed stay in the section above, and generated output the fork
+  regenerates itself (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
+  files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
+- **Upstream override changes.** `cella/cella.config.ts` never syncs, so entries upstream adds to
+  its own `overrides.pinned` or `overrides.ignored` (the template your config started from) never
+  arrive. The report names each entry upstream added that your config lacks (`+`) and each entry
+  upstream dropped that your config still has (`−`). It reads upstream's config without running it
+  and never edits yours. `--json` puts the lists on the `cella/cella.config.ts` entry
+  (`upstreamOverrides`).
+
+```
+⚠ ignored paths changed upstream · 1 file under 1 entry
+  ⨂ frontend/src/modules/marketing · 1 file
+    git diff e9a8d485e..a81e3353b -- frontend/src/modules/marketing
+  the fork left these untouched and ignored paths never sync: diff and adopt what you need.
+
+⚠ upstream changed its sync overrides · 1 entry to review
+  + pinned: backend/src/bundle-config.ts
+  cella/cella.config.ts never syncs: add or drop these by hand where they fit your app.
+```
 
 ## Package.json sync
 

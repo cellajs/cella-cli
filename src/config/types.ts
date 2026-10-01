@@ -330,6 +330,13 @@ export interface AnalyzedFile {
   /** For `upstreamChanged` files: lines upstream changed since the merge-base (undefined for binary) */
   upstreamChangedLines?: number;
   /**
+   * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
+   * fork did not touch it. Ignored paths never sync, so without this flag the change stays unseen
+   * (new config keys, version bumps). Managed files and generated output (`isGeneratedFile`) are
+   * never flagged.
+   */
+  upstreamOnly?: boolean;
+  /**
    * Pinned `ahead` files only: lines present upstream but absent from the fork (undefined for
    * binary). Independent of the sync point, so it also shows upstream content dropped by an
    * earlier sync — or removed on purpose; only a diff can tell.
@@ -387,4 +394,40 @@ export interface MergeResult {
    * them: upstream's hunks were dropped, not merged. Review each against upstream.
    */
   protectedConflicts?: string[];
+  /** Pasteable `<merge-base>..<upstream>` range of short SHAs, for `git diff` hints. */
+  upstreamDiffRange?: string;
+  /** How upstream's own `overrides` changed since the merge-base, where the fork config does not follow. */
+  upstreamOverrides?: UpstreamOverridesReport;
+  /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
+  ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
+}
+
+/** Entries of one override list (`pinned` or `ignored`) that the fork config does not mirror. */
+export interface OverrideListChanges {
+  /** Entries upstream added since the merge-base that the fork list lacks. */
+  added: string[];
+  /** Entries upstream removed since the merge-base that the fork list still carries. */
+  removed: string[];
+}
+
+/**
+ * Upstream override changes the fork should review. The sync config is managed (never merged),
+ * so new upstream `pinned`/`ignored` entries only reach the fork by hand. `unreadable` means
+ * upstream's config was missing or unparsable at one side (`base` = merge-base, `incoming` =
+ * upstream ref), so nothing was compared.
+ */
+export type UpstreamOverridesReport =
+  | { kind: 'changes'; pinned: OverrideListChanges; ignored: OverrideListChanges }
+  | { kind: 'unreadable'; side: 'base' | 'incoming' };
+
+/** Upstream-only changes under one `ignored` entry. */
+export interface IgnoredUpstreamGroup {
+  /** The `ignored` entry (configured or derived from an app-owned module) the files fall under. */
+  entry: string;
+  /** Changed paths under the entry, sorted. */
+  paths: string[];
+  /** Paths the fork lacks (new upstream files). */
+  added: number;
+  /** Paths upstream deleted (the fork keeps them). */
+  deleted: number;
 }

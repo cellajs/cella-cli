@@ -54,7 +54,8 @@ import {
 } from '../utils/git';
 import { isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
-import { isIgnored, isPinnedForSync } from '../utils/overrides';
+import { groupIgnoredUpstreamChanges, isIgnored, isPinnedForSync } from '../utils/overrides';
+import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
 
 /** Progress callback type - receives message and optional detail for sub-line */
@@ -490,6 +491,35 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 }
 
 /**
+ * Upstream changes the fork never receives, shared by both engine modes: the upstream config's
+ * `overrides` entries the fork config does not follow (the config itself never syncs), and
+ * ignored files only upstream changed. Report only, read from refs (the merge state is
+ * irrelevant); a failure here yields no report and never fails the run.
+ */
+async function upstreamOnlyReports(
+  config: RuntimeConfig,
+  ctx: UpstreamContext,
+  files: AnalyzedFile[],
+): Promise<Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges'>> {
+  const { forkPath } = config;
+  try {
+    const [baseSha, upstreamSha, upstreamOverrides] = await Promise.all([
+      getShortSha(forkPath, ctx.mergeBase),
+      // the commit, not an annotated release tag object
+      getShortSha(forkPath, ctx.upstreamCommit.hash),
+      compareUpstreamOverrides(forkPath, ctx.mergeBase, ctx.upstreamRef, config),
+    ]);
+    return {
+      upstreamDiffRange: `${baseSha}..${upstreamSha}`,
+      upstreamOverrides,
+      ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, config.overrides?.ignored ?? []),
+    };
+  } catch {
+    return {};
+  }
+}
+
+/**
  * SYNC MODE: merge, analyze, and resolve directly in the fork, then record the
  * sync point (local ref + committed manifest) and leave the merge staged.
  */
@@ -572,6 +602,7 @@ async function runSyncMerge(
     autoMergedFiles,
     protectedConflicts,
     ...resultMeta(config, ctx),
+    ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
   };
 }
 
@@ -613,6 +644,7 @@ async function runAnalyzePreview(
     onProgress,
   );
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
+  const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
   onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run — no changes applied`);
 
   onProgress?.('cleaning up worktree...');
@@ -626,6 +658,7 @@ async function runAnalyzePreview(
     conflicts: analyzedFiles.filter((f) => f.status === 'diverged').map((f) => f.path),
     protectedConflicts: analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path),
     ...resultMeta(config, ctx),
+    ...reports,
   };
 }
 
