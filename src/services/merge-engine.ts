@@ -15,8 +15,9 @@
 
 import type { AnalysisSummary, AnalyzedFile, MergeResult, RuntimeConfig } from '../config/types';
 import { cleanupLeftoverWorktrees, cleanupWorktree, getWorktreePath, registerWorktree } from '../utils/cleanup';
+import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
-import { formatFetchedUpstreamDetail, formatMergeInProgressDetail } from '../utils/display';
+import { formatFetchedUpstreamDetail, formatMergeInProgressDetail, VERSION } from '../utils/display';
 import {
   batchGitRm,
   batchRestoreToHead,
@@ -442,6 +443,11 @@ async function prepareUpstream(
   // after the engine runs). The static fallback set at CLI parse time is the branch tip.
   config.upstreamRef = upstreamRef;
   onStep?.('remote configured', `${releaseTag ?? upstreamRef} → ${config.settings.upstreamUrl}`);
+
+  // Stop before anything merges when upstream was built with a newer CLI than this one.
+  const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
+  const cliMismatch = cliRange ? cliVersionMismatch(VERSION, cliRange) : null;
+  if (cliMismatch) throw new Error(cliMismatch);
 
   // Bootstrap sync ancestry for forks with unrelated history (create-cella scaffold or an
   // upstream history squash). No-op once a native merge-base exists. Runs after fetch so the

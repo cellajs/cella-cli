@@ -23,6 +23,7 @@ import pc from '../utils/colors';
 import { createSpinner, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { getEffectiveMergeBase, git } from '../utils/git';
 import { isIgnored } from '../utils/overrides';
+import { compareVersions, parseComparableVersion } from '../utils/versions';
 import { type ForkUsage, loadForkUsage } from './package-usage';
 
 /** Package.json structure */
@@ -44,50 +45,6 @@ interface PackageJson {
     [key: string]: unknown;
   };
   [key: string]: unknown;
-}
-
-interface ComparableVersion {
-  major: number;
-  minor: number;
-  patch: number;
-}
-
-function parseComparableVersion(version: string): ComparableVersion | null {
-  const trimmed = version.trim();
-
-  if (
-    trimmed === '' ||
-    trimmed === '*' ||
-    trimmed.includes('workspace:') ||
-    trimmed.includes('catalog:') ||
-    trimmed.includes('file:') ||
-    trimmed.includes('link:') ||
-    trimmed.includes('git+') ||
-    trimmed.includes('github:') ||
-    trimmed.includes('http://') ||
-    trimmed.includes('https://') ||
-    trimmed.includes('||')
-  ) {
-    return null;
-  }
-
-  const match = trimmed.match(
-    /^(?:\^|~|>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/,
-  );
-
-  if (!match) return null;
-
-  return {
-    major: Number(match[1]),
-    minor: Number(match[2] ?? 0),
-    patch: Number(match[3] ?? 0),
-  };
-}
-
-function compareVersions(left: ComparableVersion, right: ComparableVersion): number {
-  if (left.major !== right.major) return left.major - right.major;
-  if (left.minor !== right.minor) return left.minor - right.minor;
-  return left.patch - right.patch;
 }
 
 /**
