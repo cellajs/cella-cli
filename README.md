@@ -17,7 +17,7 @@ pnpm cella audit
 
 | Service | Description |
 |---------|-------------|
-| `analyze` | Dry run to see what would change on sync |
+| `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
 | `audit` | Check for outdated packages & vulnerabilities |
 | `stats` | Count files by category and workspace package |
