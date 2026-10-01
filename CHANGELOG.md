@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.2.3](https://github.com/cellajs/cella-cli/compare/cli-0.2.2...cli-0.2.3) (2026-10-01)
+
+
+### 🎉 New features
+
+* **analyze:** report upstream override entries and ignored paths only upstream changed ([#27](https://github.com/cellajs/cella-cli/issues/27)) ([dde3e55](https://github.com/cellajs/cella-cli/commit/dde3e55b6479a830db7bd599579c03b3331bc0a6))
+
+
+### 🐞 Bug fixes
+
+* **stats:** clarify labels for code files and package breakdown ([#28](https://github.com/cellajs/cella-cli/issues/28)) ([261ccf4](https://github.com/cellajs/cella-cli/commit/261ccf4f96fcddca1766e70196a98c6ecb63d376))
+
 ## [0.2.2](https://github.com/cellajs/cella-cli/compare/cli-0.2.1...cli-0.2.2) (2026-09-29)
 
 
