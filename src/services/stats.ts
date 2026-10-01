@@ -220,9 +220,9 @@ function fmtPct(value: number, total: number): string {
 function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
   console.info(
-    `  ${pc.bold('source files')}  ${String(stats.total)}  ${pc.dim(`(${stats.skipped} non-source skipped)`)}`,
+    `  ${pc.bold('code files'.padEnd(13))}  ${String(stats.total)}  ${pc.dim(`(${[...sourceExtensions].join(' ')})`)}`,
   );
-  console.info(`  ${pc.bold('lines of code')} ${pc.cyan(formatLoc(stats.totalLoc))}`);
+  console.info(`  ${pc.bold('lines of code')}  ${pc.cyan(formatLoc(stats.totalLoc))}`);
   console.info();
 
   const catEntries: [string, { files: number; loc: number }][] = [
@@ -256,6 +256,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
       );
     }
   } else {
+    console.info(pc.dim('  source & config by package'));
     for (const [name, data] of Object.entries(stats.packages)) {
       const srcFiles = data.categories.other.files;
       const srcLoc = data.categories.other.loc;
