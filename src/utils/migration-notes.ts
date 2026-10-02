@@ -48,6 +48,16 @@ export function isUpstreamOnly(filePath: string): boolean {
   return filePath === NOTES_DIR || filePath.startsWith(`${NOTES_DIR}/`);
 }
 
+/** The lines after the frontmatter, without HTML comment lines (a comment opens at the start of a line). */
+function bodyLines(lines: string[]): string[] {
+  let inComment = false;
+  return lines.filter((line) => {
+    if (!inComment && !line.trimStart().startsWith('<!--')) return true;
+    inComment = !line.includes('-->');
+    return false;
+  });
+}
+
 /** Parse a note README. Unreadable frontmatter values fall back to false/empty. */
 export function parseNote(id: string, source: string, fileNames: string[]): MigrationNote {
   const lines = source.replace(/\r\n/g, '\n').split('\n');
@@ -58,10 +68,7 @@ export function parseNote(id: string, source: string, fileNames: string[]): Migr
     if (match) meta.set(match[1], match[2].trim());
   }
 
-  const body = lines
-    .slice(close + 1)
-    .join('\n')
-    .replace(/<!--[\s\S]*?-->/g, '');
+  const body = bodyLines(lines.slice(close + 1)).join('\n');
   const blocks = body
     .split(/\n\s*\n/)
     .map((block) => block.trim())
