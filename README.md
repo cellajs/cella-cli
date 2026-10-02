@@ -37,8 +37,8 @@ Per-service help: `pnpm cella <service> --help`.
 
 | Service | Useful options |
 |---------|----------------|
-| analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--diff <path>`, `--open-diff <path>` |
-| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>` |
+| analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--diff <path>`, `--open-diff <path>` |
+| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>` |
 | migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--mark <ids...>` |
 | audit | `--list`, `--force`, `--check-overrides` |
 | forks | `--fork <name>`, `--log`, `--hard`, `-V, --verbose` |
@@ -73,6 +73,19 @@ For a one-off run that ignores the configured mode, pass `--track`:
 pnpm cella sync --track branch   # follow the tip once, without editing config
 ```
 
+To sync to one specific upstream point, pin it with `--ref` (it wins over `--track`): a commit sha,
+a release tag or an upstream branch name, resolved on the upstream remote (`main` is upstream's
+`main`, not yours). The ref must be on `settings.upstreamBranch` or in an upstream release; a
+release tag syncs as that release, anything else is recorded like branch tracking.
+
+```bash
+pnpm cella sync --ref 4f7d87c      # sync up to this upstream commit
+```
+
+A run never syncs to a point behind the last sync: when an earlier `--ref` or `--track branch` run
+went past the latest release, release tracking stops with a message until a newer release exists,
+instead of reverting what the app already has.
+
 ## Sync workflow
 
 `pnpm cella sync` never commits to `main` directly. 
@@ -91,6 +104,12 @@ drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits h
    resolve in your IDE (`git add` the resolved files) and re-run to commit.
 2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
    opens a PR into `main` (via `gh`), and switches you back to `main`.
+
+`sync` also runs from a linked git worktree while another worktree has `main` checked out: it
+never switches to `main`. It compares `main` with `origin/main` by ref and cuts the sync branch
+from `main`; when `main` is behind and checked out elsewhere, it cuts from `origin/main` instead
+and leaves `main` as it is. After shipping, the worktree detaches at `main` instead of switching
+to it.
 
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: sync upstream cella <sha>`). This keeps the PR
@@ -251,6 +270,10 @@ way, so you can remove it once your code no longer needs it. `exports` are add-o
 already defines is never rewritten, and `exports` only merges when both sides are subpath maps
 (`{ ".": …, "./config": … }`). A workspace upstream added since your last sync arrives with its
 package.json copied verbatim.
+
+`type` always syncs, whatever `packageJsonSync` lists: it follows upstream where your fork kept the
+previous value, and a package.json without `type` gets upstream's. Set it yourself (for example
+`"commonjs"`) to keep your own.
 
 ## Contributions (pull from forks)
 

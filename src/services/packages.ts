@@ -11,6 +11,7 @@
  * - Still used: a dependency or script upstream dropped stays while fork-authored code still
  *   imports it, runs its CLI or runs the script (see package-usage.ts)
  * - Supports nested `pnpm` key (overrides, patchedDependencies, packageExtensions)
+ * - `type` always syncs, whatever `packageJsonSync` lists (see mergeModuleType)
  * - A workspace package.json upstream added since the base arrives verbatim
  * Without a base (first sync, unrelated history) every upstream entry is added or bumped and
  * nothing is removed.
@@ -255,6 +256,45 @@ function safeMergePnpm(
 }
 
 /**
+ * Three-way merge for `type`, which decides how Node loads the package's `.js` files, so it syncs
+ * whatever `packageJsonSync` lists. Follows upstream where the fork still has the merge-base value
+ * (an update or a removal alike) and keeps a value the fork set itself; never version-bumped.
+ * A fork without `type` gets upstream's even when the base had one: `type` never synced before,
+ * so a missing one is a missed upstream change, not a removal (to opt out, set "commonjs").
+ * Returns the fork's new value and the change, or null when the fork's value stays.
+ */
+function mergeModuleType(
+  forkType: unknown,
+  upstreamType: unknown,
+  baseType: unknown,
+): { value: string | undefined; change: 'added' | 'updated' | 'removed' } | null {
+  const asString = (value: unknown) => (typeof value === 'string' ? value : undefined);
+  const fork = asString(forkType);
+  const upstream = asString(upstreamType);
+  if (fork === upstream) return null;
+  if (fork === undefined) return { value: upstream, change: 'added' };
+  if (fork !== asString(baseType)) return null;
+  return { value: upstream, change: upstream === undefined ? 'removed' : 'updated' };
+}
+
+/**
+ * Set a top-level key in place. A key the file already has keeps its position; a new one goes
+ * where cella's own package.json files keep it, after `name`, `version` and `private` (whichever
+ * comes last), else first.
+ */
+function setTopLevelKey(pkg: PackageJson, key: string, value: unknown): void {
+  if (key in pkg) {
+    pkg[key] = value;
+    return;
+  }
+  const entries = Object.entries(pkg);
+  const after = Math.max(...['name', 'version', 'private'].map((name) => entries.findIndex(([k]) => k === name)));
+  entries.splice(after + 1, 0, [key, value]);
+  for (const name of Object.keys(pkg)) delete pkg[name];
+  Object.assign(pkg, Object.fromEntries(entries));
+}
+
+/**
  * Read a package.json file.
  */
 function readPackageJson(filePath: string): PackageJson | null {
@@ -355,6 +395,14 @@ async function syncPackageJson(
 
   const upstreamPkg = upstream.data;
   let updated = false;
+
+  const type = mergeModuleType(forkPkg.type, upstreamPkg.type, basePkg?.type);
+  if (type) {
+    if (type.value === undefined) delete forkPkg.type;
+    else setTopLevelKey(forkPkg, 'type', type.value);
+    updated = true;
+    changes.push(`type: ${type.change}`);
+  }
 
   for (const key of keysToSync) {
     if (key === 'pnpm') {

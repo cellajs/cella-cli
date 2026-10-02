@@ -188,9 +188,11 @@ export function buildRuntimeConfig(
     ignored?: string[];
     track?: 'release' | 'branch';
     trackOverride?: 'release' | 'branch';
+    /** A pinned upstream ref (`--ref`) */
+    ref?: string;
   } = {},
 ): RuntimeConfig {
-  const { service = 'analyze', pinned = [], ignored = [], track = 'branch', trackOverride } = options;
+  const { service = 'analyze', pinned = [], ignored = [], track = 'branch', trackOverride, ref } = options;
 
   const config: CellaCliConfig = {
     settings: {
@@ -210,6 +212,7 @@ export function buildRuntimeConfig(
     upstreamRef: `${UPSTREAM_REMOTE}/main`,
     service,
     track: trackOverride,
+    ref,
     logFile: false,
     list: false,
     json: false,

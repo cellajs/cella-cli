@@ -53,7 +53,7 @@ export interface SyncSettings {
    */
   releaseBase?: string;
 
-  /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']) */
+  /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']). `type` always syncs. */
   packageJsonSync?: PackageJsonSyncKey[];
 
   /**
@@ -263,6 +263,12 @@ export interface RuntimeConfig extends CellaCliConfig {
    * 'branch' follows the upstream branch tip (bleeding edge); 'release' uses a release tag.
    */
   track?: 'release' | 'branch';
+
+  /**
+   * Pin the upstream ref for this run (analyze/sync), overriding `track`: a commit sha, a release
+   * tag or an upstream branch name. Must be on the upstream branch or in an upstream release.
+   */
+  ref?: string;
 
   /** Bypass pnpm metadata cache for fresh registry data (audit service) */
   force?: boolean;

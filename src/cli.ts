@@ -33,6 +33,7 @@ type CliOptionState = Pick<
   | 'hard'
   | 'unpinned'
   | 'track'
+  | 'ref'
   | 'force'
   | 'checkOverrides'
   | 'coverage'
@@ -79,6 +80,7 @@ function readOptions(opts: Record<string, unknown>): CliOptionState {
     hard: opts.hard === true,
     unpinned: opts.unpinned === true,
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
+    ref: typeof opts.ref === 'string' && opts.ref ? opts.ref : undefined,
     force: opts.force === true,
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
@@ -99,6 +101,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--json', description: 'machine-readable output for tooling/agents' },
       { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
       { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
+      { flags: '--ref <ref>', description: 'pin the upstream commit for this run: sha, release tag or branch' },
       { flags: '--diff <path>', description: 'print unified diff for one file, then exit' },
       { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
@@ -112,6 +115,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--hard', description: 'overwrite drifted files with upstream version (aggressive realignment)' },
       { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
       { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
+      { flags: '--ref <ref>', description: 'pin the upstream commit for this run: sha, release tag or branch' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
     menuDescription: () => 'merge upstream changes + sync package.json',
@@ -233,6 +237,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --hard',
         '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
+        '  $ cella sync --ref 4f7d87c',
         '  $ cella migrate --mark 20261002T0614-config-switch',
         '  $ cella audit --check-overrides',
         '  $ cella contributions --fork raak --json',

@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PackageJsonSyncKey, RuntimeConfig } from '../src/config/types';
 import { runPackages } from '../src/services/packages';
 
@@ -456,6 +456,66 @@ describe('packages merge', () => {
     await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'exports'] }));
 
     expect(readPkg(forkPath).exports).toBe('./dist/index.js');
+  });
+
+  it('adds an upstream type the fork never got, after name and version, whatever packageJsonSync lists', async () => {
+    const { name, version, dependencies, devDependencies } = readPkg(upstreamPath);
+    const esm = { name, version, type: 'module', dependencies, devDependencies };
+    writePkg(upstreamPath, esm);
+    exec('git add -A && git commit -m "esm"', upstreamPath);
+    // The fork synced past it, but package.json never carried `type` over: the base has it, the fork lacks it
+    exec('git pull --ff-only cella-upstream main', forkPath);
+    writePkg(forkPath, { name, version, dependencies, devDependencies });
+    exec('git add -A && git commit -m "fork copy without type"', forkPath);
+
+    writePkg(upstreamPath, { ...esm, dependencies: { ...(dependencies as object), hono: '^5.0.0' } });
+    exec('git add -A && git commit -m "bump hono"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+    const info = vi.spyOn(console, 'info');
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies'] }));
+
+    const resultPkg = readPkg(forkPath);
+    expect(resultPkg.type).toBe('module');
+    expect(Object.keys(resultPkg)).toEqual(['name', 'version', 'type', 'dependencies', 'devDependencies']);
+    expect(info).toHaveBeenCalledWith(expect.stringContaining('type: added'));
+    info.mockRestore();
+  });
+
+  it('follows an upstream type change the fork never touched and keeps a type the fork set', async () => {
+    fs.mkdirSync(path.join(upstreamPath, 'backend'));
+    writePkg(upstreamPath, { ...readPkg(upstreamPath), type: 'module' });
+    writePkg(upstreamPath, { name: 'backend', type: 'module', dependencies: {} }, 'backend');
+    exec('git add -A && git commit -m "esm"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+    writePkg(forkPath, { name: 'backend', type: 'commonjs', dependencies: {} }, 'backend');
+    exec('git add -A && git commit -m "fork backend on cjs"', forkPath);
+
+    // Upstream moves the root to commonjs and leaves backend on module
+    writePkg(upstreamPath, { ...readPkg(upstreamPath), type: 'commonjs' });
+    writePkg(upstreamPath, { name: 'backend', type: 'module', dependencies: { hono: '^4.0.0' } }, 'backend');
+    exec('git add -A && git commit -m "root on cjs"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect(readPkg(forkPath).type).toBe('commonjs');
+    expect(readPkg(forkPath, 'backend').type).toBe('commonjs');
+  });
+
+  it('removes a type upstream dropped when the fork never touched it', async () => {
+    writePkg(upstreamPath, { ...readPkg(upstreamPath), type: 'module' });
+    exec('git add -A && git commit -m "esm"', upstreamPath);
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    const { type: _type, ...withoutType } = readPkg(upstreamPath);
+    writePkg(upstreamPath, withoutType);
+    exec('git add -A && git commit -m "drop type"', upstreamPath);
+    exec('git fetch cella-upstream', forkPath);
+
+    await runPackages(buildConfig());
+
+    expect(readPkg(forkPath)).not.toHaveProperty('type');
   });
 
   it('should merge pnpm.overrides with add/bump-only logic', async () => {

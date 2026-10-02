@@ -7,7 +7,7 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { getEnvSnapshot } from './env';
 import { MANIFEST_FILE, readManifestBase, type SyncManifest } from './manifest';
@@ -82,10 +82,53 @@ export async function switchBranch(cwd: string, branch: string): Promise<void> {
 }
 
 /**
+ * Detach HEAD at a commit or ref (`git switch --detach`), holding no branch.
+ */
+export async function switchDetached(cwd: string, ref: string): Promise<void> {
+  await git(['switch', '--detach', ref], cwd);
+}
+
+/**
  * Create and check out a new branch from a specific start point (branch/ref).
+ *
+ * `--no-track` keeps a remote-tracking start point (`origin/main`) from becoming the new
+ * branch's upstream, where a bare `git push` could then land on the trunk.
  */
 export async function createBranchFrom(cwd: string, branch: string, startPoint: string): Promise<void> {
-  await git(['switch', '-c', branch, startPoint], cwd);
+  await git(['switch', '-c', branch, '--no-track', startPoint], cwd);
+}
+
+/**
+ * Whether a local branch exists.
+ */
+export async function branchExists(cwd: string, branch: string): Promise<boolean> {
+  return (await git(['rev-parse', '-q', '--verify', `refs/heads/${branch}`], cwd, { ignoreErrors: true })) !== '';
+}
+
+/**
+ * The worktree that has `branch` checked out, or null when none has.
+ *
+ * Git refuses to switch to a branch another worktree has checked out (and to move its ref), so
+ * callers that would switch to a shared branch such as the trunk check here first.
+ */
+export async function getBranchWorktree(cwd: string, branch: string): Promise<string | null> {
+  const output = await git(['worktree', 'list', '--porcelain'], cwd, { ignoreErrors: true });
+  let worktree: string | null = null;
+  for (const line of output.split('\n')) {
+    if (line.startsWith('worktree ')) worktree = line.slice('worktree '.length);
+    else if (line === `branch refs/heads/${branch}`) return worktree;
+  }
+  return null;
+}
+
+/**
+ * Fast-forward a branch no worktree has checked out to `ref`, without checking it out.
+ *
+ * Fetching from the repository itself (`git fetch . <ref>:<branch>`) moves the branch ref only,
+ * and git refuses when that is not a fast-forward or a worktree has the branch checked out.
+ */
+export async function fastForwardBranch(cwd: string, branch: string, ref: string): Promise<void> {
+  await git(['fetch', '--quiet', '.', `${ref}:refs/heads/${branch}`], cwd);
 }
 
 /**
@@ -114,22 +157,37 @@ export interface UpstreamStatus {
 }
 
 /**
- * Fetch the current branch's upstream, then report how far ahead/behind local is.
+ * A branch's upstream tracking ref (e.g. `origin/main`), or null when none is configured.
+ * `branch` defaults to the current one.
+ */
+export async function getBranchUpstream(cwd: string, branch = ''): Promise<string | null> {
+  const upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`], cwd, {
+    ignoreErrors: true,
+  });
+  return upstream || null;
+}
+
+/**
+ * Fetch a branch's upstream, then report how far ahead/behind the branch is.
+ *
+ * `branch` defaults to the current one. A named branch is compared by ref, without checking it
+ * out, so this also works for a branch another worktree has checked out.
  *
  * The fetch is best-effort so an offline/no-remote run still returns whatever is already local.
  * Returns `upstream: null` when the branch has no tracking branch configured (local-only repo).
  */
-export async function getUpstreamStatus(cwd: string): Promise<UpstreamStatus> {
-  const upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', '@{upstream}'], cwd, {
-    ignoreErrors: true,
-  });
+export async function getUpstreamStatus(cwd: string, branch?: string): Promise<UpstreamStatus> {
+  const local = branch ? `refs/heads/${branch}` : 'HEAD';
+  const upstream = await getBranchUpstream(cwd, branch);
   if (!upstream) return { upstream: null, ahead: 0, behind: 0 };
 
   // Refresh the remote-tracking ref so the comparison reflects the remote's latest state.
   const remote = upstream.split('/')[0];
   await git(['fetch', remote], cwd, { ignoreErrors: true, skipEditor: true });
 
-  const counts = await git(['rev-list', '--left-right', '--count', `HEAD...${upstream}`], cwd, { ignoreErrors: true });
+  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${upstream}`], cwd, {
+    ignoreErrors: true,
+  });
   const [ahead, behind] = counts.split(/\s+/).map((n) => Number.parseInt(n, 10) || 0);
   return { upstream, ahead: ahead ?? 0, behind: behind ?? 0 };
 }
@@ -188,10 +246,18 @@ export async function flattenBranch(cwd: string, baseRef: string, message: strin
  */
 export async function commitSquash(cwd: string, message: string): Promise<void> {
   for (const file of ['MERGE_HEAD', 'MERGE_MSG', 'MERGE_MODE']) {
-    const path = join(cwd, '.git', file);
+    const path = await gitPath(cwd, file);
     if (existsSync(path)) await unlink(path);
   }
   await git(['commit', '-m', message], cwd, { skipEditor: true });
+}
+
+/**
+ * Absolute path of a file in the current worktree's git dir. In a linked worktree `.git` is a
+ * pointer file and the git dir lives under the main checkout's `.git/worktrees/<name>`.
+ */
+async function gitPath(cwd: string, file: string): Promise<string> {
+  return resolve(cwd, await git(['rev-parse', '--git-path', file], cwd));
 }
 
 /**
@@ -202,10 +268,10 @@ export async function stageAll(cwd: string): Promise<void> {
 }
 
 /**
- * Whether a merge is currently in progress (MERGE_HEAD present).
+ * Whether a merge is currently in progress (MERGE_HEAD present), in a linked worktree too.
  */
-export function mergeInProgress(cwd: string): boolean {
-  return existsSync(join(cwd, '.git', 'MERGE_HEAD'));
+export async function mergeInProgress(cwd: string): Promise<boolean> {
+  return (await git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd, { ignoreErrors: true })) !== '';
 }
 
 /**
@@ -295,6 +361,55 @@ export async function resolveLatestReleaseTag(
     if (/^v\d/.test(tag)) return { tag, ref };
   }
   return null;
+}
+
+/**
+ * Resolve a ref named for upstream (`--ref`) to a commit: a branch on the upstream remote, then a
+ * tag from the remote-scoped tag namespace, then the ref as given (a sha). Upstream names come
+ * first, so `main` means upstream's main and `v1.0.0` upstream's release, never the fork's own.
+ * Revision suffixes work too (`main~2`). Returns the commit sha, plus the release tag when the
+ * ref is a release tag name itself (`v1.2.3`, not `v1.2.3~1`); null when nothing resolves.
+ */
+export async function resolveUpstreamCommit(
+  cwd: string,
+  remoteName: string,
+  ref: string,
+): Promise<{ sha: string; release?: { tag: string; ref: string } } | null> {
+  if (ref.startsWith('-')) return null;
+  const tagRef = `refs/${remoteName}/tags/${ref}`;
+  for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
+    const sha = await git(['rev-parse', '-q', '--verify', `${candidate}^{commit}`], cwd, { ignoreErrors: true });
+    if (!sha) continue;
+    const release = candidate === tagRef && /^v\d[\w.+-]*$/.test(ref) ? { tag: ref, ref: tagRef } : undefined;
+    return { sha, release };
+  }
+  return null;
+}
+
+/**
+ * Whether upstream published `sha`: reachable from the upstream branch (`branchRef`, e.g.
+ * `cella-upstream/main`) or from an upstream release tag (`v*`, remote-scoped namespace).
+ */
+export async function isPublishedUpstream(
+  cwd: string,
+  remoteName: string,
+  branchRef: string,
+  sha: string,
+): Promise<boolean> {
+  const containing = await git(
+    [
+      'for-each-ref',
+      '--count=1',
+      '--format=%(refname)',
+      '--contains',
+      sha,
+      `refs/remotes/${branchRef}`,
+      `refs/${remoteName}/tags/v*`,
+    ],
+    cwd,
+    { ignoreErrors: true },
+  );
+  return containing !== '';
 }
 
 /**

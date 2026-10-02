@@ -33,18 +33,24 @@ import {
 import { closePr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
 import {
   assertClean,
+  branchExists,
   type CommitRangeEntry,
   commitSquash,
   countCommitsBetween,
   createBranchFrom,
   deleteBranch,
+  fastForwardBranch,
+  fetch as fetchRemote,
   flattenBranch,
+  getBranchUpstream,
+  getBranchWorktree,
   getCommitInfo,
   getConflictedFiles,
   getCurrentBranch,
   getMergeBase,
   getShortSha,
   getUpstreamStatus,
+  isAncestor,
   isClean,
   listBranchMergeCommits,
   listCommitsBetween,
@@ -56,6 +62,7 @@ import {
   readPackageVersionAtRef,
   stageAll,
   switchBranch,
+  switchDetached,
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
 import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-notes';
@@ -69,26 +76,39 @@ interface TemporarySyncBranch {
   temporaryBranch: string;
   /** The trunk the branch was cut from and PRs land into (`releaseBase`, default `main`). */
   base: string;
-  /** The branch the user was on before the cycle started (for cleanup on no-op). */
+  /** The branch the user was on before the cycle started, 'HEAD' when detached (for cleanup on no-op). */
   startBranch: string;
+  /** The commit the user was on before the cycle started (to return to a detached start). */
+  startCommit: string;
 }
 
 /**
- * Make sure the trunk is current with its remote before a sync cycle cuts a branch from it.
+ * Make sure the trunk is current with its remote and return the ref a sync cycle cuts its branch
+ * from. Compares refs and never checks the trunk out, so this also works from a linked worktree
+ * while another worktree has the trunk checked out.
  *
  * Fetches the trunk's upstream and reacts to how local compares:
- * - behind (fast-forwardable): fast-forward it so the branch is cut from the latest trunk.
+ * - behind (fast-forwardable): fast-forward it so the branch is cut from the latest trunk. When
+ *   another worktree has the trunk checked out, its ref can't move under that checkout: cut from
+ *   the remote-tracking ref instead and leave the trunk as it is.
  * - diverged (local commits the remote lacks *and* vice versa): abort with guidance, since
  *   syncing onto a stale/diverged trunk produces a PR against an out-of-date base and avoidable
  *   conflicts.
  * - ahead-only / up to date / no upstream (local-only repo): fine, just note it and continue.
  */
-async function ensureBaseUpToDate(forkPath: string, base: string): Promise<void> {
-  const { upstream, ahead, behind } = await getUpstreamStatus(forkPath);
+async function resolveCycleStart(forkPath: string, base: string, currentBranch: string): Promise<string> {
+  // No local trunk branch to compare: cut from origin's, which `git switch` would have created it from.
+  if (!(await branchExists(forkPath, base))) {
+    await fetchRemote(forkPath, 'origin').catch(() => {});
+    console.info(pc.dim(`'${base}' has no local branch — cutting from 'origin/${base}'.`));
+    return `origin/${base}`;
+  }
+
+  const { upstream, ahead, behind } = await getUpstreamStatus(forkPath, base);
 
   if (!upstream) {
     console.info(pc.dim(`'${base}' has no upstream — skipping the up-to-date check.`));
-    return;
+    return base;
   }
 
   if (ahead > 0 && behind > 0) {
@@ -99,38 +119,79 @@ async function ensureBaseUpToDate(forkPath: string, base: string): Promise<void>
   }
 
   if (behind > 0) {
+    const worktree = currentBranch === base ? null : await getBranchWorktree(forkPath, base);
+    if (worktree) {
+      console.info(
+        pc.dim(`'${base}' is ${behind} behind '${upstream}' but checked out at ${worktree} — leaving it as it is.`),
+      );
+      return upstream;
+    }
     console.info(pc.dim(`fast-forwarding '${base}' to '${upstream}' (${behind} behind)...`));
-    await pullFastForward(forkPath);
-    return;
+    if (currentBranch === base) await pullFastForward(forkPath);
+    else await fastForwardBranch(forkPath, base, upstream);
+    return base;
   }
 
   if (ahead > 0) {
     console.info(pc.dim(`'${base}' is ${ahead} commit(s) ahead of '${upstream}' (unpushed) — continuing.`));
   }
+  return base;
 }
 
 /**
  * Cut a fresh temporary sync branch from the trunk.
  *
- * Switches to `releaseBase`, fast-forwards it, then creates `cella/sync/<stamp>` so the
- * merge lands on an isolated throwaway branch rather than a long-lived integration branch.
+ * Brings `releaseBase` up to date, then creates `cella/sync/<stamp>` from it (`git switch -c`
+ * from wherever the run started) so the merge lands on an isolated throwaway branch rather than
+ * a long-lived integration branch.
  */
 async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<TemporarySyncBranch> {
   const { forkPath, settings } = config;
   const base = resolveReleaseBase(settings);
   const startBranch = await getCurrentBranch(forkPath);
+  const startCommit = (await getCommitInfo(forkPath, 'HEAD')).hash;
 
-  console.info(pc.dim(`switching to '${base}' and updating...`));
-  await switchBranch(forkPath, base);
-  await ensureBaseUpToDate(forkPath, base);
+  console.info(pc.dim(`updating '${base}'...`));
+  const startPoint = await resolveCycleStart(forkPath, base, startBranch);
 
   const temporaryBranch = buildTemporarySyncBranch();
 
-  console.info(pc.dim(`creating temporary sync branch '${temporaryBranch}' from '${base}'...`));
+  console.info(pc.dim(`creating temporary sync branch '${temporaryBranch}' from '${startPoint}'...`));
   console.info();
-  await createBranchFrom(forkPath, temporaryBranch, base);
+  await createBranchFrom(forkPath, temporaryBranch, startPoint);
 
-  return { temporaryBranch, base, startBranch };
+  return { temporaryBranch, base, startBranch, startCommit };
+}
+
+/**
+ * The trunk ref a sync branch was cut from, to read its own commits against (`<ref>..HEAD`): the
+ * trunk, or its remote-tracking ref when the trunk is behind it. `resolveCycleStart` cuts from
+ * `origin` when another worktree holds a stale trunk, and that stale trunk would count origin's
+ * newer commits as part of the sync branch.
+ */
+async function resolveCutBase(forkPath: string, base: string): Promise<string> {
+  if (!(await branchExists(forkPath, base))) return `origin/${base}`;
+  const upstream = await getBranchUpstream(forkPath, base);
+  return upstream && (await isAncestor(forkPath, base, upstream)) ? upstream : base;
+}
+
+/**
+ * Leave the sync branch for the trunk, after shipping it. When another worktree has the trunk
+ * checked out, git refuses to switch to it: detach at the trunk instead, so this worktree holds
+ * no branch and the sync branch can be deleted once its PR lands. Returns where it left HEAD.
+ */
+async function returnToBase(forkPath: string, base: string): Promise<string> {
+  const worktree = await getBranchWorktree(forkPath, base);
+  if (worktree) {
+    console.info(pc.dim(`'${base}' is checked out at ${worktree} — detaching at '${base}' here instead...`));
+    await switchDetached(forkPath, base);
+    return `detached at '${base}'`;
+  }
+
+  console.info(pc.dim(`switching back to '${base}'...`));
+  await switchBranch(forkPath, base);
+  await pullFastForward(forkPath).catch(() => {});
+  return `back on '${base}'`;
 }
 
 /**
@@ -395,7 +456,8 @@ function indentLines(text: string): string {
 
 /**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
- * trunk. Runs when `cella sync` is invoked on a sync branch whose merge is already committed —
+ * trunk (or detach at it when another worktree has it checked out, see `returnToBase`). Runs when
+ * `cella sync` is invoked on a sync branch whose merge is already committed —
  * shipping is always its own run, after the commit stage stopped for drift triage.
  *
  * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
@@ -408,8 +470,10 @@ function indentLines(text: string): string {
 async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<void> {
   const { forkPath, settings } = config;
   const base = resolveReleaseBase(settings);
+  // The PR targets `base`; its commits and body are read against the trunk the branch was cut from.
+  const cutBase = await resolveCutBase(forkPath, base);
 
-  const flattened = await flattenSyncBranch(forkPath, branch, base);
+  const flattened = await flattenSyncBranch(forkPath, branch, cutBase);
   let prUrl: string | undefined;
   let prOpened = false;
 
@@ -430,7 +494,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
   if (ghAvailable()) {
     console.info(pc.dim('opening a pull request...'));
-    const prBody = await buildSyncPrBodyForBranch(forkPath, base);
+    const prBody = await buildSyncPrBodyForBranch(forkPath, cutBase);
     const bodyArgs = prBody ? ['--body', prBody] : ['--fill'];
     const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', prTitle, ...bodyArgs], {
       cwd: forkPath,
@@ -449,17 +513,15 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     printPrCreateStep(branch, base, prTitle);
   }
 
-  console.info(pc.dim(`switching back to '${base}'...`));
-  await switchBranch(forkPath, base);
-  await pullFastForward(forkPath).catch(() => {});
+  const position = await returnToBase(forkPath, base);
 
   console.info();
   if (prUrl) {
     console.info(`${pc.green('✓')} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
-    console.info(pc.dim(`  ${prUrl} · branch pushed, back on '${base}'`));
+    console.info(pc.dim(`  ${prUrl} · branch pushed, ${position}`));
   } else {
     console.info(`${pc.green('✓')} Sync branch pushed`);
-    console.info(pc.dim(`  '${branch}' is on origin, back on '${base}'`));
+    console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
   await printMigrationNotesLine(config);
 }
@@ -510,9 +572,11 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
 
   if (result.conflicts.length > 0) return { status: 'conflicts', branch };
 
-  // Nothing staged: already up to date. Clean up the throwaway branch.
-  if (!mergeInProgress(forkPath)) {
-    await switchBranch(forkPath, branch.startBranch === branch.temporaryBranch ? branch.base : branch.startBranch);
+  // Nothing staged: already up to date. Return to where the run started and drop the throwaway
+  // branch (a fresh cycle never starts on a sync branch: those resume or ship instead).
+  if (!(await mergeInProgress(forkPath))) {
+    if (branch.startBranch === 'HEAD') await switchDetached(forkPath, branch.startCommit);
+    else await switchBranch(forkPath, branch.startBranch);
     await deleteBranch(forkPath, branch.temporaryBranch);
     return { status: 'noop' };
   }
@@ -584,7 +648,8 @@ function printTriageSteps(branch: string): void {
  *
  * A merge GitHub refuses — conflicts with the trunk, or failing required checks (the "breaking
  * changes" to fix first) — stops the run: those must be resolved on the PR before syncing again.
- * On success the trunk is fast-forwarded locally so the fresh cycle cuts from it.
+ * On success the fresh cycle cuts from the merged trunk: `resolveCycleStart` fetches it and
+ * fast-forwards the local trunk (or cuts from `origin`'s when another worktree has it checked out).
  */
 async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): Promise<'continue' | 'cancel'> {
   const { forkPath, settings } = config;
@@ -610,11 +675,6 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
     closePr(forkPath, pr.number);
     await deleteBranch(forkPath, pr.headRefName);
   }
-
-  // Bring the merged commit into the local trunk so the new cycle cuts from an up-to-date base.
-  console.info(pc.dim(`switching to '${base}' and fast-forwarding...`));
-  await switchBranch(forkPath, base);
-  await pullFastForward(forkPath);
 
   return 'continue';
 }
@@ -678,8 +738,9 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
  *   one stops for IDE resolution.
  * - On a sync branch with a merge in progress: commit it (resume after conflicts), then stop.
  * - On a sync branch with the merge already committed: push and open the PR, then switch back
- *   to the trunk. Shipping is deliberately its own run — the pause before it is where drift
- *   triage and follow-up commits happen.
+ *   to the trunk (detach at it when another worktree has it checked out). Shipping is
+ *   deliberately its own run — the pause before it is where drift triage and follow-up commits
+ *   happen.
  */
 export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
@@ -688,7 +749,7 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   // Resume path: an earlier run left a merge staged on this temporary branch (e.g. after
   // conflicts). Re-running commits it instead of starting over.
-  if (onSyncBranch && mergeInProgress(forkPath)) {
+  if (onSyncBranch && (await mergeInProgress(forkPath))) {
     await commitSyncMerge(config, currentBranch);
     return;
   }
