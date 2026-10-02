@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.1](https://github.com/cellajs/cella-cli/compare/cli-0.3.0...cli-0.3.1) (2026-10-02)
+
+
+### 🎉 New features
+
+* **sync:** sync from a worktree, pin the upstream ref with --ref, sync package type ([#37](https://github.com/cellajs/cella-cli/issues/37)) ([63870a3](https://github.com/cellajs/cella-cli/commit/63870a32ff387378ecd7f438c73fc725764b79ec))
+
 ## [0.3.0](https://github.com/cellajs/cella-cli/compare/cli-0.2.3...cli-0.3.0) (2026-10-02)
 
 
