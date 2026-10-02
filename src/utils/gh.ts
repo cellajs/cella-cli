@@ -72,22 +72,16 @@ export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
 /**
  * Build the argv for `gh pr merge`. Pure — unit-tested.
  *
- * `auto` uses GitHub auto-merge (the PR squashes once required checks pass); without it the
- * merge is attempted immediately and fails when the PR is not mergeable.
+ * The merge is attempted immediately and fails when the PR is not mergeable.
  */
-export function buildMergeArgs(ref: string, options: { auto?: boolean; deleteBranch?: boolean } = {}): string[] {
+export function buildMergeArgs(ref: string, options: { deleteBranch?: boolean } = {}): string[] {
   const args = ['pr', 'merge', ref, '--squash'];
-  if (options.auto) args.push('--auto');
   if (options.deleteBranch) args.push('--delete-branch');
   return args;
 }
 
 /** Squash-merge a PR (by number, branch, or URL). See {@link buildMergeArgs}. */
-export function mergePrSquash(
-  cwd: string,
-  ref: string | number,
-  options: { auto?: boolean; deleteBranch?: boolean } = {},
-): GhResult {
+export function mergePrSquash(cwd: string, ref: string | number, options: { deleteBranch?: boolean } = {}): GhResult {
   return runGh(cwd, buildMergeArgs(String(ref), options));
 }
 
