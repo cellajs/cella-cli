@@ -46,12 +46,15 @@ import {
   getWorkingTreeChangeCount,
   git,
   gitMv,
+  isAncestor,
+  isPublishedUpstream,
   listCommitsBetween,
   merge,
   mergeAbort,
   removeFileFromWorktree,
   removeFileFully,
   resolveLatestReleaseTag,
+  resolveUpstreamCommit,
   restoreToHead,
   stagePath,
   storeLastSyncRef,
@@ -369,7 +372,7 @@ function calculateSummary(files: AnalyzedFile[]): AnalysisSummary {
  * Upstream context resolved once per run and shared by both engine modes.
  */
 interface UpstreamContext {
-  /** Concrete upstream ref merged from (branch tip or release-tag ref) */
+  /** Concrete upstream ref merged from (branch tip, release-tag ref or a --ref commit sha) */
   upstreamRef: string;
   /** Release tag when tracking releases */
   releaseTag?: string;
@@ -402,8 +405,38 @@ function formatLocalCheckoutDetail(
 }
 
 /**
+ * Resolve a `--ref` to the upstream commit this run syncs to, after the fetch: an upstream branch
+ * name, a release tag or a sha (see `resolveUpstreamCommit`). Refuses a ref that does not resolve,
+ * or one upstream never published on its branch or in a release (a fork commit, an upstream
+ * feature branch). A release tag syncs as that release; anything else as its commit sha, recorded
+ * like branch tracking.
+ */
+async function resolvePinnedRef(
+  forkPath: string,
+  config: RuntimeConfig,
+  remoteName: string,
+  branchRef: string,
+  ref: string,
+): Promise<{ ref: string; releaseTag?: string }> {
+  const resolved = await resolveUpstreamCommit(forkPath, remoteName, ref);
+  if (!resolved) {
+    throw new Error(
+      `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag (v*) or a branch on ` +
+        `${config.settings.upstreamUrl}.`,
+    );
+  }
+  if (!(await isPublishedUpstream(forkPath, remoteName, branchRef, resolved.sha))) {
+    throw new Error(
+      `--ref '${ref}' (${resolved.sha.slice(0, 7)}) is not on ${branchRef} or in an upstream release (v*). ` +
+        'Sync only to commits upstream has published there.',
+    );
+  }
+  return resolved.release ? { ref: resolved.release.ref, releaseTag: resolved.release.tag } : { ref: resolved.sha };
+}
+
+/**
  * Resolve everything both modes need from upstream: remote setup, the concrete
- * ref to merge (branch tip or latest release tag), sync ancestry bootstrap,
+ * ref to merge (branch tip, latest release tag or a pinned --ref), sync ancestry bootstrap,
  * effective merge-base, and commit info for progress output.
  */
 async function prepareUpstream(
@@ -434,11 +467,17 @@ async function prepareUpstream(
   onProgress?.(`fetching upstream (${remoteName})...`);
   await fetch(forkPath, remoteName);
 
-  // Resolve the concrete ref to merge from. Release tracking (default) syncs to the
-  // latest published release tag; branch tracking follows the upstream branch tip.
+  // Resolve the concrete ref to merge from. A per-run --ref pins it (and wins over --track);
+  // otherwise release tracking (default) syncs to the latest published release tag and
+  // branch tracking follows the upstream branch tip.
   let upstreamRef = branchRef;
   let releaseTag: string | undefined;
-  if (track === 'release') {
+  if (config.ref) {
+    await fetchUpstreamTags(forkPath, remoteName);
+    const pinned = await resolvePinnedRef(forkPath, config, remoteName, branchRef, config.ref);
+    upstreamRef = pinned.ref;
+    releaseTag = pinned.releaseTag;
+  } else if (track === 'release') {
     await fetchUpstreamTags(forkPath, remoteName);
     const latest = await resolveLatestReleaseTag(forkPath, remoteName);
     if (!latest) {
@@ -450,11 +489,12 @@ async function prepareUpstream(
     upstreamRef = latest.ref;
     releaseTag = latest.tag;
   }
+  const upstreamLabel = releaseTag ?? (config.ref ? `--ref ${config.ref}` : upstreamRef);
 
   // Expose the resolved ref to downstream steps (packages/analyze read config.upstreamRef
   // after the engine runs). The static fallback set at CLI parse time is the branch tip.
   config.upstreamRef = upstreamRef;
-  onStep?.('remote configured', `${releaseTag ?? upstreamRef} → ${config.settings.upstreamUrl}`);
+  onStep?.('remote configured', `${upstreamLabel} → ${config.settings.upstreamUrl}`);
 
   // Stop before anything merges when upstream was built with a newer CLI than this one.
   const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
@@ -473,12 +513,29 @@ async function prepareUpstream(
   // --hard and --unpinned use the natural merge-base instead, resurfacing the
   // full upstream history so previously-hidden drift/pins reappear consistently.
   const aggressive = config.hard === true || config.unpinned === true;
-  const mergeBase = aggressive
-    ? await getMergeBase(forkPath, 'HEAD', upstreamRef)
-    : (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
+  const syncPoint = (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
+  const mergeBase = aggressive ? await getMergeBase(forkPath, 'HEAD', upstreamRef) : syncPoint;
 
   // Get upstream commit info and count commits since merge-base
   const upstreamCommit = await getCommitInfo(forkPath, upstreamRef);
+
+  // An upstream commit behind the sync point (an earlier run went further with --ref or --track
+  // branch) would stage a revert of everything after it as if upstream had undone it: stop.
+  if (upstreamCommit.hash !== syncPoint && (await isAncestor(forkPath, upstreamCommit.hash, syncPoint))) {
+    const [upstreamShort, syncShort] = await Promise.all([
+      getShortSha(forkPath, upstreamCommit.hash),
+      getShortSha(forkPath, syncPoint),
+    ]);
+    const hint = config.ref
+      ? 'Pick a newer --ref.'
+      : releaseTag
+        ? `Nothing to sync until a release past ${syncShort}; to follow the tip instead, run with --track branch.`
+        : `Nothing to sync until '${branchRef}' moves past ${syncShort}.`;
+    throw new Error(
+      `upstream ${upstreamLabel} (${upstreamShort}) is behind the last sync point ${syncShort}: the fork already ` +
+        `has it, and syncing it would revert the upstream changes after it.\n${hint}`,
+    );
+  }
   const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
   const commitListMax = 50;
   const commitSkip = commitCount > commitListMax ? commitCount - commitListMax : 0;

@@ -37,8 +37,8 @@ Per-service help: `pnpm cella <service> --help`.
 
 | Service | Useful options |
 |---------|----------------|
-| analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--diff <path>`, `--open-diff <path>` |
-| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>` |
+| analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--diff <path>`, `--open-diff <path>` |
+| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>` |
 | migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--mark <ids...>` |
 | audit | `--list`, `--force`, `--check-overrides` |
 | forks | `--fork <name>`, `--log`, `--hard`, `-V, --verbose` |
@@ -72,6 +72,19 @@ For a one-off run that ignores the configured mode, pass `--track`:
 ```bash
 pnpm cella sync --track branch   # follow the tip once, without editing config
 ```
+
+To sync to one specific upstream point, pin it with `--ref` (it wins over `--track`): a commit sha,
+a release tag or an upstream branch name, resolved on the upstream remote (`main` is upstream's
+`main`, not yours). The ref must be on `settings.upstreamBranch` or in an upstream release; a
+release tag syncs as that release, anything else is recorded like branch tracking.
+
+```bash
+pnpm cella sync --ref 4f7d87c      # sync up to this upstream commit
+```
+
+A run never syncs to a point behind the last sync: when an earlier `--ref` or `--track branch` run
+went past the latest release, release tracking stops with a message until a newer release exists,
+instead of reverting what the app already has.
 
 ## Sync workflow
 

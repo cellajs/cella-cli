@@ -264,6 +264,12 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   track?: 'release' | 'branch';
 
+  /**
+   * Pin the upstream ref for this run (analyze/sync), overriding `track`: a commit sha, a release
+   * tag or an upstream branch name. Must be on the upstream branch or in an upstream release.
+   */
+  ref?: string;
+
   /** Bypass pnpm metadata cache for fresh registry data (audit service) */
   force?: boolean;
 

@@ -83,4 +83,12 @@ describe('parseCli', () => {
     expect(config.logFile).toBe(true);
     expect(config.hard).toBe(true);
   });
+
+  it('parses a pinned upstream ref for sync and analyze', async () => {
+    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c'];
+    expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('4f7d87c');
+
+    process.argv = ['node', 'cella', 'analyze', '--ref', 'v0.14.0'];
+    expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
+  });
 });

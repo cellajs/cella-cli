@@ -4,9 +4,11 @@
  * These tests create real git repos and run the actual sync services
  * to verify end-to-end behavior.
  */
+import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyze } from '../../src/services/analyze';
 import { runSync } from '../../src/services/sync';
+import { commitSquash, fetchUpstreamTags, resolveUpstreamCommit, stageAll } from '../../src/utils/git';
 import {
   buildRuntimeConfig,
   createTestEnv,
@@ -780,6 +782,122 @@ describe('sync e2e', () => {
       expect(result.success).toBe(true);
       expect(result.upstreamTag).toBeUndefined();
       expect(fileExists(env.forkPath, 'tip.ts')).toBe(true);
+    });
+  });
+
+  describe('pinned upstream ref (--ref)', () => {
+    /** Commit the staged sync single-parent, the way the finishing `cella sync` rerun does. */
+    async function commitSync(): Promise<void> {
+      await stageAll(env.forkPath);
+      await commitSquash(env.forkPath, 'chore: sync upstream cella');
+    }
+
+    it('analyzes and syncs to a pinned commit, not the tip, recorded like branch tracking', async () => {
+      const pinned = makeCommit(env.upstreamPath, {
+        files: { 'pinned.ts': 'export const p = 1;\n' },
+        message: 'feat: pinned change',
+      });
+      makeCommit(env.upstreamPath, { files: { 'later.ts': 'export const l = 1;\n' }, message: 'feat: later change' });
+      fetchUpstream(env.forkPath);
+
+      // Release tracking without any release: --ref wins, so no "no upstream releases" error
+      const ref = pinned.slice(0, 7);
+      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', track: 'release', ref }));
+      expect(analysis.files.find((f) => f.path === 'pinned.ts')?.status).toBe('behind');
+      expect(analysis.files.find((f) => f.path === 'later.ts')).toBeUndefined();
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release', ref }));
+
+      expect(result.success).toBe(true);
+      expect(result.upstreamTag).toBeUndefined();
+      expect(result.upstreamCommit?.hash).toBe(pinned);
+      expect(fileExists(env.forkPath, 'pinned.ts')).toBe(true);
+      expect(fileExists(env.forkPath, 'later.ts')).toBe(false);
+      const manifest = JSON.parse(readRepoFile(env.forkPath, 'cella/cella.manifest.json') ?? '{}');
+      expect(manifest.upstream).toMatchObject({ track: 'branch', commit: pinned, release: null });
+    });
+
+    it('syncs a pinned release tag as that release', async () => {
+      makeCommit(env.upstreamPath, { files: { 'one.ts': 'export const o = 1;\n' }, message: 'feat: one' });
+      tagUpstream(env.upstreamPath, 'v0.1.0');
+      makeCommit(env.upstreamPath, { files: { 'two.ts': 'export const t = 2;\n' }, message: 'feat: two' });
+      tagUpstream(env.upstreamPath, 'v0.2.0');
+      fetchUpstream(env.forkPath);
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }));
+
+      expect(result.upstreamTag).toBe('v0.1.0');
+      expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
+      expect(fileExists(env.forkPath, 'two.ts')).toBe(false);
+    });
+
+    it("resolves upstream's tag before the fork's own and reports only a plain tag name as a release", async () => {
+      makeCommit(env.upstreamPath, { files: { 'one.ts': 'export const o = 1;\n' }, message: 'feat: one' });
+      tagUpstream(env.upstreamPath, 'v0.1.0');
+      // The fork runs its own release-please: same tag name, its own commit
+      makeCommit(env.forkPath, { files: { 'fork.ts': 'export const f = 1;\n' }, message: 'feat: fork change' });
+      execSync('git tag v0.1.0 && git fetch -q --no-tags cella-upstream', { cwd: env.forkPath });
+      await fetchUpstreamTags(env.forkPath, 'cella-upstream');
+      const tagged = execSync('git rev-parse v0.1.0^{commit}', { cwd: env.upstreamPath }).toString().trim();
+
+      expect(await resolveUpstreamCommit(env.forkPath, 'cella-upstream', 'v0.1.0')).toEqual({
+        sha: tagged,
+        release: { tag: 'v0.1.0', ref: 'refs/cella-upstream/tags/v0.1.0' },
+      });
+      expect(await resolveUpstreamCommit(env.forkPath, 'cella-upstream', 'v0.1.0~1')).toMatchObject({
+        release: undefined,
+      });
+      expect(await resolveUpstreamCommit(env.forkPath, 'cella-upstream', '--output=x')).toBeNull();
+    });
+
+    it("resolves a branch name to upstream's branch, not the fork's own", async () => {
+      makeCommit(env.forkPath, { files: { 'fork.ts': 'export const f = 1;\n' }, message: 'feat: fork change' });
+      makeCommit(env.upstreamPath, { files: { 'tip.ts': 'export const t = 1;\n' }, message: 'feat: tip' });
+      fetchUpstream(env.forkPath);
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'main' }));
+
+      expect(result.upstreamCommit?.hash).toBe(
+        execSync('git rev-parse main', { cwd: env.upstreamPath }).toString().trim(),
+      );
+      expect(fileExists(env.forkPath, 'tip.ts')).toBe(true);
+    });
+
+    it('refuses a ref that does not resolve, or one upstream never published on its branch or in a release', async () => {
+      execSync('git checkout -q -b feature', { cwd: env.upstreamPath });
+      makeCommit(env.upstreamPath, { files: { 'wip.ts': 'export const w = 1;\n' }, message: 'feat: wip' });
+      execSync('git checkout -q main', { cwd: env.upstreamPath });
+      const forkCommit = makeCommit(env.forkPath, {
+        files: { 'fork.ts': 'export const f = 1;\n' },
+        message: 'feat: fork change',
+      });
+      fetchUpstream(env.forkPath);
+      const sync = (ref: string) => runSync(buildRuntimeConfig(env, { service: 'sync', ref }));
+
+      await expect(sync('no-such-ref')).rejects.toThrow(/--ref 'no-such-ref' does not resolve to a commit/);
+      await expect(sync('feature')).rejects.toThrow(/is not on cella-upstream\/main or in an upstream release/);
+      await expect(sync(forkCommit)).rejects.toThrow(/is not on cella-upstream\/main or in an upstream release/);
+      expect(fileExists(env.forkPath, 'wip.ts')).toBe(false);
+    });
+
+    it('refuses an upstream ref behind the last sync point instead of staging a revert', async () => {
+      makeCommit(env.upstreamPath, { files: { 'version.ts': 'v1\n' }, message: 'feat: v1' });
+      tagUpstream(env.upstreamPath, 'v0.1.0');
+      makeCommit(env.upstreamPath, { files: { 'version.ts': 'v2\n' }, message: 'feat: v2' });
+      fetchUpstream(env.forkPath);
+
+      // A branch-tracking sync moves the sync point past the latest release
+      await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'branch' }));
+      await commitSync();
+
+      await expect(runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release' }))).rejects.toThrow(
+        /upstream v0\.1\.0 \([0-9a-f]+\) is behind the last sync point[\s\S]*Nothing to sync until a release past/,
+      );
+      await expect(runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }))).rejects.toThrow(
+        /Pick a newer --ref/,
+      );
+      expect(readRepoFile(env.forkPath, 'version.ts')).toBe('v2\n');
+      expect(execSync('git status --porcelain', { cwd: env.forkPath }).toString()).toBe('');
     });
   });
 

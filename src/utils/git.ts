@@ -364,6 +364,55 @@ export async function resolveLatestReleaseTag(
 }
 
 /**
+ * Resolve a ref named for upstream (`--ref`) to a commit: a branch on the upstream remote, then a
+ * tag from the remote-scoped tag namespace, then the ref as given (a sha). Upstream names come
+ * first, so `main` means upstream's main and `v1.0.0` upstream's release, never the fork's own.
+ * Revision suffixes work too (`main~2`). Returns the commit sha, plus the release tag when the
+ * ref is a release tag name itself (`v1.2.3`, not `v1.2.3~1`); null when nothing resolves.
+ */
+export async function resolveUpstreamCommit(
+  cwd: string,
+  remoteName: string,
+  ref: string,
+): Promise<{ sha: string; release?: { tag: string; ref: string } } | null> {
+  if (ref.startsWith('-')) return null;
+  const tagRef = `refs/${remoteName}/tags/${ref}`;
+  for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
+    const sha = await git(['rev-parse', '-q', '--verify', `${candidate}^{commit}`], cwd, { ignoreErrors: true });
+    if (!sha) continue;
+    const release = candidate === tagRef && /^v\d[\w.+-]*$/.test(ref) ? { tag: ref, ref: tagRef } : undefined;
+    return { sha, release };
+  }
+  return null;
+}
+
+/**
+ * Whether upstream published `sha`: reachable from the upstream branch (`branchRef`, e.g.
+ * `cella-upstream/main`) or from an upstream release tag (`v*`, remote-scoped namespace).
+ */
+export async function isPublishedUpstream(
+  cwd: string,
+  remoteName: string,
+  branchRef: string,
+  sha: string,
+): Promise<boolean> {
+  const containing = await git(
+    [
+      'for-each-ref',
+      '--count=1',
+      '--format=%(refname)',
+      '--contains',
+      sha,
+      `refs/remotes/${branchRef}`,
+      `refs/${remoteName}/tags/v*`,
+    ],
+    cwd,
+    { ignoreErrors: true },
+  );
+  return containing !== '';
+}
+
+/**
  * Get the latest commit info from a ref.
  */
 export async function getCommitInfo(
