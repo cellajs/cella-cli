@@ -271,6 +271,10 @@ already defines is never rewritten, and `exports` only merges when both sides ar
 (`{ ".": …, "./config": … }`). A workspace upstream added since your last sync arrives with its
 package.json copied verbatim.
 
+`type` always syncs, whatever `packageJsonSync` lists: it follows upstream where your fork kept the
+previous value, and a package.json without `type` gets upstream's. Set it yourself (for example
+`"commonjs"`) to keep your own.
+
 ## Contributions (pull from forks)
 
 Upstream can pull modifications from local forks and selectively adopt them.

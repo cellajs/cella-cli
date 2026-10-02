@@ -53,7 +53,7 @@ export interface SyncSettings {
    */
   releaseBase?: string;
 
-  /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']) */
+  /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']). `type` always syncs. */
   packageJsonSync?: PackageJsonSyncKey[];
 
   /**
