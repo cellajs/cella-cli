@@ -92,6 +92,12 @@ drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits h
 2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
    opens a PR into `main` (via `gh`), and switches you back to `main`.
 
+`sync` also runs from a linked git worktree while another worktree has `main` checked out: it
+never switches to `main`. It compares `main` with `origin/main` by ref and cuts the sync branch
+from `main`; when `main` is behind and checked out elsewhere, it cuts from `origin/main` instead
+and leaves `main` as it is. After shipping, the worktree detaches at `main` instead of switching
+to it.
+
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: sync upstream cella <sha>`). This keeps the PR
 to one clean commit with the incremental diff — a two-parent merge commit would instead list the
