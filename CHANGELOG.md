@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.3.0](https://github.com/cellajs/cella-cli/compare/cli-0.2.3...cli-0.3.0) (2026-10-02)
+
+
+### ⚠ BREAKING CHANGES
+
+* **sync:** `cella sync --direct-merge` is no longer accepted. Merge the sync PR by hand.
+
+### 🎉 New features
+
+* **migrate:** read upstream migration notes in place and track open ones ([#34](https://github.com/cellajs/cella-cli/issues/34)) ([10c14e0](https://github.com/cellajs/cella-cli/commit/10c14e07910abfad94bf884bf6ddba88795c01b7))
+* **sync:** stop when upstream needs a newer CLI ([#30](https://github.com/cellajs/cella-cli/issues/30)) ([7c22d35](https://github.com/cellajs/cella-cli/commit/7c22d35fbeb1da6c1289f25f720ff53b0e807ebd))
+
+
+### 🔧 Small improvements
+
+* **sync:** remove --direct-merge ([#31](https://github.com/cellajs/cella-cli/issues/31)) ([f1a990b](https://github.com/cellajs/cella-cli/commit/f1a990b65a190c0ccaf54c1f7805b6b996b458e6))
+
 ## [0.2.3](https://github.com/cellajs/cella-cli/compare/cli-0.2.2...cli-0.2.3) (2026-10-01)
 
 
