@@ -19,6 +19,7 @@ pnpm cella audit
 |---------|-------------|
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
+| `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
 | `audit` | Check for outdated packages & vulnerabilities |
 | `stats` | Count files by category and workspace package |
 | `forks` * | Run normal sync inside local fork repositories |
@@ -38,6 +39,7 @@ Per-service help: `pnpm cella <service> --help`.
 |---------|----------------|
 | analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--diff <path>`, `--open-diff <path>` |
 | sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>` |
+| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--mark <ids...>` |
 | audit | `--list`, `--force`, `--check-overrides` |
 | forks | `--fork <name>`, `--log`, `--hard`, `-V, --verbose` |
 | contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
@@ -106,6 +108,34 @@ issue and printing the remaining manual steps:
 ```bash
 git push -u origin cella/sync/<stamp>
 gh pr create --base main --head cella/sync/<stamp> --fill
+```
+
+## Migration notes
+
+Upstream ships a note for every change that app code has to follow, in `cella/migrations/<id>/`:
+a README (frontmatter, title, summary, then the steps) and sometimes a codemod. The notes stay
+upstream. The sync never brings that folder into the app and removes a copy it finds; `migrate`
+reads the notes from the upstream commit the app last synced to, which the sync already fetched.
+
+The app keeps one small record, `cella/cella.migrations.json`, listing the notes it has not
+handled yet. The sync adds the notes that arrive with it, `migrate --mark` removes them, and the
+file is deleted once the list is empty. No file means nothing is pending, so a new app starts
+without one.
+
+Notes are information, never a gate. Each sync run, and `analyze`, ends with one line:
+
+```
+migration notes: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella migrate
+```
+
+and the sync PR lists the open notes with links. Handle them in the sync PR or later; they stay
+listed until marked.
+
+```bash
+pnpm cella migrate                    # open notes, with summary and links
+pnpm cella migrate --show <id>        # one note's README
+pnpm cella migrate --extract <id>     # its folder under node_modules/.cache/cella/migrations/<id>/, to run the codemod
+pnpm cella migrate --mark <id> [...]  # record notes as handled
 ```
 
 ## Sync rules

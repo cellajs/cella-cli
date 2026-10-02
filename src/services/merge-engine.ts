@@ -13,6 +13,9 @@
  * Key principle: Fork stays in real merge state for IDE conflict resolution.
  */
 
+import { existsSync } from 'node:fs';
+import { rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { AnalysisSummary, AnalyzedFile, MergeResult, RuntimeConfig } from '../config/types';
 import { cleanupLeftoverWorktrees, cleanupWorktree, getWorktreePath, registerWorktree } from '../utils/cleanup';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
@@ -41,6 +44,7 @@ import {
   getStagedNewFiles,
   getUpstreamStatus,
   getWorkingTreeChangeCount,
+  git,
   gitMv,
   listCommitsBetween,
   merge,
@@ -55,6 +59,14 @@ import {
 } from '../utils/git';
 import { isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
+import {
+  arrivedNoteIds,
+  listNoteIds,
+  NOTES_DIR,
+  PENDING_FILE,
+  readPending,
+  writePending,
+} from '../utils/migration-notes';
 import { groupIgnoredUpstreamChanges, isIgnored, isPinnedForSync } from '../utils/overrides';
 import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
@@ -69,7 +81,7 @@ type StepCallback = (label: string, detail?: string) => void;
  * Convert a git remote URL to a GitHub base URL.
  * Supports both SSH (git@github.com:org/repo.git) and HTTPS formats.
  */
-function getGitHubBaseUrl(remoteUrl: string): string | null {
+export function getGitHubBaseUrl(remoteUrl: string): string | null {
   // SSH format: git@github.com:cellajs/cella.git
   const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)(?:\.git)?$/);
   if (sshMatch) {
@@ -525,6 +537,51 @@ async function upstreamOnlyReports(
   }
 }
 
+/** Upstream migration notes for this sync range, plus the fork's pending list once the arrivals are added. */
+interface NotesInRange {
+  total: number;
+  arrived: string[];
+  pending: string[];
+}
+
+/**
+ * Read the migration notes for this sync range: upstream's notes at the incoming ref and the ones
+ * added since the recorded sync point. `--hard`/`--unpinned` merge from the natural merge-base,
+ * but notes count from the sync point either way, so notes from earlier syncs are not added again.
+ * Runs before the sync point moves. A failure yields no notes and never fails the run.
+ */
+async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Promise<NotesInRange | undefined> {
+  const { forkPath } = config;
+  try {
+    const aggressive = config.hard === true || config.unpinned === true;
+    const syncBase = aggressive ? (await getEffectiveMergeBase(forkPath, 'HEAD', ctx.upstreamRef)).base : ctx.mergeBase;
+    const [total, arrived, pending] = await Promise.all([
+      listNoteIds(forkPath, ctx.upstreamRef),
+      arrivedNoteIds(forkPath, syncBase, ctx.upstreamRef),
+      readPending(forkPath, syncBase),
+    ]);
+    return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
+  } catch {
+    return undefined;
+  }
+}
+
+/** The {@link MergeResult} view of {@link NotesInRange}. */
+function notesResult(notes: NotesInRange | undefined): Pick<MergeResult, 'migrationNotes'> {
+  return notes ? { migrationNotes: { total: notes.total, arrived: notes.arrived, open: notes.pending.length } } : {};
+}
+
+/**
+ * Remove the fork's copy of the upstream-only notes folder (forks that synced it before it became
+ * upstream-only, and new apps whose scaffold cloned it). Staged with the sync.
+ */
+async function removeUpstreamOnlyCopy(forkPath: string, onStep?: StepCallback): Promise<void> {
+  if (!existsSync(join(forkPath, NOTES_DIR))) return;
+  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', NOTES_DIR], forkPath);
+  await rm(join(forkPath, NOTES_DIR), { recursive: true, force: true });
+  onStep?.('migration notes', `removed ${NOTES_DIR}/: notes stay upstream, list them with pnpm cella migrate`);
+}
+
 /**
  * SYNC MODE: merge, analyze, and resolve directly in the fork, then record the
  * sync point (local ref + committed manifest) and leave the merge staged.
@@ -537,6 +594,7 @@ async function runSyncMerge(
 ): Promise<MergeResult> {
   const { forkPath } = config;
   const { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit } = ctx;
+  const notes = await readNotesInRange(config, ctx);
 
   const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
     forkPath,
@@ -575,6 +633,12 @@ async function runSyncMerge(
     await storeLastSyncRef(forkPath, upstreamCommit.hash);
     await writeSyncManifest(forkPath, syncManifest);
     await stagePath(forkPath, MANIFEST_FILE);
+    // Notes that arrived join the fork's pending list; an empty list deletes the file.
+    if (notes) {
+      await writePending(forkPath, notes.pending);
+      await stagePath(forkPath, PENDING_FILE);
+    }
+    await removeUpstreamOnlyCopy(forkPath, onStep);
   };
 
   if (remainingConflicts.length > 0) {
@@ -609,6 +673,7 @@ async function runSyncMerge(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
+    ...notesResult(notes),
   };
 }
 
@@ -624,6 +689,7 @@ async function runAnalyzePreview(
 ): Promise<MergeResult> {
   const { forkPath } = config;
   const worktreePath = getWorktreePath(forkPath);
+  const notes = await readNotesInRange(config, ctx);
 
   // Create worktree in temp directory (invisible to VSCode)
   onProgress?.('creating worktree in temp directory...');
@@ -665,6 +731,7 @@ async function runAnalyzePreview(
     protectedConflicts: analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path),
     ...resultMeta(config, ctx),
     ...reports,
+    ...notesResult(notes),
   };
 }
 

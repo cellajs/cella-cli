@@ -36,6 +36,10 @@ type CliOptionState = Pick<
   | 'force'
   | 'checkOverrides'
   | 'coverage'
+  | 'all'
+  | 'show'
+  | 'extract'
+  | 'mark'
 >;
 
 type MenuContext = {
@@ -78,6 +82,10 @@ function readOptions(opts: Record<string, unknown>): CliOptionState {
     force: opts.force === true,
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
+    all: opts.all === true,
+    show: typeof opts.show === 'string' ? opts.show : undefined,
+    extract: typeof opts.extract === 'string' ? opts.extract : undefined,
+    mark: Array.isArray(opts.mark) ? opts.mark.filter((id): id is string => typeof id === 'string') : undefined,
   };
 }
 
@@ -107,6 +115,18 @@ const serviceDefinitions: ServiceDefinition[] = [
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
     menuDescription: () => 'merge upstream changes + sync package.json',
+  },
+  {
+    name: 'migrate',
+    description: 'list the upstream migration notes this app has not handled yet',
+    options: [
+      { flags: '--all', description: 'list every upstream note, handled or not' },
+      { flags: '--json', description: 'machine-readable output for tooling/agents' },
+      { flags: '--show <id>', description: "print one note's README" },
+      { flags: '--extract <id>', description: "write one note's folder under node_modules/.cache to run its codemod" },
+      { flags: '--mark <ids...>', description: 'record notes as handled' },
+    ],
+    includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
     name: 'audit',
@@ -213,6 +233,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --hard',
         '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
+        '  $ cella migrate --mark 20261002T0614-config-switch',
         '  $ cella audit --check-overrides',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),
