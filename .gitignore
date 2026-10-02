@@ -1,7 +1,50 @@
-node_modules/
-dist/
-coverage/
-*.tsbuildinfo
-.tsbuildinfo
-.DS_Store
+# Logs
+logs
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+lerna-debug.log*
+
+# Dependencies and build output
+node_modules
+dist
+out
+*.local
+
+# Editor directories and files
+.idea
+.DS_Store
+.vscode
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# Environment
+.env
+.env.*
+!.env.example
+.envrc
+
+# Cache
+*.tsbuildinfo
+.pnpm-store
+.temp
+
+# Test coverage output
+.coverage/
+coverage/
+*.lcov
+.nyc_output/
+
+# Local agent and tool directories
+.claude
+.junie
+.kilo
+.custom
+.devcontainer/
+.todos
+.worktrees
