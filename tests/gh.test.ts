@@ -45,18 +45,7 @@ describe('buildMergeArgs', () => {
     expect(buildMergeArgs('42')).toEqual(['pr', 'merge', '42', '--squash']);
   });
 
-  it('adds --auto for auto-merge and --delete-branch when requested', () => {
-    expect(buildMergeArgs('cella/sync/x', { auto: true, deleteBranch: true })).toEqual([
-      'pr',
-      'merge',
-      'cella/sync/x',
-      '--squash',
-      '--auto',
-      '--delete-branch',
-    ]);
-  });
-
-  it('can delete the branch without enabling auto-merge', () => {
+  it('deletes the branch when requested', () => {
     expect(buildMergeArgs('7', { deleteBranch: true })).toEqual(['pr', 'merge', '7', '--squash', '--delete-branch']);
   });
 });

@@ -359,31 +359,12 @@ function indentLines(text: string): string {
 }
 
 /**
- * Turn on GitHub auto-merge (squash) for the just-opened sync PR: it merges itself once required
- * checks pass, so `--direct-merge` needs no babysitting. Returns whether it was enabled; on failure
- * (the repo doesn't allow auto-merge, `gh` too old) it prints the manual command and returns false.
- */
-function enableAutoMerge(forkPath: string, branch: string): boolean {
-  console.info(pc.dim('enabling auto-merge (squash) once checks pass...'));
-  const merge = mergePrSquash(forkPath, branch, { auto: true, deleteBranch: true });
-  if (merge.ok) return true;
-
-  console.info(pc.yellow('could not enable auto-merge (is it enabled for the repo?). merge it manually:'));
-  if (merge.output) console.info(pc.dim(indentLines(merge.output)));
-  console.info(pc.dim(`  gh pr merge ${branch} --squash --delete-branch`));
-  return false;
-}
-
-/**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
  * trunk. Runs when `cella sync` is invoked on a sync branch whose merge is already committed —
  * shipping is always its own run, after the commit stage stopped for drift triage.
  *
  * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
  * so the PR never lists the upstream branch's entire history.
- *
- * With `--direct-merge`, once the PR is open GitHub auto-merge is enabled (see `enableAutoMerge`)
- * so it squash-merges itself as soon as required checks pass — no forgotten open PR to trip over.
  *
  * Every step degrades gracefully: a failed push (no `origin`, auth) prints the manual steps and
  * leaves you on the branch; a missing/failed `gh` (or an existing PR) prints the `gh` command but
@@ -396,7 +377,6 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   const flattened = await flattenSyncBranch(forkPath, branch, base);
   let prUrl: string | undefined;
   let prOpened = false;
-  let autoMergeEnabled = false;
 
   // The squash commit's subject is the versioned sync message — reuse it as the PR title so the
   // PR name carries the upstream version and commit id (release-please only needs the prefix).
@@ -424,9 +404,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     });
     prUrl = extractFirstUrl(`${pr.stdout ?? ''}\n${pr.stderr ?? ''}`);
     prOpened = pr.status === 0;
-    if (prOpened) {
-      if (config.directMerge) autoMergeEnabled = enableAutoMerge(forkPath, branch);
-    } else {
+    if (!prOpened) {
       console.info(pc.yellow('could not open the PR automatically (it may already exist). open it with:'));
       if (prUrl) console.info(pc.dim(`  ${prUrl}`));
       printPrCreateStep(branch, base, prTitle);
@@ -443,10 +421,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   console.info();
   if (prUrl) {
     console.info(`${pc.green('✓')} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
-    const status = autoMergeEnabled
-      ? `auto-merge on — squashes into '${base}' when checks pass`
-      : `branch pushed, back on '${base}'`;
-    console.info(pc.dim(`  ${prUrl} · ${status}`));
+    console.info(pc.dim(`  ${prUrl} · branch pushed, back on '${base}'`));
   } else {
     console.info(`${pc.green('✓')} Sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, back on '${base}'`));
