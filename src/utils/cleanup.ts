@@ -5,9 +5,10 @@
  * Uses a temp directory outside the repo so worktree doesn't appear in VSCode.
  */
 
+import { createHash } from 'node:crypto';
 import { existsSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { basename, join } from 'node:path';
+import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 import pc from './colors';
 import { warningMark } from './display';
@@ -29,8 +30,17 @@ const WORKTREE_PREFIXES = {
 
 type WorktreeKind = keyof typeof WORKTREE_PREFIXES;
 
-/** Build the system-temp worktree path for a kind, keyed by repo name for uniqueness. */
+/**
+ * Build the system-temp worktree path for a kind: the repo folder name plus a hash of its full
+ * path, so two repos with the same folder name (or parallel test runs) never share one.
+ */
 function buildWorktreePath(kind: WorktreeKind, repoPath: string): string {
+  const key = createHash('sha256').update(resolve(repoPath)).digest('hex').slice(0, 8);
+  return join(tmpdir(), `${WORKTREE_PREFIXES[kind]}${basename(repoPath)}-${key}`);
+}
+
+/** The path earlier CLI versions used, the repo folder name alone. Cleaned up, never created. */
+function legacyWorktreePath(kind: WorktreeKind, repoPath: string): string {
   return join(tmpdir(), `${WORKTREE_PREFIXES[kind]}${basename(repoPath)}`);
 }
 
@@ -84,9 +94,8 @@ export async function cleanupWorktree(repoPath: string, worktreePath: string): P
  */
 export async function cleanupLeftoverWorktrees(repoPath: string): Promise<void> {
   for (const kind of Object.keys(WORKTREE_PREFIXES) as WorktreeKind[]) {
-    const worktreePath = buildWorktreePath(kind, repoPath);
-    if (existsSync(worktreePath)) {
-      await cleanupWorktree(repoPath, worktreePath);
+    for (const worktreePath of [buildWorktreePath(kind, repoPath), legacyWorktreePath(kind, repoPath)]) {
+      if (existsSync(worktreePath)) await cleanupWorktree(repoPath, worktreePath);
     }
   }
 

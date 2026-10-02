@@ -15,6 +15,7 @@ import { runAnalyze } from './services/analyze';
 import { runAudit } from './services/audit';
 import { runContributions } from './services/contributions';
 import { runForks } from './services/forks';
+import { runMigrate } from './services/migrate';
 import { runStats } from './services/stats';
 import { runSyncCommand } from './services/sync';
 import { registerSignalHandlers } from './utils/cleanup';
@@ -109,6 +110,10 @@ async function main(): Promise<void> {
         await runSyncCommand(config);
         break;
       }
+
+      case 'migrate':
+        await runMigrate(config);
+        break;
 
       case 'audit':
         await runAudit(config, { force: config.force, checkOverrides: config.checkOverrides });

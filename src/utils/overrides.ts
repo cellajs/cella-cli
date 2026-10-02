@@ -10,6 +10,7 @@ import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { warningMark } from './display';
 import { isGeneratedFile, isManagedFile } from './managed-files';
+import { isUpstreamOnly } from './migration-notes';
 
 /**
  * Check if a file path is owned by any of the given folders.
@@ -28,10 +29,11 @@ export function isUnderAnyFolder(filePath: string, folders: string[]): boolean {
 }
 
 /**
- * Check if a file is inside an ignored path.
+ * Check if a file is inside an ignored path, or an upstream-only one (migration notes), which
+ * every fork ignores without listing it.
  */
 export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
-  return isUnderAnyFolder(filePath, config.overrides?.ignored || []);
+  return isUpstreamOnly(filePath) || isUnderAnyFolder(filePath, config.overrides?.ignored || []);
 }
 
 /**

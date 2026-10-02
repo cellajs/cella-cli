@@ -24,6 +24,7 @@ import {
 } from '../utils/display';
 import { CONFIG_FILE } from '../utils/managed-files';
 import { runMergeEngine } from './merge-engine';
+import { printMigrationNotesLine } from './migrate';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
   all: new Set(['ahead', 'drifted', 'diverged']),
@@ -173,6 +174,8 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   // Surface pins that would silently freeze a file at the old upstream on the next sync
   printMaskingPinWarning(result.files);
+
+  await printMigrationNotesLine(config, result);
 
   // Write log file if requested
   if (config.logFile) {

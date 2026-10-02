@@ -58,7 +58,9 @@ import {
   switchBranch,
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
+import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-notes';
 import { runMergeEngine } from './merge-engine';
+import { printMigrationNotesLine } from './migrate';
 import { runPackages } from './packages';
 
 /** Context for the temporary branch a sync cycle runs on. */
@@ -188,6 +190,8 @@ export async function runSync(
 
   printFlagWarnings({ hard: config.hard, unpinned: config.unpinned });
 
+  await printMigrationNotesLine(config, result);
+
   return result;
 }
 
@@ -237,11 +241,13 @@ export interface SyncPrBodyInput {
   commits: CommitRangeEntry[];
   /** Total commits in the range (may exceed `commits.length` when truncated). */
   totalCount: number;
+  /** Upstream migration notes at the sync point: the total, and the ones the app has not handled yet. */
+  notes?: { total: number; open: Array<{ id: string; title: string; url?: string }> };
 }
 
 /** Render the sync PR body: where the sync moved to, plus the upstream commits it brought in. */
 export function buildSyncPrBody(input: SyncPrBodyInput): string {
-  const { repoSlug, version, fromSha, toSha, commits, totalCount } = input;
+  const { repoSlug, version, fromSha, toSha, commits, totalCount, notes } = input;
   const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
   const short = (sha: string) => sha.slice(0, 7);
   const commitRef = (sha: string) =>
@@ -257,6 +263,20 @@ export function buildSyncPrBody(input: SyncPrBodyInput): string {
     if (totalCount > commits.length) lines.push(`- …${totalCount - commits.length} earlier commit(s) not shown`);
     for (const commit of commits) {
       lines.push(`- ${commitRef(commit.hash)} ${qualifyPrRefs(commit.message, repoSlug)}`);
+    }
+  }
+
+  if (notes && notes.total > 0) {
+    const { total, open } = notes;
+    if (open.length === 0) lines.push('', `**Migration notes**: all ${total} handled.`);
+    else {
+      lines.push(
+        '',
+        `**Migration notes**: ${Math.max(0, total - open.length)} of ${total} handled, open (\`pnpm cella migrate\`):`,
+        '',
+      );
+      for (const note of open)
+        lines.push(`- ${note.url ? `[${note.title}](${note.url})` : note.title} (\`${note.id}\`)`);
     }
   }
 
@@ -292,7 +312,22 @@ async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise
         })
       : [];
 
-  return buildSyncPrBody({ repoSlug: manifest.upstream.repo, version, fromSha, toSha, commits, totalCount });
+  const notes = await readPrBodyNotes(forkPath, toSha, manifest.upstream.repo).catch(() => undefined);
+  return buildSyncPrBody({ repoSlug: manifest.upstream.repo, version, fromSha, toSha, commits, totalCount, notes });
+}
+
+/** Migration notes for the PR body: the total at the sync point and the app's open ones, with permalinks. */
+async function readPrBodyNotes(forkPath: string, toSha: string, repoSlug?: string): Promise<SyncPrBodyInput['notes']> {
+  const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
+  const [ids, pending] = await Promise.all([listNoteIds(forkPath, toSha), readPending(forkPath, toSha)]);
+  const open = await Promise.all(
+    pending.map(async (id) => ({
+      id,
+      title: (await readNote(forkPath, toSha, id))?.title ?? id,
+      url: noteUrl(githubUrl, toSha, id),
+    })),
+  );
+  return { total: ids.length, open };
 }
 
 /** Print the GitHub CLI command for opening the finished sync PR. */
@@ -426,6 +461,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     console.info(`${pc.green('✓')} Sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, back on '${base}'`));
   }
+  await printMigrationNotesLine(config);
 }
 
 /**
@@ -531,6 +567,7 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   console.info();
   console.info(pc.green(`committed the sync on '${branch}' as '${message}'.`));
   printTriageSteps(branch);
+  await printMigrationNotesLine(config);
 }
 
 /** Guidance after the commit stage stops on the committed sync branch. */

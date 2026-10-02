@@ -207,7 +207,7 @@ export const cellaConfigSchema = z
 // ─────────────────────────────────────────────────────────────────────────────
 
 /** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'sync' | 'audit' | 'forks' | 'contributions' | 'stats';
+export type SyncService = 'analyze' | 'sync' | 'migrate' | 'audit' | 'forks' | 'contributions' | 'stats';
 
 /** Analyze output scope for interactive and machine-readable flows */
 export type AnalyzeScope = 'all' | 'risk' | 'protected';
@@ -272,6 +272,18 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Regenerate test coverage before showing the stats summary (stats service) */
   coverage?: boolean;
+
+  /** List every upstream migration note, not only the open ones (migrate service) */
+  all?: boolean;
+
+  /** Print one migration note's README (migrate service) */
+  show?: string;
+
+  /** Write one migration note's folder where its codemod can run (migrate service) */
+  extract?: string;
+
+  /** Migration note ids to record as handled (migrate service) */
+  mark?: string[];
 }
 
 /** File status after analysis */
@@ -393,6 +405,11 @@ export interface MergeResult {
   upstreamOverrides?: UpstreamOverridesReport;
   /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
+  /**
+   * Upstream migration notes: how many the incoming ref holds, which ones upstream added since the
+   * sync point, and how many stay open in the fork once those are added.
+   */
+  migrationNotes?: { total: number; arrived: string[]; open: number };
 }
 
 /** Entries of one override list (`pinned` or `ignored`) that the fork config does not mirror. */
