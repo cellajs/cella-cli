@@ -2,26 +2,37 @@
  * Tests for upstream override changes.
  *
  * The sync config is managed (never merged), so entries upstream adds to its own
- * `overrides.pinned`/`overrides.ignored` never reach the fork. `parseOverrideLists` reads both
- * lists without evaluating the file, `diffOverrideLists` keeps what the fork config does not
- * follow, and `compareUpstreamOverrides` runs both against upstream's config at two refs.
+ * `overrides.pinned`/`overrides.ignored`, and keys it adds to `settings.packageJsonSync`, never
+ * reach the fork. `parseOverrideLists` reads the lists without evaluating the file,
+ * `diffOverrideLists` keeps what the fork config does not follow, and `compareUpstreamOverrides`
+ * runs both against upstream's config at two refs.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import type { CellaCliConfig, MergeResult } from '../src/config/types';
+import type { CellaCliConfig, MergeResult, PackageJsonSyncKey } from '../src/config/types';
 import { printUpstreamOverrideChanges } from '../src/utils/display';
 import { compareUpstreamOverrides, diffOverrideLists, parseOverrideLists } from '../src/utils/upstream-overrides';
 
-/** A cella-style config with the given list bodies (raw source, so tests can embed comments). */
-function configSource(pinned: string, ignored: string): string {
+/** The keys a config without `packageJsonSync` syncs. */
+const DEFAULT_KEYS = ['dependencies', 'devDependencies'];
+
+/** No change in one list. */
+const NONE = { added: [], removed: [] };
+
+/**
+ * A cella-style config with the given list bodies (raw source, so tests can embed comments).
+ * `settings` adds raw lines to the settings object, e.g. a `packageJsonSync` list.
+ */
+function configSource(pinned: string, ignored: string, settings = ''): string {
   return `import { defineConfig } from '@cellajs/cli/config';
 
 export default defineConfig({
   settings: {
     upstreamUrl: 'git@github.com:cellajs/cella.git',
+    ${settings}
   },
   overrides: {
     // Paths the fork fully owns
@@ -32,8 +43,11 @@ export default defineConfig({
 `;
 }
 
-function forkConfig(overrides: { pinned?: string[]; ignored?: string[] }): CellaCliConfig {
-  return { settings: { upstreamUrl: 'test' }, overrides };
+function forkConfig(
+  overrides: { pinned?: string[]; ignored?: string[] },
+  packageJsonSync?: PackageJsonSyncKey[],
+): CellaCliConfig {
+  return { settings: { upstreamUrl: 'test', packageJsonSync }, overrides };
 }
 
 describe('parseOverrideLists', () => {
@@ -54,6 +68,7 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists(source)).toEqual({
       pinned: ['backend/src/modules.ts', 'frontend/src/menu-config.tsx', 'json/text-blocks.json'],
       ignored: ['README.md', 'shared/config'],
+      packageJsonSync: DEFAULT_KEYS,
     });
   });
 
@@ -61,11 +76,26 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists(`export default defineConfig({ settings: { upstreamUrl: 'x' } });`)).toEqual({
       pinned: [],
       ignored: [],
+      packageJsonSync: DEFAULT_KEYS,
     });
     expect(parseOverrideLists(`export default defineConfig({ overrides: { pinned: ['a'] } });`)).toEqual({
       pinned: ['a'],
       ignored: [],
+      packageJsonSync: DEFAULT_KEYS,
     });
+  });
+
+  it('reads the packageJsonSync keys, and null when settings or the list cannot be read statically', () => {
+    const source = configSource(
+      `'a.ts'`,
+      '',
+      `packageJsonSync: ['dependencies', 'scripts', /* add-only */ 'exports'],`,
+    );
+    expect(parseOverrideLists(source)?.packageJsonSync).toEqual(['dependencies', 'scripts', 'exports']);
+
+    // An unreadable key list leaves the override lists readable
+    const computed = configSource(`'a.ts'`, '', 'packageJsonSync: keys(),');
+    expect(parseOverrideLists(computed)).toEqual({ pinned: ['a.ts'], ignored: [], packageJsonSync: null });
   });
 
   it('follows same-file variables, satisfies and a plain default export', () => {
@@ -74,10 +104,11 @@ describe('parseOverrideLists', () => {
       const overrides = { ignored, 'pinned': ['a.ts', ...extra] };
       export default defineConfig({ settings, overrides });
     `;
-    expect(parseOverrideLists(viaVariable)).toEqual({ pinned: ['a.ts'], ignored: ['own'] });
+    // `settings` is imported, so its packageJsonSync is unknown
+    expect(parseOverrideLists(viaVariable)).toEqual({ pinned: ['a.ts'], ignored: ['own'], packageJsonSync: null });
 
     const plain = `export default ({ overrides: { pinned: ['b.ts'] } }) satisfies CellaCliConfig;`;
-    expect(parseOverrideLists(plain)).toEqual({ pinned: ['b.ts'], ignored: [] });
+    expect(parseOverrideLists(plain)).toEqual({ pinned: ['b.ts'], ignored: [], packageJsonSync: DEFAULT_KEYS });
   });
 
   it('returns null when the config cannot be read statically', () => {
@@ -89,34 +120,49 @@ describe('parseOverrideLists', () => {
 });
 
 describe('diffOverrideLists', () => {
-  const base = { pinned: ['a.ts', 'b.ts', 'gone.ts'], ignored: ['README.md', 'old'] };
+  const base = { pinned: ['a.ts', 'b.ts', 'gone.ts'], ignored: ['README.md', 'old'], packageJsonSync: DEFAULT_KEYS };
   const incoming = {
     pinned: ['a.ts', 'b.ts', 'backend/src/bundle-config.ts'],
     ignored: ['README.md', 'shared/config/'],
+    packageJsonSync: DEFAULT_KEYS,
   };
 
   it('reports upstream additions the fork lacks and removals the fork still carries', () => {
-    const fork = { pinned: ['a.ts', 'gone.ts'], ignored: ['README.md', 'old/'] };
+    const fork = { pinned: ['a.ts', 'gone.ts'], ignored: ['README.md', 'old/'], packageJsonSync: DEFAULT_KEYS };
     expect(diffOverrideLists(base, incoming, fork)).toEqual({
       pinned: { added: ['backend/src/bundle-config.ts'], removed: ['gone.ts'] },
       ignored: { added: ['shared/config'], removed: ['old'] },
+      packageJsonSync: NONE,
     });
   });
 
   it('skips additions the fork already covers, by entry or parent folder', () => {
-    const fork = { pinned: ['backend/src/bundle-config.ts'], ignored: ['shared'] };
-    expect(diffOverrideLists(base, incoming, fork)).toEqual({
-      pinned: { added: [], removed: [] },
-      ignored: { added: [], removed: [] },
-    });
+    const fork = { pinned: ['backend/src/bundle-config.ts'], ignored: ['shared'], packageJsonSync: DEFAULT_KEYS };
+    expect(diffOverrideLists(base, incoming, fork)).toEqual({ pinned: NONE, ignored: NONE, packageJsonSync: NONE });
   });
 
   it('never reports entries upstream had all along, whether the fork has them or not', () => {
     // 'a.ts' is in both upstream refs and the fork; 'b.ts' in both upstream refs, dropped by the fork
-    const result = diffOverrideLists(base, incoming, { pinned: ['a.ts'], ignored: [] });
+    const result = diffOverrideLists(base, incoming, { pinned: ['a.ts'], ignored: [], packageJsonSync: [] });
     expect(result.pinned.added).not.toContain('a.ts');
     expect(result.pinned.added).not.toContain('b.ts');
     expect(result.pinned.removed).toEqual([]);
+    // the default keys are in both upstream refs, the fork syncs none of them
+    expect(result.packageJsonSync).toEqual(NONE);
+  });
+
+  it('reports packageJsonSync keys upstream added that the fork lacks and dropped that the fork still lists', () => {
+    const lists = (packageJsonSync: string[] | null) => ({ pinned: [], ignored: [], packageJsonSync });
+    const before = lists(['dependencies', 'devDependencies', 'engines']);
+    const after = lists(['dependencies', 'devDependencies', 'scripts', 'exports']);
+
+    expect(diffOverrideLists(before, after, lists(['dependencies', 'scripts', 'engines'])).packageJsonSync).toEqual({
+      added: ['exports'],
+      removed: ['engines'],
+    });
+    // a side that could not be read compares nothing
+    expect(diffOverrideLists(before, lists(null), lists(['dependencies'])).packageJsonSync).toEqual(NONE);
+    expect(diffOverrideLists(before, after, lists(null)).packageJsonSync).toEqual(NONE);
   });
 });
 
@@ -172,7 +218,31 @@ describe('compareUpstreamOverrides', () => {
       kind: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
       ignored: { added: [], removed: ['old'] },
+      packageJsonSync: NONE,
     });
+  });
+
+  it('reports a packageJsonSync key upstream added, against the default when the fork config names none', async () => {
+    createRepo();
+    const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
+    const incoming = commit({
+      'cella/cella.config.ts': configSource(
+        `'a.ts'`,
+        '',
+        `packageJsonSync: ['dependencies', 'devDependencies', 'exports'],`,
+      ),
+    });
+
+    const fork = forkConfig({ pinned: ['a.ts'] });
+    expect(await compareUpstreamOverrides(repoPath, base, incoming, fork)).toEqual({
+      kind: 'changes',
+      pinned: NONE,
+      ignored: NONE,
+      packageJsonSync: { added: ['exports'], removed: [] },
+    });
+
+    const following = forkConfig({ pinned: ['a.ts'] }, ['dependencies', 'exports']);
+    expect(await compareUpstreamOverrides(repoPath, base, incoming, following)).toBeUndefined();
   });
 
   it('reads the legacy root config path at an older merge-base', async () => {
@@ -223,7 +293,7 @@ describe('printUpstreamOverrideChanges', () => {
       lines.push(args.map(String).join(' '));
     });
     try {
-      printUpstreamOverrideChanges({ upstreamOverrides } as MergeResult);
+      printUpstreamOverrideChanges({ upstreamOverrides });
     } finally {
       spy.mockRestore();
     }
@@ -235,11 +305,14 @@ describe('printUpstreamOverrideChanges', () => {
       kind: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
       ignored: { added: ['infra/Pulumi.staging.yaml'], removed: ['old'] },
+      packageJsonSync: { added: ['exports'], removed: ['engines'] },
     });
-    expect(out).toContain('upstream changed its sync overrides · 3 entries to review');
+    expect(out).toContain('upstream changed its sync config · 5 entries to review');
     expect(out).toContain('+ pinned: backend/src/bundle-config.ts');
     expect(out).toContain('+ ignored: infra/Pulumi.staging.yaml');
     expect(out).toContain('− ignored: old');
+    expect(out).toContain('+ packageJsonSync: exports');
+    expect(out).toContain('− packageJsonSync: engines');
     expect(out).toContain('dropped upstream, still in your config');
     expect(out).toContain('cella/cella.config.ts never syncs');
   });
@@ -247,7 +320,7 @@ describe('printUpstreamOverrideChanges', () => {
   it('prints one dim line when upstream config was unreadable, nothing when there is no report', () => {
     const unreadable = capture({ kind: 'unreadable', side: 'incoming' });
     expect(unreadable.trim().split('\n')).toHaveLength(1);
-    expect(unreadable).toContain('upstream overrides not compared');
+    expect(unreadable).toContain('upstream sync config not compared');
     expect(capture(undefined)).toBe('');
   });
 });

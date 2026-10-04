@@ -7,7 +7,7 @@
 import { existsSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
-import { type CellaCliConfig, cellaConfigSchema, type SyncSettings } from '../config/types';
+import { type CellaCliConfig, cellaConfigSchema, type PackageJsonSyncKey, type SyncSettings } from '../config/types';
 import { CONFIG_FILE } from './managed-files';
 import { resolveAppModuleFolders } from './module-territory';
 
@@ -30,6 +30,9 @@ export const DEFAULT_SYNC_PREFIX = 'cella/sync';
  * Default trunk branch that `cella sync` cuts from and opens PRs into.
  */
 export const DEFAULT_RELEASE_BASE = 'main';
+
+/** The package.json keys that sync when a config omits `packageJsonSync`. */
+export const DEFAULT_PACKAGE_JSON_SYNC: PackageJsonSyncKey[] = ['dependencies', 'devDependencies'];
 
 /**
  * Whether `branch` is one of the temporary integration branches `cella sync` cuts, i.e. it
