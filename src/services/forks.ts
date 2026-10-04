@@ -129,6 +129,7 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
     json: false,
     verbose: config.verbose,
     hard: config.hard,
+    keepConfig: config.keepConfig,
   };
 
   await runSyncCommand(forkRuntimeConfig);

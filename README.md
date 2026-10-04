@@ -38,10 +38,10 @@ Per-service help: `pnpm cella <service> --help`.
 | Service | Useful options |
 |---------|----------------|
 | analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--diff <path>`, `--open-diff <path>` |
-| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>` |
-| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--mark <ids...>` |
+| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
+| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--script <file>`, `--mark <ids...>` |
 | audit | `--list`, `--force`, `--check-overrides` |
-| forks | `--fork <name>`, `--log`, `--hard`, `-V, --verbose` |
+| forks | `--fork <name>`, `--log`, `--hard`, `--keep-config`, `-V, --verbose` |
 | contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
 | stats | `--coverage`, `-V, --verbose` |
 
@@ -57,6 +57,11 @@ apps). To deviate files or folders from the template:
 
 - **`ignored`** — files completely excluded from sync (existing and new)
 - **`pinned`** — full fork control: existing, modified, or deleted files are preserved
+
+An `ignored` entry may name a path your app does not have, to keep it from arriving (a file upstream
+has and your app deleted). Every run warns `ignored entry not found` only when neither your app nor
+upstream has the path. Upstream is read at `settings.upstreamBranch` as last fetched; before the
+first fetch, every `ignored` entry missing from your app warns.
 
 ## Upstream tracking
 
@@ -83,8 +88,9 @@ pnpm cella sync --ref 4f7d87c      # sync up to this upstream commit
 ```
 
 A run never syncs to a point behind the last sync: when an earlier `--ref` or `--track branch` run
-went past the latest release, release tracking stops with a message until a newer release exists,
-instead of reverting what the app already has.
+went past the latest release, release tracking ends with a `nothing to sync` message until a newer
+release exists, instead of reverting what the app already has. A `--ref` behind the last sync is
+refused. Either way the run changes nothing and leaves you on the branch you started from.
 
 ## Sync workflow
 
@@ -104,6 +110,12 @@ drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits h
    resolve in your IDE (`git add` the resolved files) and re-run to commit.
 2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
    opens a PR into `main` (via `gh`), and switches you back to `main`.
+
+Before the merge starts, a first run checks that it can go ahead, and stops without changing
+anything when it cannot: the temporary branch is removed again and you are back on the branch you
+started from. It stops when upstream needs a newer `@cellajs/cli` than the one running, and when
+upstream changed its own sync config in ways yours does not follow (see
+[Upstream changes that never sync](#upstream-changes-that-never-sync)).
 
 `sync` also runs from a linked git worktree while another worktree has `main` checked out: it
 never switches to `main`. It compares `main` with `origin/main` by ref and cuts the sync branch
@@ -153,9 +165,25 @@ listed until marked.
 ```bash
 pnpm cella migrate                    # open notes, with summary and links
 pnpm cella migrate --show <id>        # one note's README
-pnpm cella migrate --extract <id>     # its folder under node_modules/.cache/cella/migrations/<id>/, to run the codemod
+pnpm cella migrate --run <id>         # run its codemod, report only
+pnpm cella migrate --run <id> -- rewrite frontend/src   # run it with your own arguments
+pnpm cella migrate --extract <id>     # its folder under node_modules/.cache/cella/migrations/<id>/
 pnpm cella migrate --mark <id> [...]  # record notes as handled
 ```
+
+`--run` extracts the note and runs its codemod with `tsx` from your app root. Everything after `--`
+goes to the codemod as given; without it the codemod gets `inventory` and the note's `roots`, the
+report-only run. The codemod is the one script in the note folder; when a folder holds several,
+name it with `--script <file>`.
+
+A codemod's roots cover template-owned files too, and a file that is identical to upstream already
+is the way upstream wants it: upstream may have changed it after writing the codemod, so a rewrite
+there only creates drift. Before the codemod starts, `--run` notes which files are byte-identical
+to the last synced upstream commit (`upstream.commit` in `cella/cella.manifest.json`, during a
+staged sync the incoming commit). After the run, each of those files the codemod changed gets its
+upstream content back, and the run prints how many it restored. Files your app changed keep the
+codemod's rewrite. The codemod's own report still counts the restored files, in a report-only run
+too. A codemod run by hand from the `--extract` folder has no such protection.
 
 ## Sync rules
 
@@ -211,6 +239,22 @@ missing new upstream utilities that synced components rely on), so both commands
   `--scope all` and `--scope protected` (`--json` adds `upstreamChanged` and `upstreamChangedLines`).
 - `sync` prints the same list at the end of its summary, right when the drop happens.
 
+Both lists end with one `git diff <last-sync>..<upstream> -- <entry>` line per `pinned` or
+`ignored` entry that holds a listed file, to paste. The range is what makes it useful:
+`git diff HEAD <upstream> -- shared/config` shows your whole config against the template's, while
+`<last-sync>..<upstream>` shows only what upstream changed since your last sync.
+
+```
+⚠ 3 protected files kept the fork version, dropping upstream changes:
+  ⨀ frontend/src/styling/tailwind.css · 21 lines changed upstream
+  ⨂ shared/config/default.ts · 4 lines changed upstream
+  ⨂ shared/config/staging.ts · 2 lines changed upstream
+  pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, so diff each against upstream (analyze --open-diff <path>) and adopt what you need.
+  what upstream changed since the last sync, per pinned/ignored entry:
+    git diff e9a8d485e..a81e3353b -- frontend/src/styling/tailwind.css
+    git diff e9a8d485e..a81e3353b -- shared/config
+```
+
 Diff each against upstream (`cella analyze --open-diff <path>`) and adopt what you need. The
 check is relative to the last sync point: a drop that happened in an earlier sync only shows up
 as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
@@ -230,12 +274,12 @@ its summary, and `sync` after its merge summary:
   paste. Files both sides changed stay in the section above, and generated output the fork
   regenerates itself (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
   files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
-- **Upstream override changes.** `cella/cella.config.ts` never syncs, so entries upstream adds to
-  its own `overrides.pinned` or `overrides.ignored` (the template your config started from) never
-  arrive. The report names each entry upstream added that your config lacks (`+`) and each entry
-  upstream dropped that your config still has (`−`). It reads upstream's config without running it
-  and never edits yours. `--json` puts the lists on the `cella/cella.config.ts` entry
-  (`upstreamOverrides`).
+- **Upstream sync config changes.** `cella/cella.config.ts` never syncs, so entries upstream adds to
+  its own `overrides.pinned` or `overrides.ignored`, and keys it adds to `settings.packageJsonSync`
+  (the template your config started from), never arrive. The report names each entry upstream added
+  that your config lacks (`+`) and each entry upstream dropped that your config still has (`−`). It
+  reads upstream's config without running it and never edits yours. `--json` puts the lists on the
+  `cella/cella.config.ts` entry (`upstreamOverrides`).
 
 ```
 ⚠ ignored paths changed upstream · 1 file under 1 entry
@@ -243,9 +287,22 @@ its summary, and `sync` after its merge summary:
     git diff e9a8d485e..a81e3353b -- frontend/src/modules/marketing
   the fork left these untouched and ignored paths never sync: diff and adopt what you need.
 
-⚠ upstream changed its sync overrides · 1 entry to review
+⚠ upstream changed its sync config · 2 entries to review
   + pinned: backend/src/bundle-config.ts
+  + packageJsonSync: exports
   cella/cella.config.ts never syncs: add or drop these by hand where they fit your app.
+```
+
+`analyze` only reports these. `sync` checks the sync config before a new merge and stops when it
+finds entries: the merge runs on your config, so with a list that is behind, a path upstream now
+ignores or pins would arrive as an ordinary synced file (upstream renamed an ignored folder, your
+list still names the old one). Nothing has changed at that point. Add or drop the entries that fit
+your app in `cella/cella.config.ts`, commit and rerun, or pass `--keep-config` to merge with your
+config as it stands; the report then follows the merge summary as before. The rerun that commits an
+already staged merge never stops for this.
+
+```bash
+pnpm cella sync --keep-config   # merge although upstream changed its sync config
 ```
 
 ## Package.json sync

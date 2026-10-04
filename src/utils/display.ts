@@ -523,6 +523,27 @@ function formatUpstreamChangedLines(file: AnalyzedFile): string {
   return pc.yellow(` · ${n} ${n === 1 ? 'line' : 'lines'} changed upstream`);
 }
 
+/** What a protected-but-behind list needs for its `git diff` hints. */
+type ProtectedDiffSource = Pick<MergeResult, 'upstreamDiffRange' | 'protectedUpstreamChanges'>;
+
+/**
+ * Pasteable `git diff` lines for a protected-but-behind list: one per `pinned` or `ignored` entry
+ * that holds a listed path, under a line that introduces them. The range runs from the last sync
+ * point to upstream, so each shows only what upstream changed; a diff of the fork against upstream
+ * would show the fork's own changes too. Empty without a range or a matching entry.
+ */
+function protectedDiffHints(source: ProtectedDiffSource | undefined, paths: string[]): string[] {
+  const range = source?.upstreamDiffRange;
+  if (!range) return [];
+  const listed = new Set(paths);
+  const groups = (source?.protectedUpstreamChanges ?? []).filter((group) => group.paths.some((p) => listed.has(p)));
+  if (groups.length === 0) return [];
+  return [
+    'what upstream changed since the last sync, per pinned/ignored entry:',
+    ...groups.map((group) => `  git diff ${range} -- ${shellPath(group.entry)}`),
+  ];
+}
+
 /** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
 function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
   const n = file.upstreamLinesAbsent ?? 0;
@@ -534,9 +555,15 @@ function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
  * behind, ahead (protected), protected-but-behind, drifted, and diverged.
  *
  * Protected-but-behind covers every `pinned`-status file (both changed, fork wins) plus
- * ignored files upstream also changed, so there is no separate `pinned` group.
+ * ignored files upstream also changed, so there is no separate `pinned` group. With `diffSource`
+ * (the merge result) it ends with one `git diff` line per pinned/ignored entry.
  */
-export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: LinkOptions): void {
+export function printAnalysisFileGroups(
+  files: AnalyzedFile[],
+  linkOptions: LinkOptions,
+  diffSource?: ProtectedDiffSource,
+): void {
+  const protectedBehind = findProtectedBehind(files);
   printFileGroup(files, 'behind', linkOptions, {
     title: pc.cyan('↓ behind on upstream'),
   });
@@ -549,17 +576,18 @@ export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: Link
         'deliberately or not: diff and decide.',
     ],
   });
-  printFileSection(
-    findProtectedBehind(files),
-    `${warningMark} ${pc.yellow('protected but behind upstream')}`,
-    linkOptions,
-    {
-      icon: protectionIcon,
-      suffix: formatUpstreamChangedLines,
-      dateSource: 'upstream',
-      hint: PROTECTED_BEHIND_HINT,
-    },
-  );
+  printFileSection(protectedBehind, `${warningMark} ${pc.yellow('protected but behind upstream')}`, linkOptions, {
+    icon: protectionIcon,
+    suffix: formatUpstreamChangedLines,
+    dateSource: 'upstream',
+    hint: [
+      PROTECTED_BEHIND_HINT,
+      ...protectedDiffHints(
+        diffSource,
+        protectedBehind.map((file) => file.path),
+      ),
+    ],
+  });
   printFileGroup(files, 'drifted', linkOptions, {
     title: `${warningMark} ${pc.yellow('drifted from upstream')}`,
     hint: 'these files have fork changes but are not pinned or ignored.',
@@ -650,7 +678,7 @@ function printProtectedConflicts(result: MergeResult): void {
     const icon = file ? protectionIcon(file) : statusConfig.pinned.icon;
     console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
   }
-  console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
+  for (const line of [PROTECTED_BEHIND_HINT, ...protectedDiffHints(result, paths)]) console.info(pc.dim(`  ${line}`));
 }
 
 /** `1 file`, `2 files`: a count with its noun. */
@@ -691,12 +719,13 @@ export function printIgnoredUpstreamChanges(result: MergeResult): void {
 }
 
 /**
- * Upstream `overrides` entries the fork config does not follow (`MergeResult.upstreamOverrides`):
- * entries upstream added that the fork lacks, and entries upstream dropped that the fork still
- * has. The sync config is managed and never merges, so these only reach the fork by hand.
- * Silent when there is nothing to report; one dim line when upstream's config was unreadable.
+ * Upstream sync config entries the fork config does not follow (`MergeResult.upstreamOverrides`):
+ * `overrides` entries and `packageJsonSync` keys upstream added that the fork lacks, and ones
+ * upstream dropped that the fork still has. The sync config is managed and never merges, so these
+ * only reach the fork by hand. Silent when there is nothing to report; one dim line when upstream's
+ * config was unreadable.
  */
-export function printUpstreamOverrideChanges(result: MergeResult): void {
+export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstreamOverrides'>): void {
   const report = result.upstreamOverrides;
   if (!report) return;
 
@@ -704,20 +733,20 @@ export function printUpstreamOverrideChanges(result: MergeResult): void {
   if (report.kind === 'unreadable') {
     const side = report.side === 'base' ? 'the last sync point' : 'the incoming ref';
     console.info(
-      pc.dim(`upstream overrides not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
+      pc.dim(`upstream sync config not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
     );
     return;
   }
 
   const lines: string[] = [];
-  for (const list of ['pinned', 'ignored'] as const) {
+  for (const list of ['pinned', 'ignored', 'packageJsonSync'] as const) {
     for (const entry of report[list].added) lines.push(`  ${pc.green('+')} ${list}: ${entry}`);
     for (const entry of report[list].removed) {
       lines.push(`  ${pc.red('−')} ${list}: ${entry}${pc.dim(' · dropped upstream, still in your config')}`);
     }
   }
   console.info(
-    `${warningMark} ${pc.yellow(`upstream changed its sync overrides · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
+    `${warningMark} ${pc.yellow(`upstream changed its sync config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
   );
   for (const line of lines) console.info(line);
   console.info(pc.dim(`  ${CONFIG_FILE} never syncs: add or drop these by hand where they fit your app.`));

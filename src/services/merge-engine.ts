@@ -16,7 +16,13 @@
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { AnalysisSummary, AnalyzedFile, MergeResult, RuntimeConfig } from '../config/types';
+import type {
+  AnalysisSummary,
+  AnalyzedFile,
+  MergeResult,
+  RuntimeConfig,
+  UpstreamOverridesReport,
+} from '../config/types';
 import { cleanupLeftoverWorktrees, cleanupWorktree, getWorktreePath, registerWorktree } from '../utils/cleanup';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
@@ -60,7 +66,7 @@ import {
   storeLastSyncRef,
   withTemporarySyncBaseGraft,
 } from '../utils/git';
-import { isManagedFile } from '../utils/managed-files';
+import { CONFIG_FILE, isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
 import {
   arrivedNoteIds,
@@ -70,7 +76,12 @@ import {
   readPending,
   writePending,
 } from '../utils/migration-notes';
-import { groupIgnoredUpstreamChanges, isIgnored, isPinnedForSync } from '../utils/overrides';
+import {
+  groupIgnoredUpstreamChanges,
+  groupProtectedUpstreamChanges,
+  isIgnored,
+  isPinnedForSync,
+} from '../utils/overrides';
 import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
 
@@ -79,6 +90,32 @@ type ProgressCallback = (message: string, detail?: string) => void;
 
 /** Step completion callback - marks a step as done with optional detail */
 type StepCallback = (label: string, detail?: string) => void;
+
+/**
+ * Thrown when the upstream commit is behind the fork's last sync point: the fork already has it,
+ * and merging it would stage a revert. `cella sync` ends as a no-op on it, unless the run pinned
+ * the ref itself (`--ref`).
+ */
+export class BehindSyncPointError extends Error {}
+
+/**
+ * Thrown before a new merge starts when upstream changed its sync config in ways the fork config
+ * does not follow. Carries the report so the caller can print it.
+ */
+export class UpstreamConfigChangedError extends Error {
+  readonly report: UpstreamOverridesReport;
+
+  constructor(report: UpstreamOverridesReport) {
+    super(
+      [
+        'upstream changed its sync config and yours does not follow it: stopped before the merge, nothing changed.',
+        `  add or drop the entries that fit your app in ${CONFIG_FILE}, commit, then rerun.`,
+        '  to merge with your config as it stands, rerun with --keep-config.',
+      ].join('\n'),
+    );
+    this.report = report;
+  }
+}
 
 /**
  * Convert a git remote URL to a GitHub base URL.
@@ -378,6 +415,8 @@ interface UpstreamContext {
   releaseTag?: string;
   /** Effective merge-base used for the 3-way analysis */
   mergeBase: string;
+  /** Recorded sync point. Same as `mergeBase`, except under --hard/--unpinned, which merge from the natural base */
+  syncPoint: string;
   /** Upstream GitHub URL base for commit links */
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
@@ -531,7 +570,7 @@ async function prepareUpstream(
       : releaseTag
         ? `Nothing to sync until a release past ${syncShort}; to follow the tip instead, run with --track branch.`
         : `Nothing to sync until '${branchRef}' moves past ${syncShort}.`;
-    throw new Error(
+    throw new BehindSyncPointError(
       `upstream ${upstreamLabel} (${upstreamShort}) is behind the last sync point ${syncShort}: the fork already ` +
         `has it, and syncing it would revert the upstream changes after it.\n${hint}`,
     );
@@ -550,7 +589,23 @@ async function prepareUpstream(
 
   onStep?.('fetched upstream', formatFetchedUpstreamDetail(commitCount, upstreamCommits, upstreamGitHubUrl));
 
-  return { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit, upstreamCommits };
+  return { upstreamRef, releaseTag, mergeBase, syncPoint, upstreamGitHubUrl, upstreamCommit, upstreamCommits };
+}
+
+/**
+ * Stop a new merge when upstream changed its sync config since the sync point in ways the fork
+ * config does not follow. The merge runs on the fork's config, so a path upstream newly ignores or
+ * pins would arrive as an ordinary synced file (upstream renamed an ignored folder, the fork's list
+ * still names the old one). Compared from the sync point, under `--hard`/`--unpinned` too: older
+ * changes were reported by the syncs they arrived with. `--keep-config` skips the gate; an
+ * unreadable upstream config or a failed comparison never stops the run.
+ */
+async function assertSyncConfigFollowed(config: RuntimeConfig, ctx: UpstreamContext): Promise<void> {
+  if (config.keepConfig) return;
+  const report = await compareUpstreamOverrides(config.forkPath, ctx.syncPoint, ctx.upstreamRef, config).catch(
+    () => undefined,
+  );
+  if (report?.kind === 'changes') throw new UpstreamConfigChangedError(report);
 }
 
 /** MergeResult fields shared by both engine modes. */
@@ -567,15 +622,19 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 
 /**
  * Upstream changes the fork never receives, shared by both engine modes: the upstream config's
- * `overrides` entries the fork config does not follow (the config itself never syncs), and
- * ignored files only upstream changed. Report only, read from refs (the merge state is
+ * `overrides` entries and `packageJsonSync` keys the fork config does not follow (the config itself
+ * never syncs), ignored files only upstream changed, and the protected files upstream also changed
+ * (`protectedConflicts`) grouped by entry. Report only, read from refs (the merge state is
  * irrelevant); a failure here yields no report and never fails the run.
  */
 async function upstreamOnlyReports(
   config: RuntimeConfig,
   ctx: UpstreamContext,
   files: AnalyzedFile[],
-): Promise<Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges'>> {
+  protectedConflicts: string[],
+): Promise<
+  Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges' | 'protectedUpstreamChanges'>
+> {
   const { forkPath } = config;
   try {
     const [baseSha, upstreamSha, upstreamOverrides] = await Promise.all([
@@ -588,6 +647,7 @@ async function upstreamOnlyReports(
       upstreamDiffRange: `${baseSha}..${upstreamSha}`,
       upstreamOverrides,
       ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, config.overrides?.ignored ?? []),
+      protectedUpstreamChanges: groupProtectedUpstreamChanges(protectedConflicts, config),
     };
   } catch {
     return {};
@@ -610,12 +670,10 @@ interface NotesInRange {
 async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Promise<NotesInRange | undefined> {
   const { forkPath } = config;
   try {
-    const aggressive = config.hard === true || config.unpinned === true;
-    const syncBase = aggressive ? (await getEffectiveMergeBase(forkPath, 'HEAD', ctx.upstreamRef)).base : ctx.mergeBase;
     const [total, arrived, pending] = await Promise.all([
       listNoteIds(forkPath, ctx.upstreamRef),
-      arrivedNoteIds(forkPath, syncBase, ctx.upstreamRef),
-      readPending(forkPath, syncBase),
+      arrivedNoteIds(forkPath, ctx.syncPoint, ctx.upstreamRef),
+      readPending(forkPath, ctx.syncPoint),
     ]);
     return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
   } catch {
@@ -651,6 +709,10 @@ async function runSyncMerge(
 ): Promise<MergeResult> {
   const { forkPath } = config;
   const { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit } = ctx;
+
+  // Last gate before anything merges (the CLI version gate runs in prepareUpstream)
+  await assertSyncConfigFollowed(config, ctx);
+
   const notes = await readNotesInRange(config, ctx);
 
   const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
@@ -729,7 +791,7 @@ async function runSyncMerge(
     autoMergedFiles,
     protectedConflicts,
     ...resultMeta(config, ctx),
-    ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
+    ...(await upstreamOnlyReports(config, ctx, analyzedFiles, protectedConflicts)),
     ...notesResult(notes),
   };
 }
@@ -773,7 +835,8 @@ async function runAnalyzePreview(
     onProgress,
   );
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
-  const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
+  const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
+  const reports = await upstreamOnlyReports(config, ctx, analyzedFiles, protectedConflicts);
   onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run — no changes applied`);
 
   onProgress?.('cleaning up worktree...');
@@ -785,7 +848,7 @@ async function runAnalyzePreview(
     summary: calculateSummary(analyzedFiles),
     // For analyze mode, count diverged files as potential conflicts
     conflicts: analyzedFiles.filter((f) => f.status === 'diverged').map((f) => f.path),
-    protectedConflicts: analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path),
+    protectedConflicts,
     ...resultMeta(config, ctx),
     ...reports,
     ...notesResult(notes),

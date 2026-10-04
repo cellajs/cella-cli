@@ -91,4 +91,55 @@ describe('parseCli', () => {
     process.argv = ['node', 'cella', 'analyze', '--ref', 'v0.14.0'];
     expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
   });
+
+  it('parses --keep-config for sync and forks', async () => {
+    process.argv = ['node', 'cella', 'sync'];
+    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
+
+    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c', '--keep-config'];
+    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
+
+    process.argv = ['node', 'cella', 'forks', '--fork', 'raak', '--keep-config'];
+    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
+  });
+
+  it('hands the arguments after -- to the codemod of migrate --run as given', async () => {
+    const id = '20261001T2116-tailwind-class-conventions';
+    process.argv = ['node', 'cella', 'migrate', '--run', id, '--', 'rewrite', 'frontend/src', '--module', '~/app x'];
+
+    const config = await parseCli(baseConfig, '/tmp/fork');
+
+    expect(config.service).toBe('migrate');
+    expect(config.run).toBe(id);
+    expect(config.runArgs).toEqual(['rewrite', 'frontend/src', '--module', '~/app x']);
+    expect(config.script).toBeUndefined();
+  });
+
+  it('parses migrate --run without arguments and with a named script', async () => {
+    process.argv = [
+      'node',
+      'cella',
+      'migrate',
+      '--run',
+      '20261001T0909-line-width-150',
+      '--script',
+      'collapse-objects.ts',
+    ];
+
+    const config = await parseCli(baseConfig, '/tmp/fork');
+
+    expect(config.run).toBe('20261001T0909-line-width-150');
+    expect(config.script).toBe('collapse-objects.ts');
+    expect(config.runArgs).toEqual([]);
+  });
+
+  it('refuses arguments after the options without --run', async () => {
+    process.argv = ['node', 'cella', 'migrate', '--', 'rewrite', 'frontend/src'];
+    await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow(/unexpected argument 'rewrite'.*--run <id>/);
+
+    process.argv = ['node', 'cella', 'migrate', '--mark', '20261002T0614-config-switch'];
+    const config = await parseCli(baseConfig, '/tmp/fork');
+    expect(config.mark).toEqual(['20261002T0614-config-switch']);
+    expect(config.runArgs).toBeUndefined();
+  });
 });

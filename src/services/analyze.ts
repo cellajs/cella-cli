@@ -111,9 +111,11 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       upstreamChangedLines: f.upstreamChangedLines ?? null,
       upstreamLinesAbsent: f.upstreamLinesAbsent ?? null,
       upstreamOnly: f.upstreamOnly ?? false,
-      // Only on the sync config: upstream override entries the fork config does not follow
+      // Only on the sync config: upstream override entries and packageJsonSync keys the fork config does not follow
       upstreamOverrides:
-        overrides && f.path === CONFIG_FILE ? { pinned: overrides.pinned, ignored: overrides.ignored } : null,
+        overrides && f.path === CONFIG_FILE
+          ? { pinned: overrides.pinned, ignored: overrides.ignored, packageJsonSync: overrides.packageJsonSync }
+          : null,
     }));
     writeStdout(JSON.stringify(out, null, 2));
     return result;
@@ -163,12 +165,12 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   };
 
   // Print file lists first (analyze shows file lists for review)
-  printAnalysisFileGroups(result.files, linkOptions);
+  printAnalysisFileGroups(result.files, linkOptions, result);
 
   // Print summary at the end
   printSummary(result.summary, 'analysis summary');
 
-  // Surface upstream changes the sync never brings in: ignored paths and upstream's own overrides
+  // Surface upstream changes the sync never brings in: ignored paths and upstream's own sync config
   printIgnoredUpstreamChanges(result);
   printUpstreamOverrideChanges(result);
 

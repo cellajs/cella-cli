@@ -270,6 +270,13 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   ref?: string;
 
+  /**
+   * Merge with the fork's sync config as it stands (sync service). Without it, a new merge stops
+   * before anything changes when upstream changed its own `overrides` or `packageJsonSync` in ways
+   * the fork config does not follow.
+   */
+  keepConfig?: boolean;
+
   /** Bypass pnpm metadata cache for fresh registry data (audit service) */
   force?: boolean;
 
@@ -287,6 +294,15 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Write one migration note's folder where its codemod can run (migrate service) */
   extract?: string;
+
+  /** Run one migration note's codemod, keeping files identical to upstream as they are (migrate service) */
+  run?: string;
+
+  /** The script to run with `run`, when the note folder holds more than one (migrate service) */
+  script?: string;
+
+  /** Arguments after `--`, passed to the codemod as given (migrate service, with `run`) */
+  runArgs?: string[];
 
   /** Migration note ids to record as handled (migrate service) */
   mark?: string[];
@@ -405,9 +421,11 @@ export interface MergeResult {
    * them: upstream's hunks were dropped, not merged. Review each against upstream.
    */
   protectedConflicts?: string[];
+  /** `protectedConflicts` grouped by the `pinned` or `ignored` entry they fall under, for one diff hint per entry. */
+  protectedUpstreamChanges?: ProtectedUpstreamGroup[];
   /** Pasteable `<merge-base>..<upstream>` range of short SHAs, for `git diff` hints. */
   upstreamDiffRange?: string;
-  /** How upstream's own `overrides` changed since the merge-base, where the fork config does not follow. */
+  /** How upstream's own sync config changed since the merge-base, where the fork config does not follow. */
   upstreamOverrides?: UpstreamOverridesReport;
   /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
@@ -418,7 +436,7 @@ export interface MergeResult {
   migrationNotes?: { total: number; arrived: string[]; open: number };
 }
 
-/** Entries of one override list (`pinned` or `ignored`) that the fork config does not mirror. */
+/** Entries of one sync config list (`pinned`, `ignored` or `packageJsonSync`) that the fork config does not mirror. */
 export interface OverrideListChanges {
   /** Entries upstream added since the merge-base that the fork list lacks. */
   added: string[];
@@ -427,14 +445,27 @@ export interface OverrideListChanges {
 }
 
 /**
- * Upstream override changes the fork should review. The sync config is managed (never merged),
- * so new upstream `pinned`/`ignored` entries only reach the fork by hand. `unreadable` means
- * upstream's config was missing or unparsable at one side (`base` = merge-base, `incoming` =
- * upstream ref), so nothing was compared.
+ * Upstream sync config changes the fork should review. The sync config is managed (never merged),
+ * so new upstream `pinned`/`ignored` entries and `packageJsonSync` keys only reach the fork by
+ * hand. `unreadable` means upstream's config was missing or unparsable at one side (`base` =
+ * merge-base, `incoming` = upstream ref), so nothing was compared.
  */
 export type UpstreamOverridesReport =
-  | { kind: 'changes'; pinned: OverrideListChanges; ignored: OverrideListChanges }
+  | {
+      kind: 'changes';
+      pinned: OverrideListChanges;
+      ignored: OverrideListChanges;
+      packageJsonSync: OverrideListChanges;
+    }
   | { kind: 'unreadable'; side: 'base' | 'incoming' };
+
+/** Protected paths upstream also changed, under one `pinned` or `ignored` entry. */
+export interface ProtectedUpstreamGroup {
+  /** The `pinned` or `ignored` entry the paths fall under; the path itself when no entry covers it (a managed file). */
+  entry: string;
+  /** Paths under the entry, sorted. */
+  paths: string[];
+}
 
 /** Upstream-only changes under one `ignored` entry. */
 export interface IgnoredUpstreamGroup {

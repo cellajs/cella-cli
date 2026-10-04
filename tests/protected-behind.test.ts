@@ -4,7 +4,8 @@
  * A pinned/ignored file wins whole-file on conflict, so when upstream ALSO changed it since the
  * merge-base, upstream's hunks are dropped silently. `analyzeRefs` flags exactly those files
  * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehind` selects them for display,
- * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync.
+ * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync. Both lists
+ * end with one `git diff <last-sync>..<upstream>` line per pinned/ignored entry.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -139,18 +140,49 @@ describe('analyzeRefs upstreamChanged', () => {
 });
 
 describe('printAnalysisFileGroups upstream lines absent', () => {
-  function capture(files: AnalyzedFile[]): string {
+  function capture(files: AnalyzedFile[], diffSource?: Parameters<typeof printAnalysisFileGroups>[2]): string {
     const lines: string[] = [];
     const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
     try {
-      printAnalysisFileGroups(files, {});
+      printAnalysisFileGroups(files, {}, diffSource);
     } finally {
       spy.mockRestore();
     }
     return lines.join('\n');
   }
+
+  it('ends the protected-but-behind section with one range diff per entry that holds a listed file', () => {
+    const files = [
+      file({ path: 'shared/config/default.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'shared/config/staging.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'frontend/src/my styles.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
+      file({ path: 'package.json', status: 'pinned', isPinned: true, upstreamChanged: true }),
+    ];
+    const out = capture(files, {
+      upstreamDiffRange: '1a2b3c4..5d6e7f8',
+      protectedUpstreamChanges: [
+        { entry: 'shared/config', paths: ['shared/config/default.ts', 'shared/config/staging.ts'] },
+        { entry: 'frontend/src/my styles.css', paths: ['frontend/src/my styles.css'] },
+        // managed files are not listed in this section, so their entry gets no line
+        { entry: 'package.json', paths: ['package.json'] },
+      ],
+    });
+
+    expect(out).toContain('what upstream changed since the last sync, per pinned/ignored entry:');
+    expect(out.match(/git diff 1a2b3c4\.\.5d6e7f8 -- shared\/config$/gm)).toHaveLength(1);
+    expect(out).toContain(`git diff 1a2b3c4..5d6e7f8 -- 'frontend/src/my styles.css'`);
+    expect(out).not.toContain('-- package.json');
+  });
+
+  it('prints no diff lines without a range', () => {
+    const files = [file({ path: 'own/a.ts', status: 'ignored', isIgnored: true, upstreamChanged: true })];
+    expect(capture(files)).not.toContain('git diff');
+    expect(capture(files, { protectedUpstreamChanges: [{ entry: 'own', paths: ['own/a.ts'] }] })).not.toContain(
+      'git diff',
+    );
+  });
 
   it('annotates pinned ahead files with a positive count and prints the hint', () => {
     const out = capture([
@@ -229,6 +261,29 @@ describe('printSyncComplete protected conflicts', () => {
     expect(out).toContain('frontend/src/styling/tailwind.css');
     expect(out).toContain('21 lines changed upstream');
     expect(out).toContain('adopt what you need');
+    expect(out).not.toContain('git diff');
+  });
+
+  it('prints one range diff per pinned/ignored entry, not per file', () => {
+    const result = baseResult();
+    result.files = [
+      file({ path: 'shared/config/default.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'shared/config/staging.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'frontend/src/styling/tailwind.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
+    ];
+    result.protectedConflicts = result.files.map((f) => f.path);
+    result.upstreamDiffRange = 'e9a8d485e..a81e3353b';
+    result.protectedUpstreamChanges = [
+      { entry: 'shared/config', paths: ['shared/config/default.ts', 'shared/config/staging.ts'] },
+      { entry: 'frontend/src/styling/tailwind.css', paths: ['frontend/src/styling/tailwind.css'] },
+    ];
+
+    const out = capture(result);
+    expect(out).toContain('3 protected files kept the fork version');
+    expect(out).toContain('what upstream changed since the last sync, per pinned/ignored entry:');
+    expect(out.match(/git diff /g)).toHaveLength(2);
+    expect(out).toContain('    git diff e9a8d485e..a81e3353b -- shared/config');
+    expect(out).toContain('    git diff e9a8d485e..a81e3353b -- frontend/src/styling/tailwind.css');
   });
 
   it('stays silent when nothing was dropped', () => {

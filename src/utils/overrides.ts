@@ -7,8 +7,9 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
+import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup, ProtectedUpstreamGroup } from '../config/types';
 import { warningMark } from './display';
+import { fileExistsAtRef } from './git';
 import { isGeneratedFile, isManagedFile } from './managed-files';
 import { isUpstreamOnly } from './migration-notes';
 
@@ -77,6 +78,34 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 }
 
 /**
+ * Group protected paths upstream also changed by the `pinned` or `ignored` entry they fall under,
+ * so a report can print one diff hint per entry instead of one per file.
+ *
+ * A path under nested entries lands on the most specific one; a path no entry covers (a managed
+ * file) stands for itself. Groups follow the order the paths come in.
+ *
+ * @param paths - Protected paths upstream also changed (`MergeResult.protectedConflicts`)
+ * @param config - The fork's sync config
+ */
+export function groupProtectedUpstreamChanges(paths: string[], config: CellaCliConfig): ProtectedUpstreamGroup[] {
+  const entries = [...(config.overrides?.pinned ?? []), ...(config.overrides?.ignored ?? [])]
+    .map((entry) => entry.replace(/\/+$/, ''))
+    .filter(Boolean);
+  const mostSpecificFirst = [...new Set(entries)].sort((a, b) => b.length - a.length);
+  const groups = new Map<string, ProtectedUpstreamGroup>();
+
+  for (const path of paths) {
+    const entry = mostSpecificFirst.find((candidate) => isUnderAnyFolder(path, [candidate])) ?? path;
+    const group = groups.get(entry) ?? { entry, paths: [] };
+    group.paths.push(path);
+    groups.set(entry, group);
+  }
+
+  for (const group of groups.values()) group.paths.sort();
+  return [...groups.values()];
+}
+
+/**
  * Resolve effective pin status for a sync run, honoring the --unpinned flag.
  *
  * When `unpinned` is true, configured pins are disabled so upstream versions
@@ -109,12 +138,22 @@ function hasGlobChars(entry: string): boolean {
  * Checks for:
  * - Pinned entries using glob patterns (no longer supported)
  * - Pinned entries that don't exist in fork
- * - Ignored entries that don't exist in fork
+ * - Ignored entries that exist neither in the fork nor upstream
+ *
+ * A fork ignores some paths to keep them from arriving (a file upstream has and the fork deleted),
+ * so an ignored entry missing from the fork is fine while upstream has the path. That is read at
+ * `upstreamRef` as last fetched, without fetching: when the ref does not resolve (nothing fetched
+ * yet), every ignored entry missing from the fork warns.
  *
  * @param config - The sync config to validate
  * @param forkPath - Path to the fork repository
+ * @param upstreamRef - Upstream ref to look ignored entries up at (e.g. 'cella-upstream/main')
  */
-export function validateOverrides(config: CellaCliConfig, forkPath: string): ConfigWarning[] {
+export async function validateOverrides(
+  config: CellaCliConfig,
+  forkPath: string,
+  upstreamRef?: string,
+): Promise<ConfigWarning[]> {
   const warnings: ConfigWarning[] = [];
 
   // Check pinned entries
@@ -145,6 +184,7 @@ export function validateOverrides(config: CellaCliConfig, forkPath: string): Con
         message: `ignored entry uses glob (not supported, use a path or folder): ${entry}`,
       });
     } else if (!existsSync(join(forkPath, entry.replace(/\/+$/, '')))) {
+      if (upstreamRef && (await fileExistsAtRef(forkPath, upstreamRef, entry.replace(/\/+$/, '')))) continue;
       warnings.push({
         type: 'ignored-not-found',
         pattern: entry,

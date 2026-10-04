@@ -21,6 +21,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { PackageJsonSyncKey, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
+import { DEFAULT_PACKAGE_JSON_SYNC } from '../utils/config';
 import { createSpinner, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { getEffectiveMergeBase, git } from '../utils/git';
 import { isIgnored } from '../utils/overrides';
@@ -493,7 +494,7 @@ async function syncPackageJson(
 export async function runPackages(config: RuntimeConfig, options: { conflictedFiles?: string[] } = {}): Promise<void> {
   createSpinner('syncing package.json files...');
 
-  const keysToSync = config.settings.packageJsonSync || ['dependencies', 'devDependencies'];
+  const keysToSync = config.settings.packageJsonSync || DEFAULT_PACKAGE_JSON_SYNC;
   const conflictedSet = new Set(options.conflictedFiles ?? []);
 
   const baseRef = await resolveMergeBase(config.forkPath, config.upstreamRef);

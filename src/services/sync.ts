@@ -66,7 +66,7 @@ import {
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
 import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-notes';
-import { runMergeEngine } from './merge-engine';
+import { BehindSyncPointError, runMergeEngine, UpstreamConfigChangedError } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
 import { runPackages } from './packages';
 
@@ -209,16 +209,28 @@ export async function runSync(
 ): Promise<MergeResult> {
   createSpinner('starting sync...');
 
-  const result = await runMergeEngine(config, {
-    apply: true,
-    onProgress: (message) => {
-      spinnerText(message);
-    },
-    onStep: (label, detail) => {
-      spinnerSuccess(label, detail);
-      createSpinner('...');
-    },
-  });
+  let result: MergeResult;
+  try {
+    result = await runMergeEngine(config, {
+      apply: true,
+      onProgress: (message) => {
+        spinnerText(message);
+      },
+      onStep: (label, detail) => {
+        spinnerSuccess(label, detail);
+        createSpinner('...');
+      },
+    });
+  } catch (error) {
+    // The engine threw, usually a stop before the merge: end the spinner, and when the sync config
+    // gate stopped it, show what upstream changed.
+    spinnerSuccess();
+    if (error instanceof UpstreamConfigChangedError) {
+      printUpstreamOverrideChanges({ upstreamOverrides: error.report });
+      console.info();
+    }
+    throw error;
+  }
 
   if (result.success) {
     spinnerSuccess();
@@ -229,7 +241,7 @@ export async function runSync(
   // Print summary only (no file lists for sync)
   printSummary(result.summary, 'merge summary');
 
-  // Surface upstream changes the sync left out: ignored paths and upstream's own overrides
+  // Surface upstream changes the sync left out: ignored paths and upstream's own sync config
   printIgnoredUpstreamChanges(result);
   printUpstreamOverrideChanges(result);
 
@@ -547,7 +559,36 @@ function finalizeWorkspace(forkPath: string): boolean {
 type SyncCycleOutcome =
   | { status: 'conflicts'; branch: TemporarySyncBranch }
   | { status: 'staged'; branch: TemporarySyncBranch }
-  | { status: 'noop' };
+  | { status: 'noop'; behind?: string };
+
+/**
+ * Return to where the cycle started and drop the throwaway branch. Only for a branch that holds
+ * nothing: an up-to-date run, or one that stopped before the merge.
+ */
+async function discardTemporarySyncBranch(forkPath: string, branch: TemporarySyncBranch): Promise<void> {
+  if (branch.startBranch === 'HEAD') await switchDetached(forkPath, branch.startCommit);
+  else await switchBranch(forkPath, branch.startBranch);
+  await deleteBranch(forkPath, branch.temporaryBranch);
+}
+
+/**
+ * After the merge step threw: drop the throwaway branch when the run stopped before the merge (a
+ * gate, an unreachable upstream, a ref that does not resolve), so nothing changed and a rerun
+ * starts a fresh cycle instead of shipping an empty sync branch. A branch that holds a merge or
+ * changes stays as it is. Returns whether the branch was dropped.
+ */
+async function discardUnusedSyncBranch(forkPath: string, branch: TemporarySyncBranch): Promise<boolean> {
+  const unused =
+    (await getCurrentBranch(forkPath)) === branch.temporaryBranch &&
+    !(await mergeInProgress(forkPath)) &&
+    (await isClean(forkPath));
+  if (!unused) return false;
+
+  await discardTemporarySyncBranch(forkPath, branch);
+  const start = branch.startBranch === 'HEAD' ? `at ${branch.startCommit.slice(0, 7)}` : `on '${branch.startBranch}'`;
+  console.info(pc.dim(`removed the unused '${branch.temporaryBranch}', back ${start}.`));
+  return true;
+}
 
 /**
  * Run one sync cycle on a fresh temporary branch: cut the branch, merge upstream (+ packages),
@@ -555,14 +596,27 @@ type SyncCycleOutcome =
  *
  * - `conflicts`: merge staged with unresolved conflicts, left for IDE resolution.
  * - `staged`: clean merge staged, ready to commit.
- * - `noop`: upstream had nothing new; the throwaway branch was deleted and the original branch
- *   restored.
+ * - `noop`: upstream had nothing new, or (`behind`) only a point the last sync already went past;
+ *   the throwaway branch was deleted and the original branch restored.
+ *
+ * A run that stops before the merge throws, after the throwaway branch is dropped the same way.
  */
 async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
   const { forkPath } = config;
   const branch = await setupTemporarySyncBranch(config);
 
-  const result = await runSync(config, { stagedBranch: branch.temporaryBranch });
+  let result: MergeResult;
+  try {
+    result = await runSync(config, { stagedBranch: branch.temporaryBranch });
+  } catch (error) {
+    const discarded = await discardUnusedSyncBranch(forkPath, branch).catch(() => false);
+    // Tracking a release or branch the last sync went past is nothing to sync, not a failure.
+    // A pinned --ref behind the sync point stays an error: the run cannot do what it was asked.
+    if (discarded && error instanceof BehindSyncPointError && !config.ref) {
+      return { status: 'noop', behind: error.message };
+    }
+    throw error;
+  }
 
   if (config.settings.syncWithPackages !== false) {
     // Run package sync even when the merge left conflicts: package.json files that are
@@ -575,9 +629,7 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
   // Nothing staged: already up to date. Return to where the run started and drop the throwaway
   // branch (a fresh cycle never starts on a sync branch: those resume or ship instead).
   if (!(await mergeInProgress(forkPath))) {
-    if (branch.startBranch === 'HEAD') await switchDetached(forkPath, branch.startCommit);
-    else await switchBranch(forkPath, branch.startBranch);
-    await deleteBranch(forkPath, branch.temporaryBranch);
+    await discardTemporarySyncBranch(forkPath, branch);
     return { status: 'noop' };
   }
 
@@ -735,7 +787,9 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
  * Idempotent. Each run advances the sync one stage and never commits and ships in the same run:
  * - Anywhere else: require a clean tree, cut a fresh temporary branch and merge upstream; a
  *   clean merge is committed right away (the run stops there, for drift triage), a conflicted
- *   one stops for IDE resolution.
+ *   one stops for IDE resolution. A run that stops before the merge (upstream needs a newer CLI,
+ *   upstream changed its sync config, upstream is behind the last sync point) drops the branch
+ *   again and leaves everything as it was.
  * - On a sync branch with a merge in progress: commit it (resume after conflicts), then stop.
  * - On a sync branch with the merge already committed: push and open the PR, then switch back
  *   to the trunk (detach at it when another worktree has it checked out). Shipping is
@@ -783,7 +837,12 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   console.info();
 
   if (outcome.status === 'noop') {
-    console.info(pc.green('already up to date with upstream — nothing to sync.'));
+    if (outcome.behind) {
+      console.info(pc.green('nothing to sync — the last sync already went past this upstream point.'));
+      for (const line of outcome.behind.split('\n')) console.info(pc.dim(`  ${line}`));
+    } else {
+      console.info(pc.green('already up to date with upstream — nothing to sync.'));
+    }
     return;
   }
 

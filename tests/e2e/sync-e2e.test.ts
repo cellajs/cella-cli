@@ -7,6 +7,7 @@
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyze } from '../../src/services/analyze';
+import { UpstreamConfigChangedError } from '../../src/services/merge-engine';
 import { runSync } from '../../src/services/sync';
 import { commitSquash, fetchUpstreamTags, resolveUpstreamCommit, stageAll } from '../../src/utils/git';
 import {
@@ -942,6 +943,7 @@ describe('sync e2e', () => {
         kind: 'changes',
         pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
         ignored: { added: [], removed: [] },
+        packageJsonSync: { added: [], removed: [] },
       });
       expect(result.ignoredUpstreamChanges).toEqual([
         {
@@ -979,12 +981,50 @@ describe('sync e2e', () => {
       expect(byPath.get('cella/cella.config.ts')?.upstreamOverrides).toEqual({
         pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
         ignored: { added: [], removed: [] },
+        packageJsonSync: { added: [], removed: [] },
       });
     });
 
-    it('sync reports the same and leaves the fork config and ignored files alone', async () => {
+    it('sync stops before the merge while the fork config does not follow, and changes nothing', async () => {
       await setupBase();
       const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'], ignored: ['shared/config'] });
+      const head = execSync('git rev-parse HEAD', { cwd: env.forkPath }).toString();
+
+      const stop = await runSync(config).catch((error: unknown) => error);
+
+      expect(stop).toBeInstanceOf(UpstreamConfigChangedError);
+      expect((stop as UpstreamConfigChangedError).report).toMatchObject({
+        kind: 'changes',
+        pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
+      });
+      expect((stop as Error).message).toContain('stopped before the merge, nothing changed');
+      expect((stop as Error).message).toContain('rerun with --keep-config');
+      // No merge was started and nothing was written
+      expect(execSync('git rev-parse HEAD', { cwd: env.forkPath }).toString()).toBe(head);
+      expect(execSync('git status --porcelain', { cwd: env.forkPath }).toString()).toBe('');
+      expect(fileExists(env.forkPath, '.git/MERGE_HEAD')).toBe(false);
+    });
+
+    it('sync merges once the fork config follows upstream', async () => {
+      await setupBase();
+      const pinned = ['a.ts', 'backend/src/bundle-config.ts'];
+      const config = buildRuntimeConfig(env, { service: 'sync', pinned, ignored: ['shared/config'] });
+
+      const result = await runSync(config);
+
+      expect(result.success).toBe(true);
+      expect(result.upstreamOverrides).toBeUndefined();
+      expect(fileExists(env.forkPath, '.git/MERGE_HEAD')).toBe(true);
+    });
+
+    it('sync --keep-config merges, reports the same and leaves the fork config and ignored files alone', async () => {
+      await setupBase();
+      const config = buildRuntimeConfig(env, {
+        service: 'sync',
+        pinned: ['a.ts'],
+        ignored: ['shared/config'],
+        keepConfig: true,
+      });
 
       const result = await runSync(config);
 
@@ -994,6 +1034,39 @@ describe('sync e2e', () => {
       expect(readRepoFile(env.forkPath, 'cella/cella.config.ts')).not.toContain('bundle-config');
       expect(readRepoFile(env.forkPath, 'shared/config/default.ts')).not.toContain('newKey');
       expect(fileExists(env.forkPath, 'shared/config/staging.ts')).toBe(false);
+    });
+
+    it('groups protected files both sides changed by entry, with a range that shows only upstream changes', async () => {
+      await setupBase();
+      // The fork changed an ignored config file and a pinned file that upstream changes too
+      makeCommit(env.upstreamPath, {
+        files: { 'backend/src/index.ts': '// Backend entry\nexport const backend = "upstream";\n' },
+        message: 'feat: upstream backend',
+      });
+      makeCommit(env.forkPath, {
+        files: {
+          'shared/config/default.ts': 'export const config = { a: 1, forkKey: true };\n',
+          'backend/src/index.ts': '// Backend entry\nexport const backend = "fork";\n',
+        },
+        message: 'feat: fork config and backend',
+      });
+      fetchUpstream(env.forkPath);
+      const options = { pinned: ['a.ts', 'backend/src'], ignored: ['shared/config'], keepConfig: true };
+      const groups = [
+        { entry: 'backend/src', paths: ['backend/src/index.ts'] },
+        { entry: 'shared/config', paths: ['shared/config/default.ts'] },
+      ];
+
+      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', ...options }));
+      expect(analysis.protectedUpstreamChanges).toEqual(groups);
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ...options }));
+      expect(result.protectedUpstreamChanges).toEqual(groups);
+
+      // The printed command: upstream's side of the entry since the last sync, without the fork's own changes
+      const diff = execSync(`git diff ${result.upstreamDiffRange} -- shared/config`, { cwd: env.forkPath }).toString();
+      expect(diff).toContain('+export const config = { a: 1, newKey: true };');
+      expect(diff).not.toContain('forkKey');
     });
   });
 });

@@ -661,6 +661,32 @@ export async function restoreWorktreeFromRef(cwd: string, ref: string, filePath:
 }
 
 /**
+ * Restore paths from a ref into the working tree only, in batches, leaving the index untouched.
+ * Paths are taken literally, so a file name with glob characters (`[id].tsx`) restores that file.
+ */
+export async function batchRestoreWorktreeFromRef(cwd: string, ref: string, filePaths: string[]): Promise<void> {
+  const batchSize = 200;
+  for (let i = 0; i < filePaths.length; i += batchSize) {
+    const batch = filePaths.slice(i, i + batchSize);
+    await git(['--literal-pathspecs', 'restore', `--source=${ref}`, '--worktree', '--', ...batch], cwd);
+  }
+}
+
+/**
+ * Paths at `ref` whose working tree copy is byte-identical to it. Renames are not detected, so a
+ * file the working tree moved away counts as changed at its old path.
+ */
+export async function listIdenticalToRef(cwd: string, ref: string): Promise<Set<string>> {
+  const nulSeparated = (out: string) => out.split('\0').filter(Boolean);
+  const [tracked, changed] = await Promise.all([
+    git(['ls-tree', '-r', '--name-only', '-z', ref], cwd),
+    git(['diff', '--name-only', '--no-renames', '-z', ref, '--'], cwd),
+  ]);
+  const differs = new Set(nulSeparated(changed));
+  return new Set(nulSeparated(tracked).filter((path) => !differs.has(path)));
+}
+
+/**
  * Get the merge base between two refs.
  */
 export async function getMergeBase(cwd: string, ref1: string, ref2: string): Promise<string> {

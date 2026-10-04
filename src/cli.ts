@@ -34,12 +34,16 @@ type CliOptionState = Pick<
   | 'unpinned'
   | 'track'
   | 'ref'
+  | 'keepConfig'
   | 'force'
   | 'checkOverrides'
   | 'coverage'
   | 'all'
   | 'show'
   | 'extract'
+  | 'run'
+  | 'script'
+  | 'runArgs'
   | 'mark'
 >;
 
@@ -57,16 +61,23 @@ type ServiceDefinition = {
   name: SyncService;
   description: string;
   options?: ServiceOptionDefinition[];
+  /** Arguments the service takes after its options, e.g. the ones `migrate --run` hands to the codemod. */
+  operands?: ServiceOptionDefinition;
   includeInMenu?: (context: MenuContext) => boolean;
   menuDescription?: (context: MenuContext) => string;
 };
 
-function readOptions(opts: Record<string, unknown>): CliOptionState {
+function readOptions(opts: Record<string, unknown>, operands: string[] = []): CliOptionState {
   const scope = typeof opts.scope === 'string' ? opts.scope : undefined;
   if (scope && scope !== 'all' && scope !== 'risk' && scope !== 'protected') {
     throw new Error(`invalid --scope '${scope}'. expected one of: all, risk, protected`);
   }
   const normalizedScope = scope as AnalyzeScope | undefined;
+
+  const run = typeof opts.run === 'string' ? opts.run : undefined;
+  if (operands.length > 0 && !run) {
+    throw new Error(`unexpected argument '${operands[0]}'. arguments after the options only go with --run <id>`);
+  }
 
   return {
     logFile: opts.log === true,
@@ -81,12 +92,16 @@ function readOptions(opts: Record<string, unknown>): CliOptionState {
     unpinned: opts.unpinned === true,
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
     ref: typeof opts.ref === 'string' && opts.ref ? opts.ref : undefined,
+    keepConfig: opts.keepConfig === true,
     force: opts.force === true,
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
     all: opts.all === true,
     show: typeof opts.show === 'string' ? opts.show : undefined,
     extract: typeof opts.extract === 'string' ? opts.extract : undefined,
+    run,
+    script: typeof opts.script === 'string' ? opts.script : undefined,
+    runArgs: run ? operands : undefined,
     mark: Array.isArray(opts.mark) ? opts.mark.filter((id): id is string => typeof id === 'string') : undefined,
   };
 }
@@ -116,6 +131,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
       { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
       { flags: '--ref <ref>', description: 'pin the upstream commit for this run: sha, release tag or branch' },
+      { flags: '--keep-config', description: 'merge with your sync config as it stands when upstream changed its own' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
     menuDescription: () => 'merge upstream changes + sync package.json',
@@ -128,8 +144,14 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--json', description: 'machine-readable output for tooling/agents' },
       { flags: '--show <id>', description: "print one note's README" },
       { flags: '--extract <id>', description: "write one note's folder under node_modules/.cache to run its codemod" },
+      { flags: '--run <id>', description: "run one note's codemod; files identical to upstream stay as they are" },
+      { flags: '--script <file>', description: 'with --run: the script to run when the note folder holds several' },
       { flags: '--mark <ids...>', description: 'record notes as handled' },
     ],
+    operands: {
+      flags: '[codemodArgs...]',
+      description: "with --run, after `--`: arguments for the codemod (default: inventory and the note's roots)",
+    },
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
@@ -149,6 +171,10 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--log', description: 'write complete file list to cella-sync.log for each synced fork' },
       { flags: '-V, --verbose', description: 'show detailed output during operations' },
       { flags: '--hard', description: 'overwrite drifted files with upstream version (aggressive realignment)' },
+      {
+        flags: '--keep-config',
+        description: "merge with the fork's sync config as it stands when upstream changed its own",
+      },
     ],
     includeInMenu: (context) => context.hasForks,
   },
@@ -210,11 +236,15 @@ function addServiceCommand(
   for (const option of definition.options ?? []) {
     command.option(option.flags, option.description);
   }
+  if (definition.operands) command.argument(definition.operands.flags, definition.operands.description);
 
-  command.action((opts) => {
+  // Commander hands declared arguments to the action before the options
+  command.action((...args: unknown[]) => {
+    const operands = definition.operands ? (args[0] as string[]) : [];
+    const opts = (definition.operands ? args[1] : args[0]) as Record<string, unknown>;
     setSelection({
       service: definition.name,
-      options: readOptions(opts),
+      options: readOptions(opts, operands),
     });
   });
 }
@@ -238,6 +268,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
         '  $ cella sync --ref 4f7d87c',
+        '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella migrate --mark 20261002T0614-config-switch',
         '  $ cella audit --check-overrides',
         '  $ cella contributions --fork raak --json',
@@ -313,8 +344,8 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   // Print header
   printHeader();
 
-  // Validate config and show warnings
-  const warnings = validateOverrides(userConfig, forkPath);
+  // Validate config and show warnings (ignored entries are looked up at the upstream branch as last fetched)
+  const warnings = await validateOverrides(userConfig, forkPath, resolveUpstream(userConfig.settings).branchRef);
   if (warnings.length > 0) {
     printWarnings(warnings);
     console.info();

@@ -43,6 +43,11 @@ export interface MigrationNote {
   codemod: string | null;
 }
 
+/** Whether a file in a note folder is a codemod script: a `.ts` file that is not a test. */
+export function isCodemodFile(name: string): boolean {
+  return name.endsWith('.ts') && !name.endsWith('.test.ts');
+}
+
 /** Whether a path is upstream-only: the sync never brings it in and removes a fork copy. */
 export function isUpstreamOnly(filePath: string): boolean {
   return filePath === NOTES_DIR || filePath.startsWith(`${NOTES_DIR}/`);
@@ -86,7 +91,7 @@ export function parseNote(id: string, source: string, fileNames: string[]): Migr
       .split(',')
       .map((root) => root.trim())
       .filter(Boolean),
-    codemod: fileNames.find((name) => name.endsWith('.ts') && !name.endsWith('.test.ts')) ?? null,
+    codemod: fileNames.find(isCodemodFile) ?? null,
   };
 }
 
