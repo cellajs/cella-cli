@@ -152,8 +152,7 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
   if (config.fork) {
     const match = forks.find((f) => f.name === config.fork);
     if (!match) {
-      console.error(pc.red(`fork '${config.fork}' not found in config`));
-      return;
+      throw new Error(`fork '${config.fork}' not found in config`);
     }
     const resolvedPath = resolve(await resolveForkBasePath(config.forkPath), match.localPath);
     await syncFork(config, match, resolvedPath);

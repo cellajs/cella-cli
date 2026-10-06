@@ -240,15 +240,15 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
 
 /**
  * Resolve the fork to pull from: the explicit --fork by name, the single valid fork in
- * non-interactive modes (--list/--json/--diff), or an interactive prompt. Returns undefined
- * after printing why when no fork can be selected.
+ * non-interactive modes (--list/--json/--diff), or an interactive prompt. Throws when no
+ * fork can be selected (main's handler prints the message and exits 1); returns undefined
+ * only when the interactive prompt selects nothing.
  */
 async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Promise<ValidatedFork | undefined> {
   if (config.fork) {
     const match = validated.find((v) => v.fork.name === config.fork);
     if (!match?.valid) {
-      console.error(pc.red(`fork '${config.fork}' not found or invalid in config`));
-      return undefined;
+      throw new Error(`fork '${config.fork}' not found or invalid in config`);
     }
     return match;
   }
@@ -257,12 +257,10 @@ async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Pr
   if (config.list || config.json || config.diff) {
     // Non-interactive: require an explicit --fork when multiple forks are configured
     if (validForks.length === 0) {
-      console.error(pc.red('no valid forks configured'));
-      return undefined;
+      throw new Error('no valid forks configured');
     }
     if (validForks.length > 1) {
-      console.error(pc.red('multiple forks configured; pass --fork <name> to choose one'));
-      return undefined;
+      throw new Error('multiple forks configured; pass --fork <name> to choose one');
     }
     return validForks[0];
   }
@@ -421,9 +419,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   if (config.diff) {
     const matches = allItems.filter((i) => i.path === config.diff);
     if (matches.length === 0) {
-      console.error(pc.red(`no contribution found for path: ${config.diff}`));
-      process.exitCode = 1;
-      return;
+      throw new Error(`no contribution found for path: ${config.diff}`);
     }
     for (const item of matches) {
       const diff = gitDiffFile(config.forkPath, `${baseRef}..${item.ref}`, item.path, { dstPrefix: forkName });
