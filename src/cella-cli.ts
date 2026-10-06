@@ -1,9 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Cella CLI v2 - Main entry point
- *
- * Worktree-based merge approach that isolates all merge operations
- * from the main repository until the final atomic rsync copy.
+ * Cella CLI main entry point: resolves the fork path, loads the config,
+ * parses the command line and routes to the selected service.
  */
 
 import { existsSync, statSync } from 'node:fs';
@@ -25,13 +23,8 @@ import { getEnv } from './utils/env';
 import { errorMessage } from './utils/errors';
 
 /**
- * Determine the fork path.
- *
- * Priority:
- * 1. CELLA_FORK_PATH environment variable
- * 2. Current working directory (where the CLI is run from)
- *
- * Note: When run via pnpm filter, cwd may be cli/cella - we detect and navigate up.
+ * The fork path: the CELLA_FORK_PATH environment variable when set, else the current
+ * working directory. A cwd inside cli/cella (pnpm --filter) resolves up to the fork root.
  */
 function getForkPath(): string {
   const envPath = getEnv('CELLA_FORK_PATH');
@@ -45,7 +38,6 @@ function getForkPath(): string {
 
   let cwd = process.cwd();
 
-  // If running from within cli/cella (e.g., via pnpm --filter), go up to find the fork root
   if (cwd.endsWith('/cli/cella') || cwd.endsWith('\\cli\\cella')) {
     cwd = resolve(cwd, '../..');
   }
@@ -54,11 +46,9 @@ function getForkPath(): string {
 }
 
 /**
- * Pre-flight checks before running a service.
- *
- * The sync service cuts its own temporary branch from the trunk and owns its own clean/resume
- * state, so preflight no longer cares which branch you are on or whether the tree is clean — it
- * only verifies we are inside a git repository.
+ * Pre-flight check before running a service: verifies the path is a git repository.
+ * The sync service cuts its own temporary branch from the trunk and owns its own
+ * clean/resume state, so neither the current branch nor a dirty tree blocks a run.
  */
 function preflight(forkPath: string): void {
   if (!existsSync(join(forkPath, '.git'))) {
@@ -73,15 +63,10 @@ function isHelpOrVersionRequest(): boolean {
   );
 }
 
-/**
- * Main entry point.
- */
 async function main(): Promise<void> {
-  // Register signal handlers for cleanup
   registerSignalHandlers();
 
   try {
-    // Determine fork path
     const forkPath = getForkPath();
 
     if (isHelpOrVersionRequest()) {
@@ -89,18 +74,15 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Load config
     const userConfig = await loadConfig(forkPath);
 
-    // Parse CLI and get runtime config
     const config = await parseCli(userConfig, forkPath);
 
-    // Run preflight checks (except for services that operate on other fork paths)
+    // Services that operate on other fork paths skip the local-repo preflight.
     if (!['audit', 'forks', 'contributions', 'stats'].includes(config.service)) {
       preflight(forkPath);
     }
 
-    // Route to service
     switch (config.service) {
       case 'analyze': {
         await runAnalyze(config);

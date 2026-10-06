@@ -1,7 +1,6 @@
 /**
- * CLI entry point for sync CLI v2.
- *
- * Parses command line arguments and routes to appropriate service.
+ * Command-line parsing: the service definitions, commander wiring, and the
+ * interactive service menu, resolved into a RuntimeConfig.
  */
 
 import process from 'node:process';
@@ -238,9 +237,6 @@ function getMenuContext(userConfig: CellaCliConfig, forkPath: string): MenuConte
   };
 }
 
-/**
- * Build service menu choices, conditionally including optional services.
- */
 function buildServiceChoices(context: MenuContext) {
   // Pad service labels to align descriptions (longest label is 'contributions').
   const label = (name: string) => name.padEnd(14);
@@ -363,9 +359,6 @@ function buildRuntimeConfig(
   };
 }
 
-/**
- * Parse CLI arguments and return configuration.
- */
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
   const selection = parseCommandLine(process.argv);
 
@@ -375,17 +368,15 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   const machineList = selection.options.list && selection.service !== 'audit';
   if (selection.options.json || selection.options.diff || machineList) setJsonMode(true);
 
-  // Print header
   printHeader();
 
-  // Validate config and show warnings (ignored entries are looked up at the upstream branch as last fetched)
+  // Ignored entries are validated against the upstream branch as last fetched.
   const warnings = await validateOverrides(userConfig, forkPath, resolveUpstream(userConfig.settings).branchRef);
   if (warnings.length > 0) {
     printWarnings(warnings);
     console.info();
   }
 
-  // If no service provided, prompt for it
   if (!selection.service) {
     selection.service = await promptForService(userConfig, forkPath);
   }

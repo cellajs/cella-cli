@@ -6,7 +6,7 @@
  * Modules with `owner: 'app'` are fork-specific: their
  * source folders, plus matching frontend static asset folders when present, are
  * fork territory and must never be added, modified, or deleted by upstream during
- * sync — nor offered back upstream by the contributions service.
+ * sync, nor offered back upstream by the contributions service.
  *
  * Parsing is syntax-only (no type-checker), so it is fast and tolerant of
  * formatting, comments, and property order. Built on ts-morph so the same

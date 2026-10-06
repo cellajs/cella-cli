@@ -3,9 +3,9 @@
  *
  * Cella (upstream) pulls a fork's branch and detects which files the fork
  * changed, created, or deleted relative to cella's base branch. It then builds
- * a clean local `contrib/<fork>` branch — built on top of the base branch with
- * only the fork's file overlays — so the changes can be reviewed and adopted
- * without a working-tree checkout.
+ * a clean local `contrib/<fork>` branch (the base branch plus only the fork's
+ * file overlays) so the changes can be reviewed and adopted without a
+ * working-tree checkout.
  *
  * The fork's blobs are read directly from the fetched ref (already in cella's
  * object store), never from the filesystem.
@@ -43,9 +43,6 @@ interface ContribDetection {
   files: ContribFile[];
 }
 
-/**
- * List all files tracked at a ref.
- */
 async function listFilesAtRef(repoPath: string, ref: string): Promise<Set<string>> {
   const raw = await git(['ls-tree', '-r', '--name-only', ref], repoPath);
   return new Set(raw.split('\n').filter(Boolean));
@@ -87,7 +84,7 @@ export async function detectContributableFiles(
 
   // Base directory set for the sibling heuristic on created files.
   // Seed with '.' because the repo root always exists in cella, so new fork
-  // files at the root (e.g. a shared config) are offered rather than silently skipped.
+  // files at the root (e.g. a shared config) are offered, not silently skipped.
   const baseFiles = await listFilesAtRef(repoPath, baseRef);
   const baseDirs = new Set<string>(['.']);
   for (const f of baseFiles) {
@@ -163,7 +160,7 @@ async function readBlobInfo(
  * Build a clean local `contrib/<fork>` branch from a fork's contributed files.
  *
  * The branch is created on top of `baseRef` with only the fork's file overlays
- * applied via a temporary index — the working tree is never touched.
+ * applied via a temporary index; the working tree is never touched.
  *
  * @returns The branch name and number of files applied.
  */

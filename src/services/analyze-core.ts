@@ -4,7 +4,7 @@
  * Compares a "local" ref against an "incoming" ref using a shared merge-base,
  * classifying every changed file (identical / ahead / local / drifted / behind /
  * diverged / pinned / ignored / deleted / renamed). It works purely on git
- * plumbing (ls-tree, diff-tree, log) against refs — never the working tree.
+ * plumbing (ls-tree, diff-tree, log) against refs, never the working tree.
  *
  * Both directions reuse it:
  * - sync (merge-engine): local = fork HEAD, incoming = upstream
@@ -39,7 +39,6 @@ function isReportableIgnored(filePath: string): boolean {
   return !isManagedFile(filePath) && !isGeneratedFile(filePath);
 }
 
-/** Progress callback type - receives a message string. */
 type ProgressCallback = (message: string) => void;
 
 /**
@@ -61,19 +60,17 @@ export async function analyzeRefs(
 ): Promise<AnalyzedFile[]> {
   onProgress?.('collecting file hashes (batch)...');
 
-  // Batch get all file hashes at each ref (one git call per ref)
   const [forkHashes, upstreamHashes, baseHashes] = await Promise.all([
     getFileHashesAtRef(repoPath, localRef),
     getFileHashesAtRef(repoPath, incomingRef),
     getFileHashesAtRef(repoPath, mergeBaseRef),
   ]);
 
-  // Get only files that changed between base and incoming (includes renames with -M90%)
+  // Changes between base and each tip; rename detection runs at -M90%.
   const upstreamChanges = await getFileChanges(repoPath, mergeBaseRef, incomingRef);
-  // Get only files that changed between base and local
   const forkChanges = await getFileChanges(repoPath, mergeBaseRef, localRef);
 
-  // Build a map of old paths that were renamed in incoming (oldPath -> newPath)
+  // oldPath -> newPath for renames in incoming.
   const upstreamRenames = new Map<string, string>();
   for (const [newPath, change] of upstreamChanges) {
     if (change.status === 'R' && change.oldPath) {
@@ -81,14 +78,11 @@ export async function analyzeRefs(
     }
   }
 
-  // Combined set of all files (for completeness, but we'll only analyze non-identical)
-  // Also include old paths from renames to properly track them
   const allFiles = new Set([...forkHashes.keys(), ...upstreamHashes.keys(), ...upstreamRenames.keys()]);
 
-  // Files that actually need analysis (changed somewhere)
   const changedFiles = new Set([...upstreamChanges.keys(), ...forkChanges.keys(), ...upstreamRenames.keys()]);
 
-  // Content hashes present anywhere in incoming — O(1) rename-source lookups below.
+  // Content hashes present anywhere in incoming, for O(1) rename-source lookups below.
   const upstreamHashSet = new Set(upstreamHashes.values());
 
   onProgress?.(
@@ -96,7 +90,6 @@ export async function analyzeRefs(
   );
 
   const analyzedFiles: AnalyzedFile[] = [];
-  // Track old paths that have been handled as part of a rename
   const handledOldPaths = new Set<string>();
   // Protected files flagged `upstreamChanged` via a rename: their numstat at the new path
   // would count the whole file as added, so they get no line count.
@@ -104,7 +97,6 @@ export async function analyzeRefs(
   let processed = 0;
 
   for (const filePath of allFiles) {
-    // Skip old paths that were already handled as part of a rename
     if (handledOldPaths.has(filePath)) continue;
 
     const inFork = forkHashes.has(filePath);
@@ -113,14 +105,11 @@ export async function analyzeRefs(
     const fileIsIgnored = predicates.isIgnored(filePath);
     const fileIsPinned = predicates.isPinned(filePath);
 
-    // Check if this file is the NEW path of an incoming rename
     const upstreamChange = upstreamChanges.get(filePath);
     const isUpstreamRename = upstreamChange?.status === 'R' && upstreamChange.oldPath;
 
-    // Check if this file is the OLD path that was renamed in incoming
     const renamedToPath = upstreamRenames.get(filePath);
 
-    // Fast path: if file didn't change anywhere, it's identical
     if (!changedFiles.has(filePath) && inFork && inUpstream) {
       analyzedFiles.push({
         path: filePath,
@@ -142,48 +131,41 @@ export async function analyzeRefs(
     const upstreamHash = upstreamHashes.get(filePath) ?? null;
     const baseHash = baseHashes.get(filePath) ?? null;
 
-    // Determine status
     let status: FileStatus;
     let renamedFrom: string | undefined;
 
-    // Handle incoming renames
     if (isUpstreamRename && upstreamChange.oldPath) {
       const oldPath = upstreamChange.oldPath;
       const oldPathInFork = forkHashes.has(oldPath);
       const forkOldHash = forkHashes.get(oldPath) ?? null;
       const baseOldHash = baseHashes.get(oldPath) ?? null;
 
-      // Mark the old path as handled so we don't process it separately
       handledOldPaths.add(oldPath);
 
-      // Check if local modified the old file
       const forkModifiedOld = forkOldHash !== baseOldHash;
 
-      // Check both old and new paths for pinned/ignored status.
-      // When a directory is renamed (e.g., config/ → shared/), the local
-      // pinned list may still reference the old path.
+      // A renamed directory (e.g. config/ → shared/) can leave the local pinned
+      // list referencing the old path, so both paths count for pinned/ignored.
       const oldPathPinned = predicates.isPinned(oldPath);
 
       let upstreamChanged: boolean | undefined;
       if (fileIsPinned || oldPathPinned || predicates.isIgnored(oldPath)) {
-        // Pinned or ignored - keep local's version at the new path
+        // Protected: local's version is kept at the new path.
         status = 'pinned';
-        // Local edited the old file and incoming changed its content beyond the rename
+        // Local edited the old file and incoming changed its content beyond the rename.
         if (forkModifiedOld && upstreamHash !== baseOldHash) {
           upstreamChanged = true;
           renamedProtected.add(filePath);
         }
       } else if (!oldPathInFork) {
-        // Old path doesn't exist locally (already deleted or moved it)
-        // Treat as normal behind - let git's merge handle it
+        // Old path absent locally (deleted or moved): plain behind, git's merge handles it.
         status = 'behind';
       } else if (forkModifiedOld) {
-        // Local modified the old file - this is a diverged situation
-        // Let git's merge handle the conflict naturally
+        // Local modified the old file: diverged, git's merge surfaces the conflict.
         status = 'diverged';
         renamedFrom = oldPath;
       } else {
-        // Local has unmodified old file - this is a clean rename to apply
+        // Unmodified old file locally: a clean rename to apply.
         status = 'renamed';
         renamedFrom = oldPath;
       }
@@ -206,9 +188,8 @@ export async function analyzeRefs(
       continue;
     }
 
-    // Skip old paths that were renamed - they'll be handled via the new path
+    // Old paths of incoming renames are handled at the new path.
     if (renamedToPath) {
-      // This is an old path that incoming renamed - skip it, handled above
       handledOldPaths.add(filePath);
       continue;
     }
@@ -221,48 +202,42 @@ export async function analyzeRefs(
       // the merge-base (the symmetric `inFork && !inUpstream` branch does the same):
       // - pinned: local owns the path, keep it removed.
       // - existed at base and incoming hasn't touched it since (upstreamHash === baseHash):
-      //   the absence is a deliberate local deletion — keep it deleted instead of
-      //   re-adding it as if incoming introduced a new file (which resurfaces every sync).
+      //   the absence is a deliberate local deletion that stays deleted; re-adding it
+      //   as if incoming introduced a new file would resurface it every sync.
       // - otherwise (never in base = truly new, or incoming modified a file the local side
       //   deleted = delete/modify): surface incoming's version.
       const locallyDeleted = baseHash !== null && upstreamHash === baseHash;
       status = fileIsPinned || locallyDeleted ? 'deleted' : 'behind';
     } else if (inFork && !inUpstream) {
-      // File exists locally but not in incoming
       if (baseHash !== null) {
-        // File was in base, incoming deleted it - sync deletion unless pinned
+        // In base, deleted by incoming: sync the deletion unless pinned.
         status = fileIsPinned ? 'ahead' : 'behind';
       } else {
         // Local file (never existed in merge-base). If its exact content exists at a
         // different path in incoming, it is likely the source of a rename we couldn't
-        // detect due to a squash merge-base — treat as behind so the rename applies.
+        // detect due to a squash merge-base: treated as behind so the rename applies.
         // (This file is absent from incoming, so any hash match is at another path.)
         status = forkHash && upstreamHashSet.has(forkHash) ? 'behind' : 'local';
       }
     } else if (forkHash === upstreamHash) {
-      // Identical
       status = 'identical';
     } else {
-      // Both exist but different
       const forkChanged = forkHash !== baseHash;
       const upstreamChanged = upstreamHash !== baseHash;
 
       if (forkChanged && upstreamChanged) {
-        // Both changed - diverged or pinned conflict
         status = fileIsPinned ? 'pinned' : 'diverged';
       } else if (forkChanged && !upstreamChanged) {
-        // Only local changed
-        // --hard mode: treat drifted as behind (overwrite with incoming)
+        // --hard treats drifted as behind (incoming overwrites).
         status = fileIsPinned ? 'ahead' : predicates.hard ? 'behind' : 'drifted';
       } else {
-        // Only incoming changed
         status = 'behind';
       }
     }
 
     // Protected file where BOTH sides changed since the merge-base (a local edit or deletion,
     // and incoming content that differs from base). Local wins whole-file, so incoming's
-    // hunks are dropped — flag it so analyze/sync can surface the loss. A protected file
+    // hunks are dropped; the flag lets analyze/sync surface the loss. A protected file
     // that only changed locally is plain `ahead`; one that only changed incoming (`behind`
     // with the local copy still equal to base) is reported separately as a masking pin.
     const upstreamChanged =
@@ -305,7 +280,7 @@ export async function analyzeRefs(
 
   // Retroactive signal for pinned `ahead` files (incoming untouched since the merge-base, so
   // the check above cannot fire): count lines incoming has that local lacks, relative to
-  // the tips rather than the sync point. Pinned only — ignored territory is noise by design.
+  // the tips, not the sync point. Pinned only; ignored territory is noise by design.
   const stale = analyzedFiles.filter(
     (file) =>
       file.status === 'ahead' &&
@@ -372,7 +347,7 @@ export async function enrichChangeInfo(
         file.changedCommit = info.hash;
       }
     } else if (file.status === 'diverged' || file.status === 'pinned' || file.upstreamChanged) {
-      // For diverged/pinned (and protected files incoming also changed): store both sides
+      // Diverged/pinned (and protected files incoming also changed) carry both sides.
       const forkFileInfo = forkInfo.get(file.path);
       const upstreamFileInfo = upstreamInfo.get(file.path);
       if (forkFileInfo) {

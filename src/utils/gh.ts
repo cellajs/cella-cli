@@ -3,7 +3,7 @@
  *
  * Thin wrappers around `gh` used by the sync service to list, merge, and close the sync pull
  * requests. Every wrapper degrades gracefully when `gh` is missing or a call fails, so a sync
- * run on a repo without `gh`/`origin` still works — it just skips the PR automation.
+ * run on a repo without `gh`/`origin` still works; it just skips the PR automation.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -29,14 +29,14 @@ export function ghAvailable(): boolean {
 
 /** Run `gh` in `cwd`, capturing stdout+stderr. Never throws. */
 function runGh(cwd: string, args: string[]): GhResult {
-  const result = spawnSync('gh', args, { cwd, encoding: 'utf-8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const result = spawnSync('gh', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
   const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
   return { ok: result.status === 0, output };
 }
 
 /**
  * Keep only the pull requests whose head branch is one of cella's temporary sync branches
- * (under the `<prefix>/` namespace, e.g. `cella/sync/`). Pure — unit-tested.
+ * (under the `<prefix>/` namespace, e.g. `cella/sync/`). Pure, unit-tested.
  */
 export function filterSyncPrs(prs: GhPullRequest[], prefix: string): GhPullRequest[] {
   return prs.filter((pr) => pr.headRefName.startsWith(`${prefix}/`));
@@ -70,7 +70,7 @@ export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
 }
 
 /**
- * Build the argv for `gh pr merge`. Pure — unit-tested.
+ * Build the argv for `gh pr merge`. Pure, unit-tested.
  *
  * The merge is attempted immediately and fails when the PR is not mergeable.
  */

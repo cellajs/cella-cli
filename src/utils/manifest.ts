@@ -5,7 +5,7 @@
  * `cella/cella.manifest.json`. It serves two purposes:
  *  1. Machine: `upstream.commit` is the bootstrap seed `ensureSyncBase` uses to reconstruct
  *     the merge-base on a clone that has no local `refs/cella/last-sync` (fresh clone, CI, a
- *     second maintainer). Committed, so it travels with the repo — unlike the local ref.
+ *     second maintainer). Committed, so it travels with the repo (a local ref does not).
  *  2. Human: records the upstream repo, tracking mode, release/commit and a GitHub link, so
  *     each sync PR shows exactly which upstream point you moved to.
  *
@@ -26,7 +26,7 @@ export interface SyncManifest {
     repo?: string;
     /** Tracking mode at sync time. */
     track?: 'release' | 'branch';
-    /** Integrated upstream commit SHA — the merge-base bootstrap seed. */
+    /** Integrated upstream commit SHA: the merge-base bootstrap seed. */
     commit: string;
     /** Release tag when tracking releases, else null. */
     release?: string | null;

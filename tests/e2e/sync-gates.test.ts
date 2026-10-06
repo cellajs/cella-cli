@@ -160,7 +160,7 @@ describe('sync stops before the merge', () => {
       expectUntouched('main', head);
       expect(fs.readFileSync(path.join(env.forkPath, 'version.ts'), 'utf8')).toBe('v2\n');
       const out = lines.join('\n');
-      expect(out).toContain('nothing to sync — the last sync already went past this upstream point.');
+      expect(out).toContain('nothing to sync: the last sync already went past this upstream point.');
       expect(out).toMatch(/upstream v0\.1\.0 \([0-9a-f]+\) is behind the last sync point/);
       expect(out).toContain('Nothing to sync until a release past');
     });

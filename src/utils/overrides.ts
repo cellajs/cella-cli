@@ -1,8 +1,6 @@
 /**
- * Override matching and validation utilities for sync CLI v2.
- *
- * Handles matching files against ignored/pinned paths and
- * validates config for potential issues.
+ * Override matching and validation: files matched against the ignored/pinned
+ * paths, and config warnings for entries that cannot work.
  */
 
 import { existsSync } from 'node:fs';
@@ -14,7 +12,7 @@ import { isGeneratedFile, isManagedFile } from './managed-files';
 import { isUpstreamOnly } from './migration-notes';
 
 /**
- * Check if a file path is owned by any of the given folders.
+ * Whether a file path is owned by any of the given folders.
  *
  * Folders are directory prefixes (not globs): an entry matches the file when
  * the path equals the entry exactly or is nested under `entry + '/'`.
@@ -30,16 +28,16 @@ export function isUnderAnyFolder(filePath: string, folders: string[]): boolean {
 }
 
 /**
- * Check if a file is inside an ignored path, or an upstream-only one (migration notes), which
- * every fork ignores without listing it.
+ * Whether a file is inside an ignored path, or an upstream-only one (migration notes),
+ * which every fork ignores without listing it.
  */
 export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
   return isUpstreamOnly(filePath) || isUnderAnyFolder(filePath, config.overrides?.ignored || []);
 }
 
 /**
- * Check if a file is in the pinned list.
- * Managed files are always considered pinned (handled separately by cella).
+ * Whether a file is in the pinned list.
+ * Managed files always count as pinned (handled separately by cella).
  */
 export function isPinned(filePath: string, config: CellaCliConfig): boolean {
   if (isManagedFile(filePath)) return true;
@@ -79,7 +77,7 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 
 /**
  * Group protected paths upstream also changed by the `pinned` or `ignored` entry they fall under,
- * so a report can print one diff hint per entry instead of one per file.
+ * so a report can print one diff hint per entry, not one per file.
  *
  * A path under nested entries lands on the most specific one; a path no entry covers (a managed
  * file) stands for itself. Groups follow the order the paths come in.
@@ -109,7 +107,7 @@ export function groupProtectedUpstreamChanges(paths: string[], config: CellaCliC
  * Resolve effective pin status for a sync run, honoring the --unpinned flag.
  *
  * When `unpinned` is true, configured pins are disabled so upstream versions
- * surface as behind/diverged — but managed files stay pinned (their content is
+ * surface as behind/diverged; managed files stay pinned (their content is
  * reconciled separately by cella).
  */
 export function isPinnedForSync(filePath: string, config: CellaCliConfig, unpinned?: boolean): boolean {
@@ -125,9 +123,7 @@ interface ConfigWarning {
   message: string;
 }
 
-/**
- * Check if an entry contains glob characters (no longer supported).
- */
+/** Whether an entry contains glob characters (not supported in overrides). */
 function hasGlobChars(entry: string): boolean {
   return entry.includes('*') || entry.includes('?');
 }
@@ -136,7 +132,7 @@ function hasGlobChars(entry: string): boolean {
  * Validate config overrides and return warnings.
  *
  * Checks for:
- * - Pinned entries using glob patterns (no longer supported)
+ * - Pinned entries using glob patterns (not supported)
  * - Pinned entries that don't exist in fork
  * - Ignored entries that exist neither in the fork nor upstream
  *
@@ -156,7 +152,6 @@ export async function validateOverrides(
 ): Promise<ConfigWarning[]> {
   const warnings: ConfigWarning[] = [];
 
-  // Check pinned entries
   const pinned = config.overrides?.pinned || [];
   for (const entry of pinned) {
     if (hasGlobChars(entry)) {
@@ -174,7 +169,6 @@ export async function validateOverrides(
     }
   }
 
-  // Check ignored entries
   const ignored = config.overrides?.ignored || [];
   for (const entry of ignored) {
     if (hasGlobChars(entry)) {
@@ -196,9 +190,6 @@ export async function validateOverrides(
   return warnings;
 }
 
-/**
- * Print validation warnings to console.
- */
 export function printWarnings(warnings: ConfigWarning[]): void {
   for (const warning of warnings) {
     console.info(`${warningMark} ${warning.message}`);

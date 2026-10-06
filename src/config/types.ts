@@ -1,14 +1,11 @@
 /**
- * Sync CLI v2 - Configuration Types
- *
- * Simplified configuration for worktree-based merge approach.
+ * Configuration types: the public cella/cella.config.ts surface, its runtime
+ * schema, and the internal types the services share.
  */
 
 import { z } from 'zod';
 
-// ─────────────────────────────────────────────────────────────────────────────
-// PUBLIC API - for cella/cella.config.ts
-// ─────────────────────────────────────────────────────────────────────────────
+// Public API for cella/cella.config.ts.
 
 const PACKAGE_JSON_SYNC_KEYS = [
   'dependencies',
@@ -27,7 +24,7 @@ const PACKAGE_JSON_SYNC_KEYS = [
 export type PackageJsonSyncKey = (typeof PACKAGE_JSON_SYNC_KEYS)[number];
 
 /**
- * Sync settings - all configurable options for the sync CLI.
+ * Sync settings: all configurable options for the sync CLI.
  * Hover over each property for documentation.
  */
 export interface SyncSettings {
@@ -43,7 +40,7 @@ export interface SyncSettings {
   /**
    * How to track upstream cella. Defaults to 'release'.
    * - 'release' (default): sync to a published cella release tag (`v*`). Stable and
-   *   reviewable — each bump maps to a changelog. Uses the latest release.
+   *   reviewable: each bump maps to a changelog. Uses the latest release.
    * - 'branch': follow the bleeding-edge tip of `upstreamBranch`. For cella
    *   maintainers and forks doing active development on top of unreleased changes.
    */
@@ -86,19 +83,16 @@ export interface ForkConfig {
   /**
    * Git remote URL of the fork (e.g. 'git@github.com:org/fork.git').
    * When set, the contributions service fetches the fork's `pullBranch` from this
-   * remote (the authoritative committed ref) instead of the local clone, so the
-   * comparison no longer depends on the local checkout being up to date. The local
-   * clone is still used to read the fork's owned-folder territory when available.
+   * remote (the authoritative committed ref), so the comparison does not depend on
+   * the local checkout being up to date. The local clone is still used to read the
+   * fork's owned-folder territory when available.
    */
   remoteUrl?: string;
   /** Fork branch that cella pulls contributions from (contributions service) */
   pullBranch: string;
 }
 
-/**
- * User-configurable sync options for cella/cella.config.ts.
- * Simplified for v2 - no long-lived sync branch or squash options.
- */
+/** User-configurable sync options for cella/cella.config.ts. */
 export interface CellaCliConfig {
   /** Core sync settings */
   settings: SyncSettings;
@@ -108,7 +102,7 @@ export interface CellaCliConfig {
    */
   overrides?: {
     /**
-     * Paths the fork fully owns — never synced (existing or new).
+     * Paths the fork fully owns: never synced (existing or new).
      * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
      * everything under it, 'README.md' matches that exact file.
      * Local territory: upstream cannot add, modify, or delete anything under these.
@@ -116,7 +110,7 @@ export interface CellaCliConfig {
     ignored?: string[];
 
     /**
-     * Paths pinned to fork — fork wins on conflicts.
+     * Paths pinned to the fork: fork wins on conflicts.
      * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
      * everything under it, 'README.md' matches that exact file.
      * Non-conflicting upstream changes merge normally.
@@ -144,8 +138,8 @@ export function defineConfig(config: CellaCliConfig): CellaCliConfig {
  *
  * The TS interfaces above stay the source of truth (and keep their hover docs for
  * config authors). This schema is what's enforced at load time: `.strict()` rejects
- * unknown keys, so a typo like `ignoredFolders` instead of `ignored` fails closed
- * instead of silently dropping sync protection (tsx does not typecheck the config).
+ * unknown keys, so a typo like `ignoredFolders` for `ignored` fails closed; a silent
+ * fallback would drop sync protection (tsx does not typecheck the config).
  *
  * The `satisfies z.ZodType<CellaCliConfig>` assertion keeps schema and interface in
  * lockstep: if either drifts (a renamed/removed/mis-typed field), TypeScript errors here.
@@ -185,9 +179,7 @@ export const cellaConfigSchema = z
   })
   .strict() satisfies z.ZodType<CellaCliConfig>;
 
-// ─────────────────────────────────────────────────────────────────────────────
-// INTERNAL TYPES - for sync modules
-// ─────────────────────────────────────────────────────────────────────────────
+// Internal types for the services.
 
 /** Sync services available in the CLI */
 export type SyncService = 'analyze' | 'sync' | 'migrate' | 'audit' | 'forks' | 'contributions' | 'stats';
@@ -304,7 +296,7 @@ export type FileStatus =
   | 'deleted' // Fork deleted, will stay deleted
   | 'renamed'; // Upstream renamed file
 
-/** Statuses the sync applies changes for — a staged sync holds at least one file with one of these. */
+/** Statuses the sync applies changes for: a staged sync holds at least one file with one of these. */
 export const SYNC_APPLIED_STATUSES: readonly FileStatus[] = ['behind', 'diverged', 'renamed', 'ignored', 'pinned'];
 
 /** Commit metadata for a single log entry */
@@ -357,7 +349,7 @@ export interface AnalyzedFile {
   /**
    * Pinned `ahead` files only: lines present upstream but absent from the fork (undefined for
    * binary). Independent of the sync point, so it also shows upstream content dropped by an
-   * earlier sync — or removed on purpose; only a diff can tell.
+   * earlier sync, or removed on purpose; only a diff can tell.
    */
   upstreamLinesAbsent?: number;
 }

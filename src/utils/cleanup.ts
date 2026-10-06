@@ -1,8 +1,6 @@
 /**
- * Cleanup utilities for sync CLI v2.
- *
- * Handles worktree cleanup and signal handlers for graceful abort.
- * Uses a temp directory outside the repo so worktree doesn't appear in VSCode.
+ * Worktree cleanup and signal handlers for graceful abort. Worktrees live in a
+ * temp directory outside the repo so they never appear in the IDE.
  */
 
 import { createHash } from 'node:crypto';
@@ -45,42 +43,32 @@ function legacyWorktreePath(kind: WorktreeKind, repoPath: string): string {
   return join(tmpdir(), `${WORKTREE_PREFIXES[kind]}${basename(repoPath)}`);
 }
 
-/** Get the temporary sync worktree path in system temp directory (invisible to VSCode). */
+/** The temporary sync worktree path in the system temp directory (invisible to the IDE). */
 export function getWorktreePath(repoPath: string): string {
   return buildWorktreePath('sync', repoPath);
 }
 
-/** Track if cleanup is registered */
 let cleanupRegistered = false;
 
-/** Track current worktree for cleanup */
 let currentWorktreePath: string | null = null;
 let currentRepoPath: string | null = null;
 
-/**
- * Register a worktree for cleanup on exit/abort.
- */
+/** Register a worktree for cleanup on exit/abort. */
 export function registerWorktree(repoPath: string, worktreePath: string): void {
   currentRepoPath = repoPath;
   currentWorktreePath = worktreePath;
 }
 
-/**
- * Unregister the worktree (call after successful cleanup).
- */
+/** Unregister the worktree (call after successful cleanup). */
 function unregisterWorktree(): void {
   currentRepoPath = null;
   currentWorktreePath = null;
 }
 
-/**
- * Clean up the worktree directory.
- */
 export async function cleanupWorktree(repoPath: string, worktreePath: string): Promise<void> {
-  // Try git worktree remove first
   await removeWorktree(repoPath, worktreePath);
 
-  // Force remove directory if it still exists
+  // git worktree remove can leave the directory; force-remove what remains.
   if (existsSync(worktreePath)) {
     rmSync(worktreePath, { recursive: true, force: true });
   }
@@ -110,19 +98,15 @@ export async function cleanupLeftoverWorktrees(repoPath: string): Promise<void> 
   }
 }
 
-/**
- * Handle abort signal (Ctrl+C).
- */
 async function handleAbort(signal: string): Promise<void> {
   console.info();
-  console.info(`${warningMark} Interrupted (${signal}) - cleaning up...`);
+  console.info(`${warningMark} interrupted (${signal}): cleaning up...`);
 
   if (currentRepoPath && currentWorktreePath) {
     try {
-      // Try to abort any in-progress merge in the worktree
       await mergeAbort(currentWorktreePath);
     } catch {
-      // Ignore - merge may not be in progress
+      // Ignore: merge may not be in progress
     }
 
     try {
@@ -136,9 +120,6 @@ async function handleAbort(signal: string): Promise<void> {
   process.exit(1);
 }
 
-/**
- * Register signal handlers for graceful cleanup.
- */
 export function registerSignalHandlers(): void {
   if (cleanupRegistered) return;
 

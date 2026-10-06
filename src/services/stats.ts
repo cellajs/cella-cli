@@ -44,14 +44,12 @@ interface WorkspacePackage {
   prefix: string;
 }
 
-/**
- * Parse pnpm-workspace.yaml to extract package paths.
- */
+/** Workspace package names and path prefixes from pnpm-workspace.yaml. */
 async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
-  const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf-8');
+  const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8');
 
   return parseYamlBlockList(content, 'packages').map((pattern) => {
-    // Handle wildcard patterns like 'cli/*' — resolved per file when matching
+    // Wildcard patterns like 'cli/*' are resolved per file when matching.
     if (pattern.endsWith('/*')) {
       const base = pattern.slice(0, -2);
       return { name: `${base}/*`, prefix: `${base}/` };
@@ -60,11 +58,7 @@ async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[
   });
 }
 
-/**
- * Classify a file path into a category.
- */
 function classifyFile(filePath: string): FileCategory {
-  // Test files
   if (
     filePath.includes('.test.') ||
     filePath.includes('.spec.') ||
@@ -76,12 +70,10 @@ function classifyFile(filePath: string): FileCategory {
     return 'test';
   }
 
-  // Storybook stories
   if (filePath.includes('.stories.')) {
     return 'stories';
   }
 
-  // Generated files
   if (
     filePath.includes('.gen.') ||
     filePath.includes('.gen/') ||
@@ -94,7 +86,6 @@ function classifyFile(filePath: string): FileCategory {
     return 'generated';
   }
 
-  // JSON
   if (filePath.endsWith('.json') || filePath.endsWith('.jsonc')) {
     return 'json';
   }
@@ -102,13 +93,10 @@ function classifyFile(filePath: string): FileCategory {
   return 'other';
 }
 
-/**
- * Match a file to its workspace package, handling wildcard patterns.
- */
+/** The workspace package owning a file, with wildcard patterns resolved per file. */
 function matchPackage(filePath: string, packages: WorkspacePackage[]): string {
   for (const pkg of packages) {
     if (pkg.name.endsWith('/*')) {
-      // Wildcard: match any subfolder under the base prefix
       if (filePath.startsWith(pkg.prefix)) {
         // Extract the actual subpackage name (e.g., 'cli/cella' from 'cli/cella/src/foo.ts')
         const rest = filePath.slice(pkg.prefix.length);
@@ -127,12 +115,9 @@ function matchPackage(filePath: string, packages: WorkspacePackage[]): string {
 /** Pathspec patterns for source extensions */
 const sourcePathspecs = [...sourceExtensions].map((ext) => `*.${ext}`);
 
-/**
- * Collect file stats from the repository.
- * Uses `git grep -c ''` to get file list + line counts in a single call.
- */
+/** File and LOC stats for the repository; one `git grep -c ''` call yields paths and line counts. */
 async function collectStats(forkPath: string): Promise<StatsResult> {
-  // Get all tracked source files with line counts (respects .gitignore, ~15ms)
+  // Tracked source files with line counts (respects .gitignore, ~15ms).
   const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], forkPath, { ignoreErrors: true });
   const allFilesOutput = await git(['ls-files', '--cached'], forkPath);
   const allFilesCount = allFilesOutput.split('\n').filter(Boolean).length;
@@ -178,7 +163,6 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
     entry.categories[category].loc += loc;
   }
 
-  // Sort packages by source LOC descending
   const sortedPackages = Object.fromEntries(
     [...pkgStats.entries()].sort((a, b) => b[1].categories.other.loc - a[1].categories.other.loc),
   );
@@ -186,39 +170,24 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
   return { total: entries.length, totalLoc, skipped, categories, packages: sortedPackages };
 }
 
-/**
- * Format a number with padding for table alignment.
- */
 function pad(n: number, width = 6): string {
   return String(n).padStart(width);
 }
 
-/**
- * Format a number with K suffix for large values.
- */
 function formatLoc(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
 }
 
-/**
- * Format a LOC value for fixed-width table columns.
- */
 function formatLocColumn(n: number, width = 8): string {
   return formatLoc(n).padStart(width);
 }
 
-/**
- * Format a percentage with fixed width (e.g., '05.0%', '89.7%').
- */
 function fmtPct(value: number, total: number): string {
   const pct = ((value / total) * 100).toFixed(1);
   return `${pct.padStart(5)}%`;
 }
 
-/**
- * Print stats in table format.
- */
 function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
   console.info(
@@ -245,7 +214,6 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
 
   if (verbose) {
-    // Verbose: show per-package category breakdown
     const header = `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'story'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`;
     console.info(pc.dim(header));
     for (const [name, data] of Object.entries(stats.packages)) {
@@ -272,15 +240,12 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
 }
 
-/**
- * Run the stats service.
- */
 export async function runStats(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
 
   createSpinner('counting files...');
   const stats = await collectStats(forkPath);
-  spinnerSuccess('Finished counting by raw line of code');
+  spinnerSuccess('counted raw lines of code');
 
   printStats(stats, config.verbose);
   console.info();

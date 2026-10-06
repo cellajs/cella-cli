@@ -2,7 +2,7 @@
  * Sync service for the cella CLI.
  *
  * Runs the merge engine directly in the fork (no worktree) so conflicts surface in the IDE, on
- * a fresh temporary branch cut from the trunk. The command is idempotent: if a run stops at
+ * a fresh temporary branch cut from the trunk. The service is idempotent: if a run stops at
  * conflicts, resolve them and run `cella sync` again to finish the same merge.
  */
 
@@ -99,14 +99,14 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
   // No local trunk branch to compare: cut from origin's, which `git switch` would have created it from.
   if (!(await branchExists(forkPath, base))) {
     await fetchRemote(forkPath, 'origin').catch(() => {});
-    console.info(pc.dim(`'${base}' has no local branch — cutting from 'origin/${base}'.`));
+    console.info(pc.dim(`'${base}' has no local branch: cutting from 'origin/${base}'.`));
     return `origin/${base}`;
   }
 
   const { upstream, ahead, behind } = await getUpstreamStatus(forkPath, base);
 
   if (!upstream) {
-    console.info(pc.dim(`'${base}' has no upstream — skipping the up-to-date check.`));
+    console.info(pc.dim(`'${base}' has no upstream: skipping the up-to-date check.`));
     return base;
   }
 
@@ -121,7 +121,7 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
     const worktree = currentBranch === base ? null : await getBranchWorktree(forkPath, base);
     if (worktree) {
       console.info(
-        pc.dim(`'${base}' is ${behind} behind '${upstream}' but checked out at ${worktree} — leaving it as it is.`),
+        pc.dim(`'${base}' is ${behind} behind '${upstream}' but checked out at ${worktree}; leaving it as it is.`),
       );
       return upstream;
     }
@@ -132,7 +132,7 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
   }
 
   if (ahead > 0) {
-    console.info(pc.dim(`'${base}' is ${ahead} commit(s) ahead of '${upstream}' (unpushed) — continuing.`));
+    console.info(pc.dim(`'${base}' is ${ahead} commit(s) ahead of '${upstream}' (unpushed); continuing.`));
   }
   return base;
 }
@@ -141,8 +141,8 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
  * Cut a fresh temporary sync branch from the trunk.
  *
  * Brings `releaseBase` up to date, then creates `cella/sync/<stamp>` from it (`git switch -c`
- * from wherever the run started) so the merge lands on an isolated throwaway branch rather than
- * a long-lived integration branch.
+ * from wherever the run started) so the merge lands on an isolated throwaway branch, never a
+ * long-lived integration branch.
  */
 async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<TemporarySyncBranch> {
   const { forkPath, settings } = config;
@@ -182,7 +182,7 @@ async function resolveCutBase(forkPath: string, base: string): Promise<string> {
 async function returnToBase(forkPath: string, base: string): Promise<string> {
   const worktree = await getBranchWorktree(forkPath, base);
   if (worktree) {
-    console.info(pc.dim(`'${base}' is checked out at ${worktree} — detaching at '${base}' here instead...`));
+    console.info(pc.dim(`'${base}' is checked out at ${worktree}; detaching at '${base}' here instead...`));
     await switchDetached(forkPath, base);
     return `detached at '${base}'`;
   }
@@ -231,7 +231,6 @@ export async function runSync(
   // Print summary (no file lists for sync) plus the shared upstream-changes reports
   printEngineReports(result, 'merge summary');
 
-  // Write log file if requested
   printLogFileReport(config, result.files);
 
   const stagedBranch =
@@ -337,7 +336,7 @@ export function buildSyncPrBody(input: SyncPrBodyInput): string {
  * recorded sync point and the one this branch moves to (both read from committed manifests, so
  * this works on the rerun that ships the branch, long after the merge engine ran).
  *
- * Returns undefined when the branch has no committed manifest — the caller falls back to `--fill`.
+ * Returns undefined when the branch has no committed manifest: the caller falls back to `--fill`.
  */
 async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise<string | undefined> {
   const manifest = await readManifestAtRef(forkPath, 'HEAD');
@@ -405,11 +404,11 @@ function extractFirstUrl(output: string): string | undefined {
  * The finishing rerun commits the sync as a single-parent commit (`commitSquash`), but a manual
  * `git commit` while the merge is staged records a two-parent merge commit instead. Upstream's
  * history isn't shared with `origin` (sync PRs are squash-merged), so such a commit makes the PR
- * list every upstream commit ever made — and that list grows with every upstream release.
+ * list every upstream commit ever made, and that list grows with every upstream release.
  *
  * When the branch contains merge commits, rewrite it as one commit with identical content
  * (the PR diff is unchanged). Returns true if the branch was rewritten, so the caller can
- * force-push over a previously pushed version.
+ * force-push over the version already on the remote.
  */
 async function flattenSyncBranch(forkPath: string, branch: string, base: string): Promise<boolean> {
   const mergeCommits = await listBranchMergeCommits(forkPath, base);
@@ -420,7 +419,7 @@ async function flattenSyncBranch(forkPath: string, branch: string, base: string)
 
   console.info(
     pc.yellow(
-      `'${branch}' contains ${mergeCommits.length} merge commit(s) — the PR would list the entire upstream history.`,
+      `'${branch}' contains ${mergeCommits.length} merge commit(s): the PR would list the entire upstream history.`,
     ),
   );
   console.info(pc.dim(`flattening '${branch}' to a single commit (same content)...`));
@@ -439,7 +438,7 @@ function indentLines(text: string): string {
 /**
  * Push the finished sync branch to `origin`, open a PR into the trunk, and switch back to the
  * trunk (or detach at it when another worktree has it checked out, see `returnToBase`). Runs when
- * `cella sync` is invoked on a sync branch whose merge is already committed —
+ * `cella sync` is invoked on a sync branch whose merge is already committed:
  * shipping is always its own run, after the commit stage stopped for drift triage.
  *
  * Before pushing, any merge commits on the branch are flattened away (see `flattenSyncBranch`)
@@ -459,7 +458,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   let prUrl: string | undefined;
   let prOpened = false;
 
-  // The squash commit's subject is the versioned sync message — reuse it as the PR title so the
+  // The squash commit's subject is the versioned sync message; reused as the PR title so the
   // PR name carries the upstream version and commit id (release-please only needs the prefix).
   const headSubject = (await getCommitInfo(forkPath, 'HEAD').catch(() => null))?.message;
   const prTitle = headSubject?.startsWith(SYNC_PR_TITLE) ? headSubject : SYNC_PR_TITLE;
@@ -479,7 +478,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     const bodyArgs = prBody ? ['--body', prBody] : ['--fill'];
     const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', prTitle, ...bodyArgs], {
       cwd: forkPath,
-      encoding: 'utf-8',
+      encoding: 'utf8',
       stdio: ['ignore', 'pipe', 'pipe'],
     });
     prUrl = extractFirstUrl(`${pr.stdout ?? ''}\n${pr.stderr ?? ''}`);
@@ -490,7 +489,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
       printPrCreateStep(branch, base, prTitle);
     }
   } else {
-    console.info(pc.yellow('`gh` not found — open the PR manually:'));
+    console.info(pc.yellow('`gh` not found, open the PR manually:'));
     printPrCreateStep(branch, base, prTitle);
   }
 
@@ -498,10 +497,10 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
   console.info();
   if (prUrl) {
-    console.info(`${checkMark} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
+    console.info(`${checkMark} sync pull request ${prOpened ? 'opened' : 'ready'}`);
     console.info(pc.dim(`  ${prUrl} · branch pushed, ${position}`));
   } else {
-    console.info(`${checkMark} Sync branch pushed`);
+    console.info(`${checkMark} sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
   await printMigrationNotesLine(config);
@@ -511,8 +510,8 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
  * Reconcile dependencies and regenerate derived files before committing a resumed merge.
  *
  * A sync merge (plus package.json key-sync) changes `package.json`, which leaves the lockfile
- * and generated files (SDK, etc.) stale and often unstaged. Mirroring what lefthook would do —
- * but up front — we run `pnpm install` then `pnpm check`, so the merge commit is complete and
+ * and generated files (SDK, etc.) stale and often unstaged. Mirroring what lefthook would do,
+ * but up front, we run `pnpm install` then `pnpm check`, so the merge commit is complete and
  * consistent. Returns false if a step fails (the merge is left in progress to retry).
  */
 function finalizeWorkspace(forkPath: string): boolean {
@@ -543,7 +542,7 @@ async function discardTemporarySyncBranch(forkPath: string, branch: TemporarySyn
 /**
  * After the merge step threw: drop the throwaway branch when the run stopped before the merge (a
  * gate, an unreachable upstream, a ref that does not resolve), so nothing changed and a rerun
- * starts a fresh cycle instead of shipping an empty sync branch. A branch that holds a merge or
+ * starts a fresh cycle (an empty sync branch is never shipped). A branch that holds a merge or
  * changes stays as it is. Returns whether the branch was dropped.
  */
 async function discardUnusedSyncBranch(forkPath: string, branch: TemporarySyncBranch): Promise<boolean> {
@@ -606,7 +605,7 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
 }
 
 /**
- * Commit an in-progress merge on the temporary sync branch — never shipping in the same run.
+ * Commit an in-progress merge on the temporary sync branch, never shipping in the same run.
  *
  * Runs directly after a clean merge, or on a rerun once a conflicted merge is resolved and
  * staged. If conflicts remain we point them out and stop; once none remain we reconcile
@@ -644,7 +643,7 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<v
 
   // Build the commit subject before squashing (commitSquash clears MERGE_HEAD), re-stage (the
   // install/check step may have touched files), then commit the staged delta as a single-parent
-  // commit so the PR shows one clean commit instead of the whole upstream history (the merge's
+  // commit so the PR shows one clean commit, not the whole upstream history (the merge's
   // upstream ancestry isn't shared on the remote).
   const message = await buildSyncCommitMessage(forkPath, 'MERGE_HEAD');
   await stageAll(forkPath);
@@ -667,8 +666,8 @@ function printTriageSteps(branch: string): void {
  * from it. The newest PR is a content superset of any older ones (each cycle re-syncs from the
  * same stale trunk base), so the newest is squash-merged and the rest are closed.
  *
- * A merge GitHub refuses — conflicts with the trunk, or failing required checks (the "breaking
- * changes" to fix first) — stops the run: those must be resolved on the PR before syncing again.
+ * A merge GitHub refuses (conflicts with the trunk, or failing required checks, the "breaking
+ * changes" to fix first) stops the run: those must be resolved on the PR before syncing again.
  * On success the fresh cycle cuts from the merged trunk: `resolveCycleStart` fetches it and
  * fast-forwards the local trunk (or cuts from `origin`'s when another worktree has it checked out).
  */
@@ -682,7 +681,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
   const merged = mergePrSquash(forkPath, newest.number, { deleteBranch: true });
   if (!merged.ok) {
     console.info();
-    console.info(pc.yellow(`could not merge #${newest.number} — resolve it first, then re-run \`pnpm cella sync\`:`));
+    console.info(pc.yellow(`could not merge #${newest.number}: resolve it first, then re-run \`pnpm cella sync\`:`));
     if (merged.output) console.info(pc.dim(indentLines(merged.output)));
     console.info(pc.dim(`  ${newest.url}`));
     return 'cancel';
@@ -692,7 +691,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
   await deleteBranch(forkPath, newest.headRefName);
 
   for (const pr of superseded) {
-    console.info(pc.dim(`closing #${pr.number} — its changes are included in #${newest.number}...`));
+    console.info(pc.dim(`closing #${pr.number}: its changes are included in #${newest.number}...`));
     closePr(forkPath, pr.number);
     await deleteBranch(forkPath, pr.headRefName);
   }
@@ -705,7 +704,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
  *
  * The last-sync point is recorded in the manifest committed *on the sync branch*, not on the
  * trunk. So a new cycle cut from a trunk that still lacks a merged sync PR re-includes that PR's
- * whole delta on top of the new upstream commits — the "why are there suddenly so many changes"
+ * whole delta on top of the new upstream commits: the "why are there suddenly so many changes"
  * surprise. This offers to squash-merge the open PR first (so the new cycle cuts from an
  * up-to-date trunk), continue anyway, or cancel.
  *
@@ -762,7 +761,7 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
  * - On a sync branch with a merge in progress: commit it (resume after conflicts), then stop.
  * - On a sync branch with the merge already committed: push and open the PR, then switch back
  *   to the trunk (detach at it when another worktree has it checked out). Shipping is
- *   deliberately its own run — the pause before it is where drift triage and follow-up commits
+ *   deliberately its own run: the pause before it is where drift triage and follow-up commits
  *   happen.
  */
 export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
@@ -771,7 +770,7 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   const onSyncBranch = isTemporarySyncBranch(currentBranch);
 
   // Resume path: an earlier run left a merge staged on this temporary branch (e.g. after
-  // conflicts). Re-running commits it instead of starting over.
+  // conflicts). Re-running finishes that merge; it never starts over.
   if (onSyncBranch && (await mergeInProgress(forkPath))) {
     await commitSyncMerge(config, currentBranch);
     return;
@@ -807,10 +806,10 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   if (outcome.status === 'noop') {
     if (outcome.behind) {
-      console.info(pc.green('nothing to sync — the last sync already went past this upstream point.'));
+      console.info(pc.green('nothing to sync: the last sync already went past this upstream point.'));
       for (const line of outcome.behind.split('\n')) console.info(pc.dim(`  ${line}`));
     } else {
-      console.info(pc.green('already up to date with upstream — nothing to sync.'));
+      console.info(pc.green('already up to date with upstream, nothing to sync.'));
     }
     return;
   }
@@ -820,10 +819,10 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
     console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve and stage them, then:`)}`);
     console.info(pc.dim('  pnpm cella sync'));
     console.info(pc.dim('  rerun commits the sync and stops for drift triage; a further rerun ships (push + PR).'));
-    console.info(pc.dim('  let the rerun commit — a manual `git commit` records a merge commit that bloats the PR.'));
+    console.info(pc.dim('  let the rerun commit: a manual `git commit` records a merge commit that bloats the PR.'));
     return;
   }
 
-  // Clean merge: commit it in the same run (never shipping — that stays a separate rerun).
+  // Clean merge: commit it in the same run (never shipping; that stays a separate rerun).
   await commitSyncMerge(config, temporaryBranch);
 }

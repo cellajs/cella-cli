@@ -1,7 +1,5 @@
 /**
- * Packages service for sync CLI v2.
- *
- * Syncs package.json keys between fork and upstream, three-way against the merge-base
+ * Packages service: package.json keys synced between fork and upstream, three-way against the merge-base
  * package.json (upstream as of the previous sync):
  * - Add: entries that are new upstream are added
  * - Follow: an entry the fork never touched (still equal to its base value) follows upstream,
@@ -50,9 +48,8 @@ interface PackageJson {
 }
 
 /**
- * Check if upstream version is higher than fork version.
- * Returns true only if upstream is strictly higher — never downgrades.
- * For non-parseable values (workspace:*, etc.), returns false (keep fork's).
+ * Whether the upstream version is strictly higher than the fork's; never downgrades.
+ * For non-parseable values (workspace:*, etc.), false (the fork's value stays).
  */
 function isHigherVersion(upstreamVersion: string, forkVersion: string): boolean {
   if (upstreamVersion === forkVersion) return false;
@@ -154,15 +151,15 @@ function mergeRecord(
   return { merged: sorted, changed, added, updated, removed, kept };
 }
 
-/** A subpath map (`{ ".": …, "./config": … }`), as opposed to a string or a conditions object. */
+/** A subpath map (`{ ".": …, "./config": … }`), not a string or a conditions object. */
 function isSubpathMap(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   return Object.keys(value).every((name) => name.startsWith('.'));
 }
 
 /**
- * Safe merge for the `exports` key — add upstream subpaths the fork lacks, never touch the
- * fork's own. Only merges when both sides are subpath maps: a string or conditions object
+ * Safe merge for the `exports` key: upstream subpaths the fork lacks are added, the
+ * fork's own never touched. Only merges when both sides are subpath maps: a string or conditions object
  * can't take extra subpaths, and condition order is significant. Keeps the fork's key order.
  */
 function safeMergeExports(
@@ -180,7 +177,7 @@ function safeMergeExports(
 }
 
 /**
- * Merge for the `pnpm` key — `overrides` and `patchedDependencies` merge three-way like any
+ * Merge for the `pnpm` key: `overrides` and `patchedDependencies` merge three-way like any
  * record; `packageExtensions` and other sub-keys are add-only.
  */
 function safeMergePnpm(
@@ -193,7 +190,7 @@ function safeMergePnpm(
   const merged: NonNullable<PackageJson['pnpm']> = { ...(forkPnpm || {}) };
   let changed = false;
 
-  // pnpm.overrides — same as dependency overrides: add, follow, bump versions
+  // pnpm.overrides: same as dependency overrides (add, follow, bump versions)
   if (upstreamPnpm.overrides) {
     const result = mergeRecord(
       merged.overrides as Record<string, string> | undefined,
@@ -206,7 +203,7 @@ function safeMergePnpm(
     }
   }
 
-  // pnpm.patchedDependencies — patch paths carry no version to compare, so equality only
+  // pnpm.patchedDependencies: patch paths carry no version to compare, so equality only
   if (upstreamPnpm.patchedDependencies) {
     const result = mergeRecord(
       merged.patchedDependencies as Record<string, string> | undefined,
@@ -220,18 +217,16 @@ function safeMergePnpm(
     }
   }
 
-  // pnpm.packageExtensions — add new packages and add new sub-keys, never remove
+  // pnpm.packageExtensions: new packages and new sub-keys are added, never removed
   if (upstreamPnpm.packageExtensions) {
     const forkExts = (merged.packageExtensions || {}) as Record<string, Record<string, unknown>>;
     const upstreamExts = upstreamPnpm.packageExtensions as Record<string, Record<string, unknown>>;
 
     for (const [pkg, upstreamExt] of Object.entries(upstreamExts)) {
       if (!(pkg in forkExts)) {
-        // New package extension — add entirely
         forkExts[pkg] = upstreamExt;
         changed = true;
       } else {
-        // Existing package — add new sub-keys only
         for (const [subKey, subValue] of Object.entries(upstreamExt)) {
           if (!(subKey in forkExts[pkg])) {
             forkExts[pkg][subKey] = subValue;
@@ -244,7 +239,7 @@ function safeMergePnpm(
     merged.packageExtensions = forkExts;
   }
 
-  // Other pnpm sub-keys — add if missing in fork
+  // Other pnpm sub-keys are added when missing in the fork.
   for (const [key, value] of Object.entries(upstreamPnpm)) {
     if (['overrides', 'patchedDependencies', 'packageExtensions'].includes(key)) continue;
     if (!(key in merged)) {
@@ -295,23 +290,17 @@ function setTopLevelKey(pkg: PackageJson, key: string, value: unknown): void {
   Object.assign(pkg, Object.fromEntries(entries));
 }
 
-/**
- * Read a package.json file.
- */
 function readPackageJson(filePath: string): PackageJson | null {
   if (!existsSync(filePath)) return null;
   try {
-    return JSON.parse(readFileSync(filePath, 'utf-8'));
+    return JSON.parse(readFileSync(filePath, 'utf8'));
   } catch {
     return null;
   }
 }
 
-/**
- * Write a package.json file (pretty-printed).
- */
 function writePackageJson(filePath: string, data: PackageJson): void {
-  writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf-8');
+  writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
 /** The package.json path of a workspace location ('' is the root). */
@@ -319,9 +308,7 @@ function packageJsonPath(relativePath: string): string {
   return relativePath ? `${relativePath}/package.json` : 'package.json';
 }
 
-/**
- * Read a package.json at a git ref, raw and parsed; null when the ref has no such file.
- */
+/** A package.json at a git ref, raw and parsed; null when the ref has no such file. */
 async function readPackageJsonAtRef(
   forkPath: string,
   ref: string,
@@ -335,9 +322,7 @@ async function readPackageJsonAtRef(
   }
 }
 
-/**
- * Every package.json location upstream has; the fork side is judged per location.
- */
+/** Every package.json location upstream has; the fork side is judged per location. */
 async function discoverPackageLocations(forkPath: string, upstreamRef: string): Promise<string[]> {
   const stdout = await git(['ls-tree', '-r', '--name-only', upstreamRef], forkPath, { ignoreErrors: true });
   return stdout
@@ -390,7 +375,7 @@ async function syncPackageJson(
   if (!forkPkg) {
     const workspaceArrived = relativePath !== '' && existsSync(join(forkPath, relativePath));
     if (basePkg || !workspaceArrived || isIgnored(pkgRelPath, config)) return { updated: false, changes, kept };
-    writeFileSync(pkgPath, upstream.raw.endsWith('\n') ? upstream.raw : `${upstream.raw}\n`, 'utf-8');
+    writeFileSync(pkgPath, upstream.raw.endsWith('\n') ? upstream.raw : `${upstream.raw}\n`, 'utf8');
     return { updated: true, changes: ['copied from upstream (new workspace)'], kept };
   }
 
@@ -407,7 +392,6 @@ async function syncPackageJson(
 
   for (const key of keysToSync) {
     if (key === 'pnpm') {
-      // Handle nested pnpm key
       const result = safeMergePnpm(forkPkg.pnpm, upstreamPkg.pnpm, basePkg?.pnpm);
       if (result?.changed) {
         forkPkg.pnpm = result.merged;
@@ -507,7 +491,7 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
   for (const location of locations) {
     const pkgRelPath = packageJsonPath(location);
 
-    // Skip package.json files that are themselves conflicted from the merge —
+    // Skip package.json files that are themselves conflicted from the merge:
     // writing to them would clobber the conflict markers the user must resolve.
     if (conflictedSet.has(pkgRelPath)) {
       skipped.push(pkgRelPath);
@@ -536,20 +520,19 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
   const kept = reports.flatMap(({ path, kept }) => kept.map((entry) => `${path} ${entry}`));
   if (kept.length > 0) {
     console.info();
-    console.warn(
-      `${warningMark} kept ${kept.length} ${kept.length === 1 ? 'entry' : 'entries'} upstream dropped, the fork still uses ${kept.length === 1 ? 'it' : 'them'}:`,
+    console.info(
+      `${warningMark} ${pc.yellow(`kept ${kept.length} ${kept.length === 1 ? 'entry' : 'entries'} upstream dropped, the fork still uses ${kept.length === 1 ? 'it' : 'them'}:`)}`,
     );
-    for (const entry of kept) console.warn(`    ${pc.dim('→')} ${entry}`);
+    for (const entry of kept) console.info(`    ${pc.dim('→')} ${entry}`);
   }
 
-  // Report any package.json files deferred due to merge conflicts
   if (skipped.length > 0) {
     console.info();
-    console.warn(
-      `${warningMark} skipped ${skipped.length} conflicted package.json file(s) — resolve the conflicts, commit the merge, then rerun \`pnpm cella sync\`:`,
+    console.info(
+      `${warningMark} ${pc.yellow(`skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella sync\`:`)}`,
     );
     for (const path of skipped) {
-      console.warn(`    ${pc.dim('→')} ${path}`);
+      console.info(`    ${pc.dim('→')} ${path}`);
     }
   }
 }

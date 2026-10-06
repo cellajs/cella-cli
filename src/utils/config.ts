@@ -75,7 +75,7 @@ export function buildTemporarySyncBranch(): string {
  * fetching, so this returns a plan; the merge engine turns it into a ref.
  *
  * - `track`: 'release' (default) syncs to the latest release tag; 'branch' follows the tip.
- * - `branchRef`: `<DEFAULT_UPSTREAM_REMOTE>/<branch>` — the branch-track ref and static fallback.
+ * - `branchRef`: `<DEFAULT_UPSTREAM_REMOTE>/<branch>`, the branch-track ref and static fallback.
  */
 export function resolveUpstream(settings: SyncSettings): {
   track: 'release' | 'branch';

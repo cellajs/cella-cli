@@ -36,8 +36,6 @@ import { getCurrentBranch, getDiffStat, git, removeFileFromWorktree, restoreWork
 import { buildContribBranch, countDetection, detectContributableFiles } from './contrib-core';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from './fork-utils';
 
-// ── Types ────────────────────────────────────────────────────────────────────
-
 interface ContribItem {
   /** File path relative to repo root */
   path: string;
@@ -73,10 +71,8 @@ interface ContribPromptConfig {
   pageSize?: number;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
-
 /**
- * Open a browser diff for a contrib file (cella base vs the fork's version).
+ * Browser diff for a contrib file (cella base vs the fork's version).
  * Returns the written page path, or null when the file has no changes.
  */
 async function showContribDiff(
@@ -89,8 +85,6 @@ async function showContribDiff(
   if (patch.length === 0) return null;
   return openDiffInBrowser(patch.toString(), { filePath: item.path, srcLabel: 'cella', dstLabel: forkName }, cwd);
 }
-
-// ── Custom prompt ────────────────────────────────────────────────────────────
 
 /**
  * Interactive prompt for reviewing contributed files.
@@ -115,14 +109,12 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       return;
     }
 
-    // q = quit
     if (key.name === 'q') {
       setPromptStatus('done');
       done([]);
       return;
     }
 
-    // Enter = accept selected
     if (isEnterKey(key)) {
       const selected = items.filter((i) => i.checked);
       if (selected.length === 0) {
@@ -156,7 +148,6 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       return;
     }
 
-    // Space = toggle selection
     if (isSpaceKey(key)) {
       setItems(items.map((item, i) => (i === active ? { ...item, checked: !item.checked } : item)));
       return;
@@ -173,7 +164,6 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       return;
     }
 
-    // a = toggle all (select all, or deselect all if already all selected)
     if (key.name === 'a') {
       const allChecked = items.every((item) => item.checked);
       setItems(items.map((item) => ({ ...item, checked: !allChecked })));
@@ -193,7 +183,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
 
   // Render: empty
   if (items.length === 0) {
-    return `${checkMark} no contributions — press enter`;
+    return `${checkMark} no contributions: press enter`;
   }
 
   // Render: paginated list
@@ -236,8 +226,6 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
   return `${lines}\x1B[?25l`;
 });
 
-// ── Fork selection ───────────────────────────────────────────────────────────
-
 /**
  * Resolve the fork to pull from: the explicit --fork by name, the single valid fork in
  * non-interactive modes (--list/--json/--diff), or an interactive prompt. Throws when no
@@ -255,7 +243,6 @@ async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Pr
 
   const validForks = validated.filter((v) => v.valid);
   if (config.list || config.json || config.diff) {
-    // Non-interactive: require an explicit --fork when multiple forks are configured
     if (validForks.length === 0) {
       throw new Error('no valid forks configured');
     }
@@ -282,11 +269,7 @@ async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Pr
   return selected;
 }
 
-// ── Fork pulling ─────────────────────────────────────────────────────────────
-
-/**
- * Fetch a fork's pullBranch into cella's object store and return the commit sha.
- */
+/** Fetch a fork's pullBranch into cella's object store and return the commit sha. */
 async function fetchForkBranch(cellaPath: string, fetchSource: string, pullBranch: string): Promise<string> {
   await git(['fetch', fetchSource, pullBranch], cellaPath);
   return git(['rev-parse', 'FETCH_HEAD'], cellaPath);
@@ -299,14 +282,12 @@ async function forkRefMeta(cellaPath: string, forkRef: string): Promise<{ sha: s
   return { sha, date };
 }
 
-// ── Main entry ───────────────────────────────────────────────────────────────
-
 /**
  * Run the contributions service.
  *
- * Based on the configured `forks`, lets the user select one or more forks,
- * pulls each fork's `pullBranch`, builds clean local `contrib/<fork>` branches,
- * then presents an interactive TUI to review and adopt individual files.
+ * Based on the configured `forks`, lets the user select one fork, pulls its
+ * `pullBranch`, builds a clean local `contrib/<fork>` branch, then presents
+ * an interactive TUI to review and adopt individual files.
  */
 export async function runContributions(config: RuntimeConfig): Promise<void> {
   const forks = config.forks ?? [];
@@ -336,14 +317,12 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   const forkBasePath = await resolveForkBasePath(config.forkPath);
   const validated = forks.map((fork) => validateForkPath(fork, forkBasePath));
 
-  // Select a single fork to pull from
   const selectedFork = await selectFork(config, validated);
   if (!selectedFork) return;
 
   const { fork, resolvedPath } = selectedFork;
   const forkName = fork.name;
 
-  // Pull the fork and build a clean contrib/<fork> branch
   createSpinner('pulling fork contributions...');
   const allItems: ContribItem[] = [];
   let forkBanner: { pullBranch: string; sha: string; date: string } | null = null;
@@ -361,7 +340,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
       const forkConfig = await loadConfig(resolvedPath);
       forkTerritory = forkConfig.overrides?.ignored ?? [];
     } catch {
-      // Fork may not have a cella/cella.config.ts — no extra territory to exclude
+      // Fork may not have a cella/cella.config.ts: no extra territory to exclude
     }
 
     const detection = await detectContributableFiles(config.forkPath, baseRef, forkRef, config, forkTerritory);
@@ -411,7 +390,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   // --list/--diff: their human output goes to stderr, and the banner is noise there too.
   if (!config.list && !config.diff && forkBanner) {
     console.info(
-      `  ${pc.dim(`${forkName}: comparing committed '${forkBanner.pullBranch}' @ ${forkBanner.sha} (${forkBanner.date}) — uncommitted fork changes are not included`)}`,
+      `  ${pc.dim(`${forkName}: comparing committed '${forkBanner.pullBranch}' @ ${forkBanner.sha} (${forkBanner.date}); uncommitted fork changes are not included`)}`,
     );
   }
 
@@ -461,7 +440,6 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   console.info();
   console.info(DIVIDER);
 
-  // Run interactive prompt
   const selected = await contribPrompt({
     message: `contributions from ${forkName}`,
     items: allItems,
@@ -523,8 +501,8 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   console.info(
     pc.dim(
       applyUnstaged
-        ? '  files are unstaged — review, stage what you want, and commit when ready'
-        : '  files are staged — review and commit when ready',
+        ? '  files are unstaged: review, stage what you want, and commit when ready'
+        : '  files are staged: review and commit when ready',
     ),
   );
   console.info();
