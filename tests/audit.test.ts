@@ -44,15 +44,13 @@ describe('audit-utils', () => {
     });
 
     it('should normalize various URL formats', () => {
-      expect(getRepoUrl({ repository: { type: 'git', url: 'git+https://github.com/user/repo.git' } })).toBe(
+      expect(getRepoUrl({ repository: { url: 'git+https://github.com/user/repo.git' } })).toBe(
         'https://github.com/user/repo',
       );
-      expect(getRepoUrl({ repository: { type: 'git', url: 'git://github.com/user/repo.git' } })).toBe(
+      expect(getRepoUrl({ repository: { url: 'git://github.com/user/repo.git' } })).toBe(
         'https://github.com/user/repo',
       );
-      expect(getRepoUrl({ repository: { type: 'git', url: 'https://github.com/user/repo' } })).toBe(
-        'https://github.com/user/repo',
-      );
+      expect(getRepoUrl({ repository: { url: 'https://github.com/user/repo' } })).toBe('https://github.com/user/repo');
     });
   });
 

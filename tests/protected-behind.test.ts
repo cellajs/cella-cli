@@ -226,7 +226,6 @@ describe('printSyncComplete protected conflicts', () => {
       ignored: 0,
       deleted: 0,
       renamed: 0,
-      total: 0,
     },
   });
 

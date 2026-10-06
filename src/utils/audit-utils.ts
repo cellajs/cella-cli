@@ -19,16 +19,12 @@ const execFileAsync = promisify(execFile);
 interface OutdatedPackage {
   current: string;
   latest: string;
-  wanted: string;
-  isDeprecated: boolean;
   dependencyType: 'dependencies' | 'devDependencies';
   dependentPackages: Array<{ name: string; location: string }>;
 }
 
 export interface NpmRegistryData {
-  repository?: { type: string; url: string; directory?: string };
-  homepage?: string;
-  bugs?: { url: string };
+  repository?: { url: string };
 }
 
 interface CachedPackageData {
@@ -58,16 +54,13 @@ export interface EnhancedPackageInfo {
 }
 
 /** Vulnerability severity levels */
-export type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
+type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
 
 /** Vulnerability info for a package */
 export interface VulnerabilityInfo {
-  id: number;
   title: string;
   severity: VulnerabilitySeverity;
-  url: string;
   vulnerableVersions: string;
-  patchedVersions: string;
   cves: string[];
   /** The workspace/dependent containing this vulnerability (e.g., 'frontend', 'backend') */
   workspace: string | null;
@@ -80,12 +73,10 @@ export interface AuditResult {
   advisories: Record<string, AuditAdvisory>;
   metadata: {
     vulnerabilities: Record<VulnerabilitySeverity, number>;
-    dependencies: number;
-    devDependencies: number;
   };
 }
 
-export interface AuditAdvisory {
+interface AuditAdvisory {
   id: number;
   title: string;
   module_name: string;
@@ -404,12 +395,9 @@ export function buildVulnerabilityMap(auditResult: AuditResult | null): Map<stri
 
     const existing = map.get(advisory.module_name) || [];
     existing.push({
-      id: advisory.id,
       title: advisory.title,
       severity: advisory.severity,
-      url: advisory.url,
       vulnerableVersions: advisory.vulnerable_versions,
-      patchedVersions: advisory.patched_versions,
       cves: advisory.cves || [],
       workspace,
       directDependency,

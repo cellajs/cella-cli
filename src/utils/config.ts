@@ -29,7 +29,7 @@ export const DEFAULT_SYNC_PREFIX = 'cella/sync';
 /**
  * Default trunk branch that `cella sync` cuts from and opens PRs into.
  */
-export const DEFAULT_RELEASE_BASE = 'main';
+const DEFAULT_RELEASE_BASE = 'main';
 
 /** The package.json keys that sync when a config omits `packageJsonSync`. */
 export const DEFAULT_PACKAGE_JSON_SYNC: PackageJsonSyncKey[] = ['dependencies', 'devDependencies'];

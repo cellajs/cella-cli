@@ -10,7 +10,6 @@ export default defineConfig({
     },
   },
   test: {
-    globals: true,
     environment: 'node',
     include: ['tests/release-smoke.test.ts'],
     exclude: ['**/node_modules/**'],

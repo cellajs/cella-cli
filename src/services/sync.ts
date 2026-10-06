@@ -199,7 +199,7 @@ async function returnToBase(forkPath: string, base: string): Promise<string> {
  *
  * Performs the merge directly in the fork and leaves it staged: conflicted files keep their
  * markers for IDE 3-way resolution, everything else is resolved per the override rules. Called
- * by `runSyncCycle` and by the forks service.
+ * by `runSyncCycle`.
  */
 export async function runSync(
   config: RuntimeConfig,
@@ -301,7 +301,7 @@ function qualifyPrRefs(subject: string, repoSlug?: string): string {
 }
 
 /** Inputs for {@link buildSyncPrBody}, recovered from the committed sync manifests. */
-export interface SyncPrBodyInput {
+interface SyncPrBodyInput {
   /** GitHub slug of the upstream repo, e.g. 'cellajs/cella'. */
   repoSlug?: string;
   /** Upstream version or release tag at the sync point (leading `v` optional). */

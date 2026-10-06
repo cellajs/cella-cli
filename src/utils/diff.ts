@@ -45,7 +45,7 @@ export function gitDiffFile(
 }
 
 /** Labels shown in the header of a rendered diff page. */
-export interface DiffPageMeta {
+interface DiffPageMeta {
   /** File path shown in the page header and title */
   filePath: string;
   /** Label for the upstream side (e.g. 'cella') */

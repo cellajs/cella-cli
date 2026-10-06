@@ -56,12 +56,7 @@ export interface SyncSettings {
   /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']). `type` always syncs. */
   packageJsonSync?: PackageJsonSyncKey[];
 
-  /**
-   * Automatically run packages sync after the sync service completes.
-   * When true (default), the packages service is hidden from the menu
-   * and runs automatically as part of sync.
-   * Set to false to keep packages as a separate manual service.
-   */
+  /** Automatic package.json sync after the sync service completes (default: true). Set to false to turn it off. */
   syncWithPackages?: boolean;
 
   /**
@@ -333,8 +328,6 @@ export interface AnalyzedFile {
   existsInFork: boolean;
   /** True if file exists in upstream */
   existsInUpstream: boolean;
-  /** True if file has merge conflict */
-  hasConflict?: boolean;
   /** Relative date when file was last changed (since merge-base) */
   changedAt?: string;
   /** Unix epoch seconds of the last change, for sorting */
@@ -385,7 +378,6 @@ export interface AnalysisSummary {
   ignored: number;
   deleted: number;
   renamed: number;
-  total: number;
 }
 
 /** Merge result from merge-engine */

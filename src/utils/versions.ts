@@ -2,7 +2,7 @@
  * Version parsing shared by package.json merging and the CLI version check.
  */
 
-export interface ComparableVersion {
+interface ComparableVersion {
   major: number;
   minor: number;
   patch: number;

@@ -244,29 +244,7 @@ async function applyDirectMerge(
 
     // Skip files already handled in batch
     if (ignored) continue;
-    if (pinned && !file.renamedFrom) continue;
-
-    if (pinned && file.renamedFrom) {
-      // Renamed file where old path was pinned — accept the rename (new path)
-      // but keep fork's content from the old path
-      const oldPathExists = await fileExistsInWorktree(forkPath, file.renamedFrom);
-      if (oldPathExists) {
-        onProgress?.(`→ ${file.renamedFrom} → ${filePath}: moving fork content (pinned rename)`);
-        try {
-          await gitMv(forkPath, file.renamedFrom, filePath);
-        } catch {
-          // git mv failed — copy content manually
-          await removeFileFully(forkPath, file.renamedFrom);
-          // Checkout upstream's new path first, then restore fork content
-          await checkoutFromRef(forkPath, 'HEAD', file.renamedFrom).catch(() => {});
-        }
-      } else {
-        // Old path already gone — restore from HEAD at old path via git show
-        onProgress?.(`→ ${filePath}: keeping fork content (pinned rename, old path removed)`);
-        await restoreToHead(forkPath, filePath);
-      }
-      continue;
-    }
+    if (pinned) continue;
 
     if (status === 'diverged') {
       // Let git's merge result stand - trust the merge
@@ -390,7 +368,6 @@ function calculateSummary(files: AnalyzedFile[]): AnalysisSummary {
     ignored: 0,
     deleted: 0,
     renamed: 0,
-    total: files.length,
   };
 
   for (const file of files) {

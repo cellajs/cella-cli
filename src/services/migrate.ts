@@ -68,7 +68,7 @@ async function resolveNotesRef(config: RuntimeConfig): Promise<string | null> {
 }
 
 /** Open and total note counts at the fork's sync point, for the info line; null before any sync. */
-export async function readNotesStatus(config: RuntimeConfig): Promise<{ total: number; open: number } | null> {
+async function readNotesStatus(config: RuntimeConfig): Promise<{ total: number; open: number } | null> {
   try {
     const ref = await resolveNotesRef(config);
     if (!ref) return null;

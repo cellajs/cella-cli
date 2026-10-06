@@ -254,12 +254,9 @@ export async function analyzeRefs(
         // Only local changed
         // --hard mode: treat drifted as behind (overwrite with incoming)
         status = fileIsPinned ? 'ahead' : predicates.hard ? 'behind' : 'drifted';
-      } else if (!forkChanged && upstreamChanged) {
+      } else {
         // Only incoming changed
         status = 'behind';
-      } else {
-        // Base is different but local and incoming are same relative to base
-        status = 'identical';
       }
     }
 

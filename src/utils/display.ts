@@ -38,7 +38,7 @@ export const DIVIDER = '─'.repeat(60);
 export const warningMark = pc.yellow('⚠');
 
 /** Check mark for successful status lines */
-export const checkMark = pc.green('✓');
+const checkMark = pc.green('✓');
 
 interface Spinner {
   text: string;
@@ -224,7 +224,7 @@ function getVsCodeOpenFileLink(filePath: string, options: LinkOptions): string {
 }
 
 /** Commit info used for sync progress output */
-export interface SyncCommitInfo {
+interface SyncCommitInfo {
   hash: string;
   message: string;
   date: string;

@@ -275,17 +275,13 @@ function printStats(stats: StatsResult, verbose: boolean): void {
  */
 export async function runStats(
   forkPath: string,
-  options: { json?: boolean; verbose?: boolean; refreshCoverage?: boolean } = {},
+  options: { verbose?: boolean; refreshCoverage?: boolean } = {},
 ): Promise<void> {
   createSpinner('counting files...');
   const stats = await collectStats(forkPath);
   spinnerSuccess('Finished counting by raw line of code');
 
-  if (options.json) {
-    console.info(JSON.stringify(stats, null, 2));
-  } else {
-    printStats(stats, options.verbose ?? false);
-    console.info();
-    printCoverageSummary(forkPath, { refresh: options.refreshCoverage });
-  }
+  printStats(stats, options.verbose ?? false);
+  console.info();
+  printCoverageSummary(forkPath, { refresh: options.refreshCoverage });
 }

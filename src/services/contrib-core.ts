@@ -18,7 +18,7 @@ import { isIgnored, isPinned, isUnderAnyFolder } from '../utils/overrides';
 import { analyzeRefs, enrichChangeInfo } from './analyze-core';
 
 /** A single contributable file with classification and metadata. */
-export interface ContribFile {
+interface ContribFile {
   /** File path relative to repo root */
   path: string;
   /** How adopting this file changes cella */
@@ -32,7 +32,7 @@ export interface ContribFile {
 }
 
 /** Files a fork contributes relative to the base branch. */
-export interface ContribDetection {
+interface ContribDetection {
   /** Files changed in fork that also exist in base */
   modified: string[];
   /** New fork files in directories that exist in base (sibling heuristic) */

@@ -147,7 +147,7 @@ export async function pullFastForward(cwd: string): Promise<void> {
 }
 
 /** How the current branch compares to its upstream tracking branch. */
-export interface UpstreamStatus {
+interface UpstreamStatus {
   /** Upstream tracking ref (e.g. `origin/main`), or null when none is configured. */
   upstream: string | null;
   /** Commits the local branch has that its upstream doesn't. */
@@ -296,18 +296,6 @@ export async function getWorkingTreeChangeCount(cwd: string): Promise<number> {
 async function remoteExists(cwd: string, remoteName: string): Promise<boolean> {
   const remotes = await git(['remote'], cwd);
   return remotes.split('\n').includes(remoteName);
-}
-
-/**
- * Get the URL of a remote.
- */
-export async function getRemoteUrl(cwd: string, remoteName: string): Promise<string | null> {
-  try {
-    const url = await git(['remote', 'get-url', remoteName], cwd, { ignoreErrors: true });
-    return url.trim() || null;
-  } catch {
-    return null;
-  }
 }
 
 /**
@@ -703,8 +691,6 @@ interface FileChange {
   targetHash: string | null;
   /** For renames: the original path (before rename) */
   oldPath?: string;
-  /** For renames: the new path (after rename) */
-  newPath?: string;
 }
 
 /**
@@ -747,7 +733,6 @@ export async function getFileChanges(
         baseHash: baseHash === '0'.repeat(40) ? null : baseHash,
         targetHash: targetHash === '0'.repeat(40) ? null : targetHash,
         oldPath,
-        newPath,
       });
       continue;
     }
@@ -768,7 +753,7 @@ export async function getFileChanges(
 }
 
 /** Lines added/removed for one path (`null` for binary files, where git reports `-`). */
-export interface DiffStat {
+interface DiffStat {
   additions: number | null;
   deletions: number | null;
 }
@@ -855,7 +840,7 @@ export async function batchRestoreToHead(cwd: string, filePaths: string[]): Prom
  * Remove a file from index with tracked delete (git rm).
  * Records a deletion in the merge result.
  */
-export async function gitRm(cwd: string, filePath: string): Promise<void> {
+async function gitRm(cwd: string, filePath: string): Promise<void> {
   await git(['rm', '-f', '--', filePath], cwd, { ignoreErrors: true });
 }
 
@@ -989,7 +974,7 @@ export async function getStoredSyncRef(cwd: string): Promise<string | null> {
  * Get the fork HEAD that was recorded when the last-sync ref was stored.
  * Returns null if no HEAD was recorded.
  */
-export async function getStoredSyncHead(cwd: string): Promise<string | null> {
+async function getStoredSyncHead(cwd: string): Promise<string | null> {
   const ref = await git(['rev-parse', 'refs/cella/last-sync-head'], cwd, { ignoreErrors: true });
   return ref || null;
 }
@@ -1156,7 +1141,7 @@ async function readRootTrailerBase(cwd: string, headRef: string): Promise<string
  * real common ancestor with upstream is absent: `git merge-base` finds nothing even when one
  * exists in the full history, and the 3-way file analysis walks an incomplete commit graph.
  */
-export async function isShallowRepository(cwd: string): Promise<boolean> {
+async function isShallowRepository(cwd: string): Promise<boolean> {
   const out = await git(['rev-parse', '--is-shallow-repository'], cwd, { ignoreErrors: true });
   return out === 'true';
 }
@@ -1169,7 +1154,7 @@ export async function isShallowRepository(cwd: string): Promise<boolean> {
  * Throws an actionable error when the history cannot be restored (e.g. no reachable origin),
  * because sync cannot run correctly against truncated history.
  */
-export async function unshallowRepository(cwd: string): Promise<void> {
+async function unshallowRepository(cwd: string): Promise<void> {
   try {
     await git(['fetch', '--unshallow'], cwd, { skipEditor: true });
   } catch (error) {

@@ -17,7 +17,7 @@ export interface GhPullRequest {
 }
 
 /** Result of a `gh` invocation: whether it exited 0, plus its combined stdout+stderr. */
-export interface GhResult {
+interface GhResult {
   ok: boolean;
   output: string;
 }
