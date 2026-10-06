@@ -70,7 +70,7 @@ describe('packages merge', () => {
     };
   }
 
-  it('should add new dependencies from upstream', async () => {
+  it('adds new dependencies from upstream', async () => {
     // Add new dependency in upstream
     const upstreamPkg = readPkg(upstreamPath);
     (upstreamPkg.dependencies as Record<string, string>).drizzle = '^0.30.0';
@@ -88,7 +88,7 @@ describe('packages merge', () => {
     expect(deps.zod).toBe('^3.22.0');
   });
 
-  it('should bump dependency versions from upstream (never downgrade)', async () => {
+  it('bumps dependency versions from upstream (never downgrade)', async () => {
     // Bump version in upstream
     const upstreamPkg = readPkg(upstreamPath);
     (upstreamPkg.dependencies as Record<string, string>).hono = '^5.0.0';
@@ -103,7 +103,7 @@ describe('packages merge', () => {
     expect(deps.hono).toBe('^5.0.0');
   });
 
-  it('should never downgrade dependency versions', async () => {
+  it('never downgrades dependency versions', async () => {
     // Fork has a higher version than upstream
     const forkPkg = readPkg(forkPath);
     (forkPkg.dependencies as Record<string, string>).hono = '^6.0.0';
@@ -120,7 +120,7 @@ describe('packages merge', () => {
     expect(deps.hono).toBe('^6.0.0');
   });
 
-  it('should never remove fork-only dependencies', async () => {
+  it('never removes fork-only dependencies', async () => {
     // Add fork-only dependency
     const forkPkg = readPkg(forkPath);
     (forkPkg.dependencies as Record<string, string>)['my-custom-lib'] = '^1.0.0';
@@ -270,7 +270,7 @@ describe('packages merge', () => {
     expect((readPkg(forkPath).dependencies as Record<string, string>).hono).toBe('^3.12.0');
   });
 
-  it('should sort dependencies alphabetically after merge', async () => {
+  it('sorts dependencies alphabetically after merge', async () => {
     // Add a dependency that comes first alphabetically in upstream
     const upstreamPkg = readPkg(upstreamPath);
     (upstreamPkg.dependencies as Record<string, string>).axios = '^1.6.0';
@@ -286,7 +286,7 @@ describe('packages merge', () => {
     expect(depKeys).toEqual(sorted);
   });
 
-  it('should add new scripts from upstream but not overwrite fork scripts', async () => {
+  it('adds new scripts from upstream but does not overwrite fork scripts', async () => {
     // Fork has a custom script
     const forkPkg = readPkg(forkPath);
     forkPkg.scripts = { build: 'my-custom-build', lint: 'my-linter' };
@@ -398,7 +398,7 @@ describe('packages merge', () => {
     expect(fs.existsSync(path.join(forkPath, 'sdk', 'package.json'))).toBe(false);
   });
 
-  it('should add new export subpaths from upstream but keep fork subpaths and order', async () => {
+  it('adds new export subpaths from upstream but keeps fork subpaths and order', async () => {
     const forkPkg = readPkg(forkPath);
     forkPkg.exports = { './fork-only': './dist/fork.js', '.': './dist/custom.js' };
     writePkg(forkPath, forkPkg);
@@ -422,7 +422,7 @@ describe('packages merge', () => {
     expect(Object.keys(exportsMap['./config'] as object)).toEqual(['types', 'import']);
   });
 
-  it('should leave exports alone when either side is not a subpath map', async () => {
+  it('leaves exports alone when either side is not a subpath map', async () => {
     const forkPkg = readPkg(forkPath);
     forkPkg.exports = './dist/index.js';
     writePkg(forkPath, forkPkg);
@@ -499,7 +499,7 @@ describe('packages merge', () => {
     expect(readPkg(forkPath)).not.toHaveProperty('type');
   });
 
-  it('should merge pnpm.overrides with add/bump-only logic', async () => {
+  it('merges pnpm.overrides with add/bump-only logic', async () => {
     // Fork has pnpm overrides
     const forkPkg = readPkg(forkPath);
     forkPkg.pnpm = {
@@ -535,7 +535,7 @@ describe('packages merge', () => {
     expect(overrides['fork-only-pkg@<1.0.0']).toBe('>=1.0.0');
   });
 
-  it('should merge pnpm.patchedDependencies add-only', async () => {
+  it('merges pnpm.patchedDependencies add-only', async () => {
     // Fork has a patch
     const forkPkg = readPkg(forkPath);
     forkPkg.pnpm = {
@@ -566,7 +566,7 @@ describe('packages merge', () => {
     expect(patched['dexie@4.3.0']).toBe('patches/dexie@4.3.0.patch');
   });
 
-  it('should merge pnpm.packageExtensions add-only', async () => {
+  it('merges pnpm.packageExtensions add-only', async () => {
     // Fork has a package extension
     const forkPkg = readPkg(forkPath);
     forkPkg.pnpm = {
@@ -601,7 +601,7 @@ describe('packages merge', () => {
     expect(exts['some-lib@1.0.0']).toEqual({ peerDependencies: { react: '*' } });
   });
 
-  it('should dynamically discover package.json locations', async () => {
+  it('dynamically discovers package.json locations', async () => {
     // Create a sub-package in upstream
     const subDir = path.join(upstreamPath, 'frontend');
     fs.mkdirSync(subDir, { recursive: true });

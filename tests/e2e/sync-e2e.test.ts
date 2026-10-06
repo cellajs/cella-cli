@@ -37,7 +37,7 @@ describe('sync e2e', () => {
   });
 
   describe('analyze service', () => {
-    it('should detect fork is identical to upstream', async () => {
+    it('detects fork is identical to upstream', async () => {
       fetchUpstream(env.forkPath);
       const config = buildRuntimeConfig(env, { service: 'analyze' });
 
@@ -49,7 +49,7 @@ describe('sync e2e', () => {
       expect(result.summary.diverged).toBe(0);
     });
 
-    it('should detect fork is behind when upstream has new commits', async () => {
+    it('detects fork is behind when upstream has new commits', async () => {
       // Add new file to upstream
       makeCommit(env.upstreamPath, {
         files: { 'new-feature.ts': '// New feature\nexport const feature = true;\n' },
@@ -69,7 +69,7 @@ describe('sync e2e', () => {
       expect(behindFile?.status).toBe('behind');
     });
 
-    it('should detect diverged files when both sides modify', async () => {
+    it('detects diverged files when both sides modify', async () => {
       // Add file to upstream
       makeCommit(env.upstreamPath, {
         files: { 'shared.ts': '// Upstream version\nexport const source = "upstream";\n' },
@@ -93,7 +93,7 @@ describe('sync e2e', () => {
       expect(divergedFile?.status).toBe('diverged');
     });
 
-    it('should mark pinned files as ahead', async () => {
+    it('marks pinned files as ahead', async () => {
       // Modify file in upstream
       makeCommit(env.upstreamPath, {
         files: { 'backend/src/index.ts': '// Updated backend\nexport const backend = "v2";\n' },
@@ -122,7 +122,7 @@ describe('sync e2e', () => {
       expect(pinnedFile?.status).toBe('pinned');
     });
 
-    it('should summarize changed managed files separately from protected files', async () => {
+    it('summarizes changed managed files separately from protected files', async () => {
       makeCommit(env.forkPath, {
         files: {
           'package.json': '{"name": "test-fork", "dependencies": {"fork-only": "1.0.0"}}\n',
@@ -148,7 +148,7 @@ describe('sync e2e', () => {
       expect(result.files.find((f) => f.path === 'cella/cella.config.ts')?.status).toBe('local');
     });
 
-    it('should mark ignored files correctly', async () => {
+    it('marks ignored files correctly', async () => {
       // Add file in ignored path to upstream
       makeCommit(env.upstreamPath, {
         files: { 'docs/guide.md': '# Guide\nThis is ignored.\n' },
@@ -172,7 +172,7 @@ describe('sync e2e', () => {
   });
 
   describe('sync service', () => {
-    it('should sync new files from upstream', async () => {
+    it('syncs new files from upstream', async () => {
       // Add new file to upstream
       makeCommit(env.upstreamPath, {
         files: { 'new-feature.ts': '// New feature\nexport const feature = true;\n' },
@@ -189,7 +189,7 @@ describe('sync e2e', () => {
       expect(readRepoFile(env.forkPath, 'new-feature.ts')).toContain('New feature');
     });
 
-    it('should preserve pinned files during sync', async () => {
+    it('preserves pinned files during sync', async () => {
       const forkContent = '// Fork custom\nexport const custom = "fork";\n';
 
       // Add file to fork first (pinned)
@@ -217,7 +217,7 @@ describe('sync e2e', () => {
       expect(readRepoFile(env.forkPath, 'custom.ts')).toBe(forkContent);
     });
 
-    it('should skip ignored files during sync', async () => {
+    it('skips ignored files during sync', async () => {
       // Add file in ignored path to upstream
       makeCommit(env.upstreamPath, {
         files: { 'docs/internal.md': '# Internal\nThis should be ignored.\n' },
@@ -237,7 +237,7 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'docs/internal.md')).toBe(false);
     });
 
-    it('should update modified files from upstream', async () => {
+    it('updates modified files from upstream', async () => {
       // Modify existing file in upstream
       makeCommit(env.upstreamPath, {
         files: { 'README.md': '# Updated Readme\nThis is the new version.\n' },
@@ -253,7 +253,7 @@ describe('sync e2e', () => {
       expect(readRepoFile(env.forkPath, 'README.md')).toContain('Updated Readme');
     });
 
-    it('should handle file deletions from upstream', async () => {
+    it('handles file deletions from upstream', async () => {
       // Add a file to upstream first
       makeCommit(env.upstreamPath, {
         files: { 'temp.ts': '// Temporary file\n' },
@@ -299,7 +299,7 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'temp.ts')).toBe(false);
     });
 
-    it('should keep fork-deleted files deleted when upstream leaves them unchanged', async () => {
+    it('keeps fork-deleted files deleted when upstream leaves them unchanged', async () => {
       // README.md exists in the shared base. The fork deliberately removes it.
       deleteFileAndCommit(env.forkPath, 'README.md', 'chore: remove readme in fork');
       expect(fileExists(env.forkPath, 'README.md')).toBe(false);
@@ -322,7 +322,7 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'README.md')).toBe(false);
     });
 
-    it('should handle file renames from upstream with git mv', async () => {
+    it('handles file renames from upstream with git mv', async () => {
       // Add a file in a subdirectory to upstream first
       makeCommit(env.upstreamPath, {
         files: { 'old-dir/moved-file.ts': '// File to be moved\nexport const value = 1;\n' },
@@ -371,7 +371,7 @@ describe('sync e2e', () => {
       expect(renamedFile?.renamedFrom).toBe('old-dir/moved-file.ts');
     });
 
-    it('should handle file renames with squashed (single-parent) history', async () => {
+    it('handles file renames with squashed (single-parent) history', async () => {
       const fs = await import('node:fs');
       const { getFileChanges, getMergeBase, git } = await import('../../src/utils/git');
       const { execSync } = await import('node:child_process');
@@ -447,7 +447,7 @@ describe('sync e2e', () => {
   });
 
   describe('drifted and local detection', () => {
-    it('should detect drifted files (fork-only modification)', async () => {
+    it('detects drifted files (fork-only modification)', async () => {
       // Modify an existing file only in fork (not pinned, not ignored)
       makeCommit(env.forkPath, {
         files: { 'README.md': '# Fork Customized Readme\n' },
@@ -471,7 +471,7 @@ describe('sync e2e', () => {
       expect(driftedFile?.status).toBe('drifted');
     });
 
-    it('should detect local files (fork-only, never in upstream)', async () => {
+    it('detects local files (fork-only, never in upstream)', async () => {
       // Add a file only in fork that never existed in upstream
       makeCommit(env.forkPath, {
         files: { 'fork-only-feature.ts': '// Fork exclusive feature\nexport const local = true;\n' },
@@ -498,7 +498,7 @@ describe('sync e2e', () => {
   });
 
   describe('merge conflicts', () => {
-    it('should report conflicts when both sides edit same file differently', async () => {
+    it('reports conflicts when both sides edit same file differently', async () => {
       // Both sides modify the same existing file with conflicting content
       makeCommit(env.upstreamPath, {
         files: { 'README.md': '# Upstream Version\nLine from upstream\n' },
@@ -596,7 +596,7 @@ describe('sync e2e', () => {
   });
 
   describe('multi-cycle sync', () => {
-    it('should handle multiple sync cycles with merge strategy', async () => {
+    it('handles multiple sync cycles with merge strategy', async () => {
       const { execSync } = await import('node:child_process');
 
       // ── Cycle 1: upstream adds a file ──
@@ -661,7 +661,7 @@ describe('sync e2e', () => {
       expect(cycleFile?.status).toBe('behind');
     });
 
-    it('should recover from stale merge-base after squash sync', async () => {
+    it('recovers from stale merge-base after squash sync', async () => {
       const { execSync } = await import('node:child_process');
       const fs = await import('node:fs');
 
@@ -726,7 +726,7 @@ describe('sync e2e', () => {
   });
 
   describe('release tracking', () => {
-    it('should sync to the latest release tag, not the untagged branch tip', async () => {
+    it('syncs to the latest release tag, not the untagged branch tip', async () => {
       // Released change (tagged) followed by an unreleased change (no tag).
       makeCommit(env.upstreamPath, {
         files: { 'released.ts': '// released\nexport const r = 1;\n' },
@@ -753,7 +753,7 @@ describe('sync e2e', () => {
       expect(tagged.startsWith(result.upstreamDiffRange?.split('..')[1] ?? '-')).toBe(true);
     });
 
-    it('should error when release tracking finds no release tags', async () => {
+    it('errors when release tracking finds no release tags', async () => {
       makeCommit(env.upstreamPath, {
         files: { 'untagged.ts': '// untagged\nexport const x = 1;\n' },
         message: 'feat: untagged change',
@@ -765,7 +765,7 @@ describe('sync e2e', () => {
       await expect(runSync(config)).rejects.toThrow(/no upstream releases/);
     });
 
-    it('should let --track branch override release config to follow the untagged tip', async () => {
+    it('lets --track branch override release config to follow the untagged tip', async () => {
       // Release-track config, but no release tags exist yet.
       makeCommit(env.upstreamPath, {
         files: { 'tip.ts': '// tip\nexport const t = 1;\n' },

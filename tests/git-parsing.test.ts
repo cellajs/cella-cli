@@ -39,7 +39,7 @@ describe('git parsing', () => {
   });
 
   describe('getFileHashesAtRef (ls-tree)', () => {
-    it('should return hashes for all files at HEAD', async () => {
+    it('returns hashes for all files at HEAD', async () => {
       const hashes = await getFileHashesAtRef(repoPath, 'HEAD');
       expect(hashes.size).toBe(1);
       expect(hashes.has('initial.txt')).toBe(true);
@@ -48,7 +48,7 @@ describe('git parsing', () => {
       expect(hash).toMatch(/^[a-f0-9]{40}$/);
     });
 
-    it('should track newly added files', async () => {
+    it('tracks newly added files', async () => {
       fs.writeFileSync(path.join(repoPath, 'added.ts'), 'export const x = 1;\n');
       exec('git add -A && git commit -m "add file"', repoPath);
 
@@ -58,7 +58,7 @@ describe('git parsing', () => {
       expect(hashes.has('initial.txt')).toBe(true);
     });
 
-    it('should handle nested directory files', async () => {
+    it('handles nested directory files', async () => {
       fs.mkdirSync(path.join(repoPath, 'src', 'deep'), { recursive: true });
       fs.writeFileSync(path.join(repoPath, 'src', 'deep', 'file.ts'), 'nested\n');
       exec('git add -A && git commit -m "add nested"', repoPath);
@@ -67,7 +67,7 @@ describe('git parsing', () => {
       expect(hashes.has('src/deep/file.ts')).toBe(true);
     });
 
-    it('should not include deleted files', async () => {
+    it('does not include deleted files', async () => {
       fs.unlinkSync(path.join(repoPath, 'initial.txt'));
       exec('git add -A && git commit -m "delete initial"', repoPath);
 
@@ -77,7 +77,7 @@ describe('git parsing', () => {
   });
 
   describe('getFileChanges (diff-tree)', () => {
-    it('should detect added files', async () => {
+    it('detects added files', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'new.ts'), 'new file\n');
@@ -88,7 +88,7 @@ describe('git parsing', () => {
       expect(changes.get('new.ts')!.status).toBe('A');
     });
 
-    it('should detect modified files', async () => {
+    it('detects modified files', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'initial.txt'), 'modified content\n');
@@ -99,7 +99,7 @@ describe('git parsing', () => {
       expect(changes.get('initial.txt')!.status).toBe('M');
     });
 
-    it('should detect deleted files', async () => {
+    it('detects deleted files', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       fs.unlinkSync(path.join(repoPath, 'initial.txt'));
@@ -110,7 +110,7 @@ describe('git parsing', () => {
       expect(changes.get('initial.txt')!.status).toBe('D');
     });
 
-    it('should detect renamed files with similarity', async () => {
+    it('detects renamed files with similarity', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       // Rename with git mv to ensure detection
@@ -125,13 +125,13 @@ describe('git parsing', () => {
       expect(change.oldPath).toBe('initial.txt');
     });
 
-    it('should return empty map for identical refs', async () => {
+    it('returns empty map for identical refs', async () => {
       const ref = exec('git rev-parse HEAD', repoPath);
       const changes = await getFileChanges(repoPath, ref, ref);
       expect(changes.size).toBe(0);
     });
 
-    it('should detect multiple changes in one diff', async () => {
+    it('detects multiple changes in one diff', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       // Add, modify in one commit
@@ -148,7 +148,7 @@ describe('git parsing', () => {
   });
 
   describe('listCommitsBetween', () => {
-    it('should return commits oldest-first by default', async () => {
+    it('returns commits oldest-first by default', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'a.txt'), 'a\n');
@@ -166,7 +166,7 @@ describe('git parsing', () => {
       expect(commits.map((c) => c.message)).toEqual(['commit A', 'commit B', 'commit C']);
     });
 
-    it('should support skip and limit for showing the most recent window', async () => {
+    it('supports skip and limit for showing the most recent window', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       for (const n of [1, 2, 3, 4, 5]) {
@@ -184,7 +184,7 @@ describe('git parsing', () => {
   });
 
   describe('sync ref tracking', () => {
-    it('should store and retrieve last-sync ref', async () => {
+    it('stores and retrieves last-sync ref', async () => {
       const hash = exec('git rev-parse HEAD', repoPath);
 
       await storeLastSyncRef(repoPath, hash);
@@ -193,12 +193,12 @@ describe('git parsing', () => {
       expect(stored).toBe(hash);
     });
 
-    it('should return null when no sync ref is stored', async () => {
+    it('returns null when no sync ref is stored', async () => {
       const stored = await getStoredSyncRef(repoPath);
       expect(stored).toBeNull();
     });
 
-    it('should update stored ref on subsequent stores', async () => {
+    it('updates stored ref on subsequent stores', async () => {
       const hash1 = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'second.txt'), 'second\n');
@@ -214,7 +214,7 @@ describe('git parsing', () => {
   });
 
   describe('isAncestor', () => {
-    it('should return true when first is ancestor of second', async () => {
+    it('returns true when first is ancestor of second', async () => {
       const parent = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'child.txt'), 'child\n');
@@ -224,7 +224,7 @@ describe('git parsing', () => {
       expect(await isAncestor(repoPath, parent, child)).toBe(true);
     });
 
-    it('should return false when first is not ancestor of second', async () => {
+    it('returns false when first is not ancestor of second', async () => {
       const current = exec('git rev-parse HEAD', repoPath);
 
       fs.writeFileSync(path.join(repoPath, 'child.txt'), 'child\n');
@@ -235,14 +235,14 @@ describe('git parsing', () => {
       expect(await isAncestor(repoPath, child, current)).toBe(false);
     });
 
-    it('should return true when both refs are the same', async () => {
+    it('returns true when both refs are the same', async () => {
       const ref = exec('git rev-parse HEAD', repoPath);
       expect(await isAncestor(repoPath, ref, ref)).toBe(true);
     });
   });
 
   describe('getEffectiveMergeBase', () => {
-    it('should use git merge-base when no stored ref exists', async () => {
+    it('uses git merge-base when no stored ref exists', async () => {
       // Create a branch to have two refs
       exec('git checkout -b feature', repoPath);
       fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
@@ -256,7 +256,7 @@ describe('git parsing', () => {
       expect(result.base).toBeTruthy();
     });
 
-    it('should prefer stored ref when it is newer than git merge-base', async () => {
+    it('prefers stored ref when it is newer than git merge-base', async () => {
       // Create feature branch
       exec('git checkout -b feature', repoPath);
 
@@ -282,7 +282,7 @@ describe('git parsing', () => {
       expect(result.base).toBe(featureHash);
     });
 
-    it('should ignore stored ref left behind by an aborted merge (HEAD unchanged)', async () => {
+    it('ignores stored ref left behind by an aborted merge (HEAD unchanged)', async () => {
       // Create feature branch with a commit, then return to main
       exec('git checkout -b feature', repoPath);
       fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
@@ -303,7 +303,7 @@ describe('git parsing', () => {
       expect(result.base).toBe(gitBase);
     });
 
-    it('should trust stored ref when current HEAD committed the matching sync manifest', async () => {
+    it('trusts stored ref when current HEAD committed the matching sync manifest', async () => {
       // Create feature branch with a commit, then return to main
       exec('git checkout -b feature', repoPath);
       fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
@@ -329,7 +329,7 @@ describe('git parsing', () => {
       expect(result.base).toBe(featureHash);
     });
 
-    it('should recover the squash-sync base from the committed manifest alone (fresh clone, no local refs)', async () => {
+    it('recovers the squash-sync base from the committed manifest alone (fresh clone, no local refs)', async () => {
       // Create feature branch with a commit, then return to main
       exec('git checkout -b feature', repoPath);
       fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
@@ -351,7 +351,7 @@ describe('git parsing', () => {
       expect(result.base).toBe(featureHash);
     });
 
-    it('should not trust a manifest that only exists in the working tree (aborted sync)', async () => {
+    it('does not trust a manifest that only exists in the working tree (aborted sync)', async () => {
       // Create feature branch with a commit, then return to main
       exec('git checkout -b feature', repoPath);
       fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
@@ -399,7 +399,7 @@ describe('git parsing', () => {
       exec('git merge fa --no-ff -m "manual merge of upstream"', repoPath);
     }
 
-    it('should return no merge commits for a branch of plain commits', async () => {
+    it('returns no merge commits for a branch of plain commits', async () => {
       exec('git checkout -b cella/sync/plain main', repoPath);
       fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
       exec('git add -A && git commit -m "own commit"', repoPath);
@@ -407,7 +407,7 @@ describe('git parsing', () => {
       expect(await listBranchMergeCommits(repoPath, 'main')).toEqual([]);
     });
 
-    it("should list the branch's own merge commits but not merges inside merged-in history", async () => {
+    it("lists the branch's own merge commits but not merges inside merged-in history", async () => {
       setupMergedSyncBranch();
 
       const merges = await listBranchMergeCommits(repoPath, 'main');
@@ -415,7 +415,7 @@ describe('git parsing', () => {
       expect(exec(`git log -1 --format=%s ${merges[0]}`, repoPath)).toBe('manual merge of upstream');
     });
 
-    it('should flatten a merged branch to one commit with identical content', async () => {
+    it('flattens a merged branch to one commit with identical content', async () => {
       setupMergedSyncBranch();
       const treeBefore = exec('git rev-parse HEAD^{tree}', repoPath);
 
