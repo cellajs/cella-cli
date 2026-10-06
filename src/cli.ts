@@ -367,9 +367,9 @@ function buildRuntimeConfig(
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
   const selection = parseCommandLine(process.argv);
 
-  // In machine-output modes (--json, --diff), reserve stdout for the payload/patch
+  // In machine-output modes (--json, --diff, --list), reserve stdout for the payload/patch/rows
   // and route all human output (header, warnings, spinner) to stderr.
-  if (selection.options.json || selection.options.diff) setJsonMode(true);
+  if (selection.options.json || selection.options.diff || selection.options.list) setJsonMode(true);
 
   // Print header
   printHeader();

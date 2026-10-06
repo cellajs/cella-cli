@@ -407,8 +407,8 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   spinnerSuccess(`${allItems.length} files from ${forkName}`);
 
   // Make the comparison basis explicit: the fork is compared at its committed pullBranch HEAD,
-  // not its working tree, so uncommitted fork edits never appear here. Skipped for --list/--diff
-  // so their stdout stays clean for machine parsing.
+  // not its working tree, so uncommitted fork edits never appear here. Still skipped for
+  // --list/--diff: their human output goes to stderr, and the banner is noise there too.
   if (!config.list && !config.diff && forkBanner) {
     console.info(
       `  ${pc.dim(`${forkName}: comparing committed '${forkBanner.pullBranch}' @ ${forkBanner.sha} (${forkBanner.date}) — uncommitted fork changes are not included`)}`,
@@ -453,7 +453,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
       const status = item.status ?? 'behind';
       const kind = item.deleted ? 'deleted' : 'modified';
       const changedAt = item.changedAt ?? '-';
-      console.info(`${forkName}\t${status}\t${kind}\t${changedAt}\t${item.path}`);
+      writeStdout(`${forkName}\t${status}\t${kind}\t${changedAt}\t${item.path}`);
     }
     return;
   }

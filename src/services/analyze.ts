@@ -111,7 +111,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   if (config.list) {
     for (const file of scopedFiles) {
-      console.info(file.path);
+      writeStdout(file.path);
     }
     return result;
   }
