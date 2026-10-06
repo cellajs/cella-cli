@@ -215,7 +215,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Machine-readable JSON output (for tooling/agent usage) */
   json: boolean;
 
-  /** Print the unified diff for a single contributed file, then exit (contributions; for tooling/agents) */
+  /** Print the unified diff for one file, then exit (analyze and contributions; for tooling/agents) */
   diff?: string;
 
   /** Open a browser diff for one file, then exit (analyze) */

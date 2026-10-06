@@ -18,9 +18,9 @@ pnpm cella audit
 | Service | Description |
 |---------|-------------|
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
-| `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
+| `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Check for outdated packages & vulnerabilities |
+| `audit` | Check for outdated packages and vulnerabilities |
 | `stats` | Count files by category and workspace package |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -48,7 +48,7 @@ Per-service help: `pnpm cella <service> --help`.
 | Global flag | Description |
 |-------------|-------------|
 | `-v, --version` | Output the current version |
-| `-h, --help` | Display help message |
+| `-h, --help` | Display help for a command |
 
 ## Configuration
 
@@ -346,6 +346,7 @@ forks: [
 
 ### Pulling contributions
 
-Run `pnpm cella contributions` (or pick **contributions** from the menu). Select one or more
-forks; cella fetches each fork's `pullBranch`, builds a clean local `contrib/<fork>` branch with
-only that fork's contributed files. Accepted files are checked out from the contrib branch and staged for review.
+Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
+fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
+contributed files. Accepted files are checked out from the contrib branch and staged for review.
+`--list` prints the result as tab-separated rows (fork, status, kind, changedAt, path) for tooling.

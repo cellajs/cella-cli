@@ -62,7 +62,6 @@ type ServiceDefinition = {
   /** Arguments the service takes after its options, e.g. the ones `migrate --run` hands to the codemod. */
   operands?: ServiceOptionDefinition;
   includeInMenu?: (context: MenuContext) => boolean;
-  menuDescription?: (context: MenuContext) => string;
 };
 
 /** A string option's value, or undefined when it was not passed. */
@@ -135,6 +134,10 @@ const verboseOption: ServiceOptionDefinition = {
   flags: '-V, --verbose',
   description: 'show detailed output during operations',
 };
+const forkOption: ServiceOptionDefinition = {
+  flags: '--fork <name>',
+  description: 'pre-select a fork by name (skips the fork selection prompt)',
+};
 
 const serviceDefinitions: ServiceDefinition[] = [
   {
@@ -147,14 +150,14 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
       trackOption,
       refOption,
-      { flags: '--diff <path>', description: 'print unified diff for one file, then exit' },
+      { flags: '--diff <path>', description: 'print the unified diff for one file, then exit' },
       { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
     name: 'sync',
-    description: 'merge upstream changes into your app',
+    description: 'merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR',
     options: [
       logOption,
       hardOption,
@@ -164,7 +167,6 @@ const serviceDefinitions: ServiceDefinition[] = [
       { flags: '--keep-config', description: 'merge with your sync config as it stands when upstream changed its own' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
-    menuDescription: () => 'merge upstream changes + sync package.json',
   },
   {
     name: 'migrate',
@@ -186,7 +188,7 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'audit',
-    description: 'check for outdated packages & vulnerabilities',
+    description: 'check for outdated packages and vulnerabilities',
     options: [
       { flags: '--list', description: 'skip interactive update prompts after printing audit results' },
       { flags: '--force', description: 'bypass pnpm metadata cache for fresh registry data' },
@@ -195,9 +197,9 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'forks',
-    description: 'sync downstream to local fork repositories',
+    description: 'run normal sync inside local fork repositories',
     options: [
-      { flags: '--fork <name>', description: 'pre-select fork by name (skips fork selection prompt)' },
+      forkOption,
       { flags: '--log', description: 'write complete file list to cella-sync.log for each synced fork' },
       verboseOption,
       hardOption,
@@ -210,12 +212,12 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'contributions',
-    description: 'pull and adopt changes from forks',
+    description: 'pull and adopt changes from local forks',
     options: [
-      { flags: '--fork <name>', description: 'select a specific fork directly (skips fork selection)' },
-      { flags: '--list', description: 'non-interactive output (one file per line)' },
-      { flags: '--json', description: 'machine-readable JSON output for tooling/agents' },
-      { flags: '--diff <path>', description: 'print the unified diff for a single contributed file, then exit' },
+      forkOption,
+      { flags: '--list', description: 'non-interactive output for tooling (tab-separated rows)' },
+      jsonOption,
+      { flags: '--diff <path>', description: 'print the unified diff for one contributed file, then exit' },
     ],
     includeInMenu: (context) => context.hasForks,
   },
@@ -246,7 +248,7 @@ function buildServiceChoices(context: MenuContext) {
     .filter((service) => service.includeInMenu?.(context) ?? true)
     .map((service) => ({
       value: service.name,
-      name: `${label(service.name)}${pc.dim(service.menuDescription?.(context) ?? service.description)}`,
+      name: `${label(service.name)}${pc.dim(service.description)}`,
     }));
 
   return [
