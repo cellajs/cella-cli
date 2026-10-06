@@ -370,8 +370,10 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   const selection = parseCommandLine(process.argv);
 
   // In machine-output modes (--json, --diff, --list), reserve stdout for the payload/patch/rows
-  // and route all human output (header, warnings, spinner) to stderr.
-  if (selection.options.json || selection.options.diff || selection.options.list) setJsonMode(true);
+  // and route all human output (header, warnings, spinner) to stderr. Audit's --list only skips
+  // its interactive prompts; its report is the human output and stays on stdout.
+  const machineList = selection.options.list && selection.service !== 'audit';
+  if (selection.options.json || selection.options.diff || machineList) setJsonMode(true);
 
   // Print header
   printHeader();
