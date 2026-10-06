@@ -11,7 +11,8 @@ import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
 import process from 'node:process';
 import pc from './colors';
-import { warningMark } from './display';
+import { checkMark, warningMark } from './display';
+import { errorMessage } from './errors';
 import { listWorktrees, mergeAbort, removeWorktree } from './git';
 
 /**
@@ -126,11 +127,9 @@ async function handleAbort(signal: string): Promise<void> {
 
     try {
       await cleanupWorktree(currentRepoPath, currentWorktreePath);
-      console.info(`${pc.green('✓')} no changes were made to your repository.`);
+      console.info(`${checkMark} no changes were made to your repository.`);
     } catch (error) {
-      console.error(
-        `${pc.red('✗')} failed to clean up worktree: ${error instanceof Error ? error.message : 'unknown error'}`,
-      );
+      console.error(`${pc.red('✗')} failed to clean up worktree: ${errorMessage(error)}`);
     }
   }
 

@@ -22,6 +22,7 @@ import { registerSignalHandlers } from './utils/cleanup';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
 import { getEnv } from './utils/env';
+import { errorMessage } from './utils/errors';
 
 /**
  * Determine the fork path.
@@ -59,7 +60,7 @@ function getForkPath(): string {
  * state, so preflight no longer cares which branch you are on or whether the tree is clean — it
  * only verifies we are inside a git repository.
  */
-async function preflight(forkPath: string): Promise<void> {
+function preflight(forkPath: string): void {
   if (!existsSync(join(forkPath, '.git'))) {
     throw new Error(`not a git repository: ${forkPath}`);
   }
@@ -96,7 +97,7 @@ async function main(): Promise<void> {
 
     // Run preflight checks (except for services that operate on other fork paths)
     if (!['audit', 'forks', 'contributions', 'stats'].includes(config.service)) {
-      await preflight(forkPath);
+      preflight(forkPath);
     }
 
     // Route to service
@@ -111,31 +112,36 @@ async function main(): Promise<void> {
         break;
       }
 
-      case 'migrate':
+      case 'migrate': {
         await runMigrate(config);
         break;
+      }
 
-      case 'audit':
-        await runAudit(config, { force: config.force, checkOverrides: config.checkOverrides });
+      case 'audit': {
+        await runAudit(config);
         break;
+      }
 
-      case 'forks':
+      case 'forks': {
         await runForks(config);
         break;
+      }
 
-      case 'contributions':
+      case 'contributions': {
         await runContributions(config);
         break;
+      }
 
-      case 'stats':
-        await runStats(config.forkPath, { verbose: config.verbose, refreshCoverage: config.coverage });
+      case 'stats': {
+        await runStats(config);
         break;
+      }
     }
 
     console.info();
   } catch (error) {
     console.error();
-    console.error(`${pc.red('✗')} ${error instanceof Error ? error.message : 'unknown error'}`);
+    console.error(`${pc.red('✗')} ${errorMessage(error)}`);
     process.exit(1);
   }
 }

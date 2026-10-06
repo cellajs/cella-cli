@@ -10,20 +10,17 @@ import type { MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import {
+  checkMark,
   createSpinner,
   type LinkOptions,
   printAnalysisFileGroups,
-  printIgnoredUpstreamChanges,
-  printMaskingPinWarning,
-  printSummary,
-  printUpstreamOverrideChanges,
+  printEngineReports,
+  printLogFileReport,
   spinnerSuccess,
-  spinnerText,
-  writeLogFile,
   writeStdout,
 } from '../utils/display';
 import { CONFIG_FILE } from '../utils/managed-files';
-import { runMergeEngine } from './merge-engine';
+import { runEngineWithSpinner } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
@@ -76,16 +73,7 @@ function printUnifiedDiff(config: RuntimeConfig, filePath: string): void {
 export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   createSpinner('starting analysis...');
 
-  const result = await runMergeEngine(config, {
-    apply: false,
-    onProgress: (message) => {
-      spinnerText(message);
-    },
-    onStep: (label, detail) => {
-      spinnerSuccess(label, detail);
-      createSpinner('...');
-    },
-  });
+  const result = await runEngineWithSpinner(config, false);
 
   spinnerSuccess();
 
@@ -137,7 +125,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     // the old VS Code diff gave.
     const patch = gitDiffFile(config.forkPath, config.upstreamRef, file.path);
     if (patch.length === 0) {
-      console.info(`${pc.green('✓')} ${file.path} is identical to upstream`);
+      console.info(`${checkMark} ${file.path} is identical to upstream`);
       return result;
     }
 
@@ -151,7 +139,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       },
       config.forkPath,
     );
-    console.info(`${pc.green('✓')} opened browser diff for ${file.path}`);
+    console.info(`${checkMark} opened browser diff for ${file.path}`);
     console.info(pc.dim(`  ${pagePath}`));
     return result;
   }
@@ -167,24 +155,13 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   // Print file lists first (analyze shows file lists for review)
   printAnalysisFileGroups(result.files, linkOptions, result);
 
-  // Print summary at the end
-  printSummary(result.summary, 'analysis summary');
-
-  // Surface upstream changes the sync never brings in: ignored paths and upstream's own sync config
-  printIgnoredUpstreamChanges(result);
-  printUpstreamOverrideChanges(result);
-
-  // Surface pins that would silently freeze a file at the old upstream on the next sync
-  printMaskingPinWarning(result.files);
+  // Print the summary plus the shared upstream-changes reports at the end
+  printEngineReports(result, 'analysis summary');
 
   await printMigrationNotesLine(config, result);
 
   // Write log file if requested
-  if (config.logFile) {
-    const logPath = writeLogFile(config.forkPath, result.files);
-    console.info();
-    console.info(pc.dim(`full file list written to: ${logPath}`));
-  }
+  printLogFileReport(config, result.files);
 
   console.info();
 

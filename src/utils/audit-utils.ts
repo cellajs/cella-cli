@@ -289,39 +289,38 @@ export function isMajorVersionChange(current: string, latest: string): boolean {
  ************************************************************************************************/
 
 /**
- * Runs pnpm outdated and returns JSON output.
- * Note: pnpm outdated exits with code 1 when packages are outdated,
- * so we need to handle this as a normal case, not an error.
+ * Runs a pnpm command and parses its JSON stdout. pnpm exits non-zero when it finds outdated
+ * packages or vulnerabilities — expected output, not an error — so the JSON is also rescued
+ * from the error's stdout. Returns null for empty or unparsable output; never throws.
  */
-export async function getOutdatedPackages(cwd: string): Promise<Record<string, OutdatedPackage>> {
+async function runPnpmJson(args: string[], cwd: string): Promise<unknown> {
+  const parse = (stdout?: string): unknown => {
+    if (!stdout || stdout.trim() === '') return null;
+    try {
+      return JSON.parse(stdout);
+    } catch {
+      return null;
+    }
+  };
+
   try {
-    const { stdout } = await execFileAsync('pnpm', ['-r', 'outdated', '--json'], {
+    const { stdout } = await execFileAsync('pnpm', args, {
       encoding: 'utf-8',
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large outputs
       cwd,
     });
-
-    if (!stdout || stdout.trim() === '') {
-      return {};
-    }
-
-    return JSON.parse(stdout);
+    return parse(stdout);
   } catch (error) {
-    // pnpm outdated exits with code 1 when there are outdated packages
-    // This is expected behavior, not an error
-    if (error instanceof Error && 'stdout' in error) {
-      const stdout = (error as { stdout: string }).stdout;
-      if (stdout?.trim()) {
-        try {
-          return JSON.parse(stdout);
-        } catch {
-          // JSON parse failed, return empty
-          return {};
-        }
-      }
-    }
-    return {};
+    return parse(error instanceof Error && 'stdout' in error ? (error as { stdout: string }).stdout : undefined);
   }
+}
+
+/**
+ * Runs pnpm outdated and returns JSON output.
+ * Returns an empty record when nothing is outdated or the check fails.
+ */
+export async function getOutdatedPackages(cwd: string): Promise<Record<string, OutdatedPackage>> {
+  return ((await runPnpmJson(['-r', 'outdated', '--json'], cwd)) ?? {}) as Record<string, OutdatedPackage>;
 }
 
 /*************************************************************************************************
@@ -333,32 +332,7 @@ export async function getOutdatedPackages(cwd: string): Promise<Record<string, O
  * Returns null if audit fails or no vulnerabilities found.
  */
 export async function runPnpmAudit(cwd: string): Promise<AuditResult | null> {
-  try {
-    const { stdout } = await execFileAsync('pnpm', ['audit', '--json'], {
-      encoding: 'utf-8',
-      maxBuffer: 10 * 1024 * 1024,
-      cwd,
-    });
-
-    if (!stdout || stdout.trim() === '') {
-      return null;
-    }
-
-    return JSON.parse(stdout) as AuditResult;
-  } catch (error) {
-    // pnpm audit exits with non-zero when vulnerabilities found
-    if (error instanceof Error && 'stdout' in error) {
-      const stdout = (error as { stdout: string }).stdout;
-      if (stdout?.trim()) {
-        try {
-          return JSON.parse(stdout) as AuditResult;
-        } catch {
-          return null;
-        }
-      }
-    }
-    return null;
-  }
+  return (await runPnpmJson(['audit', '--json'], cwd)) as AuditResult | null;
 }
 
 /**
@@ -412,20 +386,18 @@ export function buildVulnerabilityMap(auditResult: AuditResult | null): Map<stri
  * Display Utilities
  ************************************************************************************************/
 
+/** Severity dot per vulnerability level. */
+const vulnIcons: Record<VulnerabilitySeverity, string> = {
+  critical: pc.red('●'),
+  high: pc.red('●'),
+  moderate: pc.yellow('●'),
+  low: pc.blue('●'),
+  info: pc.gray('●'),
+};
+
 /** Gets vulnerability severity icon with color. */
 export function getVulnIcon(severity: VulnerabilitySeverity): string {
-  switch (severity) {
-    case 'critical':
-      return pc.red('●');
-    case 'high':
-      return pc.red('●');
-    case 'moderate':
-      return pc.yellow('●');
-    case 'low':
-      return pc.blue('●');
-    default:
-      return pc.gray('●');
-  }
+  return vulnIcons[severity] ?? pc.gray('●');
 }
 
 /** Gets the highest severity from a list of vulnerabilities. */

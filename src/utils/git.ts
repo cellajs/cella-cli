@@ -9,10 +9,14 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
+import type { CommitRangeEntry } from '../config/types';
 import { getEnvSnapshot } from './env';
-import { MANIFEST_FILE, readManifestBase, type SyncManifest } from './manifest';
+import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from './manifest';
 
 const execFileAsync = promisify(execFile);
+
+/** Maximum stdout buffer for subprocess output (50MB). */
+export const MAX_BUFFER = 50 * 1024 * 1024;
 
 /**
  * Sanitize text by redacting credentials from URLs.
@@ -52,7 +56,7 @@ export async function git(args: string[], cwd: string, options: GitCommandOption
     ...options.env,
   };
 
-  const maxBuffer = options.maxBuffer ?? 50 * 1024 * 1024; // 50MB default
+  const maxBuffer = options.maxBuffer ?? MAX_BUFFER;
 
   try {
     const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer });
@@ -313,7 +317,7 @@ export async function ensureRemote(cwd: string, remoteName: string, url: string)
 /**
  * Fetch from a remote.
  */
-export async function fetch(cwd: string, remoteName: string): Promise<void> {
+export async function fetchRemote(cwd: string, remoteName: string): Promise<void> {
   await git(['fetch', remoteName], cwd);
 }
 
@@ -403,10 +407,7 @@ export async function isPublishedUpstream(
 /**
  * Get the latest commit info from a ref.
  */
-export async function getCommitInfo(
-  cwd: string,
-  ref: string,
-): Promise<{ hash: string; message: string; date: string }> {
+export async function getCommitInfo(cwd: string, ref: string): Promise<CommitRangeEntry> {
   const format = '%H%n%s%n%ar'; // hash, subject, relative date
   const output = await git(['log', '-1', `--format=${format}`, ref], cwd);
   const [hash, message, date] = output.split('\n');
@@ -422,17 +423,9 @@ export async function countCommitsBetween(cwd: string, fromRef: string, toRef: s
   return Number.parseInt(output.trim(), 10) || 0;
 }
 
-/** Commit metadata for a single log entry */
-export interface CommitRangeEntry {
-  hash: string;
-  message: string;
-  date: string;
-}
-
 /**
- * List commits in a ref range.
+ * List commits in a ref range, oldest-first to match GitHub compare ordering.
  *
- * By default this returns commits oldest-first to match GitHub compare ordering.
  * Supports skip+limit pagination so callers can show only the most recent N commits
  * without fetching the entire range.
  */
@@ -441,16 +434,12 @@ export async function listCommitsBetween(
   fromRef: string,
   toRef: string,
   options: {
-    oldestFirst?: boolean;
     skip?: number;
     limit?: number;
   } = {},
 ): Promise<CommitRangeEntry[]> {
-  const { oldestFirst = true, skip = 0, limit } = options;
-  const args = ['log', '--format=%H%x1f%s%x1f%ar'];
-
-  if (oldestFirst) args.push('--reverse');
-  args.push(`${fromRef}..${toRef}`);
+  const { skip, limit } = options;
+  const args = ['log', '--format=%H%x1f%s%x1f%ar', '--reverse', `${fromRef}..${toRef}`];
 
   const output = await git(args, cwd, { ignoreErrors: true });
   if (!output) return [];
@@ -463,16 +452,8 @@ export async function listCommitsBetween(
     commits.push({ hash, message, date });
   }
 
-  const normalizedSkip = Math.max(0, skip);
-  const normalizedLimit = typeof limit === 'number' && limit > 0 ? limit : undefined;
-
-  if (normalizedSkip === 0 && normalizedLimit === undefined) {
-    return commits;
-  }
-
-  const start = Math.min(normalizedSkip, commits.length);
-  const end = normalizedLimit === undefined ? commits.length : Math.min(start + normalizedLimit, commits.length);
-  return commits.slice(start, end);
+  const start = Math.max(0, skip ?? 0);
+  return limit && limit > 0 ? commits.slice(start, start + limit) : commits.slice(start);
 }
 
 /**
@@ -582,21 +563,13 @@ export async function listWorktrees(cwd: string): Promise<string[]> {
 }
 
 /**
- * Perform a merge in the current directory.
+ * Perform a merge in the current directory, leaving it staged (--no-commit --no-edit).
  * Always uses --no-ff to prevent fast-forward, ensuring HEAD stays in place
  * and MERGE_HEAD is created for proper merge state tracking.
  */
-export async function merge(
-  cwd: string,
-  ref: string,
-  options: { noCommit?: boolean; noEdit?: boolean } = {},
-): Promise<{ success: boolean; conflicts: string[] }> {
-  const args = ['merge', '--no-ff', ref];
-  if (options.noCommit) args.push('--no-commit');
-  if (options.noEdit) args.push('--no-edit');
-
+export async function merge(cwd: string, ref: string): Promise<{ success: boolean; conflicts: string[] }> {
   try {
-    await git(args, cwd, { skipEditor: true });
+    await git(['merge', '--no-ff', '--no-commit', '--no-edit', ref], cwd, { skipEditor: true });
     return { success: true, conflicts: [] };
   } catch (error) {
     // Check for conflicts
@@ -719,6 +692,9 @@ export async function getFileChanges(
 
   if (!output) return changes;
 
+  // diff-tree prints the all-zero hash for a missing side (added/deleted files).
+  const hashOrNull = (hash: string) => (hash === '0'.repeat(40) ? null : hash);
+
   for (const line of output.split('\n')) {
     if (!line) continue;
 
@@ -730,8 +706,8 @@ export async function getFileChanges(
       const [, baseHash, targetHash, oldPath, newPath] = renameMatch;
       changes.set(newPath, {
         status: 'R',
-        baseHash: baseHash === '0'.repeat(40) ? null : baseHash,
-        targetHash: targetHash === '0'.repeat(40) ? null : targetHash,
+        baseHash: hashOrNull(baseHash),
+        targetHash: hashOrNull(targetHash),
         oldPath,
       });
       continue;
@@ -743,8 +719,8 @@ export async function getFileChanges(
       const [, baseHash, targetHash, status, filePath] = match;
       changes.set(filePath, {
         status: status as 'A' | 'D' | 'M' | 'T',
-        baseHash: baseHash === '0'.repeat(40) ? null : baseHash,
-        targetHash: targetHash === '0'.repeat(40) ? null : targetHash,
+        baseHash: hashOrNull(baseHash),
+        targetHash: hashOrNull(targetHash),
       });
     }
   }
@@ -988,15 +964,7 @@ async function getStoredSyncHead(cwd: string): Promise<string | null> {
 export async function readManifestAtRef(cwd: string, ref: string): Promise<SyncManifest | null> {
   const raw = await git(['show', `${ref}:${MANIFEST_FILE}`], cwd, { ignoreErrors: true });
   if (!raw) return null;
-
-  try {
-    const parsed = JSON.parse(raw) as SyncManifest;
-    const commit = parsed?.upstream?.commit;
-    if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/i.test(commit)) return null;
-    return parsed;
-  } catch {
-    return null;
-  }
+  return parseSyncManifest(raw);
 }
 
 /** The upstream base commit SHA from the manifest committed at `ref`, or null. */

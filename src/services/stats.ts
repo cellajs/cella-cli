@@ -7,6 +7,7 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { printCoverageSummary } from '../utils/coverage-utils';
 import { createSpinner, DIVIDER, spinnerSuccess } from '../utils/display';
@@ -19,16 +20,20 @@ const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json'
 /** File category for classification */
 type FileCategory = 'test' | 'stories' | 'generated' | 'json' | 'other';
 
+/** Per-package file and LOC counts, broken down by category */
+interface PackageStats {
+  total: number;
+  loc: number;
+  categories: Record<FileCategory, { files: number; loc: number }>;
+}
+
 /** Stats result for display or JSON output */
 interface StatsResult {
   total: number;
   totalLoc: number;
   skipped: number;
   categories: Record<FileCategory, { files: number; loc: number }>;
-  packages: Record<
-    string,
-    { total: number; loc: number; categories: Record<FileCategory, { files: number; loc: number }> }
-  >;
+  packages: Record<string, PackageStats>;
 }
 
 /** Workspace package definition from pnpm-workspace.yaml */
@@ -152,10 +157,7 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
     other: { files: 0, loc: 0 },
   });
   const categories = emptyCat();
-  const pkgStats = new Map<
-    string,
-    { total: number; loc: number; categories: Record<FileCategory, { files: number; loc: number }> }
-  >();
+  const pkgStats = new Map<string, PackageStats>();
   let totalLoc = 0;
 
   for (const { path, loc } of entries) {
@@ -273,15 +275,14 @@ function printStats(stats: StatsResult, verbose: boolean): void {
 /**
  * Run the stats service.
  */
-export async function runStats(
-  forkPath: string,
-  options: { verbose?: boolean; refreshCoverage?: boolean } = {},
-): Promise<void> {
+export async function runStats(config: RuntimeConfig): Promise<void> {
+  const { forkPath } = config;
+
   createSpinner('counting files...');
   const stats = await collectStats(forkPath);
   spinnerSuccess('Finished counting by raw line of code');
 
-  printStats(stats, options.verbose ?? false);
+  printStats(stats, config.verbose);
   console.info();
-  printCoverageSummary(forkPath, { refresh: options.refreshCoverage });
+  printCoverageSummary(forkPath, { refresh: config.coverage });
 }

@@ -11,7 +11,8 @@ import { Separator, select } from '@inquirer/prompts';
 import type { ForkConfig, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { loadConfig, resolveUpstream } from '../utils/config';
-import { getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
+import { MENU_DIVIDER } from '../utils/display';
+import { getCommitInfo, getCurrentBranch, getStoredSyncRef, getWorkingTreeChangeCount } from '../utils/git';
 import { printNoForksHint, resolveForkBasePath, validateForkPath } from './fork-utils';
 import { runSyncCommand } from './sync';
 
@@ -26,13 +27,11 @@ interface ForkStatus {
  * Gather git status info for a fork: branch, dirty state, last sync.
  */
 async function gatherForkStatus(forkPath: string): Promise<ForkStatus> {
-  const [branch, porcelain, syncRef] = await Promise.all([
+  const [branch, dirty, syncRef] = await Promise.all([
     getCurrentBranch(forkPath).catch(() => 'unknown'),
-    git(['status', '--porcelain'], forkPath, { ignoreErrors: true }),
+    getWorkingTreeChangeCount(forkPath).catch(() => 0),
     getStoredSyncRef(forkPath),
   ]);
-
-  const dirty = porcelain ? porcelain.split('\n').filter(Boolean).length : 0;
 
   let lastSync: { date: string; message: string } | null = null;
   if (syncRef) {
@@ -166,7 +165,7 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
   const forkBasePath = await resolveForkBasePath(config.forkPath);
   while (true) {
     const choices = await buildForkChoices(forks, forkBasePath);
-    const forkChoices = [...choices, new Separator('─'.repeat(40)), { value: '_exit', name: pc.dim('exit') }];
+    const forkChoices = [...choices, new Separator(MENU_DIVIDER), { value: '_exit', name: pc.dim('exit') }];
 
     const selectedPath = await select<string>({
       message: 'select fork to sync:',

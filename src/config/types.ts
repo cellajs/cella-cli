@@ -10,18 +10,21 @@ import { z } from 'zod';
 // PUBLIC API - for cella/cella.config.ts
 // ─────────────────────────────────────────────────────────────────────────────
 
+const PACKAGE_JSON_SYNC_KEYS = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+  'scripts',
+  'engines',
+  'packageManager',
+  'overrides',
+  'exports',
+  'pnpm',
+] as const;
+
 /** Valid package.json keys that can be synced */
-export type PackageJsonSyncKey =
-  | 'dependencies'
-  | 'devDependencies'
-  | 'peerDependencies'
-  | 'optionalDependencies'
-  | 'scripts'
-  | 'engines'
-  | 'packageManager'
-  | 'overrides'
-  | 'exports'
-  | 'pnpm';
+export type PackageJsonSyncKey = (typeof PACKAGE_JSON_SYNC_KEYS)[number];
 
 /**
  * Sync settings - all configurable options for the sync CLI.
@@ -155,22 +158,7 @@ export const cellaConfigSchema = z
         upstreamBranch: z.string().min(1).optional(),
         upstreamTrack: z.enum(['release', 'branch']).optional(),
         releaseBase: z.string().min(1).optional(),
-        packageJsonSync: z
-          .array(
-            z.enum([
-              'dependencies',
-              'devDependencies',
-              'peerDependencies',
-              'optionalDependencies',
-              'scripts',
-              'engines',
-              'packageManager',
-              'overrides',
-              'exports',
-              'pnpm',
-            ]),
-          )
-          .optional(),
+        packageJsonSync: z.array(z.enum(PACKAGE_JSON_SYNC_KEYS)).optional(),
         syncWithPackages: z.boolean().optional(),
         fileLinkMode: z.enum(['commit', 'file', 'local']).optional(),
       })
@@ -316,6 +304,16 @@ export type FileStatus =
   | 'deleted' // Fork deleted, will stay deleted
   | 'renamed'; // Upstream renamed file
 
+/** Statuses the sync applies changes for — a staged sync holds at least one file with one of these. */
+export const SYNC_APPLIED_STATUSES: readonly FileStatus[] = ['behind', 'diverged', 'renamed', 'ignored', 'pinned'];
+
+/** Commit metadata for a single log entry */
+export interface CommitRangeEntry {
+  hash: string;
+  message: string;
+  date: string;
+}
+
 /** Analyzed file with status and metadata */
 export interface AnalyzedFile {
   path: string;
@@ -395,17 +393,9 @@ export interface MergeResult {
   /** Upstream GitHub URL base for commit links */
   upstreamGitHubUrl?: string;
   /** Upstream commit info */
-  upstreamCommit?: {
-    hash: string;
-    message: string;
-    date: string;
-  };
+  upstreamCommit?: CommitRangeEntry;
   /** Commits included in this sync range (oldest-first when rendered) */
-  upstreamCommits?: Array<{
-    hash: string;
-    message: string;
-    date: string;
-  }>;
+  upstreamCommits?: CommitRangeEntry[];
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
   /**

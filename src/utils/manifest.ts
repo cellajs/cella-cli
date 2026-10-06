@@ -37,13 +37,22 @@ export interface SyncManifest {
   };
 }
 
-/** Read and validate the manifest. Returns null when absent or malformed. */
-export async function readSyncManifest(cwd: string): Promise<SyncManifest | null> {
+/** Parse and validate raw manifest JSON. Returns null when malformed or missing a 40-hex upstream commit. */
+export function parseSyncManifest(raw: string): SyncManifest | null {
   try {
-    const parsed = JSON.parse(await readFile(join(cwd, MANIFEST_FILE), 'utf8')) as SyncManifest;
+    const parsed = JSON.parse(raw) as SyncManifest;
     const commit = parsed?.upstream?.commit;
     if (typeof commit !== 'string' || !/^[0-9a-f]{40}$/i.test(commit)) return null;
     return parsed;
+  } catch {
+    return null;
+  }
+}
+
+/** Read and validate the manifest. Returns null when absent or malformed. */
+export async function readSyncManifest(cwd: string): Promise<SyncManifest | null> {
+  try {
+    return parseSyncManifest(await readFile(join(cwd, MANIFEST_FILE), 'utf8'));
   } catch {
     return null;
   }

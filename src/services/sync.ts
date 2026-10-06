@@ -8,7 +8,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { select } from '@inquirer/prompts';
-import type { MergeResult, RuntimeConfig } from '../config/types';
+import { type CommitRangeEntry, type MergeResult, type RuntimeConfig, SYNC_APPLIED_STATUSES } from '../config/types';
 import pc from '../utils/colors';
 import {
   buildTemporarySyncBranch,
@@ -17,30 +17,29 @@ import {
   resolveReleaseBase,
 } from '../utils/config';
 import {
+  COMMIT_LIST_MAX,
+  checkMark,
   createSpinner,
+  printEngineReports,
   printFlagWarnings,
-  printIgnoredUpstreamChanges,
-  printMaskingPinWarning,
-  printSummary,
+  printLogFileReport,
   printSyncComplete,
   printUpstreamOverrideChanges,
   spinnerFail,
   spinnerSuccess,
-  spinnerText,
   warningMark,
-  writeLogFile,
 } from '../utils/display';
+import { errorMessage } from '../utils/errors';
 import { closePr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
 import {
   assertClean,
   branchExists,
-  type CommitRangeEntry,
   commitSquash,
   countCommitsBetween,
   createBranchFrom,
   deleteBranch,
   fastForwardBranch,
-  fetch as fetchRemote,
+  fetchRemote,
   flattenBranch,
   getBranchUpstream,
   getBranchWorktree,
@@ -66,7 +65,7 @@ import {
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
 import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-notes';
-import { BehindSyncPointError, runMergeEngine, UpstreamConfigChangedError } from './merge-engine';
+import { BehindSyncPointError, runEngineWithSpinner, UpstreamConfigChangedError } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
 import { runPackages } from './packages';
 
@@ -211,16 +210,7 @@ export async function runSync(
 
   let result: MergeResult;
   try {
-    result = await runMergeEngine(config, {
-      apply: true,
-      onProgress: (message) => {
-        spinnerText(message);
-      },
-      onStep: (label, detail) => {
-        spinnerSuccess(label, detail);
-        createSpinner('...');
-      },
-    });
+    result = await runEngineWithSpinner(config, true);
   } catch (error) {
     // The engine threw, usually a stop before the merge: end the spinner, and when the sync config
     // gate stopped it, show what upstream changed.
@@ -238,22 +228,11 @@ export async function runSync(
     spinnerFail('sync completed with conflicts');
   }
 
-  // Print summary only (no file lists for sync)
-  printSummary(result.summary, 'merge summary');
-
-  // Surface upstream changes the sync left out: ignored paths and upstream's own sync config
-  printIgnoredUpstreamChanges(result);
-  printUpstreamOverrideChanges(result);
-
-  // Surface pins that silently froze a file at the old upstream (no conflict, no type error)
-  printMaskingPinWarning(result.files);
+  // Print summary (no file lists for sync) plus the shared upstream-changes reports
+  printEngineReports(result, 'merge summary');
 
   // Write log file if requested
-  if (config.logFile) {
-    const logPath = writeLogFile(config.forkPath, result.files);
-    console.info();
-    console.info(pc.dim(`full file list written to: ${logPath}`));
-  }
+  printLogFileReport(config, result.files);
 
   const stagedBranch =
     options?.stagedBranch && result.conflicts.length === 0 && hasStagedSyncChanges(result)
@@ -270,9 +249,6 @@ export async function runSync(
 
 /** Conventional PR title prefix required by release-please. */
 const SYNC_PR_TITLE = 'chore: sync upstream cella';
-
-/** Most recent upstream commits listed in a sync PR body (mirrors the engine's fetch display cap). */
-const PR_BODY_COMMIT_MAX = 50;
 
 /**
  * Build the sync commit subject, e.g. `chore: sync upstream cella v0.2.2 (4f7d87c)`.
@@ -379,9 +355,8 @@ async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise
   const commits =
     fromSha && totalCount > 0
       ? await listCommitsBetween(forkPath, fromSha, toSha, {
-          oldestFirst: true,
-          skip: totalCount > PR_BODY_COMMIT_MAX ? totalCount - PR_BODY_COMMIT_MAX : 0,
-          limit: PR_BODY_COMMIT_MAX,
+          skip: totalCount > COMMIT_LIST_MAX ? totalCount - COMMIT_LIST_MAX : 0,
+          limit: COMMIT_LIST_MAX,
         })
       : [];
 
@@ -414,14 +389,9 @@ function printShipSteps(temporaryBranch: string, base: string, title?: string): 
   printPrCreateStep(temporaryBranch, base, title);
 }
 
-/** Guidance shown after a fresh cycle stops at conflicts: re-run to commit once resolved. */
-function printFinishSteps(): void {
-  console.info(pc.dim('  pnpm cella sync'));
-}
-
 /** Whether sync applied changes that need a finishing rerun. */
 function hasStagedSyncChanges(result: MergeResult): boolean {
-  return result.files.some((file) => ['behind', 'diverged', 'renamed', 'ignored', 'pinned'].includes(file.status));
+  return result.files.some((file) => SYNC_APPLIED_STATUSES.includes(file.status));
 }
 
 /** Extract the first URL from command output, usually the PR URL emitted by GitHub CLI. */
@@ -498,8 +468,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   try {
     await pushBranch(forkPath, 'origin', branch, { forceWithLease: flattened });
   } catch (error) {
-    const detail = error instanceof Error ? error.message : String(error);
-    console.info(pc.yellow(`push failed (${detail.split('\n')[0]}). finish manually:`));
+    console.info(pc.yellow(`push failed (${errorMessage(error).split('\n')[0]}). finish manually:`));
     printShipSteps(branch, base, prTitle);
     return;
   }
@@ -529,10 +498,10 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
   console.info();
   if (prUrl) {
-    console.info(`${pc.green('✓')} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
+    console.info(`${checkMark} Sync pull request ${prOpened ? 'opened' : 'ready'}`);
     console.info(pc.dim(`  ${prUrl} · branch pushed, ${position}`));
   } else {
-    console.info(`${pc.green('✓')} Sync branch pushed`);
+    console.info(`${checkMark} Sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
   await printMigrationNotesLine(config);
@@ -718,7 +687,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
     console.info(pc.dim(`  ${newest.url}`));
     return 'cancel';
   }
-  console.info(`${pc.green('✓')} merged #${newest.number}`);
+  console.info(`${checkMark} merged #${newest.number}`);
   // Drop the stale local branch that tracked the merged PR (the remote one went with --delete-branch).
   await deleteBranch(forkPath, newest.headRefName);
 
@@ -849,7 +818,7 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   const { temporaryBranch } = outcome.branch;
   if (outcome.status === 'conflicts') {
     console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve and stage them, then:`)}`);
-    printFinishSteps();
+    console.info(pc.dim('  pnpm cella sync'));
     console.info(pc.dim('  rerun commits the sync and stops for drift triage; a further rerun ships (push + PR).'));
     console.info(pc.dim('  let the rerun commit — a manual `git commit` records a merge commit that bloats the PR.'));
     return;

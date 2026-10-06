@@ -88,7 +88,7 @@ describe('withTemporarySyncBaseGraft', () => {
   it('plain merge replays the resolved-away upstream block (the bug being fixed)', async () => {
     // Control: without the graft, git merges 3-way against the stale initial-commit base,
     // so the old upstream hunk re-applies as a clean auto-merge.
-    await merge(forkPath, `${UPSTREAM_REMOTE}/main`, { noCommit: true, noEdit: true });
+    await merge(forkPath, `${UPSTREAM_REMOTE}/main`);
 
     const merged = fs.readFileSync(path.join(forkPath, 'backend/get-items.ts'), 'utf-8');
     expect(merged).toContain('upstreamScope');
@@ -100,7 +100,7 @@ describe('withTemporarySyncBaseGraft', () => {
     expect(base).toBe(upstreamBlockSha);
 
     const result = await withTemporarySyncBaseGraft(forkPath, 'HEAD', base, () =>
-      merge(forkPath, `${UPSTREAM_REMOTE}/main`, { noCommit: true, noEdit: true }),
+      merge(forkPath, `${UPSTREAM_REMOTE}/main`),
     );
 
     expect(result.conflicts).toEqual([]);
@@ -122,7 +122,7 @@ describe('withTemporarySyncBaseGraft', () => {
 
     const { base } = await getEffectiveMergeBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
     const result = await withTemporarySyncBaseGraft(forkPath, 'HEAD', base, () =>
-      merge(forkPath, `${UPSTREAM_REMOTE}/main`, { noCommit: true, noEdit: true }),
+      merge(forkPath, `${UPSTREAM_REMOTE}/main`),
     );
 
     expect(result.conflicts).toContain('shared/util.ts');
@@ -139,7 +139,7 @@ describe('withTemporarySyncBaseGraft', () => {
     let replaceListDuringMerge: string | null = null;
     await withTemporarySyncBaseGraft(forkPath, 'HEAD', upstreamBlockSha, async () => {
       replaceListDuringMerge = exec('git replace -l', forkPath);
-      return merge(forkPath, `${UPSTREAM_REMOTE}/main`, { noCommit: true, noEdit: true });
+      return merge(forkPath, `${UPSTREAM_REMOTE}/main`);
     });
 
     expect(replaceListDuringMerge).toBe('');

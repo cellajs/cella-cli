@@ -186,7 +186,6 @@ describe('git parsing', () => {
       }
 
       const commits = await listCommitsBetween(repoPath, baseRef, 'HEAD', {
-        oldestFirst: true,
         skip: 2,
         limit: 3,
       });

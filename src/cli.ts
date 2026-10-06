@@ -4,15 +4,13 @@
  * Parses command line arguments and routes to appropriate service.
  */
 
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import process from 'node:process';
 import { select } from '@inquirer/prompts';
 import { Command } from 'commander';
 import type { AnalyzeScope, CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import pc from './utils/colors';
-import { resolveUpstream } from './utils/config';
-import { NAME, printHeader, setJsonMode, VERSION } from './utils/display';
+import { isUpstreamRepo, resolveUpstream } from './utils/config';
+import { MENU_DIVIDER, NAME, printHeader, setJsonMode, VERSION } from './utils/display';
 import { printWarnings, validateOverrides } from './utils/overrides';
 
 type CliServiceSelection = {
@@ -67,56 +65,88 @@ type ServiceDefinition = {
   menuDescription?: (context: MenuContext) => string;
 };
 
+/** A string option's value, or undefined when it was not passed. */
+const str = (value: unknown): string | undefined => (typeof value === 'string' ? value : undefined);
+
+/** A boolean flag's value: true only when it was passed. */
+const flag = (value: unknown): boolean => value === true;
+
 function readOptions(opts: Record<string, unknown>, operands: string[] = []): CliOptionState {
-  const scope = typeof opts.scope === 'string' ? opts.scope : undefined;
+  const scope = str(opts.scope);
   if (scope && scope !== 'all' && scope !== 'risk' && scope !== 'protected') {
     throw new Error(`invalid --scope '${scope}'. expected one of: all, risk, protected`);
   }
   const normalizedScope = scope as AnalyzeScope | undefined;
 
-  const run = typeof opts.run === 'string' ? opts.run : undefined;
+  const run = str(opts.run);
   if (operands.length > 0 && !run) {
     throw new Error(`unexpected argument '${operands[0]}'. arguments after the options only go with --run <id>`);
   }
 
   return {
-    logFile: opts.log === true,
-    verbose: opts.verbose === true,
-    list: opts.list === true,
-    json: opts.json === true,
-    diff: typeof opts.diff === 'string' ? opts.diff : undefined,
-    openDiff: typeof opts.openDiff === 'string' ? opts.openDiff : undefined,
+    logFile: flag(opts.log),
+    verbose: flag(opts.verbose),
+    list: flag(opts.list),
+    json: flag(opts.json),
+    diff: str(opts.diff),
+    openDiff: str(opts.openDiff),
     scope: normalizedScope,
-    fork: typeof opts.fork === 'string' ? opts.fork : undefined,
-    hard: opts.hard === true,
-    unpinned: opts.unpinned === true,
+    fork: str(opts.fork),
+    hard: flag(opts.hard),
+    unpinned: flag(opts.unpinned),
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
-    ref: typeof opts.ref === 'string' && opts.ref ? opts.ref : undefined,
-    keepConfig: opts.keepConfig === true,
-    force: opts.force === true,
-    checkOverrides: opts.checkOverrides === true,
-    coverage: opts.coverage === true,
-    all: opts.all === true,
-    show: typeof opts.show === 'string' ? opts.show : undefined,
-    extract: typeof opts.extract === 'string' ? opts.extract : undefined,
+    ref: str(opts.ref) || undefined,
+    keepConfig: flag(opts.keepConfig),
+    force: flag(opts.force),
+    checkOverrides: flag(opts.checkOverrides),
+    coverage: flag(opts.coverage),
+    all: flag(opts.all),
+    show: str(opts.show),
+    extract: str(opts.extract),
     run,
-    script: typeof opts.script === 'string' ? opts.script : undefined,
+    script: str(opts.script),
     runArgs: run ? operands : undefined,
     mark: Array.isArray(opts.mark) ? opts.mark.filter((id): id is string => typeof id === 'string') : undefined,
   };
 }
+
+// Option literals shared verbatim by more than one service.
+const logOption: ServiceOptionDefinition = {
+  flags: '--log',
+  description: 'write complete file list to cella-sync.log',
+};
+const jsonOption: ServiceOptionDefinition = {
+  flags: '--json',
+  description: 'machine-readable output for tooling/agents',
+};
+const trackOption: ServiceOptionDefinition = {
+  flags: '--track <mode>',
+  description: 'override upstream tracking for this run: release|branch',
+};
+const refOption: ServiceOptionDefinition = {
+  flags: '--ref <ref>',
+  description: 'pin the upstream commit for this run: sha, release tag or branch',
+};
+const hardOption: ServiceOptionDefinition = {
+  flags: '--hard',
+  description: 'overwrite drifted files with upstream version (aggressive realignment)',
+};
+const verboseOption: ServiceOptionDefinition = {
+  flags: '-V, --verbose',
+  description: 'show detailed output during operations',
+};
 
 const serviceDefinitions: ServiceDefinition[] = [
   {
     name: 'analyze',
     description: 'dry run to see what would change on sync',
     options: [
-      { flags: '--log', description: 'write complete file list to cella-sync.log' },
+      logOption,
       { flags: '--list', description: 'non-interactive output for tooling (one file per line)' },
-      { flags: '--json', description: 'machine-readable output for tooling/agents' },
+      jsonOption,
       { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
-      { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
-      { flags: '--ref <ref>', description: 'pin the upstream commit for this run: sha, release tag or branch' },
+      trackOption,
+      refOption,
       { flags: '--diff <path>', description: 'print unified diff for one file, then exit' },
       { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
@@ -126,11 +156,11 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'sync',
     description: 'merge upstream changes into your app',
     options: [
-      { flags: '--log', description: 'write complete file list to cella-sync.log' },
-      { flags: '--hard', description: 'overwrite drifted files with upstream version (aggressive realignment)' },
+      logOption,
+      hardOption,
       { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
-      { flags: '--track <mode>', description: 'override upstream tracking for this run: release|branch' },
-      { flags: '--ref <ref>', description: 'pin the upstream commit for this run: sha, release tag or branch' },
+      trackOption,
+      refOption,
       { flags: '--keep-config', description: 'merge with your sync config as it stands when upstream changed its own' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
@@ -141,7 +171,7 @@ const serviceDefinitions: ServiceDefinition[] = [
     description: 'list the upstream migration notes this app has not handled yet',
     options: [
       { flags: '--all', description: 'list every upstream note, handled or not' },
-      { flags: '--json', description: 'machine-readable output for tooling/agents' },
+      jsonOption,
       { flags: '--show <id>', description: "print one note's README" },
       { flags: '--extract <id>', description: "write one note's folder under node_modules/.cache to run its codemod" },
       { flags: '--run <id>', description: "run one note's codemod; files identical to upstream stay as they are" },
@@ -169,8 +199,8 @@ const serviceDefinitions: ServiceDefinition[] = [
     options: [
       { flags: '--fork <name>', description: 'pre-select fork by name (skips fork selection prompt)' },
       { flags: '--log', description: 'write complete file list to cella-sync.log for each synced fork' },
-      { flags: '-V, --verbose', description: 'show detailed output during operations' },
-      { flags: '--hard', description: 'overwrite drifted files with upstream version (aggressive realignment)' },
+      verboseOption,
+      hardOption,
       {
         flags: '--keep-config',
         description: "merge with the fork's sync config as it stands when upstream changed its own",
@@ -193,16 +223,16 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'stats',
     description: 'count files by category and workspace package',
     options: [
-      { flags: '-V, --verbose', description: 'show detailed output during operations' },
+      verboseOption,
       { flags: '--coverage', description: 'regenerate test coverage before showing the stats summary' },
     ],
   },
 ];
 
-async function getMenuContext(userConfig: CellaCliConfig, forkPath: string): Promise<MenuContext> {
+function getMenuContext(userConfig: CellaCliConfig, forkPath: string): MenuContext {
   return {
     hasForks: (userConfig.forks?.length ?? 0) > 0,
-    isUpstreamRepo: JSON.parse(readFileSync(join(forkPath, 'package.json'), 'utf8')).name === 'cella',
+    isUpstreamRepo: isUpstreamRepo(forkPath),
   };
 }
 
@@ -221,7 +251,7 @@ function buildServiceChoices(context: MenuContext) {
 
   return [
     ...baseChoices,
-    { type: 'separator' as const, separator: '─'.repeat(40) },
+    { type: 'separator' as const, separator: MENU_DIVIDER },
     { value: 'exit' as const, name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
   ];
 }
@@ -299,7 +329,7 @@ function parseCommandLine(argv: string[]): CliServiceSelection {
 async function promptForService(userConfig: CellaCliConfig, forkPath: string): Promise<SyncService> {
   const selected = await select<SyncService | 'exit'>({
     message: 'choose a service:',
-    choices: buildServiceChoices(await getMenuContext(userConfig, forkPath)),
+    choices: buildServiceChoices(getMenuContext(userConfig, forkPath)),
     loop: false,
   });
 

@@ -8,7 +8,14 @@ import { writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
-import type { AnalysisSummary, AnalyzedFile, FileStatus, MergeResult } from '../config/types';
+import type {
+  AnalysisSummary,
+  AnalyzedFile,
+  CommitRangeEntry,
+  FileStatus,
+  MergeResult,
+  RuntimeConfig,
+} from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
 import { CONFIG_FILE, isManagedFile } from './managed-files';
@@ -34,11 +41,17 @@ export interface LinkOptions {
 /** Line divider */
 export const DIVIDER = '─'.repeat(60);
 
+/** Divider used above the exit entry of interactive menus */
+export const MENU_DIVIDER = '─'.repeat(40);
+
+/** Most recent upstream commits shown per commit list (fetch detail, PR body) */
+export const COMMIT_LIST_MAX = 50;
+
 /** Warning mark for non-fatal warnings */
 export const warningMark = pc.yellow('⚠');
 
 /** Check mark for successful status lines */
-const checkMark = pc.green('✓');
+export const checkMark = pc.green('✓');
 
 interface Spinner {
   text: string;
@@ -223,21 +236,14 @@ function getVsCodeOpenFileLink(filePath: string, options: LinkOptions): string {
   return hyperlink(filePath, url);
 }
 
-/** Commit info used for sync progress output */
-interface SyncCommitInfo {
-  hash: string;
-  message: string;
-  date: string;
-}
-
 /**
  * Format the fetched-upstream detail block with clickable short commit hashes.
  */
 export function formatFetchedUpstreamDetail(
   commitCount: number,
-  commits: SyncCommitInfo[],
+  commits: CommitRangeEntry[],
   upstreamGitHubUrl?: string,
-  maxShownCommits = 50,
+  maxShownCommits = COMMIT_LIST_MAX,
 ): string {
   const commitLabel = commitCount === 1 ? '1 new commit' : `${commitCount} new commits`;
   const lines = [`${commitLabel} since last merge`];
@@ -385,23 +391,11 @@ const statusOrder = Object.keys(statusConfig) as FileStatus[];
 /**
  * Print the analysis summary.
  */
-export function printSummary(summary: AnalysisSummary, title = 'summary'): void {
+function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   printSectionHeader(pc.cyan(title));
 
   // Format counts with padding.
-  const maxCount = Math.max(
-    summary.managed,
-    summary.ignored,
-    summary.identical,
-    summary.ahead,
-    summary.local,
-    summary.drifted,
-    summary.behind,
-    summary.diverged,
-    summary.pinned,
-    summary.deleted,
-    summary.renamed,
-  );
+  const maxCount = Math.max(...statusOrder.map((status) => summary[status]), summary.managed);
   const countWidth = String(maxCount).length + 1;
 
   // Helper to print a status line using unified config
@@ -602,7 +596,7 @@ export function printAnalysisFileGroups(
 /**
  * Write full file list to log file.
  */
-export function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
+function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
   const logPath = join(forkPath, 'cella-sync.log');
 
   const lines: string[] = [
@@ -644,12 +638,12 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
 
   console.info();
   if (options.stagedBranch) {
-    console.info(`${pc.green('✓')} Sync merge staged on '${options.stagedBranch}'`);
+    console.info(`${checkMark} Sync merge staged on '${options.stagedBranch}'`);
     console.info(
       pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. Committing next...`),
     );
   } else {
-    console.info(`${pc.green('✓')} sync complete`);
+    console.info(`${checkMark} sync complete`);
     console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
   }
 
@@ -753,12 +747,6 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
 }
 
 /**
- * Print warnings for aggressive sync flags (--hard / --unpinned) after completion.
- *
- * Explains what each active flag did and its consequence, and adds a shared
- * caution to cherry-pick deliberately when either is used.
- */
-/**
  * A pinned file whose fork content is byte-identical to the previous upstream (status
  * `behind`) never actually diverged — the pin is silently freezing it at the old upstream
  * version and dropping upstream's new changes. Because the fork copy equals the old
@@ -782,7 +770,7 @@ export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
  * Warn when pins are masking upstream changes (see `findMaskingPins`). Silent by design
  * when there is nothing to report, so it is safe to call unconditionally after a summary.
  */
-export function printMaskingPinWarning(files: AnalyzedFile[]): void {
+function printMaskingPinWarning(files: AnalyzedFile[]): void {
   const masking = findMaskingPins(files);
   if (masking.length === 0) return;
 
@@ -803,6 +791,12 @@ export function printMaskingPinWarning(files: AnalyzedFile[]): void {
   console.info();
 }
 
+/**
+ * Print warnings for aggressive sync flags (--hard / --unpinned) after completion.
+ *
+ * Explains what each active flag did and its consequence, and adds a shared
+ * caution to cherry-pick deliberately when either is used.
+ */
 export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean }): void {
   const { hard, unpinned } = options;
   if (!hard && !unpinned) return;
@@ -819,4 +813,24 @@ export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean 
   }
   console.info(pc.yellow('  Be extra careful & cherrypick what you want only.'));
   console.info();
+}
+
+/**
+ * Print the post-engine report block shared by analyze and sync: the summary, then the upstream
+ * changes the sync never brings in (ignored paths and upstream's own sync config), and pins that
+ * silently freeze a file at the old upstream (no conflict, no type error).
+ */
+export function printEngineReports(result: MergeResult, title: string): void {
+  printSummary(result.summary, title);
+  printIgnoredUpstreamChanges(result);
+  printUpstreamOverrideChanges(result);
+  printMaskingPinWarning(result.files);
+}
+
+/** Write the full file list to cella-sync.log when --log was passed, and print where it landed. */
+export function printLogFileReport(config: Pick<RuntimeConfig, 'forkPath' | 'logFile'>, files: AnalyzedFile[]): void {
+  if (!config.logFile) return;
+  const logPath = writeLogFile(config.forkPath, files);
+  console.info();
+  console.info(pc.dim(`full file list written to: ${logPath}`));
 }

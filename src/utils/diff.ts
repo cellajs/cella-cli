@@ -11,6 +11,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import process from 'node:process';
+import { MAX_BUFFER } from './git';
 
 /**
  * Run `git diff` for a single file.
@@ -37,7 +38,7 @@ export function gitDiffFile(
   args.push(range, '--', filePath);
 
   try {
-    return execFileSync('git', args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+    return execFileSync('git', args, { cwd, maxBuffer: MAX_BUFFER });
   } catch (error) {
     const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
     throw new Error(stderr || `failed to diff ${filePath}`);

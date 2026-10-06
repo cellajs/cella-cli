@@ -114,7 +114,7 @@ describe('sync from a linked worktree', () => {
       exec('git fetch -q cella-upstream', worktreePath);
 
       expect(await mergeInProgress(worktreePath)).toBe(false);
-      await merge(worktreePath, 'cella-upstream/main', { noCommit: true, noEdit: true });
+      await merge(worktreePath, 'cella-upstream/main');
       expect(await mergeInProgress(worktreePath)).toBe(true);
       expect(await mergeInProgress(env.forkPath)).toBe(false);
     });
