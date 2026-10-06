@@ -15,7 +15,7 @@ import {
   isUnderAnyFolder,
   validateOverrides,
 } from '../src/utils/overrides';
-import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from './e2e/helpers/test-env';
+import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from './helpers/test-env';
 
 /** Helper to build a minimal config with overrides */
 function buildConfig(overrides: { pinned?: string[]; ignored?: string[] }): CellaCliConfig {

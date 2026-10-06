@@ -5,12 +5,11 @@
  * previous CLI. `readUpstreamCliRange` reads the range from upstream's root package.json at a ref,
  * and `cliVersionMismatch` blocks only when the running CLI is below the range's lower bound.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { cliVersionMismatch, readUpstreamCliRange } from '../src/utils/cli-version';
+import { createRepo, exec } from './helpers/test-env';
 
 describe('cliVersionMismatch', () => {
   it('blocks a CLI below the lower bound and names the range to install', () => {
@@ -45,21 +44,11 @@ describe('cliVersionMismatch', () => {
 describe('readUpstreamCliRange', () => {
   let repoPath: string;
 
-  function exec(cmd: string): string {
-    return execSync(cmd, { cwd: repoPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  }
-
   /** Commit a root package.json (raw source) and return the commit sha. */
   function commitPackageJson(source: string): string {
     fs.writeFileSync(path.join(repoPath, 'package.json'), source);
-    exec('git add -A && git commit -q -m step');
-    return exec('git rev-parse HEAD');
-  }
-
-  function createRepo(): void {
-    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-cli-version-'));
-    exec('git init -q -b main');
-    exec('git config user.email "test@test.com" && git config user.name "Test"');
+    exec('git add -A && git commit -q -m step', repoPath);
+    return exec('git rev-parse HEAD', repoPath);
   }
 
   afterEach(() => {
@@ -67,7 +56,7 @@ describe('readUpstreamCliRange', () => {
   });
 
   it('reads the range at the given ref, from devDependencies or dependencies', async () => {
-    createRepo();
+    repoPath = createRepo('cella-cli-version-');
     const older = commitPackageJson(JSON.stringify({ devDependencies: { '@cellajs/cli': '^0.2.2' } }));
     const newer = commitPackageJson(JSON.stringify({ dependencies: { '@cellajs/cli': '^0.2.3' } }));
 
@@ -76,7 +65,7 @@ describe('readUpstreamCliRange', () => {
   });
 
   it('returns null when upstream names no CLI, has no package.json or an unparsable one', async () => {
-    createRepo();
+    repoPath = createRepo('cella-cli-version-');
     const none = commitPackageJson(JSON.stringify({ devDependencies: { typescript: '^6.0.0' } }));
     const broken = commitPackageJson('{ not json');
 

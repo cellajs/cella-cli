@@ -19,17 +19,12 @@ import {
   readRepoFile,
   resetFork,
   type TestEnv,
-} from './helpers/test-env';
+} from '../helpers/test-env';
 
 // The full `runSyncCommand` flow runs `pnpm install` + `pnpm check` before it commits, and asks for `gh`
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  const spawnSync = (command: string, ...rest: unknown[]) => {
-    if (command === 'pnpm') return { status: 0, stdout: '', stderr: '' };
-    if (command === 'gh') return { status: 1, stdout: '', stderr: '' };
-    return (actual.spawnSync as (...args: unknown[]) => unknown)(command, ...rest);
-  };
-  return { ...actual, spawnSync };
+  const { mockPnpmAndGh } = await import('../helpers/mock-pnpm-gh');
+  return mockPnpmAndGh(await importOriginal<typeof import('node:child_process')>());
 });
 
 const note = (title: string) =>

@@ -22,7 +22,7 @@ import {
   resetFork,
   type TestEnv,
   tagUpstream,
-} from './helpers/test-env';
+} from '../helpers/test-env';
 
 describe('sync e2e', () => {
   let env: TestEnv;

@@ -7,28 +7,18 @@
  * Covers the worktree-aware git helpers and full `runSyncCommand` runs, with `pnpm` (install +
  * check) stubbed and `gh` reported missing.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { RuntimeConfig } from '../src/config/types';
-import { runSyncCommand } from '../src/services/sync';
-import { fastForwardBranch, getBranchWorktree, getUpstreamStatus, merge, mergeInProgress } from '../src/utils/git';
-import { buildRuntimeConfig, createTestEnv, makeCommit, type TestEnv } from './e2e/helpers/test-env';
+import type { RuntimeConfig } from '../../src/config/types';
+import { runSyncCommand } from '../../src/services/sync';
+import { fastForwardBranch, getBranchWorktree, getUpstreamStatus, merge, mergeInProgress } from '../../src/utils/git';
+import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv } from '../helpers/test-env';
 
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  const spawnSync = (command: string, ...rest: unknown[]) => {
-    if (command === 'pnpm') return { status: 0, stdout: '', stderr: '' };
-    if (command === 'gh') return { status: 1, stdout: '', stderr: '' };
-    return (actual.spawnSync as (...args: unknown[]) => unknown)(command, ...rest);
-  };
-  return { ...actual, spawnSync };
+  const { mockPnpmAndGh } = await import('../helpers/mock-pnpm-gh');
+  return mockPnpmAndGh(await importOriginal<typeof import('node:child_process')>());
 });
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
 
 /**
  * Fork with an `origin` (bare clone) that `main` tracks, plus a linked worktree at `<testDir>/wt`.

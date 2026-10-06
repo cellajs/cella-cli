@@ -7,27 +7,17 @@
  * fresh cycle instead of shipping an empty sync branch. Full `runSyncCommand` runs, with `pnpm`
  * (install + check) stubbed and `gh` reported missing.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UpstreamConfigChangedError } from '../src/services/merge-engine';
-import { runSyncCommand } from '../src/services/sync';
-import { buildRuntimeConfig, createTestEnv, makeCommit, type TestEnv, tagUpstream } from './e2e/helpers/test-env';
+import { UpstreamConfigChangedError } from '../../src/services/merge-engine';
+import { runSyncCommand } from '../../src/services/sync';
+import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv, tagUpstream } from '../helpers/test-env';
 
 vi.mock('node:child_process', async (importOriginal) => {
-  const actual = await importOriginal<typeof import('node:child_process')>();
-  const spawnSync = (command: string, ...rest: unknown[]) => {
-    if (command === 'pnpm') return { status: 0, stdout: '', stderr: '' };
-    if (command === 'gh') return { status: 1, stdout: '', stderr: '' };
-    return (actual.spawnSync as (...args: unknown[]) => unknown)(command, ...rest);
-  };
-  return { ...actual, spawnSync };
+  const { mockPnpmAndGh } = await import('../helpers/mock-pnpm-gh');
+  return mockPnpmAndGh(await importOriginal<typeof import('node:child_process')>());
 });
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
 
 /** Upstream sync config with the given pinned entries and package.json keys. */
 const upstreamConfig = (pinned: string[], packageJsonSync: string[]) =>

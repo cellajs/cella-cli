@@ -4,9 +4,7 @@
  * Tests getFileChanges (diff-tree parsing) and getFileHashesAtRef (ls-tree parsing)
  * using real git repos to verify correct output interpretation.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -20,21 +18,12 @@ import {
   listCommitsBetween,
   storeLastSyncRef,
 } from '../src/utils/git';
+import { createRepo, exec } from './helpers/test-env';
 
-/** Execute a shell command in a directory */
-function exec(cmd: string, cwd?: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
-
-/** Create a minimal git repo with an initial commit */
-function createRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-git-test-'));
-  // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
-  exec('git init -b main', dir);
-  exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
+/** Minimal git repo with an initial commit and the manifest dir */
+function createManifestRepo(): string {
+  const dir = createRepo('cella-git-test-', { 'initial.txt': 'initial\n' });
   fs.mkdirSync(path.join(dir, 'cella')); // sync manifest lives at cella/cella.manifest.json
-  fs.writeFileSync(path.join(dir, 'initial.txt'), 'initial\n');
-  exec('git add -A && git commit -m "initial"', dir);
   return dir;
 }
 
@@ -42,7 +31,7 @@ describe('git parsing', () => {
   let repoPath: string;
 
   beforeEach(() => {
-    repoPath = createRepo();
+    repoPath = createManifestRepo();
   });
 
   afterEach(() => {

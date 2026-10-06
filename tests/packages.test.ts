@@ -4,18 +4,12 @@
  * Tests the three-way merge against the merge-base (add, follow upstream where the fork never
  * touched an entry, keep the fork's own changes) using real git repos with package.json files.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PackageJsonSyncKey, RuntimeConfig } from '../src/config/types';
 import { runPackages } from '../src/services/packages';
-
-/** Execute a shell command in a directory */
-function exec(cmd: string, cwd?: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
+import { createTestEnv, exec, type TestEnv } from './helpers/test-env';
 
 /** Read and parse package.json from a path */
 function readPkg(dir: string, relativePath = ''): Record<string, unknown> {
@@ -30,21 +24,11 @@ function writePkg(dir: string, data: Record<string, unknown>, relativePath = '')
 }
 
 describe('packages merge', () => {
-  let testDir: string;
+  let env: TestEnv;
   let upstreamPath: string;
   let forkPath: string;
 
   beforeEach(() => {
-    testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-pkg-test-'));
-    upstreamPath = path.join(testDir, 'upstream');
-    forkPath = path.join(testDir, 'fork');
-
-    // Create upstream repo with root package.json
-    fs.mkdirSync(upstreamPath);
-    // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
-    exec('git init -b main', upstreamPath);
-    exec('git config user.email "test@test.com" && git config user.name "Test"', upstreamPath);
-
     const rootPkg = {
       name: 'test-upstream',
       version: '1.0.0',
@@ -57,17 +41,14 @@ describe('packages merge', () => {
         typescript: '^5.3.0',
       },
     };
-    fs.writeFileSync(path.join(upstreamPath, 'package.json'), `${JSON.stringify(rootPkg, null, 2)}\n`);
-    exec('git add -A && git commit -m "initial"', upstreamPath);
-
-    // Clone as fork
-    exec(`git clone ${upstreamPath} ${forkPath}`);
-    exec('git config user.email "test@test.com" && git config user.name "Test"', forkPath);
-    exec('git remote rename origin cella-upstream', forkPath);
+    // The upstream + fork pair starts from a root package.json only
+    env = createTestEnv({ files: { 'package.json': `${JSON.stringify(rootPkg, null, 2)}\n` } });
+    upstreamPath = env.upstreamPath;
+    forkPath = env.forkPath;
   });
 
   afterEach(() => {
-    fs.rmSync(testDir, { recursive: true, force: true });
+    env.cleanup();
   });
 
   /** Build a RuntimeConfig for the packages service */

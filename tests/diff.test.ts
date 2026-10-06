@@ -6,17 +6,13 @@
  * opener). We shim `open`/`xdg-open` on PATH so the opener's arguments are
  * recorded instead of launching a real browser.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitDiffFile, openDiffInBrowser, renderDiffPage } from '../src/utils/diff';
 import { getEnv } from '../src/utils/env';
-
-function exec(cmd: string, cwd?: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
+import { exec, GIT_USER } from './helpers/test-env';
 
 describe('diff helpers', () => {
   let testDir: string;
@@ -48,7 +44,7 @@ describe('diff helpers', () => {
     // Real git repo with a committed file used as the upstream side.
     fs.mkdirSync(forkPath);
     exec('git init -b main', forkPath);
-    exec('git config user.email "test@test.com" && git config user.name "Test"', forkPath);
+    exec(GIT_USER, forkPath);
     fs.writeFileSync(path.join(forkPath, 'x.ts'), 'const side = "upstream content";\n');
     exec('git add -A && git commit -m "initial"', forkPath);
 

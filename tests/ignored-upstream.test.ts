@@ -6,9 +6,7 @@
  * flags it `upstreamOnly`, `groupIgnoredUpstreamChanges` groups it by its `ignored` entry, and
  * `printIgnoredUpstreamChanges` prints one line plus a `git diff` hint per entry.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
@@ -17,15 +15,7 @@ import { findProtectedBehind, printIgnoredUpstreamChanges } from '../src/utils/d
 import { getMergeBase } from '../src/utils/git';
 import { isGeneratedFile } from '../src/utils/managed-files';
 import { groupIgnoredUpstreamChanges, isUnderAnyFolder } from '../src/utils/overrides';
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
-
-function write(dir: string, file: string, content: string): void {
-  fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-  fs.writeFileSync(path.join(dir, file), content);
-}
+import { createRepo, exec, write } from './helpers/test-env';
 
 const IGNORED = [
   'own',
@@ -50,41 +40,47 @@ const IGNORED = [
  * - sdk/gen/sdk.ts, frontend/src/routes/routeTree.gen.ts: upstream changed → generated, never flagged
  * - backend/drizzle/0001_init.sql: upstream changed, 0002_add_column.sql added → upstreamOnly
  */
-function createRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-ignored-upstream-'));
-  exec('git init -b main', dir);
-  exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
+function createScenarioRepo(): string {
+  const dir = createRepo('cella-ignored-upstream-');
 
-  write(dir, 'own/changed.ts', 'a\n');
-  write(dir, 'own/gone.ts', 'a\n');
-  write(dir, 'own/both.ts', 'a\n');
-  write(dir, 'own/fork-only.ts', 'a\n');
-  write(dir, 'own/package.json', '{}\n');
-  write(dir, 'own/nested/deep.ts', 'a\n');
-  write(dir, 'untouched/keep.ts', 'a\n');
-  write(dir, 'plain.ts', 'a\n');
-  write(dir, 'sdk/gen/sdk.ts', 'export const sdk = 1;\n');
-  write(dir, 'frontend/src/routes/routeTree.gen.ts', 'export const routeTree = [];\n');
-  write(dir, 'backend/drizzle/0001_init.sql', 'CREATE TABLE users (id text);\n');
+  write(dir, {
+    'own/changed.ts': 'a\n',
+    'own/gone.ts': 'a\n',
+    'own/both.ts': 'a\n',
+    'own/fork-only.ts': 'a\n',
+    'own/package.json': '{}\n',
+    'own/nested/deep.ts': 'a\n',
+    'untouched/keep.ts': 'a\n',
+    'plain.ts': 'a\n',
+    'sdk/gen/sdk.ts': 'export const sdk = 1;\n',
+    'frontend/src/routes/routeTree.gen.ts': 'export const routeTree = [];\n',
+    'backend/drizzle/0001_init.sql': 'CREATE TABLE users (id text);\n',
+  });
   exec('git add -A && git commit -q -m base', dir);
 
   exec('git checkout -q -b upstream', dir);
-  write(dir, 'own/changed.ts', 'a\nnewKey: true\n');
-  write(dir, 'own/new.ts', 'export const added = true;\n');
+  write(dir, {
+    'own/changed.ts': 'a\nnewKey: true\n',
+    'own/new.ts': 'export const added = true;\n',
+  });
   fs.rmSync(path.join(dir, 'own/gone.ts'));
-  write(dir, 'own/both.ts', 'a\nupstream\n');
-  write(dir, 'own/package.json', '{ "version": "2" }\n');
-  write(dir, 'own/nested/deep.ts', 'a\nupstream\n');
-  write(dir, 'plain.ts', 'a\nupstream\n');
-  write(dir, 'sdk/gen/sdk.ts', 'export const sdk = 2;\n');
-  write(dir, 'frontend/src/routes/routeTree.gen.ts', "export const routeTree = ['/about'];\n");
-  write(dir, 'backend/drizzle/0001_init.sql', 'CREATE TABLE users (id text PRIMARY KEY);\n');
-  write(dir, 'backend/drizzle/0002_add_column.sql', 'ALTER TABLE users ADD COLUMN name text;\n');
+  write(dir, {
+    'own/both.ts': 'a\nupstream\n',
+    'own/package.json': '{ "version": "2" }\n',
+    'own/nested/deep.ts': 'a\nupstream\n',
+    'plain.ts': 'a\nupstream\n',
+    'sdk/gen/sdk.ts': 'export const sdk = 2;\n',
+    'frontend/src/routes/routeTree.gen.ts': "export const routeTree = ['/about'];\n",
+    'backend/drizzle/0001_init.sql': 'CREATE TABLE users (id text PRIMARY KEY);\n',
+    'backend/drizzle/0002_add_column.sql': 'ALTER TABLE users ADD COLUMN name text;\n',
+  });
   exec('git add -A && git commit -q -m upstream', dir);
 
   exec('git checkout -q main', dir);
-  write(dir, 'own/both.ts', 'a\nfork\n');
-  write(dir, 'own/fork-only.ts', 'a\nfork\n');
+  write(dir, {
+    'own/both.ts': 'a\nfork\n',
+    'own/fork-only.ts': 'a\nfork\n',
+  });
   exec('git add -A && git commit -q -m fork', dir);
 
   return dir;
@@ -96,7 +92,7 @@ describe('ignored paths only upstream changed', () => {
   let byPath: Map<string, AnalyzedFile>;
 
   beforeEach(async () => {
-    repoPath = createRepo();
+    repoPath = createScenarioRepo();
     const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
     files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
       isIgnored: (p) => isUnderAnyFolder(p, IGNORED),

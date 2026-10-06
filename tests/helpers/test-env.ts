@@ -1,30 +1,67 @@
 /**
- * E2E test environment helpers.
+ * Shared test scaffolding.
  *
- * Creates local git repos for testing sync services without network dependencies.
- * Each test gets isolated upstream + fork repos that are cleaned up after.
+ * Creates local git repos for testing against real git without network dependencies:
+ * low-level helpers (exec, write, commitAll, createRepo) for single-repo unit tests, and
+ * the isolated upstream + fork pair (createTestEnv) the sync e2e tests run against.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { CellaCliConfig, RuntimeConfig, SyncService } from '../../../src/config/types';
+import type { CellaCliConfig, RuntimeConfig, SyncService } from '../../src/config/types';
 
 /** Git config for test commits */
-const GIT_USER = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
+export const GIT_USER = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
 
 /** Upstream remote name used by sync CLI */
-const UPSTREAM_REMOTE = 'cella-upstream';
+export const UPSTREAM_REMOTE = 'cella-upstream';
 
 /**
  * Execute a shell command synchronously.
  */
-function exec(cmd: string, cwd?: string): string {
+export function exec(cmd: string, cwd?: string): string {
   return execSync(cmd, {
     cwd,
     encoding: 'utf-8',
     stdio: ['pipe', 'pipe', 'pipe'],
   }).trim();
+}
+
+/**
+ * Write files into a repo (creating parent directories) without committing.
+ */
+export function write(repoPath: string, files: Record<string, string>): void {
+  for (const [rel, content] of Object.entries(files)) {
+    const full = path.join(repoPath, rel);
+    fs.mkdirSync(path.dirname(full), { recursive: true });
+    fs.writeFileSync(full, content);
+  }
+}
+
+/**
+ * Stage everything and commit. Returns the commit sha.
+ */
+export function commitAll(repoPath: string, message: string): string {
+  exec('git add -A', repoPath);
+  exec(`git commit -m "${message}"`, repoPath);
+  return exec('git rev-parse HEAD', repoPath);
+}
+
+/**
+ * Create a temp git repo on `main` with the test identity.
+ * With `files`, they are committed as the initial commit; without, the repo starts empty.
+ */
+export function createRepo(prefix: string, files?: Record<string, string>): string {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+  // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
+  exec('git init -b main', dir);
+  exec(GIT_USER, dir);
+  if (files) {
+    write(dir, files);
+    commitAll(dir, 'initial');
+  }
+  return dir;
 }
 
 /**
@@ -45,9 +82,10 @@ export interface TestEnv {
  * Create a fresh test environment with upstream and fork repos.
  *
  * Both repos start with the same initial commit, then can be modified
- * independently to create various sync scenarios.
+ * independently to create various sync scenarios. `files` replaces the
+ * default initial upstream content.
  */
-export function createTestEnv(): TestEnv {
+export function createTestEnv(options: { files?: Record<string, string> } = {}): TestEnv {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-e2e-'));
   const upstreamPath = path.join(testDir, 'upstream');
   const forkPath = path.join(testDir, 'fork');
@@ -58,21 +96,16 @@ export function createTestEnv(): TestEnv {
   exec('git init -b main', upstreamPath);
   exec(GIT_USER, upstreamPath);
 
-  // Create initial files
-  fs.mkdirSync(path.join(upstreamPath, 'backend', 'src'), { recursive: true });
-  fs.mkdirSync(path.join(upstreamPath, 'frontend', 'src'), { recursive: true });
-  fs.writeFileSync(
-    path.join(upstreamPath, 'backend', 'src', 'index.ts'),
-    '// Backend entry\nexport const backend = true;\n',
+  write(
+    upstreamPath,
+    options.files ?? {
+      'backend/src/index.ts': '// Backend entry\nexport const backend = true;\n',
+      'frontend/src/index.ts': '// Frontend entry\nexport const frontend = true;\n',
+      'README.md': '# Test Repo\n',
+      'package.json': '{"name": "test-upstream"}\n',
+    },
   );
-  fs.writeFileSync(
-    path.join(upstreamPath, 'frontend', 'src', 'index.ts'),
-    '// Frontend entry\nexport const frontend = true;\n',
-  );
-  fs.writeFileSync(path.join(upstreamPath, 'README.md'), '# Test Repo\n');
-  fs.writeFileSync(path.join(upstreamPath, 'package.json'), '{"name": "test-upstream"}\n');
-
-  exec('git add -A && git commit -m "Initial commit"', upstreamPath);
+  commitAll(upstreamPath, 'Initial commit');
 
   // Clone to create fork (same starting point)
   exec(`git clone ${upstreamPath} ${forkPath}`);
@@ -101,21 +134,8 @@ export function makeCommit(
     message: string;
   },
 ): string {
-  const { files, message } = options;
-
-  for (const [filePath, content] of Object.entries(files)) {
-    const fullPath = path.join(repoPath, filePath);
-    const dir = path.dirname(fullPath);
-    if (!fs.existsSync(dir)) {
-      fs.mkdirSync(dir, { recursive: true });
-    }
-    fs.writeFileSync(fullPath, content);
-  }
-
-  exec('git add -A', repoPath);
-  exec(`git commit -m "${message}"`, repoPath);
-
-  return exec('git rev-parse HEAD', repoPath);
+  write(repoPath, options.files);
+  return commitAll(repoPath, options.message);
 }
 
 /**
