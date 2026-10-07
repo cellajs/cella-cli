@@ -38,6 +38,8 @@ type CliOptionState = Pick<
   | 'force'
   | 'checkOverrides'
   | 'coverage'
+  | 'since'
+  | 'md'
   | 'all'
   | 'show'
   | 'extract'
@@ -96,6 +98,8 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
     force: opts.force === true,
     checkOverrides: opts.checkOverrides === true,
     coverage: opts.coverage === true,
+    since: typeof opts.since === 'string' && opts.since ? opts.since : undefined,
+    md: opts.md === true,
     all: opts.all === true,
     show: typeof opts.show === 'string' ? opts.show : undefined,
     extract: typeof opts.extract === 'string' ? opts.extract : undefined,
@@ -195,6 +199,11 @@ const serviceDefinitions: ServiceDefinition[] = [
     options: [
       { flags: '-V, --verbose', description: 'show detailed output during operations' },
       { flags: '--coverage', description: 'regenerate test coverage before showing the stats summary' },
+      {
+        flags: '--since <ref>',
+        description: 'count what the current branch changed since it left <ref>, by kind of file',
+      },
+      { flags: '--md', description: 'with --since: print the table as markdown for a pull request description' },
     ],
   },
 ];
@@ -271,6 +280,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella migrate --mark 20261002T0614-config-switch',
         '  $ cella audit --check-overrides',
+        '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),
     );
@@ -337,9 +347,9 @@ function buildRuntimeConfig(
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
   const selection = parseCommandLine(process.argv);
 
-  // In machine-output modes (--json, --diff), reserve stdout for the payload/patch
+  // In machine-output modes (--json, --diff, --md), reserve stdout for the payload/patch
   // and route all human output (header, warnings, spinner) to stderr.
-  if (selection.options.json || selection.options.diff) setJsonMode(true);
+  if (selection.options.json || selection.options.diff || selection.options.md) setJsonMode(true);
 
   // Print header
   printHeader();

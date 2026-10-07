@@ -133,6 +133,17 @@ describe('parseCli', () => {
     expect(config.runArgs).toEqual([]);
   });
 
+  it('parses the branch mode of stats', async () => {
+    process.argv = ['node', 'cella', 'stats', '--since', 'origin/main', '--md'];
+    const branch = await parseCli(baseConfig, '/tmp/fork');
+    expect(branch).toMatchObject({ service: 'stats', since: 'origin/main', md: true });
+
+    process.argv = ['node', 'cella', 'stats'];
+    const snapshot = await parseCli(baseConfig, '/tmp/fork');
+    expect(snapshot.since).toBeUndefined();
+    expect(snapshot.md).toBe(false);
+  });
+
   it('refuses arguments after the options without --run', async () => {
     process.argv = ['node', 'cella', 'migrate', '--', 'rewrite', 'frontend/src'];
     await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow(/unexpected argument 'rewrite'.*--run <id>/);
