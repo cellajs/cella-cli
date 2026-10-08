@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.3.2](https://github.com/cellajs/cella-cli/compare/cli-0.3.1...cli-0.3.2) (2026-10-08)
+
+
+### 🎉 New features
+
+* **stats:** count what a branch changed by kind of file with --since ([#42](https://github.com/cellajs/cella-cli/issues/42)) ([302bd9f](https://github.com/cellajs/cella-cli/commit/302bd9f02d7ba8bf691acac93198122cebb17353))
+* **sync:** stop before the merge when upstream changed its sync config, add migrate --run ([#39](https://github.com/cellajs/cella-cli/issues/39)) ([03ad3eb](https://github.com/cellajs/cella-cli/commit/03ad3eb65bc268318743be11fb500a9260688624))
+
+
+### 🔧 Small improvements
+
+* code consistency pass against cella house style ([#41](https://github.com/cellajs/cella-cli/issues/41)) ([b673615](https://github.com/cellajs/cella-cli/commit/b67361555ad3dc06493dc1e764900e659e8f26d4))
+
 ## [0.3.1](https://github.com/cellajs/cella-cli/compare/cli-0.3.0...cli-0.3.1) (2026-10-02)
 
 
