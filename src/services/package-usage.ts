@@ -45,7 +45,7 @@ function escapeRegExp(value: string): string {
 function readSearchable(filePath: string): string {
   try {
     if (statSync(filePath).size > MAX_FILE_BYTES) return '';
-    const text = readFileSync(filePath, 'utf-8');
+    const text = readFileSync(filePath, 'utf8');
     return text.includes('\0') ? '' : text;
   } catch {
     return '';
@@ -74,7 +74,7 @@ async function scriptSources(
 ): Promise<ForkSource[]> {
   let forkScripts: Record<string, string>;
   try {
-    forkScripts = JSON.parse(readFileSync(join(forkPath, path), 'utf-8')).scripts ?? {};
+    forkScripts = JSON.parse(readFileSync(join(forkPath, path), 'utf8')).scripts ?? {};
   } catch {
     return [];
   }
@@ -93,7 +93,7 @@ function binNames(forkPath: string, location: string, name: string): string[] {
     const manifest = join(dir, 'node_modules', name, 'package.json');
     if (!existsSync(manifest)) continue;
     try {
-      const { bin } = JSON.parse(readFileSync(manifest, 'utf-8'));
+      const { bin } = JSON.parse(readFileSync(manifest, 'utf8'));
       if (typeof bin === 'string') return [bareName];
       return bin && typeof bin === 'object' ? Object.keys(bin) : [];
     } catch {

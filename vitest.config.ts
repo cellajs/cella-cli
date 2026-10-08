@@ -10,7 +10,7 @@ export default defineProject({
   test: {
     name: 'cella',
     environment: 'node',
-    include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+    include: ['tests/**/*.test.ts'],
     exclude: ['tests/release-smoke.test.ts'],
     testTimeout: 30000,
     fileParallelism: true,

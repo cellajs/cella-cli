@@ -7,24 +7,13 @@
  * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync. Both lists
  * end with one `git diff <last-sync>..<upstream>` line per pinned/ignored entry.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyzedFile, FileStatus, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
 import { findProtectedBehind, printAnalysisFileGroups, printSyncComplete } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
-
-function write(dir: string, file: string, content: string): void {
-  fs.mkdirSync(path.dirname(path.join(dir, file)), { recursive: true });
-  fs.writeFileSync(path.join(dir, file), content);
-}
+import { createRepo, exec, write } from './helpers/test-env';
 
 /**
  * Repo with a `main` (fork) and `upstream` branch off one base commit:
@@ -36,33 +25,37 @@ function write(dir: string, file: string, content: string): void {
  * - stale.css:     pinned, fork dropped 2 base lines, upstream untouched → ahead, 2 lines absent
  * - own/stale.ts:  ignored, same shape as stale.css  → ignored, never annotated
  */
-function createRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-protected-behind-'));
-  exec('git init -b main', dir);
-  exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
+function createScenarioRepo(): string {
+  const dir = createRepo('cella-protected-behind-');
 
-  write(dir, 'pinned.css', 'a\nb\nc\n');
-  write(dir, 'only-fork.css', 'a\n');
-  write(dir, 'masking.css', 'a\n');
-  write(dir, 'own/mine.ts', 'a\n');
-  write(dir, 'plain.ts', 'a\n');
-  write(dir, 'stale.css', 'a\nb\nc\n');
-  write(dir, 'own/stale.ts', 'a\nb\n');
+  write(dir, {
+    'pinned.css': 'a\nb\nc\n',
+    'only-fork.css': 'a\n',
+    'masking.css': 'a\n',
+    'own/mine.ts': 'a\n',
+    'plain.ts': 'a\n',
+    'stale.css': 'a\nb\nc\n',
+    'own/stale.ts': 'a\nb\n',
+  });
   exec('git add -A && git commit -q -m base', dir);
 
   exec('git checkout -q -b upstream', dir);
-  write(dir, 'pinned.css', 'a\nb\nx\ny\nz\n'); // c removed, x y z added
-  write(dir, 'masking.css', 'a\nupstream\n');
-  write(dir, 'own/mine.ts', 'a\nupstream\n');
-  write(dir, 'plain.ts', 'a\nupstream\n');
+  write(dir, {
+    'pinned.css': 'a\nb\nx\ny\nz\n', // c removed, x y z added
+    'masking.css': 'a\nupstream\n',
+    'own/mine.ts': 'a\nupstream\n',
+    'plain.ts': 'a\nupstream\n',
+  });
   exec('git add -A && git commit -q -m upstream', dir);
 
   exec('git checkout -q main', dir);
-  write(dir, 'pinned.css', 'a\nb\nc\nfork\n');
-  write(dir, 'only-fork.css', 'a\nfork\n');
-  write(dir, 'own/mine.ts', 'a\nfork\n');
-  write(dir, 'stale.css', 'a\nfork\n'); // b, c gone: 2 upstream lines absent
-  write(dir, 'own/stale.ts', 'a\n');
+  write(dir, {
+    'pinned.css': 'a\nb\nc\nfork\n',
+    'only-fork.css': 'a\nfork\n',
+    'own/mine.ts': 'a\nfork\n',
+    'stale.css': 'a\nfork\n', // b, c gone: 2 upstream lines absent
+    'own/stale.ts': 'a\n',
+  });
   exec('git add -A && git commit -q -m fork', dir);
 
   return dir;
@@ -77,7 +70,7 @@ describe('analyzeRefs upstreamChanged', () => {
   let byPath: Map<string, AnalyzedFile>;
 
   beforeEach(async () => {
-    repoPath = createRepo();
+    repoPath = createScenarioRepo();
     const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
     const files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
       isIgnored: (p) => p.startsWith('own/'),
@@ -226,7 +219,6 @@ describe('printSyncComplete protected conflicts', () => {
       ignored: 0,
       deleted: 0,
       renamed: 0,
-      total: 0,
     },
   });
 

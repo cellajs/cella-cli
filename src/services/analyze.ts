@@ -1,8 +1,6 @@
 /**
- * Analyze service for sync CLI v2.
- *
- * Dry run of sync - shows what would change without applying.
- * Uses the same merge-engine as sync, but discards the result.
+ * Analyze service: a dry run of sync that shows what would change without applying.
+ * Runs the same merge engine as sync and discards the result.
  */
 
 import { basename } from 'node:path';
@@ -10,20 +8,17 @@ import type { MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import {
+  checkMark,
   createSpinner,
   type LinkOptions,
   printAnalysisFileGroups,
-  printIgnoredUpstreamChanges,
-  printMaskingPinWarning,
-  printSummary,
-  printUpstreamOverrideChanges,
+  printEngineReports,
+  printLogFileReport,
   spinnerSuccess,
-  spinnerText,
-  writeLogFile,
   writeStdout,
 } from '../utils/display';
 import { CONFIG_FILE } from '../utils/managed-files';
-import { runMergeEngine } from './merge-engine';
+import { runEngineWithSpinner } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
@@ -61,31 +56,17 @@ function findTargetFile(files: MergeResult['files'], targetPath: string) {
 
 function printUnifiedDiff(config: RuntimeConfig, filePath: string): void {
   // Label the upstream side 'cella/' and the local side with the repo's folder name
-  // so the diff reads cella/<path> vs <fork>/<path> instead of opaque a/ and b/.
+  // so the diff reads cella/<path> vs <fork>/<path>, not opaque a/ and b/.
   const diff = gitDiffFile(config.forkPath, `${config.upstreamRef}..HEAD`, filePath, {
     dstPrefix: basename(config.forkPath),
   });
   writeStdout(diff.toString());
 }
 
-/**
- * Run the analyze service (dry run).
- *
- * Creates worktree, performs merge, shows results, discards worktree.
- */
 export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   createSpinner('starting analysis...');
 
-  const result = await runMergeEngine(config, {
-    apply: false,
-    onProgress: (message) => {
-      spinnerText(message);
-    },
-    onStep: (label, detail) => {
-      spinnerSuccess(label, detail);
-      createSpinner('...');
-    },
-  });
+  const result = await runEngineWithSpinner(config, false);
 
   spinnerSuccess();
 
@@ -123,7 +104,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 
   if (config.list) {
     for (const file of scopedFiles) {
-      console.info(file.path);
+      writeStdout(file.path);
     }
     return result;
   }
@@ -132,12 +113,11 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     const file = findTargetFile(scopedFiles, config.openDiff) ?? findTargetFile(result.files, config.openDiff);
     if (!file) throw new Error(`file not found in analysis results: ${config.openDiff}`);
 
-    // Diff the upstream ref against the working tree (single ref, no range) so
-    // the rendered page includes uncommitted local changes — the same live view
-    // the old VS Code diff gave.
+    // Diff the upstream ref against the working tree (single ref, no range) so the
+    // rendered page includes uncommitted local changes: a live view of the file as it stands.
     const patch = gitDiffFile(config.forkPath, config.upstreamRef, file.path);
     if (patch.length === 0) {
-      console.info(`${pc.green('✓')} ${file.path} is identical to upstream`);
+      console.info(`${checkMark} ${file.path} is identical to upstream`);
       return result;
     }
 
@@ -151,12 +131,11 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       },
       config.forkPath,
     );
-    console.info(`${pc.green('✓')} opened browser diff for ${file.path}`);
+    console.info(`${checkMark} opened browser diff for ${file.path}`);
     console.info(pc.dim(`  ${pagePath}`));
     return result;
   }
 
-  // Build link options from result and config
   const linkOptions: LinkOptions = {
     upstreamGitHubUrl: result.upstreamGitHubUrl,
     upstreamBranch: result.upstreamBranch,
@@ -164,27 +143,14 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     forkPath: config.forkPath,
   };
 
-  // Print file lists first (analyze shows file lists for review)
+  // File lists first (analyze shows them for review); the summary and shared reports close the output.
   printAnalysisFileGroups(result.files, linkOptions, result);
 
-  // Print summary at the end
-  printSummary(result.summary, 'analysis summary');
-
-  // Surface upstream changes the sync never brings in: ignored paths and upstream's own sync config
-  printIgnoredUpstreamChanges(result);
-  printUpstreamOverrideChanges(result);
-
-  // Surface pins that would silently freeze a file at the old upstream on the next sync
-  printMaskingPinWarning(result.files);
+  printEngineReports(result, 'analysis summary');
 
   await printMigrationNotesLine(config, result);
 
-  // Write log file if requested
-  if (config.logFile) {
-    const logPath = writeLogFile(config.forkPath, result.files);
-    console.info();
-    console.info(pc.dim(`full file list written to: ${logPath}`));
-  }
+  printLogFileReport(config, result.files);
 
   console.info();
 

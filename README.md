@@ -18,9 +18,9 @@ pnpm cella audit
 | Service | Description |
 |---------|-------------|
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
-| `sync` | Merge upstream changes onto a fresh branch and open a squash-merge PR into `main` |
+| `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Check for outdated packages & vulnerabilities |
+| `audit` | Check for outdated packages and vulnerabilities |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -48,15 +48,15 @@ Per-service help: `pnpm cella <service> --help`.
 | Global flag | Description |
 |-------------|-------------|
 | `-v, --version` | Output the current version |
-| `-h, --help` | Display help message |
+| `-h, --help` | Display help for a command |
 
 ## Configuration
 
 Sync behavior lives in `cella.config.ts` at your monorepo root (a sensible default ships with new
 apps). To deviate files or folders from the template:
 
-- **`ignored`** — files completely excluded from sync (existing and new)
-- **`pinned`** — full fork control: existing, modified, or deleted files are preserved
+- **`ignored`**: files completely excluded from sync (existing and new)
+- **`pinned`**: full fork control, existing, modified, or deleted files are preserved
 
 An `ignored` entry may name a path your app does not have, to keep it from arriving (a file upstream
 has and your app deleted). Every run warns `ignored entry not found` only when neither your app nor
@@ -69,7 +69,7 @@ The sync CLI tracks upstream cella one of two ways, set via `settings.upstreamTr
 
 | Mode | Behavior | For |
 |------|----------|-----|
-| `release` (default) | Sync to a last cella release tag. Stable and reviewable — each bump maps to a changelog. | Most forks |
+| `release` (default) | Sync to a last cella release tag. Stable and reviewable: each bump maps to a changelog. | Most forks |
 | `branch` | Follow the bleeding-edge tip of `settings.upstreamBranch`. | cella maintainers, active development |
 
 For a one-off run that ignores the configured mode, pass `--track`:
@@ -101,12 +101,12 @@ main ──▶ cella/sync/<stamp> ──(3-way merge)──▶ PR ──(squash)
 ```
 
 It runs a real git 3-way merge. `sync` is **idempotent and staged**: each run advances the sync
-one stage, and the run that commits never ships — the pause on the committed branch is where
+one stage, and the run that commits never ships: the pause on the committed branch is where
 drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits happen.
 
 1. **First run** cuts the branch and merges. A clean merge is committed right away: dependencies
    are reconciled (`pnpm install` + `pnpm check`), everything is staged, and the delta is
-   committed — then the run stops on the branch. A conflicted merge stops earlier so you can
+   committed; then the run stops on the branch. A conflicted merge stops earlier so you can
    resolve in your IDE (`git add` the resolved files) and re-run to commit.
 2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
    opens a PR into `main` (via `gh`), and switches you back to `main`.
@@ -125,15 +125,15 @@ to it.
 
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: sync upstream cella <sha>`). This keeps the PR
-to one clean commit with the incremental diff — a two-parent merge commit would instead list the
+to one clean commit with the incremental diff; a two-parent merge commit would instead list the
 upstream branch's entire history, because the fork doesn't share pushed ancestry with upstream
 and the local `git replace` graft that makes merges incremental is never pushed. Ancestry lives
 in `refs/cella/last-sync` (and the committed `cella.manifest.json` for fresh clones), so
-`git merge-base` keeps working across throwaway branches — each is safe to delete once its PR
+`git merge-base` keeps working across throwaway branches; each is safe to delete once its PR
 lands. The three-segment name can't collide with git's ref namespacing.
 
 If conflicts remain when you re-run, `sync` lists them and stops (never starting a second cycle
-mid-merge). If `pnpm check`, the push, or `gh` fails, it degrades gracefully — reporting the
+mid-merge). If `pnpm check`, the push, or `gh` fails, it degrades gracefully, reporting the
 issue and printing the remaining manual steps:
 
 ```bash
@@ -205,7 +205,7 @@ customize). Unconfigured = syncs automatically. Run `pnpm cella analyze` first t
 
 ### Aggressive sync flags
 
-Two opt-in flags make `sync` more aggressive. Both resurface full upstream history (natural merge-base, not the last-sync point), so expect a larger diff and a post-run warning — cherry-pick deliberately. They compose (`--hard --unpinned`).
+Two opt-in flags make `sync` more aggressive. Both resurface full upstream history (natural merge-base, not the last-sync point), so expect a larger diff and a post-run warning: cherry-pick deliberately. They compose (`--hard --unpinned`).
 
 | Flag | Effect |
 |------|--------|
@@ -225,7 +225,7 @@ During analysis and sync, files are displayed with status indicators:
 | ! | `drifted` | Fork changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream has changes | Will sync from upstream |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
-| ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork — review, see below |
+| ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork: review, see below |
 | + | `local` | Only in fork, never in upstream | No action needed |
 
 ### Protected but behind upstream
@@ -346,9 +346,10 @@ forks: [
 
 ### Pulling contributions
 
-Run `pnpm cella contributions` (or pick **contributions** from the menu). Select one or more
-forks; cella fetches each fork's `pullBranch`, builds a clean local `contrib/<fork>` branch with
-only that fork's contributed files. Accepted files are checked out from the contrib branch and staged for review.
+Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
+fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
+contributed files. Accepted files are checked out from the contrib branch and staged for review.
+`--list` prints the result as tab-separated rows (fork, status, kind, changedAt, path) for tooling.
 
 ## Stats of a branch
 

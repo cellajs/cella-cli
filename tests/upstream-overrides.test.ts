@@ -7,14 +7,13 @@
  * `diffOverrideLists` keeps what the fork config does not follow, and `compareUpstreamOverrides`
  * runs both against upstream's config at two refs.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
-import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { CellaCliConfig, MergeResult, PackageJsonSyncKey } from '../src/config/types';
 import { printUpstreamOverrideChanges } from '../src/utils/display';
 import { compareUpstreamOverrides, diffOverrideLists, parseOverrideLists } from '../src/utils/upstream-overrides';
+import { createRepo, exec, write } from './helpers/test-env';
 
 /** The keys a config without `packageJsonSync` syncs. */
 const DEFAULT_KEYS = ['dependencies', 'devDependencies'];
@@ -169,29 +168,17 @@ describe('diffOverrideLists', () => {
 describe('compareUpstreamOverrides', () => {
   let repoPath: string;
 
-  function exec(cmd: string): string {
-    return execSync(cmd, { cwd: repoPath, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-  }
-
   /** Commit `files` (null deletes) and return the commit sha. */
   function commit(files: Record<string, string | null>): string {
     for (const [file, content] of Object.entries(files)) {
-      const full = path.join(repoPath, file);
       if (content === null) {
-        fs.rmSync(full, { force: true });
+        fs.rmSync(path.join(repoPath, file), { force: true });
       } else {
-        fs.mkdirSync(path.dirname(full), { recursive: true });
-        fs.writeFileSync(full, content);
+        write(repoPath, { [file]: content });
       }
     }
-    exec('git add -A && git commit -q --allow-empty -m step');
-    return exec('git rev-parse HEAD');
-  }
-
-  function createRepo(): void {
-    repoPath = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-upstream-overrides-'));
-    exec('git init -q -b main');
-    exec('git config user.email "test@test.com" && git config user.name "Test"');
+    exec('git add -A && git commit -q --allow-empty -m step', repoPath);
+    return exec('git rev-parse HEAD', repoPath);
   }
 
   afterEach(() => {
@@ -199,7 +186,7 @@ describe('compareUpstreamOverrides', () => {
   });
 
   it('reports what upstream added and removed since the merge-base', async () => {
-    createRepo();
+    repoPath = createRepo('cella-upstream-overrides-');
     const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, `'README.md', 'old'`) });
     const incoming = commit({
       'cella/cella.config.ts': configSource(
@@ -223,7 +210,7 @@ describe('compareUpstreamOverrides', () => {
   });
 
   it('reports a packageJsonSync key upstream added, against the default when the fork config names none', async () => {
-    createRepo();
+    repoPath = createRepo('cella-upstream-overrides-');
     const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const incoming = commit({
       'cella/cella.config.ts': configSource(
@@ -246,7 +233,7 @@ describe('compareUpstreamOverrides', () => {
   });
 
   it('reads the legacy root config path at an older merge-base', async () => {
-    createRepo();
+    repoPath = createRepo('cella-upstream-overrides-');
     const base = commit({ 'cella.config.ts': configSource(`'a.ts'`, '') });
     const incoming = commit({ 'cella.config.ts': null, 'cella/cella.config.ts': configSource(`'a.ts', 'b.ts'`, '') });
 
@@ -255,7 +242,7 @@ describe('compareUpstreamOverrides', () => {
   });
 
   it('stays silent when upstream has no config, it did not change, or the fork already follows', async () => {
-    createRepo();
+    repoPath = createRepo('cella-upstream-overrides-');
     const empty = commit({ 'other.ts': 'a' });
     const alsoEmpty = commit({ 'other.ts': 'b' });
     expect(await compareUpstreamOverrides(repoPath, empty, alsoEmpty, forkConfig({}))).toBeUndefined();
@@ -270,7 +257,7 @@ describe('compareUpstreamOverrides', () => {
   });
 
   it('degrades to unreadable when the config is missing or unparsable at one side', async () => {
-    createRepo();
+    repoPath = createRepo('cella-upstream-overrides-');
     const missing = commit({ 'other.ts': 'a' });
     const present = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const broken = commit({ 'cella/cella.config.ts': 'export default buildConfig(' });

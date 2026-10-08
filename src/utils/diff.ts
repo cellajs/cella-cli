@@ -1,9 +1,7 @@
 /**
- * Diff helpers for sync CLI v2.
- *
- * Shared logic for producing a single-file `git diff` and for rendering a diff
- * as a self-contained HTML page that opens in the default browser. Used by the
- * analyze and contributions services.
+ * Diff helpers: a single-file `git diff`, and a diff rendered as a self-contained
+ * HTML page that opens in the default browser. Used by the analyze and
+ * contributions services.
  */
 
 import { execFileSync } from 'node:child_process';
@@ -11,14 +9,15 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, join } from 'node:path';
 import process from 'node:process';
+import { MAX_BUFFER } from './git';
 
 /**
  * Run `git diff` for a single file.
  *
- * With `dstPrefix`, the sides are labeled `cella/<path>` vs `<dstPrefix>/<path>`
- * instead of opaque a/ and b/ — used for the `--diff` stdout mode where the
- * labels carry meaning. Without it, standard a/ b/ prefixes are kept, which the
- * HTML renderer's patch parser requires.
+ * With `dstPrefix`, the sides are labeled `cella/<path>` vs `<dstPrefix>/<path>`,
+ * not opaque a/ and b/: used for the `--diff` stdout mode where the labels carry
+ * meaning. Without it, standard a/ b/ prefixes are kept, which the HTML
+ * renderer's patch parser requires.
  *
  * @param cwd - Repo to run the diff in
  * @param range - Ref range (e.g. 'upstreamRef..HEAD'), or a single ref to diff
@@ -37,7 +36,7 @@ export function gitDiffFile(
   args.push(range, '--', filePath);
 
   try {
-    return execFileSync('git', args, { cwd, maxBuffer: 50 * 1024 * 1024 });
+    return execFileSync('git', args, { cwd, maxBuffer: MAX_BUFFER });
   } catch (error) {
     const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
     throw new Error(stderr || `failed to diff ${filePath}`);
@@ -45,7 +44,7 @@ export function gitDiffFile(
 }
 
 /** Labels shown in the header of a rendered diff page. */
-export interface DiffPageMeta {
+interface DiffPageMeta {
   /** File path shown in the page header and title */
   filePath: string;
   /** Label for the upstream side (e.g. 'cella') */
@@ -66,7 +65,7 @@ function escapeHtml(text: string): string {
  * Highlighting and diff layout come from `@pierre/diffs` (Shiki-based), rendered
  * server-side to static HTML: no scripts, no external requests, adapts to the
  * viewer's light/dark preference. The patch must use standard a/ b/ prefixes
- * (call `gitDiffFile` without `dstPrefix`); side labels belong in `meta` instead.
+ * (call `gitDiffFile` without `dstPrefix`); side labels belong in `meta`.
  */
 export async function renderDiffPage(patch: string, meta: DiffPageMeta): Promise<string> {
   // Lazy import: the CLI is a short-lived process and most invocations never
@@ -141,7 +140,7 @@ ${prerenderedHTML}
 }
 
 /** Open a file or URL with the platform's default handler (best-effort: a
- * missing or failing opener is not fatal — the page path is printed anyway). */
+ * missing or failing opener is not fatal; the page path is printed anyway). */
 function openWithDefaultApp(target: string): void {
   try {
     if (process.platform === 'win32') {

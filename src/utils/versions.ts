@@ -2,7 +2,7 @@
  * Version parsing shared by package.json merging and the CLI version check.
  */
 
-export interface ComparableVersion {
+interface ComparableVersion {
   major: number;
   minor: number;
   patch: number;
@@ -44,6 +44,7 @@ export function parseComparableVersion(version: string): ComparableVersion | nul
   };
 }
 
+/** Standard comparator: negative when `left` is lower, zero when equal, positive when higher. */
 export function compareVersions(left: ComparableVersion, right: ComparableVersion): number {
   if (left.major !== right.major) return left.major - right.major;
   if (left.minor !== right.minor) return left.minor - right.minor;

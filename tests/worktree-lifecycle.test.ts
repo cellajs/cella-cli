@@ -6,26 +6,13 @@
  * (before browser diffs replaced the view worktree), and pruning orphaned
  * git worktree registrations for both prefixes.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { cleanupLeftoverWorktrees, getWorktreePath } from '../src/utils/cleanup';
 import { createWorktree, listWorktrees, removeWorktree } from '../src/utils/git';
-
-function exec(cmd: string, cwd?: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
-
-function createRepo(): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-worktree-test-'));
-  exec('git init -b main', dir);
-  exec('git config user.email "test@test.com" && git config user.name "Test"', dir);
-  fs.writeFileSync(path.join(dir, 'initial.txt'), 'initial\n');
-  exec('git add -A && git commit -m "initial"', dir);
-  return dir;
-}
+import { createRepo } from './helpers/test-env';
 
 /** Path older CLI versions used for the persistent upstream-view worktree. */
 function legacyViewWorktreePath(repoPath: string): string {
@@ -36,7 +23,7 @@ describe('cleanupLeftoverWorktrees', () => {
   let repoPath: string;
 
   beforeEach(() => {
-    repoPath = createRepo();
+    repoPath = createRepo('cella-worktree-test-', { 'initial.txt': 'initial\n' });
   });
 
   afterEach(async () => {

@@ -25,5 +25,5 @@
       "#/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests", "index.ts", "index.js", "tsup.config.ts"]
+  "include": ["src", "tests", "index.ts", "index.js", "config.ts", "tsup.config.ts"]
 }

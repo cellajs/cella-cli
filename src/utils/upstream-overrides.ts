@@ -18,7 +18,7 @@ import { CONFIG_FILE_PATHS } from './managed-files';
 import { isUnderAnyFolder } from './overrides';
 
 /** The lists the comparison reads from a sync config, as plain string entries. */
-export interface OverrideLists {
+interface OverrideLists {
   pinned: string[];
   ignored: string[];
   /** `settings.packageJsonSync`, the default when the config names none; null when it cannot be read statically. */

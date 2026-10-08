@@ -10,7 +10,7 @@
 import { git } from './git';
 import { compareVersions, parseComparableVersion } from './versions';
 
-export const CLI_PACKAGE = '@cellajs/cli';
+const CLI_PACKAGE = '@cellajs/cli';
 
 /** The `@cellajs/cli` range in upstream's root package.json at `ref`, or null when it names none. */
 export async function readUpstreamCliRange(repoPath: string, ref: string): Promise<string | null> {

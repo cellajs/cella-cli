@@ -1,8 +1,7 @@
 /**
- * Forks service for sync CLI v2.
- *
- * Allows syncing to multiple local fork repositories from an upstream template.
- * Selecting a fork immediately runs sync (+ packages if enabled), then returns to selection.
+ * Forks service: runs the sync service inside configured local fork repositories
+ * from the upstream template. Selecting a fork runs sync immediately (plus
+ * packages when enabled), then returns to the selection menu.
  */
 
 import { resolve } from 'node:path';
@@ -11,7 +10,8 @@ import { Separator, select } from '@inquirer/prompts';
 import type { ForkConfig, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { loadConfig, resolveUpstream } from '../utils/config';
-import { getCommitInfo, getCurrentBranch, getStoredSyncRef, git } from '../utils/git';
+import { MENU_DIVIDER } from '../utils/display';
+import { getCommitInfo, getCurrentBranch, getStoredSyncRef, getWorkingTreeChangeCount } from '../utils/git';
 import { printNoForksHint, resolveForkBasePath, validateForkPath } from './fork-utils';
 import { runSyncCommand } from './sync';
 
@@ -22,17 +22,13 @@ interface ForkStatus {
   lastSync: { date: string; message: string } | null;
 }
 
-/**
- * Gather git status info for a fork: branch, dirty state, last sync.
- */
+/** Git status info for a fork: branch, dirty state, last sync. */
 async function gatherForkStatus(forkPath: string): Promise<ForkStatus> {
-  const [branch, porcelain, syncRef] = await Promise.all([
+  const [branch, dirty, syncRef] = await Promise.all([
     getCurrentBranch(forkPath).catch(() => 'unknown'),
-    git(['status', '--porcelain'], forkPath, { ignoreErrors: true }),
+    getWorkingTreeChangeCount(forkPath).catch(() => 0),
     getStoredSyncRef(forkPath),
   ]);
-
-  const dirty = porcelain ? porcelain.split('\n').filter(Boolean).length : 0;
 
   let lastSync: { date: string; message: string } | null = null;
   if (syncRef) {
@@ -43,9 +39,6 @@ async function gatherForkStatus(forkPath: string): Promise<ForkStatus> {
   return { branch, dirty, lastSync };
 }
 
-/**
- * Format a fork choice label with status info.
- */
 function formatForkChoice(name: string, status: ForkStatus | null): string {
   if (!status) return name;
 
@@ -60,7 +53,6 @@ function formatForkChoice(name: string, status: ForkStatus | null): string {
     syncPart = pc.dim('never synced');
   }
 
-  // Dirty state: only show if there are uncommitted changes
   const dirtyPart = status.dirty > 0 ? pc.yellow(`${status.dirty} uncommitted`) : '';
 
   const parts = [name, pc.dim(`[${status.branch}]`), syncPart];
@@ -69,16 +61,13 @@ function formatForkChoice(name: string, status: ForkStatus | null): string {
   return parts.join(pc.dim(' · '));
 }
 
-/**
- * Build fork choices with live status info gathered in parallel.
- */
+/** Fork choices with live status info, gathered in parallel. */
 async function buildForkChoices(
   forks: ForkConfig[],
   basePath: string,
 ): Promise<Array<{ value: string; name: string; disabled?: string }>> {
   const validated = forks.map((fork) => validateForkPath(fork, basePath, true));
 
-  // Gather status for all valid forks in parallel
   const statusEntries = await Promise.all(
     validated
       .filter((v) => v.valid)
@@ -104,9 +93,7 @@ async function buildForkChoices(
   });
 }
 
-/**
- * Sync a single fork by running the same command flow the fork owner would run locally.
- */
+/** Sync a single fork by running the same service flow the fork owner would run locally. */
 async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: string): Promise<void> {
   console.info();
   console.info(pc.cyan(`syncing to ${fork.name}...`));
@@ -115,7 +102,6 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
 
   const forkConfig = await loadConfig(forkPath);
 
-  // Build runtime config for the fork.
   const { branchRef } = resolveUpstream(forkConfig.settings);
   const upstreamRef = branchRef;
 
@@ -135,12 +121,6 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
   await runSyncCommand(forkRuntimeConfig);
 }
 
-/**
- * Run the forks service.
- *
- * Lists configured forks. Selecting a fork runs sync immediately,
- * then returns to the selection menu.
- */
 export async function runForks(config: RuntimeConfig): Promise<void> {
   const forks = config.forks ?? [];
 
@@ -149,24 +129,22 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
     return;
   }
 
-  // Non-interactive mode via --fork flag
+  // --fork is the non-interactive mode.
   if (config.fork) {
     const match = forks.find((f) => f.name === config.fork);
     if (!match) {
-      console.error(pc.red(`fork '${config.fork}' not found in config`));
-      return;
+      throw new Error(`fork '${config.fork}' not found in config`);
     }
     const resolvedPath = resolve(await resolveForkBasePath(config.forkPath), match.localPath);
     await syncFork(config, match, resolvedPath);
     return;
   }
 
-  // Interactive loop: select fork → sync → return to selection
-  // Choices are rebuilt each iteration to reflect updated status
+  // Choices are rebuilt each iteration so the menu reflects updated status.
   const forkBasePath = await resolveForkBasePath(config.forkPath);
   while (true) {
     const choices = await buildForkChoices(forks, forkBasePath);
-    const forkChoices = [...choices, new Separator('─'.repeat(40)), { value: '_exit', name: pc.dim('exit') }];
+    const forkChoices = [...choices, new Separator(MENU_DIVIDER), { value: '_exit', name: pc.dim('exit') }];
 
     const selectedPath = await select<string>({
       message: 'select fork to sync:',

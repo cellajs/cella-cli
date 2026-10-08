@@ -9,8 +9,8 @@
  */
 
 import { spawnSync } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, readFileSync, statSync } from 'node:fs';
+import { join, relative, sep } from 'node:path';
 import pc from './colors';
 
 /** A single metric block from a coverage-summary.json entry. */
@@ -37,7 +37,7 @@ const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
 /** Path to the cached summary written by the `json-summary` reporter. */
 function summaryPath(forkPath: string): string {
-  return path.join(forkPath, '.coverage', 'coverage-summary.json');
+  return join(forkPath, '.coverage', 'coverage-summary.json');
 }
 
 /** Color a percentage: green ≥ 80, yellow ≥ 50, red below. */
@@ -83,14 +83,14 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   if (options.refresh) {
     const ok = refreshCoverage(forkPath);
     if (!ok) {
-      console.info(pc.red('coverage run failed — showing last cached results (if any)'));
+      console.info(pc.red('coverage run failed: showing last cached results (if any)'));
     }
     console.info();
   }
 
-  if (!fs.existsSync(file)) {
+  if (!existsSync(file)) {
     console.info(pc.bold('coverage'));
-    console.info(pc.yellow('  no coverage data found — run `pnpm test` to generate it'));
+    console.info(pc.yellow('  no coverage data found: run `pnpm test` to generate it'));
     console.info();
     return;
   }
@@ -98,11 +98,11 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   let summary: CoverageSummary;
   let mtimeMs: number;
   try {
-    summary = JSON.parse(fs.readFileSync(file, 'utf-8')) as CoverageSummary;
-    mtimeMs = fs.statSync(file).mtimeMs;
+    summary = JSON.parse(readFileSync(file, 'utf8')) as CoverageSummary;
+    mtimeMs = statSync(file).mtimeMs;
   } catch {
     console.info(pc.bold('coverage'));
-    console.info(pc.yellow('  could not read coverage-summary.json — run `pnpm test` to regenerate'));
+    console.info(pc.yellow('  could not read coverage-summary.json: run `pnpm test` to regenerate'));
     console.info();
     return;
   }
@@ -114,9 +114,9 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   const perPackage = new Map<string, { covered: number; total: number }>();
   for (const [key, entry] of Object.entries(summary)) {
     if (key === 'total') continue;
-    const rel = path.relative(forkPath, key);
+    const rel = relative(forkPath, key);
     if (rel.startsWith('..')) continue;
-    const pkg = rel.split(path.sep)[0];
+    const pkg = rel.split(sep)[0];
     const acc = perPackage.get(pkg) ?? { covered: 0, total: 0 };
     acc.covered += entry.lines.covered;
     acc.total += entry.lines.total;
@@ -127,11 +127,11 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   const ageLabel = formatAge(ageMs);
   console.info(pc.bold('coverage'), pc.dim(`(updated ${ageLabel})`));
   if (stale) {
-    console.info(pc.yellow('  ⚠ data is older than 7 days — run `pnpm test` to refresh'));
+    console.info(pc.yellow('  ⚠ data is older than 7 days: run `pnpm test` to refresh'));
   }
 
   if (!Object.keys(summary).some((key) => key !== 'total')) {
-    console.info(pc.yellow('  no coverage data found — run `pnpm test` to regenerate'));
+    console.info(pc.yellow('  no coverage data found: run `pnpm test` to regenerate'));
     console.info();
     return;
   }

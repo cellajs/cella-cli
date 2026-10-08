@@ -1,34 +1,25 @@
 /**
- * Audit utilities for the Cella CLI audit service.
- *
- * Provides npm registry fetching, changelog detection, vulnerability parsing, and caching.
+ * Audit utilities: npm registry fetching, changelog detection, vulnerability
+ * parsing, and caching for the audit service.
  */
 
 import { execFile } from 'node:child_process';
-import * as fs from 'node:fs';
-import * as path from 'node:path';
+import { existsSync, readFileSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { promisify } from 'node:util';
 import pc from './colors';
 
 const execFileAsync = promisify(execFile);
 
-/*************************************************************************************************
- * Types
- ************************************************************************************************/
-
 interface OutdatedPackage {
   current: string;
   latest: string;
-  wanted: string;
-  isDeprecated: boolean;
   dependencyType: 'dependencies' | 'devDependencies';
   dependentPackages: Array<{ name: string; location: string }>;
 }
 
 export interface NpmRegistryData {
-  repository?: { type: string; url: string; directory?: string };
-  homepage?: string;
-  bugs?: { url: string };
+  repository?: { url: string };
 }
 
 interface CachedPackageData {
@@ -58,16 +49,13 @@ export interface EnhancedPackageInfo {
 }
 
 /** Vulnerability severity levels */
-export type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
+type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
 
 /** Vulnerability info for a package */
 export interface VulnerabilityInfo {
-  id: number;
   title: string;
   severity: VulnerabilitySeverity;
-  url: string;
   vulnerableVersions: string;
-  patchedVersions: string;
   cves: string[];
   /** The workspace/dependent containing this vulnerability (e.g., 'frontend', 'backend') */
   workspace: string | null;
@@ -80,12 +68,10 @@ export interface AuditResult {
   advisories: Record<string, AuditAdvisory>;
   metadata: {
     vulnerabilities: Record<VulnerabilitySeverity, number>;
-    dependencies: number;
-    devDependencies: number;
   };
 }
 
-export interface AuditAdvisory {
+interface AuditAdvisory {
   id: number;
   title: string;
   module_name: string;
@@ -105,12 +91,8 @@ interface DependencyPathInfo {
   directDependency: string | null;
 }
 
-/*************************************************************************************************
- * Constants
- ************************************************************************************************/
-
 /** Cache file location (in cli/cella directory) */
-export const CACHE_FILE = path.join(import.meta.dirname, '..', '..', '.audit.cache.json');
+export const CACHE_FILE = join(import.meta.dirname, '..', '..', '.audit.cache.json');
 
 /** Cache TTL: 7 days in ms */
 const CACHE_TTL = 7 * 24 * 60 * 60 * 1000;
@@ -121,15 +103,11 @@ export const CHANGELOG_PATHS = ['CHANGELOG.md', 'CHANGELOG', 'changelog.md', 'HI
 /** Default branches to check for changelog files */
 export const DEFAULT_BRANCHES = ['main', 'master'] as const;
 
-/*************************************************************************************************
- * Cache Functions
- ************************************************************************************************/
-
-/** Loads the changelog cache from disk. */
+/** The changelog cache from disk; read errors yield an empty cache. */
 export function loadCache(): ChangelogCache {
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      return JSON.parse(fs.readFileSync(CACHE_FILE, 'utf-8'));
+    if (existsSync(CACHE_FILE)) {
+      return JSON.parse(readFileSync(CACHE_FILE, 'utf8'));
     }
   } catch {
     // Ignore cache read errors
@@ -137,20 +115,20 @@ export function loadCache(): ChangelogCache {
   return {};
 }
 
-/** Saves the changelog cache to disk. */
+/** Best-effort write of the changelog cache to disk. */
 export function saveCache(cache: ChangelogCache): void {
   try {
-    fs.writeFileSync(CACHE_FILE, `${JSON.stringify(cache, null, 2)}\n`);
+    writeFileSync(CACHE_FILE, `${JSON.stringify(cache, null, 2)}\n`);
   } catch {
     // Ignore cache write errors
   }
 }
 
-/** Clears the changelog cache. */
+/** Removal of the changelog cache file, reported on the console. */
 export function clearCache(): void {
   try {
-    if (fs.existsSync(CACHE_FILE)) {
-      fs.unlinkSync(CACHE_FILE);
+    if (existsSync(CACHE_FILE)) {
+      unlinkSync(CACHE_FILE);
       console.info(pc.green('✓ cache cleared successfully'));
     } else {
       console.info(pc.yellow('no cache file found'));
@@ -160,11 +138,7 @@ export function clearCache(): void {
   }
 }
 
-/*************************************************************************************************
- * NPM Registry Functions
- ************************************************************************************************/
-
-/** Fetches package metadata from npm registry. */
+/** Package metadata from the npm registry, or null on any failure. */
 export async function fetchNpmMetadata(packageName: string): Promise<NpmRegistryData | null> {
   try {
     const response = await fetch(`https://registry.npmjs.org/${packageName}`);
@@ -175,26 +149,20 @@ export async function fetchNpmMetadata(packageName: string): Promise<NpmRegistry
   }
 }
 
-/**
- * Extracts GitHub repo URL from npm registry data.
- * Normalizes git+https:// URLs to https:// format.
- */
+/** The repo URL from npm registry data, normalized to a plain https:// form. */
 export function getRepoUrl(data: NpmRegistryData | null): string | null {
   if (!data?.repository?.url) return null;
 
   let url = data.repository.url;
 
-  // Normalize git+https:// to https://
   if (url.startsWith('git+')) {
     url = url.slice(4);
   }
 
-  // Remove .git suffix
   if (url.endsWith('.git')) {
     url = url.slice(0, -4);
   }
 
-  // Convert git:// to https://
   if (url.startsWith('git://')) {
     url = url.replace('git://', 'https://');
   }
@@ -202,7 +170,7 @@ export function getRepoUrl(data: NpmRegistryData | null): string | null {
   return url;
 }
 
-/** Checks whether the provided URL points to a GitHub repository. */
+/** Whether the URL points to a GitHub repository. */
 function isGitHubRepoUrl(repoUrl: string | null): repoUrl is string {
   if (!repoUrl) return false;
   try {
@@ -213,10 +181,7 @@ function isGitHubRepoUrl(repoUrl: string | null): repoUrl is string {
   }
 }
 
-/**
- * Checks if a file exists in a GitHub repo and returns the branch name if found.
- * Returns null if file doesn't exist on any branch.
- */
+/** The branch holding `filePath` in a GitHub repo, or null when no default branch has it. */
 async function findGitHubFile(repoUrl: string, filePath: string): Promise<string | null> {
   if (!isGitHubRepoUrl(repoUrl)) return null;
 
@@ -234,7 +199,7 @@ async function findGitHubFile(repoUrl: string, filePath: string): Promise<string
 }
 
 /**
- * Finds the changelog URL for a package by checking common locations.
+ * The changelog URL for a package, found by probing common locations.
  * Results are cached to avoid repeated GitHub requests.
  */
 export async function findChangelogUrl(
@@ -244,18 +209,15 @@ export async function findChangelogUrl(
 ): Promise<string | null> {
   if (!isGitHubRepoUrl(repoUrl)) return null;
 
-  // Check cache first
   const cached = cache[packageName];
   if (cached && Date.now() - cached.fetchedAt < CACHE_TTL) {
     return cached.changelogUrl;
   }
 
-  // Try each common changelog path - findGitHubFile returns branch if found
   for (const changelogPath of CHANGELOG_PATHS) {
     const branch = await findGitHubFile(repoUrl, changelogPath);
     if (branch) {
       const blobUrl = `${repoUrl}/blob/${branch}/${changelogPath}`;
-      // Cache the result
       cache[packageName] = {
         repoUrl,
         changelogUrl: blobUrl,
@@ -265,7 +227,7 @@ export async function findChangelogUrl(
     }
   }
 
-  // No changelog found, cache negative result
+  // Cache the negative result too.
   cache[packageName] = {
     repoUrl,
     changelogUrl: null,
@@ -275,17 +237,13 @@ export async function findChangelogUrl(
   return null;
 }
 
-/** Get GitHub releases URL */
+/** The GitHub releases URL, or null for a non-GitHub repo. */
 export function getReleasesUrl(repoUrl: string | null): string | null {
   if (!isGitHubRepoUrl(repoUrl)) return null;
   return `${repoUrl}/releases`;
 }
 
-/*************************************************************************************************
- * Version Utilities
- ************************************************************************************************/
-
-/** Checks if the update is a major version change. */
+/** Whether the update is a major version change. */
 export function isMajorVersionChange(current: string, latest: string): boolean {
   const currentMajor = current.split('.')[0]?.replace(/^\D+/, '');
   const latestMajor = latest.split('.')[0]?.replace(/^\D+/, '');
@@ -293,87 +251,46 @@ export function isMajorVersionChange(current: string, latest: string): boolean {
   return Number.parseInt(latestMajor, 10) > Number.parseInt(currentMajor, 10);
 }
 
-/*************************************************************************************************
- * Outdated Package Functions
- ************************************************************************************************/
-
 /**
- * Runs pnpm outdated and returns JSON output.
- * Note: pnpm outdated exits with code 1 when packages are outdated,
- * so we need to handle this as a normal case, not an error.
+ * Runs a pnpm command and parses its JSON stdout. pnpm exits non-zero when it finds outdated
+ * packages or vulnerabilities (expected output, not an error), so the JSON is also rescued
+ * from the error's stdout. Returns null for empty or unparsable output; never throws.
  */
-export async function getOutdatedPackages(cwd: string): Promise<Record<string, OutdatedPackage>> {
+async function runPnpmJson(args: string[], cwd: string): Promise<unknown> {
+  const parse = (stdout?: string): unknown => {
+    if (!stdout || stdout.trim() === '') return null;
+    try {
+      return JSON.parse(stdout);
+    } catch {
+      return null;
+    }
+  };
+
   try {
-    const { stdout } = await execFileAsync('pnpm', ['-r', 'outdated', '--json'], {
-      encoding: 'utf-8',
+    const { stdout } = await execFileAsync('pnpm', args, {
+      encoding: 'utf8',
       maxBuffer: 10 * 1024 * 1024, // 10MB buffer for large outputs
       cwd,
     });
-
-    if (!stdout || stdout.trim() === '') {
-      return {};
-    }
-
-    return JSON.parse(stdout);
+    return parse(stdout);
   } catch (error) {
-    // pnpm outdated exits with code 1 when there are outdated packages
-    // This is expected behavior, not an error
-    if (error instanceof Error && 'stdout' in error) {
-      const stdout = (error as { stdout: string }).stdout;
-      if (stdout?.trim()) {
-        try {
-          return JSON.parse(stdout);
-        } catch {
-          // JSON parse failed, return empty
-          return {};
-        }
-      }
-    }
-    return {};
+    return parse(error instanceof Error && 'stdout' in error ? (error as { stdout: string }).stdout : undefined);
   }
 }
 
-/*************************************************************************************************
- * Vulnerability Functions
- ************************************************************************************************/
+/** Parsed `pnpm -r outdated --json`; an empty record when nothing is outdated or the check fails. */
+export async function getOutdatedPackages(cwd: string): Promise<Record<string, OutdatedPackage>> {
+  return ((await runPnpmJson(['-r', 'outdated', '--json'], cwd)) ?? {}) as Record<string, OutdatedPackage>;
+}
 
-/**
- * Runs pnpm audit and returns parsed JSON output.
- * Returns null if audit fails or no vulnerabilities found.
- */
+/** Parsed `pnpm audit --json`; null when the audit fails or finds nothing. */
 export async function runPnpmAudit(cwd: string): Promise<AuditResult | null> {
-  try {
-    const { stdout } = await execFileAsync('pnpm', ['audit', '--json'], {
-      encoding: 'utf-8',
-      maxBuffer: 10 * 1024 * 1024,
-      cwd,
-    });
-
-    if (!stdout || stdout.trim() === '') {
-      return null;
-    }
-
-    return JSON.parse(stdout) as AuditResult;
-  } catch (error) {
-    // pnpm audit exits with non-zero when vulnerabilities found
-    if (error instanceof Error && 'stdout' in error) {
-      const stdout = (error as { stdout: string }).stdout;
-      if (stdout?.trim()) {
-        try {
-          return JSON.parse(stdout) as AuditResult;
-        } catch {
-          return null;
-        }
-      }
-    }
-    return null;
-  }
+  return (await runPnpmJson(['audit', '--json'], cwd)) as AuditResult | null;
 }
 
 /**
- * Parses vulnerability paths to extract workspace and direct dependency.
- * Path format is like "workspace>direct-dep>transitive>vulnerable-pkg".
- * Examples:
+ * Workspace and direct dependency extracted from vulnerability paths shaped like
+ * "workspace>direct-dep>transitive>vulnerable-pkg". Examples:
  *   - "frontend>virtua>solid-js>seroval" -> { workspace: 'frontend', directDependency: 'virtua' }
  *   - "backend>jsx-email>esbuild" -> { workspace: 'backend', directDependency: 'jsx-email' }
  *   - "esbuild" (direct) -> { workspace: null, directDependency: null }
@@ -382,7 +299,6 @@ function parseDependencyPath(paths: string[]): DependencyPathInfo {
   for (const pathStr of paths) {
     const parts = pathStr.split('>');
     if (parts.length >= 2) {
-      // First part is workspace, second is the direct dependency in that workspace
       return {
         workspace: parts[0],
         directDependency: parts.length > 2 ? parts[1] : null,
@@ -392,24 +308,20 @@ function parseDependencyPath(paths: string[]): DependencyPathInfo {
   return { workspace: null, directDependency: null };
 }
 
-/** Creates a map of package name -> vulnerabilities from audit result. */
+/** Map of package name -> vulnerabilities from an audit result. */
 export function buildVulnerabilityMap(auditResult: AuditResult | null): Map<string, VulnerabilityInfo[]> {
   const map = new Map<string, VulnerabilityInfo[]>();
   if (!auditResult?.advisories) return map;
 
   for (const advisory of Object.values(auditResult.advisories)) {
-    // Extract workspace and direct dependency from findings paths
     const allPaths = advisory.findings?.flatMap((f) => f.paths) || [];
     const { workspace, directDependency } = parseDependencyPath(allPaths);
 
     const existing = map.get(advisory.module_name) || [];
     existing.push({
-      id: advisory.id,
       title: advisory.title,
       severity: advisory.severity,
-      url: advisory.url,
       vulnerableVersions: advisory.vulnerable_versions,
-      patchedVersions: advisory.patched_versions,
       cves: advisory.cves || [],
       workspace,
       directDependency,
@@ -420,27 +332,20 @@ export function buildVulnerabilityMap(auditResult: AuditResult | null): Map<stri
   return map;
 }
 
-/*************************************************************************************************
- * Display Utilities
- ************************************************************************************************/
+/** Severity dot per vulnerability level. */
+const vulnIcons: Record<VulnerabilitySeverity, string> = {
+  critical: pc.red('●'),
+  high: pc.red('●'),
+  moderate: pc.yellow('●'),
+  low: pc.blue('●'),
+  info: pc.gray('●'),
+};
 
-/** Gets vulnerability severity icon with color. */
 export function getVulnIcon(severity: VulnerabilitySeverity): string {
-  switch (severity) {
-    case 'critical':
-      return pc.red('●');
-    case 'high':
-      return pc.red('●');
-    case 'moderate':
-      return pc.yellow('●');
-    case 'low':
-      return pc.blue('●');
-    default:
-      return pc.gray('●');
-  }
+  return vulnIcons[severity] ?? pc.gray('●');
 }
 
-/** Gets the highest severity from a list of vulnerabilities. */
+/** The highest severity present in a list of vulnerabilities, or null. */
 export function getHighestSeverity(vulns: VulnerabilityInfo[]): VulnerabilitySeverity | null {
   if (vulns.length === 0) return null;
   const order: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
@@ -450,10 +355,7 @@ export function getHighestSeverity(vulns: VulnerabilityInfo[]): VulnerabilitySev
   return null;
 }
 
-/**
- * Truncates a string in the middle if it exceeds maxLen.
- * Example: "very-long-package-name" -> "very-lo…e-name"
- */
+/** Middle-truncation to maxLen, e.g. "very-long-package-name" -> "very-lo…e-name". */
 export function middleTruncate(str: string, maxLen: number): string {
   if (str.length <= maxLen) return str;
   const ellipsis = '…';
@@ -463,7 +365,7 @@ export function middleTruncate(str: string, maxLen: number): string {
   return str.slice(0, frontChars) + ellipsis + str.slice(-backChars);
 }
 
-/** Formats dependents as "first +N" if multiple. */
+/** Dependents as "first +N" when multiple. */
 export function formatDependents(dependents: string[]): string {
   if (dependents.length === 0) return '';
   if (dependents.length === 1) return dependents[0];

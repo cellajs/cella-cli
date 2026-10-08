@@ -10,7 +10,7 @@ export const CONFIG_FILE = 'cella/cella.config.ts';
  * performs the root→`cella/` move still recognizes the file as managed at its old path:
  * during that move git may present the change under the old path (or as a delete+add that
  * skips rename detection), and an exact match on the new path alone would let it fall
- * through to a normal — conflicting — merge. Harmless to match forever; it can only appear
+ * through to a normal (conflicting) merge. Harmless to match forever; it can only appear
  * on the move sync of a not-yet-migrated fork.
  */
 export const LEGACY_CONFIG_FILE = 'cella.config.ts';

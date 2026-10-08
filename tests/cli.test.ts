@@ -19,6 +19,7 @@ vi.mock('node:fs', () => ({
 }));
 
 vi.mock('../src/utils/display', () => ({
+  MENU_DIVIDER: '─'.repeat(40),
   NAME: 'cella',
   VERSION: 'test',
   printHeader: vi.fn(),

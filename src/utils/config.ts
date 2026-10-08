@@ -4,10 +4,11 @@
  * Shared between main entry point and forks service.
  */
 
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { type CellaCliConfig, cellaConfigSchema, type PackageJsonSyncKey, type SyncSettings } from '../config/types';
+import { errorMessage } from './errors';
 import { CONFIG_FILE } from './managed-files';
 import { resolveAppModuleFolders } from './module-territory';
 
@@ -29,10 +30,15 @@ export const DEFAULT_SYNC_PREFIX = 'cella/sync';
 /**
  * Default trunk branch that `cella sync` cuts from and opens PRs into.
  */
-export const DEFAULT_RELEASE_BASE = 'main';
+const DEFAULT_RELEASE_BASE = 'main';
 
 /** The package.json keys that sync when a config omits `packageJsonSync`. */
 export const DEFAULT_PACKAGE_JSON_SYNC: PackageJsonSyncKey[] = ['dependencies', 'devDependencies'];
+
+/** Whether the repo at `repoPath` is upstream cella itself (its root package.json is named 'cella'). */
+export function isUpstreamRepo(repoPath: string): boolean {
+  return JSON.parse(readFileSync(join(repoPath, 'package.json'), 'utf8')).name === 'cella';
+}
 
 /**
  * Whether `branch` is one of the temporary integration branches `cella sync` cuts, i.e. it
@@ -69,7 +75,7 @@ export function buildTemporarySyncBranch(): string {
  * fetching, so this returns a plan; the merge engine turns it into a ref.
  *
  * - `track`: 'release' (default) syncs to the latest release tag; 'branch' follows the tip.
- * - `branchRef`: `<DEFAULT_UPSTREAM_REMOTE>/<branch>` — the branch-track ref and static fallback.
+ * - `branchRef`: `<DEFAULT_UPSTREAM_REMOTE>/<branch>`, the branch-track ref and static fallback.
  */
 export function resolveUpstream(settings: SyncSettings): {
   track: 'release' | 'branch';
@@ -104,8 +110,7 @@ export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
   } catch (error) {
     // Syntax/runtime errors while evaluating the config must fail closed: a config that
     // cannot be loaded means sync protections (ignored/pinned) are unknown.
-    const message = error instanceof Error ? error.message : String(error);
-    throw new Error(`failed to load ${configPath}: ${message}`);
+    throw new Error(`failed to load ${configPath}: ${errorMessage(error)}`);
   }
 
   // Strict schema validation.

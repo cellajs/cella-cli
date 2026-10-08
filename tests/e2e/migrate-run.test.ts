@@ -20,7 +20,7 @@ import {
   makeCommit,
   readRepoFile,
   type TestEnv,
-} from './helpers/test-env';
+} from '../helpers/test-env';
 
 /** Every `pnpm exec tsx` the service spawned: where, and with which arguments. */
 const { codemodRuns } = vi.hoisted(() => ({ codemodRuns: [] as Array<{ cwd: string; args: string[] }> }));

@@ -7,33 +7,12 @@
  * it as refs/cella/last-sync — or fail with the manual-seed error when the fork's root
  * does not resemble upstream at all.
  */
-import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureSyncBase } from '../../src/utils/git';
-
-const UPSTREAM_REMOTE = 'cella-upstream';
-const GIT_USER = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
-
-function exec(cmd: string, cwd: string): string {
-  return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
-}
-
-function write(repoPath: string, files: Record<string, string>): void {
-  for (const [rel, content] of Object.entries(files)) {
-    const full = path.join(repoPath, rel);
-    fs.mkdirSync(path.dirname(full), { recursive: true });
-    fs.writeFileSync(full, content);
-  }
-}
-
-function commitAll(repoPath: string, message: string): string {
-  exec('git add -A', repoPath);
-  exec(`git commit -m "${message}"`, repoPath);
-  return exec('git rev-parse HEAD', repoPath);
-}
+import { commitAll, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
 
 /** Enough files that scaffold edits stay well under the inference confidence threshold. */
 function templateFiles(): Record<string, string> {

@@ -16,14 +16,15 @@ import { dirname, join } from 'node:path';
 import type { MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { DEFAULT_UPSTREAM_REMOTE } from '../utils/config';
-import { writeStdout } from '../utils/display';
+import { checkMark, writeStdout } from '../utils/display';
 import {
   batchRestoreWorktreeFromRef,
   ensureRemote,
-  fetch,
+  fetchRemote,
   getStoredSyncRef,
   git,
   listIdenticalToRef,
+  MAX_BUFFER,
   readManifestBaseAtRef,
 } from '../utils/git';
 import { readManifestBase } from '../utils/manifest';
@@ -53,7 +54,7 @@ async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise
     !!(await git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], forkPath, { ignoreErrors: true }));
   if (await present()) return;
   await ensureRemote(forkPath, DEFAULT_UPSTREAM_REMOTE, config.settings.upstreamUrl);
-  await fetch(forkPath, DEFAULT_UPSTREAM_REMOTE);
+  await fetchRemote(forkPath, DEFAULT_UPSTREAM_REMOTE);
   if (!(await present()))
     throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${DEFAULT_UPSTREAM_REMOTE}'`);
 }
@@ -68,7 +69,7 @@ async function resolveNotesRef(config: RuntimeConfig): Promise<string | null> {
 }
 
 /** Open and total note counts at the fork's sync point, for the info line; null before any sync. */
-export async function readNotesStatus(config: RuntimeConfig): Promise<{ total: number; open: number } | null> {
+async function readNotesStatus(config: RuntimeConfig): Promise<{ total: number; open: number } | null> {
   try {
     const ref = await resolveNotesRef(config);
     if (!ref) return null;
@@ -140,7 +141,7 @@ async function writeNoteFolder(
     // Byte for byte: the git helper trims its output.
     const content = execFileSync('git', ['show', `${ref}:${NOTES_DIR}/${id}/${file}`], {
       cwd: forkPath,
-      maxBuffer: 50 * 1024 * 1024,
+      maxBuffer: MAX_BUFFER,
     });
     const path = join(forkPath, target, file);
     await mkdir(dirname(path), { recursive: true });
@@ -153,7 +154,7 @@ async function writeNoteFolder(
 async function extractNote(config: RuntimeConfig, ref: string, id: string): Promise<void> {
   const { note, target, files } = await writeNoteFolder(config, ref, id);
 
-  console.info(`${pc.green('✓')} extracted ${files.length} file(s) to ${target}/`);
+  console.info(`${checkMark} extracted ${files.length} file(s) to ${target}/`);
   console.info(pc.dim(`  the README's ${NOTES_DIR}/${id}/ paths are this folder.`));
   if (note.codemod) {
     console.info(pc.dim(`  pnpm exec tsx ${target}/${note.codemod} inventory ${note.roots.join(' ')}`));
@@ -221,7 +222,7 @@ async function runNote(config: RuntimeConfig, ref: string, id: string): Promise<
   const upstreamShort = upstreamCommit.slice(0, 9);
   console.info();
   if (restored.length > 0) {
-    console.info(`${pc.green('✓')} restored ${restored.length} file(s) to upstream ${upstreamShort}`);
+    console.info(`${checkMark} restored ${restored.length} file(s) to upstream ${upstreamShort}`);
     console.info(pc.dim('  the codemod changed them, and they were identical to upstream before the run:'));
     for (const path of restored.slice(0, RESTORED_LIST_MAX)) console.info(pc.dim(`    ${path}`));
     if (restored.length > RESTORED_LIST_MAX) {
@@ -245,7 +246,7 @@ async function markNotes(config: RuntimeConfig, ref: string, pending: string[], 
   for (const id of ids) open.delete(id);
   await writePending(config.forkPath, [...open]);
   const marked = ids.length - unknown.length;
-  if (marked > 0) console.info(`${pc.green('✓')} recorded ${marked} note(s) as handled`);
+  if (marked > 0) console.info(`${checkMark} recorded ${marked} note(s) as handled`);
   if (unknown.length > 0) console.info(pc.dim(`not pending, left as is: ${unknown.join(', ')}`));
   console.info(pc.dim(formatNotesLine((await listNoteIds(config.forkPath, ref)).length, open.size)));
 }
