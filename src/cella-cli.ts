@@ -15,6 +15,7 @@ import { runContributions } from './services/contributions';
 import { runForks } from './services/forks';
 import { runMigrate } from './services/migrate';
 import { runStats } from './services/stats';
+import { runBranchStats } from './services/stats-since';
 import { runSyncCommand } from './services/sync';
 import { registerSignalHandlers } from './utils/cleanup';
 import pc from './utils/colors';
@@ -115,7 +116,12 @@ async function main(): Promise<void> {
       }
 
       case 'stats': {
-        await runStats(config);
+        if (config.md && !config.since) throw new Error('--md goes with --since <ref>');
+        if (config.since) {
+          await runBranchStats(config.forkPath, { since: config.since, markdown: config.md, verbose: config.verbose });
+        } else {
+          await runStats(config);
+        }
         break;
       }
     }

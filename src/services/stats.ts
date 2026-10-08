@@ -15,7 +15,7 @@ import { git } from '../utils/git';
 import { parseYamlBlockList } from '../utils/yaml';
 
 /** Extensions Biome can check (source code, config, styles) */
-const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
+export const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
 
 /** File category for classification */
 type FileCategory = 'test' | 'stories' | 'generated' | 'json' | 'other';
@@ -37,7 +37,7 @@ interface StatsResult {
 }
 
 /** Workspace package definition from pnpm-workspace.yaml */
-interface WorkspacePackage {
+export interface WorkspacePackage {
   /** Display name (e.g., 'backend', 'cli/cella') */
   name: string;
   /** Path prefix to match (e.g., 'backend/', 'cli/cella/') */
@@ -45,7 +45,7 @@ interface WorkspacePackage {
 }
 
 /** Workspace package names and path prefixes from pnpm-workspace.yaml. */
-async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
+export async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
   const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8');
 
   return parseYamlBlockList(content, 'packages').map((pattern) => {
@@ -58,7 +58,7 @@ async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[
   });
 }
 
-function classifyFile(filePath: string): FileCategory {
+export function classifyFile(filePath: string): FileCategory {
   if (
     filePath.includes('.test.') ||
     filePath.includes('.spec.') ||
@@ -94,7 +94,7 @@ function classifyFile(filePath: string): FileCategory {
 }
 
 /** The workspace package owning a file, with wildcard patterns resolved per file. */
-function matchPackage(filePath: string, packages: WorkspacePackage[]): string {
+export function matchPackage(filePath: string, packages: WorkspacePackage[]): string {
   for (const pkg of packages) {
     if (pkg.name.endsWith('/*')) {
       if (filePath.startsWith(pkg.prefix)) {

@@ -35,6 +35,8 @@ type CliOptionState = Pick<
   | 'force'
   | 'checkOverrides'
   | 'coverage'
+  | 'since'
+  | 'md'
   | 'all'
   | 'show'
   | 'extract'
@@ -98,6 +100,8 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
     force: flag(opts.force),
     checkOverrides: flag(opts.checkOverrides),
     coverage: flag(opts.coverage),
+    since: str(opts.since) || undefined,
+    md: flag(opts.md),
     all: flag(opts.all),
     show: str(opts.show),
     extract: str(opts.extract),
@@ -226,6 +230,11 @@ const serviceDefinitions: ServiceDefinition[] = [
     options: [
       verboseOption,
       { flags: '--coverage', description: 'regenerate test coverage before showing the stats summary' },
+      {
+        flags: '--since <ref>',
+        description: 'count what the current branch changed since it left <ref>, by kind of file',
+      },
+      { flags: '--md', description: 'with --since: print the table as markdown for a pull request description' },
     ],
   },
 ];
@@ -299,6 +308,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella migrate --mark 20261002T0614-config-switch',
         '  $ cella audit --check-overrides',
+        '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),
     );
@@ -362,11 +372,11 @@ function buildRuntimeConfig(
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
   const selection = parseCommandLine(process.argv);
 
-  // In machine-output modes (--json, --diff, --list), reserve stdout for the payload/patch/rows
+  // In machine-output modes (--json, --diff, --list, --md), reserve stdout for the payload/patch/rows/table
   // and route all human output (header, warnings, spinner) to stderr. Audit's --list only skips
   // its interactive prompts; its report is the human output and stays on stdout.
   const machineList = selection.options.list && selection.service !== 'audit';
-  if (selection.options.json || selection.options.diff || machineList) setJsonMode(true);
+  if (selection.options.json || selection.options.diff || selection.options.md || machineList) setJsonMode(true);
 
   printHeader();
 

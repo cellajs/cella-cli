@@ -21,7 +21,7 @@ pnpm cella audit
 | `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
 | `audit` | Check for outdated packages and vulnerabilities |
-| `stats` | Count files by category and workspace package |
+| `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
 
@@ -43,7 +43,7 @@ Per-service help: `pnpm cella <service> --help`.
 | audit | `--list`, `--force`, `--check-overrides` |
 | forks | `--fork <name>`, `--log`, `--hard`, `--keep-config`, `-V, --verbose` |
 | contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
-| stats | `--coverage`, `-V, --verbose` |
+| stats | `--coverage`, `--since <ref>`, `--md`, `-V, --verbose` |
 
 | Global flag | Description |
 |-------------|-------------|
@@ -350,3 +350,42 @@ Run `pnpm cella contributions` (or pick **contributions** from the menu). Select
 fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
 contributed files. Accepted files are checked out from the contrib branch and staged for review.
 `--list` prints the result as tab-separated rows (fork, status, kind, changedAt, path) for tooling.
+
+## Stats of a branch
+
+`pnpm cella stats` counts the whole repository. With `--since <ref>` it counts what the current
+branch changed since it left that ref, by kind of file, which is what a pull request into the ref
+shows. Only committed work counts.
+
+```bash
+pnpm cella stats --since origin/main        # tables in the terminal, -V lists every file
+pnpm cella stats --since origin/main --md   # a markdown table on stdout, for a PR description
+```
+
+```
+  files    added  removed      net
+      8     +438       -6     +432  tests
+     14     +229     -109     +120  source
+      1      +44        0      +44  docs
+      2      +11       -6       +5  json
+     25     +722     -121     +601  total
+
+  source lines by content
+            +152      -87      +65  code
+             +49       -9      +40  comments
+             +28      -13      +15  blank
+```
+
+| Kind | Files it holds |
+|------|----------------|
+| source | Code and styles that are none of the kinds below |
+| tests | `*.test.*`, `*.spec.*` and anything under a `tests/`, `test/` or `__tests__/` folder |
+| stories | `*.stories.*` |
+| generated | `*.gen.*`, `gen/` folders, `drizzle/`, `*.d.ts` and lock files |
+| json | `*.json` and `*.jsonc` that are not generated: config and translations |
+| docs | `*.md` and `*.mdx` |
+| other | Everything else, such as workflows and Dockerfiles |
+
+Source lines are also split by what they hold. A diff shows changed lines only, so a comment is
+recognized by how the line starts (`//`, `/*`, `*`, `{/*`): a line of a template literal that starts
+that way counts as a comment too.
