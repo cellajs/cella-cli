@@ -286,6 +286,12 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Regenerate test coverage before showing the stats summary (stats service) */
   coverage?: boolean;
 
+  /** Count what the current branch changed since it left this ref, by kind of file (stats service) */
+  since?: string;
+
+  /** Print the `since` table as markdown for a pull request description (stats service) */
+  md?: boolean;
+
   /** List every upstream migration note, not only the open ones (migrate service) */
   all?: boolean;
 
