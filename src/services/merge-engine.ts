@@ -439,13 +439,13 @@ async function resolvePinnedRef(
   const resolved = await resolveUpstreamCommit(forkPath, remoteName, ref);
   if (!resolved) {
     throw new Error(
-      `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag (v*) or a branch on ` +
+      `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag or a branch on ` +
         `${config.settings.upstreamUrl}.`,
     );
   }
   if (!(await isPublishedUpstream(forkPath, remoteName, branchRef, resolved.sha))) {
     throw new Error(
-      `--ref '${ref}' (${resolved.sha.slice(0, 7)}) is not on ${branchRef} or in an upstream release (v*). ` +
+      `--ref '${ref}' (${resolved.sha.slice(0, 7)}) is not on ${branchRef} or in an upstream release. ` +
         'Sync only to commits upstream has published there.',
     );
   }
@@ -498,7 +498,7 @@ async function prepareUpstream(
     const latest = await resolveLatestReleaseTag(forkPath, remoteName);
     if (!latest) {
       throw new Error(
-        `no upstream releases (v*) found on '${remoteName}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
+        `no upstream release tags found on '${remoteName}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
           `or check that ${config.settings.upstreamUrl} publishes release tags.`,
       );
     }

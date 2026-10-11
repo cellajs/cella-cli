@@ -762,7 +762,7 @@ describe('sync e2e', () => {
       fetchUpstream(env.forkPath);
       const config = buildRuntimeConfig(env, { service: 'sync', track: 'release' });
 
-      await expect(runSync(config)).rejects.toThrow(/no upstream releases/);
+      await expect(runSync(config)).rejects.toThrow(/no upstream release tags found/);
     });
 
     it('lets --track branch override release config to follow the untagged tip', async () => {
@@ -830,6 +830,36 @@ describe('sync e2e', () => {
       expect(result.upstreamTag).toBe('v0.1.0');
       expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'two.ts')).toBe(false);
+    });
+
+    it('finds a release tag without the v prefix, past tags that are no template release', async () => {
+      makeCommit(env.upstreamPath, { files: { 'released.ts': 'export const r = 1;\n' }, message: 'feat: released' });
+      tagUpstream(env.upstreamPath, '0.18.1');
+      makeCommit(env.upstreamPath, { files: { 'later.ts': 'export const l = 1;\n' }, message: 'feat: later' });
+      // git sorts both above every version tag
+      tagUpstream(env.upstreamPath, 'create-cella-0.2.3');
+      tagUpstream(env.upstreamPath, 'archive/pre-release');
+      fetchUpstream(env.forkPath);
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release' }));
+
+      expect(result.upstreamTag).toBe('0.18.1');
+      expect(fileExists(env.forkPath, 'released.ts')).toBe(true);
+      expect(fileExists(env.forkPath, 'later.ts')).toBe(false);
+    });
+
+    it('syncs a pinned release tag without the v prefix, published by the tag alone', async () => {
+      // A release cut from a branch that never reached main: only the tag publishes its commit
+      execSync('git checkout -q -b release', { cwd: env.upstreamPath });
+      makeCommit(env.upstreamPath, { files: { 'one.ts': 'export const o = 1;\n' }, message: 'feat: one' });
+      tagUpstream(env.upstreamPath, '0.3.0');
+      execSync('git checkout -q main', { cwd: env.upstreamPath });
+      fetchUpstream(env.forkPath);
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: '0.3.0' }));
+
+      expect(result.upstreamTag).toBe('0.3.0');
+      expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
     });
 
     it("resolves upstream's tag before the fork's own and reports only a plain tag name as a release", async () => {

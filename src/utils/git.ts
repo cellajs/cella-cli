@@ -306,9 +306,15 @@ export async function fetchUpstreamTags(cwd: string, remoteName: string): Promis
 }
 
 /**
- * Resolve the latest upstream release tag (semver-sorted `v*` tag) from the
- * remote-scoped tag namespace. Excludes non-template tags (e.g. `create-cella-v*`).
- * Returns the short tag name and its full ref, or null when no release exists.
+ * A template release tag is a version, with or without the `v` prefix (`0.18.1`, `v0.5.0`).
+ * Component tags (`create-cella-0.2.3`) and other namespaces (`archive/pre-release`) start with a name.
+ */
+const releaseTagPattern = /^v?\d[\w.+-]*$/;
+
+/**
+ * Resolve the latest upstream release tag (the highest version tag) from the
+ * remote-scoped tag namespace. Returns the short tag name and its full ref, or null
+ * when no release exists.
  */
 export async function resolveLatestReleaseTag(
   cwd: string,
@@ -323,8 +329,7 @@ export async function resolveLatestReleaseTag(
     const ref = line.trim();
     if (!ref) continue;
     const tag = ref.slice(prefix.length);
-    // Template release tags look like 'v0.5.0'; skip component tags like 'create-cella-v*'.
-    if (/^v\d/.test(tag)) return { tag, ref };
+    if (releaseTagPattern.test(tag)) return { tag, ref };
   }
   return null;
 }
@@ -332,9 +337,9 @@ export async function resolveLatestReleaseTag(
 /**
  * Resolve a ref named for upstream (`--ref`) to a commit: a branch on the upstream remote, then a
  * tag from the remote-scoped tag namespace, then the ref as given (a sha). Upstream names come
- * first, so `main` means upstream's main and `v1.0.0` upstream's release, never the fork's own.
+ * first, so `main` means upstream's main and `1.0.0` upstream's release, never the fork's own.
  * Revision suffixes work too (`main~2`). Returns the commit sha, plus the release tag when the
- * ref is a release tag name itself (`v1.2.3`, not `v1.2.3~1`); null when nothing resolves.
+ * ref is a release tag name itself (`1.2.3`, not `1.2.3~1`); null when nothing resolves.
  */
 export async function resolveUpstreamCommit(
   cwd: string,
@@ -346,7 +351,7 @@ export async function resolveUpstreamCommit(
   for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
     const sha = await git(['rev-parse', '-q', '--verify', `${candidate}^{commit}`], cwd, { ignoreErrors: true });
     if (!sha) continue;
-    const release = candidate === tagRef && /^v\d[\w.+-]*$/.test(ref) ? { tag: ref, ref: tagRef } : undefined;
+    const release = candidate === tagRef && releaseTagPattern.test(ref) ? { tag: ref, ref: tagRef } : undefined;
     return { sha, release };
   }
   return null;
@@ -354,7 +359,7 @@ export async function resolveUpstreamCommit(
 
 /**
  * Whether upstream published `sha`: reachable from the upstream branch (`branchRef`, e.g.
- * `cella-upstream/main`) or from an upstream release tag (`v*`, remote-scoped namespace).
+ * `cella-upstream/main`) or from an upstream release tag (remote-scoped namespace).
  */
 export async function isPublishedUpstream(
   cwd: string,
@@ -370,7 +375,8 @@ export async function isPublishedUpstream(
       '--contains',
       sha,
       `refs/remotes/${branchRef}`,
-      `refs/${remoteName}/tags/v*`,
+      `refs/${remoteName}/tags/[0-9]*`,
+      `refs/${remoteName}/tags/v[0-9]*`,
     ],
     cwd,
     { ignoreErrors: true },
