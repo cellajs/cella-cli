@@ -39,7 +39,7 @@ export interface SyncSettings {
 
   /**
    * How to track upstream cella. Defaults to 'release'.
-   * - 'release' (default): sync to a published cella release tag (`v*`). Stable and
+   * - 'release' (default): sync to a published cella release tag (`0.18.1`, with or without `v`). Stable and
    *   reviewable: each bump maps to a changelog. Uses the latest release.
    * - 'branch': follow the bleeding-edge tip of `upstreamBranch`. For cella
    *   maintainers and forks doing active development on top of unreleased changes.
