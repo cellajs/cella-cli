@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.3.3](https://github.com/cellajs/cella-cli/compare/cli-0.3.2...cli-0.3.3) (2026-10-12)
+
+
+### 🐞 Bug fixes
+
+* **sync:** release tracking finds version tags without the v prefix ([#43](https://github.com/cellajs/cella-cli/issues/43)) ([3e38dd6](https://github.com/cellajs/cella-cli/commit/3e38dd601e52bce5677a1a7f456895faac914ffe))
+
 ## [0.3.2](https://github.com/cellajs/cella-cli/compare/cli-0.3.1...cli-0.3.2) (2026-10-08)
 
 
