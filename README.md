@@ -20,7 +20,7 @@ pnpm cella audit
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Check for outdated packages and vulnerabilities |
+| `audit` | Update outdated packages, then rebuild the security overrides from a fresh audit |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -40,7 +40,7 @@ Per-service help: `pnpm cella <service> --help`.
 | analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--diff <path>`, `--open-diff <path>` |
 | sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
 | migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--script <file>`, `--mark <ids...>` |
-| audit | `--list`, `--force`, `--check-overrides` |
+| audit | `--list`, `--force` |
 | forks | `--fork <name>`, `--log`, `--hard`, `--keep-config`, `-V, --verbose` |
 | contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
 | stats | `--coverage`, `--since <ref>`, `--md`, `-V, --verbose` |
@@ -331,6 +331,42 @@ package.json copied verbatim.
 `type` always syncs, whatever `packageJsonSync` lists: it follows upstream where your fork kept the
 previous value, and a package.json without `type` gets upstream's. Set it yourself (for example
 `"commonjs"`) to keep your own.
+
+## Audit
+
+`pnpm cella audit` works in two layers, in this order:
+
+1. **Updates.** It lists the outdated packages and updates the ones you pick.
+2. **Security.** It audits what is left and brings three settings in `pnpm-workspace.yaml` in line
+   with that audit.
+
+The security layer treats its overrides as output, not as configuration. Every run it drops them,
+resolves the workspace without them in a temporary copy, and puts back only the ones a current
+advisory still needs. An override whose package now resolves to a fixed version, because you
+updated a parent or the parent widened its range, is gone after the next run. The workspace
+changes once, at the end, and only when the outcome differs from what is there.
+
+| Setting | What the audit owns | What it leaves alone |
+|---------|---------------------|----------------------|
+| `overrides` | keys with a version selector: `pkg@<1.2.3` | keys without one (`pkg`) and parent-scoped keys (`parent>pkg`) |
+| `minimumReleaseAgeExclude` | `pkg@1.2.3` entries, removed once that version is older than `minimumReleaseAge` | name-only entries |
+| `auditConfig.ignoreGhsas` | every entry, removed when the advisory no longer applies or a fix arrives | |
+
+To keep an override whatever the audit finds, write it without a version selector.
+
+For each advisory the audit looks up the published versions itself; it does not trust the patched
+version an advisory claims. Most outcomes need no answer from you:
+
+- **A fix that fits.** When the fix lies inside the range the parents ask for, the lockfile moves
+  to it and no override is written. Otherwise an override is.
+- **A breaking fix** (another major, or another minor below 1.0), or a fix for a package you
+  depend on directly: you choose between leaving it open, applying the override and ignoring the
+  advisory. An override that was in place before the run is applied again without asking.
+- **A fix younger than `minimumReleaseAge`**: you choose between waiting and installing it now
+  with an exclude.
+- **No fix published**: you are asked whether to ignore the advisory until one is.
+
+`--list` prints the same report without prompts and writes nothing.
 
 ## Contributions (pull from forks)
 
