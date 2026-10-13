@@ -39,11 +39,11 @@ Per-service help: `pnpm cella <service> --help`.
 |---------|----------------|
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>` |
 | sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
-| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--script <file>`, `--mark <ids...>` |
-| audit | `--list`, `--force` |
-| forks | `--fork <name>`, `--keep-config`, `-V, --verbose` |
-| contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
-| stats | `--coverage`, `--since <ref>`, `--md`, `-V, --verbose` |
+| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
+| audit | `--list` |
+| forks | `--fork <name>`, `--keep-config` |
+| contributions | `--fork <name>`, `--json` |
+| stats | `--since <ref>`, `--md`, `-V, --verbose` |
 
 | Global flag | Description |
 |-------------|-------------|
@@ -173,8 +173,7 @@ pnpm cella migrate --mark <id> [...]  # record notes as handled
 
 `--run` extracts the note and runs its codemod with `tsx` from your app root. Everything after `--`
 goes to the codemod as given; without it the codemod gets `inventory` and the note's `roots`, the
-report-only run. The codemod is the one script in the note folder; when a folder holds several,
-name it with `--script <file>`.
+report-only run.
 
 A codemod's roots cover template-owned files too, and a file that is identical to upstream already
 is the way upstream wants it: upstream may have changed it after writing the codemod, so a rewrite
@@ -376,7 +375,6 @@ forks: [
 Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
 fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
 contributed files. Accepted files are checked out from the contrib branch and staged for review.
-`--list` prints the result as tab-separated rows (fork, status, kind, changedAt, path) for tooling.
 
 ## Stats of a branch
 
