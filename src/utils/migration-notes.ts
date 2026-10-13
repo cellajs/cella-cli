@@ -44,7 +44,7 @@ export interface MigrationNote {
 }
 
 /** Whether a file in a note folder is a codemod script: a `.ts` file that is not a test. */
-export function isCodemodFile(name: string): boolean {
+function isCodemodFile(name: string): boolean {
   return name.endsWith('.ts') && !name.endsWith('.test.ts');
 }
 
@@ -119,18 +119,12 @@ export async function arrivedNoteIds(cwd: string, from: string, to: string): Pro
   return after.filter((id) => !known.has(id));
 }
 
-/**
- * The fork's pending note ids. A missing file is an empty list. A file still in the older
- * `{ "applied": [...] }` shape converts once: pending = notes at `syncRef` minus applied.
- */
-export async function readPending(cwd: string, syncRef: string | null): Promise<string[]> {
+/** The fork's pending note ids. A missing file is an empty list. */
+export async function readPending(cwd: string): Promise<string[]> {
   const path = join(cwd, PENDING_FILE);
   if (!existsSync(path)) return [];
-  const parsed = JSON.parse(await readFile(path, 'utf8')) as { pending?: unknown; applied?: unknown };
-  if (Array.isArray(parsed.pending)) return parsed.pending.filter((id): id is string => typeof id === 'string');
-  if (!Array.isArray(parsed.applied) || !syncRef) return [];
-  const applied = new Set(parsed.applied);
-  return (await listNoteIds(cwd, syncRef)).filter((id) => !applied.has(id));
+  const parsed = JSON.parse(await readFile(path, 'utf8')) as { pending?: unknown };
+  return Array.isArray(parsed.pending) ? parsed.pending.filter((id): id is string => typeof id === 'string') : [];
 }
 
 /** Write the pending ids, sorted and de-duplicated; an empty list deletes the file. */

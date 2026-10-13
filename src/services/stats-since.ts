@@ -5,6 +5,7 @@
  * can say where its lines went: source, tests, generated output, docs.
  */
 
+import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../utils/display';
 import { git } from '../utils/git';
@@ -49,15 +50,8 @@ export interface BranchStats {
   uncommitted: number;
 }
 
-const kindLabels: Record<ChangeKind, string> = {
-  source: 'source',
-  test: 'tests',
-  stories: 'stories',
-  generated: 'generated',
-  json: 'json',
-  docs: 'docs',
-  other: 'other',
-};
+/** A kind as the tables name it. */
+const kindLabel = (kind: ChangeKind) => (kind === 'test' ? 'tests' : kind);
 
 const docExtensions = new Set(['md', 'mdx']);
 
@@ -275,9 +269,7 @@ export function formatMarkdown(stats: BranchStats): string {
   const lines = [
     '| Kind | Files | Added | Removed | Net |',
     '| --- | ---: | ---: | ---: | ---: |',
-    ...changedKinds(stats).map(([kind, change]) =>
-      row(kind === 'json' ? 'JSON' : capitalize(kindLabels[kind]), change),
-    ),
+    ...changedKinds(stats).map(([kind, change]) => row(kind === 'json' ? 'JSON' : capitalize(kindLabel(kind)), change)),
     `| **Total** | **${stats.total.files}** | **${signed(stats.total.added)}** | **${signed(-stats.total.removed)}** | **${signed(net(stats.total))}** |`,
   ];
 
@@ -300,7 +292,7 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
   console.info();
   console.info(pc.dim(`  ${'files'.padStart(5)} ${'added'.padStart(8)} ${'removed'.padStart(8)} ${'net'.padStart(8)}`));
   for (const [kind, change] of changedKinds(stats)) {
-    console.info(columns(String(change.files), change, kindLabels[kind]));
+    console.info(columns(String(change.files), change, kindLabel(kind)));
   }
   console.info(columns(String(stats.total.files), stats.total, pc.bold('total')));
 
@@ -326,7 +318,7 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
     console.info(DIVIDER);
     console.info();
     for (const file of stats.files) {
-      console.info(columns('', file, `${file.path}  ${pc.dim(kindLabels[file.kind])}`));
+      console.info(columns('', file, `${file.path}  ${pc.dim(kindLabel(file.kind))}`));
     }
   }
 
@@ -340,15 +332,10 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
   console.info();
 }
 
-/**
- * Run the stats service in branch mode.
- */
-export async function runBranchStats(
-  forkPath: string,
-  options: { since: string; markdown?: boolean; verbose?: boolean },
-): Promise<void> {
+/** Run the stats service in branch mode. */
+export async function runBranchStats(config: RuntimeConfig, since: string): Promise<void> {
   createSpinner('counting changed lines...');
-  const stats = await collectBranchStats(forkPath, options.since);
+  const stats = await collectBranchStats(config.forkPath, since);
   spinnerSuccess(`Counted what ${stats.head} changed since ${stats.since} (${stats.mergeBase})`);
 
   if (stats.total.files === 0) {
@@ -356,11 +343,11 @@ export async function runBranchStats(
     return;
   }
 
-  if (options.markdown) {
+  if (config.md) {
     writeStdout(formatMarkdown(stats));
     if (stats.uncommitted > 0) console.info(pc.dim(`${stats.uncommitted} uncommitted file(s) are not counted`));
     return;
   }
 
-  printBranchStats(stats, options.verbose ?? false);
+  printBranchStats(stats, config.verbose);
 }

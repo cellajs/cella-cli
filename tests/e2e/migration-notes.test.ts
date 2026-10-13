@@ -64,37 +64,11 @@ describe('migration notes e2e', () => {
     expect(result.migrationNotes).toEqual({ total: 1, arrived: [NEW], open: 1 });
   });
 
-  it('converts an old applied-set and removes the synced copy of the folder', async () => {
-    // An older sync brought the folder in, and the app recorded the first note as applied.
-    makeCommit(env.upstreamPath, {
-      files: { [`cella/migrations/${OLD}/README.md`]: note('Old note') },
-      message: 'feat: old note',
-    });
-    fetchUpstream(env.forkPath);
-    execSync('git merge --ff-only cella-upstream/main', { cwd: env.forkPath, stdio: 'pipe' });
-    makeCommit(env.forkPath, {
-      files: { 'cella/cella.migrations.json': `${JSON.stringify({ applied: [OLD] })}\n` },
-      message: 'chore: applied',
-    });
-
-    makeCommit(env.upstreamPath, {
-      files: { [`cella/migrations/${NEW}/README.md`]: note('New note') },
-      message: 'feat: new note',
-    });
-    fetchUpstream(env.forkPath);
-    const result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
-
-    expect(fileExists(env.forkPath, 'cella/migrations')).toBe(false);
-    expect(execSync('git ls-files cella/migrations', { cwd: env.forkPath, encoding: 'utf8' }).trim()).toBe('');
-    expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
-    expect(result.migrationNotes).toEqual({ total: 2, arrived: [NEW], open: 1 });
-  });
-
-  it('removes the copy and converts the record when the sync stops at conflicts, and the rerun keeps it gone', async () => {
+  it('removes the copy when the sync stops at conflicts, and the rerun keeps it gone', async () => {
     const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
 
-    // Legacy state: an older sync brought the whole folder in, and the app recorded the applied set
+    // An older sync brought the whole folder in
     makeCommit(env.upstreamPath, {
       files: {
         'cella/migrations/README.md': '# Migrations\n',
@@ -108,11 +82,8 @@ describe('migration notes e2e', () => {
     // The test fork is a clone of upstream: without this its trunk tracks upstream and fast-forwards to it
     git('branch --unset-upstream main');
     makeCommit(env.forkPath, {
-      files: {
-        'cella/cella.migrations.json': `${JSON.stringify({ applied: [OLD] })}\n`,
-        'README.md': '# Fork readme\n',
-      },
-      message: 'chore: applied, own readme',
+      files: { 'README.md': '# Fork readme\n' },
+      message: 'chore: own readme',
     });
 
     // Upstream, in the sync range: changes existing note files, deletes one, adds a note, and conflicts elsewhere
@@ -129,7 +100,7 @@ describe('migration notes e2e', () => {
     deleteFileAndCommit(env.upstreamPath, `cella/migrations/${OLD}/codemod.ts`, 'chore: drop old codemod');
 
     try {
-      // First run: stops at the conflict, with the folder already gone and the record converted
+      // First run: stops at the conflict, with the folder already gone
       await runSyncCommand(buildRuntimeConfig(env, { service: 'sync' }));
 
       const branch = git('rev-parse --abbrev-ref HEAD');

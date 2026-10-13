@@ -548,7 +548,7 @@ async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Pr
     const [total, arrived, pending] = await Promise.all([
       listNoteIds(forkPath, ctx.upstreamRef),
       arrivedNoteIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
-      readPending(forkPath, ctx.mergeBase),
+      readPending(forkPath),
     ]);
     return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
   } catch {

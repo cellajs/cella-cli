@@ -331,7 +331,7 @@ async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise
 /** Migration notes for the PR body: the total at the sync point and the app's open ones, with permalinks. */
 async function readPrBodyNotes(forkPath: string, toSha: string, repoSlug?: string): Promise<SyncPrBodyInput['notes']> {
   const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
-  const [ids, pending] = await Promise.all([listNoteIds(forkPath, toSha), readPending(forkPath, toSha)]);
+  const [ids, pending] = await Promise.all([listNoteIds(forkPath, toSha), readPending(forkPath)]);
   const open = await Promise.all(
     pending.map(async (id) => ({
       id,

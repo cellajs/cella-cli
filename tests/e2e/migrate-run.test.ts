@@ -39,7 +39,6 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 const NOTE = '20261001T2116-icon-classes';
 const MANUAL = '20261002T0000-manual-note';
-const TWO_SCRIPTS = '20261003T0000-two-scripts';
 const EXTRACTED = `node_modules/.cache/cella/migrations/${NOTE}/icon-classes.ts`;
 
 const readme = (title: string, roots?: string) =>
@@ -86,7 +85,7 @@ describe('migrate --run e2e', () => {
   let upstreamCommit: string;
 
   const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
-  const run = (options: { run: string; runArgs?: string[]; script?: string }) =>
+  const run = (options: { run: string; runArgs?: string[] }) =>
     runMigrate({ ...buildRuntimeConfig(env, { service: 'migrate' }), ...options });
 
   /**
@@ -124,9 +123,6 @@ describe('migrate --run e2e', () => {
         [`cella/migrations/${NOTE}/icon-classes.ts`]: CODEMOD,
         [`cella/migrations/${NOTE}/icon-classes.test.ts`]: 'export {};\n',
         [`cella/migrations/${MANUAL}/README.md`]: readme('Manual note'),
-        [`cella/migrations/${TWO_SCRIPTS}/README.md`]: readme('Two scripts', 'frontend/src'),
-        [`cella/migrations/${TWO_SCRIPTS}/icon-classes.ts`]: CODEMOD,
-        [`cella/migrations/${TWO_SCRIPTS}/lib.ts`]: 'export const lib = 1;\n',
       },
       message: 'feat: notes and template files',
     });
@@ -206,21 +202,12 @@ describe('migrate --run e2e', () => {
     expect(lines.join('\n')).toContain('restored 2 file(s)');
   });
 
-  it('refuses a note without a script, or with several unless one is named', async () => {
+  it('refuses a note without a script, and an unknown note', async () => {
     await expect(run({ run: MANUAL })).rejects.toThrow(
       `migration note '${MANUAL}' ships no codemod script: its steps are manual`,
     );
-    await expect(run({ run: TWO_SCRIPTS })).rejects.toThrow(
-      `migration note '${TWO_SCRIPTS}' ships 2 scripts (icon-classes.ts, lib.ts): name the one to run with --script <file>.`,
-    );
-    await expect(run({ run: TWO_SCRIPTS, script: 'nope.ts' })).rejects.toThrow(
-      `migration note '${TWO_SCRIPTS}' has no file 'nope.ts'`,
-    );
     await expect(run({ run: '20260101T0000-unknown' })).rejects.toThrow(/no migration note/);
     expect(codemodRuns).toEqual([]);
-
-    await run({ run: TWO_SCRIPTS, script: 'icon-classes.ts', runArgs: ['inventory', 'frontend/src'] });
-    expect(codemodRuns[0].args[0]).toBe(`node_modules/.cache/cella/migrations/${TWO_SCRIPTS}/icon-classes.ts`);
   });
 
   it('restores a file whose name holds glob characters, and only that file', async () => {
