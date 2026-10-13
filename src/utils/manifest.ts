@@ -1,16 +1,8 @@
 /**
- * Cella sync manifest.
- *
- * A committed record of the last upstream sync point, living in the fork's `cella/` folder as
- * `cella/cella.manifest.json`. It serves two purposes:
- *  1. Machine: `upstream.commit` is the bootstrap seed `ensureSyncBase` uses to reconstruct
- *     the merge-base on a clone that has no local `refs/cella/last-sync` (fresh clone, CI, a
- *     second maintainer). Committed, so it travels with the repo (a local ref does not).
- *  2. Human: records the upstream repo, tracking mode, release/commit and a GitHub link, so
- *     each sync PR shows exactly which upstream point you moved to.
- *
- * Written and staged by the sync engine on every applied sync, so it stays in lockstep with
- * `refs/cella/last-sync` and rides along in the sync commit.
+ * Cella sync manifest: the committed record of the last upstream sync point. `upstream.commit`
+ * seeds the merge-base on a clone without `refs/cella/last-sync` (fresh clone, CI), and the rest
+ * shows in each sync PR which upstream point the app moved to. The sync engine stages it with
+ * every applied sync.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';

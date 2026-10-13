@@ -9,11 +9,11 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it } from 'vitest';
 import type { CellaCliConfig, MergeResult, PackageJsonSyncKey } from '../src/config/types';
 import { printUpstreamOverrideChanges } from '../src/utils/display';
 import { compareUpstreamOverrides, diffOverrideLists, parseOverrideLists } from '../src/utils/upstream-overrides';
-import { createRepo, exec, write } from './helpers/test-env';
+import { captureInfo, createRepo, exec, write } from './helpers/test-env';
 
 /** The keys a config without `packageJsonSync` syncs. */
 const DEFAULT_KEYS = ['dependencies', 'devDependencies'];
@@ -232,15 +232,6 @@ describe('compareUpstreamOverrides', () => {
     expect(await compareUpstreamOverrides(repoPath, base, incoming, following)).toBeUndefined();
   });
 
-  it('reads the legacy root config path at an older merge-base', async () => {
-    repoPath = createRepo('cella-upstream-overrides-');
-    const base = commit({ 'cella.config.ts': configSource(`'a.ts'`, '') });
-    const incoming = commit({ 'cella.config.ts': null, 'cella/cella.config.ts': configSource(`'a.ts', 'b.ts'`, '') });
-
-    const report = await compareUpstreamOverrides(repoPath, base, incoming, forkConfig({ pinned: ['a.ts'] }));
-    expect(report).toMatchObject({ kind: 'changes', pinned: { added: ['b.ts'] } });
-  });
-
   it('stays silent when upstream has no config, it did not change, or the fork already follows', async () => {
     repoPath = createRepo('cella-upstream-overrides-');
     const empty = commit({ 'other.ts': 'a' });
@@ -274,18 +265,8 @@ describe('compareUpstreamOverrides', () => {
 });
 
 describe('printUpstreamOverrideChanges', () => {
-  function capture(upstreamOverrides: MergeResult['upstreamOverrides']): string {
-    const lines: string[] = [];
-    const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
-      lines.push(args.map(String).join(' '));
-    });
-    try {
-      printUpstreamOverrideChanges({ upstreamOverrides });
-    } finally {
-      spy.mockRestore();
-    }
-    return lines.join('\n');
-  }
+  const capture = (upstreamOverrides: MergeResult['upstreamOverrides']) =>
+    captureInfo(() => printUpstreamOverrideChanges({ upstreamOverrides }));
 
   it('lists added and removed entries by name', () => {
     const out = capture({

@@ -110,11 +110,9 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
     forkPath,
     upstreamRef,
     service: 'sync',
-    logFile: config.logFile,
     list: false,
     json: false,
     verbose: config.verbose,
-    hard: config.hard,
     keepConfig: config.keepConfig,
   };
 

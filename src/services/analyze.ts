@@ -1,19 +1,13 @@
 /**
  * Analyze service: a dry run of sync that shows what would change without applying.
- * Runs the same merge engine as sync and discards the result.
  */
 
-import { basename } from 'node:path';
 import type { MergeResult, RuntimeConfig } from '../config/types';
-import pc from '../utils/colors';
-import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
 import {
-  checkMark,
   createSpinner,
   type LinkOptions,
   printAnalysisFileGroups,
   printEngineReports,
-  printLogFileReport,
   spinnerSuccess,
   writeStdout,
 } from '../utils/display';
@@ -46,23 +40,6 @@ function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected')
   );
 }
 
-function findTargetFile(files: MergeResult['files'], targetPath: string) {
-  const exact = files.find((f) => f.path === targetPath);
-  if (exact) return exact;
-
-  const normalized = targetPath.replace(/^\.\//, '');
-  return files.find((f) => f.path === normalized);
-}
-
-function printUnifiedDiff(config: RuntimeConfig, filePath: string): void {
-  // Label the upstream side 'cella/' and the local side with the repo's folder name
-  // so the diff reads cella/<path> vs <fork>/<path>, not opaque a/ and b/.
-  const diff = gitDiffFile(config.forkPath, `${config.upstreamRef}..HEAD`, filePath, {
-    dstPrefix: basename(config.forkPath),
-  });
-  writeStdout(diff.toString());
-}
-
 export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   createSpinner('starting analysis...');
 
@@ -71,13 +48,6 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   spinnerSuccess();
 
   const scopedFiles = filterByScope(result, config.scope ?? 'all');
-
-  if (config.diff) {
-    const file = findTargetFile(scopedFiles, config.diff) ?? findTargetFile(result.files, config.diff);
-    if (!file) throw new Error(`file not found in analysis results: ${config.diff}`);
-    printUnifiedDiff(config, file.path);
-    return result;
-  }
 
   if (config.json) {
     const overrides = result.upstreamOverrides?.kind === 'changes' ? result.upstreamOverrides : undefined;
@@ -109,33 +79,6 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     return result;
   }
 
-  if (config.openDiff) {
-    const file = findTargetFile(scopedFiles, config.openDiff) ?? findTargetFile(result.files, config.openDiff);
-    if (!file) throw new Error(`file not found in analysis results: ${config.openDiff}`);
-
-    // Diff the upstream ref against the working tree (single ref, no range) so the
-    // rendered page includes uncommitted local changes: a live view of the file as it stands.
-    const patch = gitDiffFile(config.forkPath, config.upstreamRef, file.path);
-    if (patch.length === 0) {
-      console.info(`${checkMark} ${file.path} is identical to upstream`);
-      return result;
-    }
-
-    const pagePath = await openDiffInBrowser(
-      patch.toString(),
-      {
-        filePath: file.path,
-        srcLabel: 'cella',
-        dstLabel: basename(config.forkPath),
-        note: 'local working tree',
-      },
-      config.forkPath,
-    );
-    console.info(`${checkMark} opened browser diff for ${file.path}`);
-    console.info(pc.dim(`  ${pagePath}`));
-    return result;
-  }
-
   const linkOptions: LinkOptions = {
     upstreamGitHubUrl: result.upstreamGitHubUrl,
     upstreamBranch: result.upstreamBranch,
@@ -149,8 +92,6 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   printEngineReports(result, 'analysis summary');
 
   await printMigrationNotesLine(config, result);
-
-  printLogFileReport(config, result.files);
 
   console.info();
 

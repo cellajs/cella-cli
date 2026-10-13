@@ -166,7 +166,7 @@ describe('git parsing', () => {
       expect(commits.map((c) => c.message)).toEqual(['commit A', 'commit B', 'commit C']);
     });
 
-    it('supports skip and limit for showing the most recent window', async () => {
+    it('limits the list to the newest commits, still oldest-first', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       for (const n of [1, 2, 3, 4, 5]) {
@@ -174,10 +174,7 @@ describe('git parsing', () => {
         exec(`git add -A && git commit -m "commit ${n}"`, repoPath);
       }
 
-      const commits = await listCommitsBetween(repoPath, baseRef, 'HEAD', {
-        skip: 2,
-        limit: 3,
-      });
+      const commits = await listCommitsBetween(repoPath, baseRef, 'HEAD', 3);
 
       expect(commits.map((c) => c.message)).toEqual(['commit 3', 'commit 4', 'commit 5']);
     });

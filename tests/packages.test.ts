@@ -63,7 +63,6 @@ describe('packages merge', () => {
       forkPath,
       upstreamRef: 'cella-upstream/main',
       service: 'sync',
-      logFile: false,
       list: false,
       json: false,
       verbose: false,

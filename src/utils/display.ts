@@ -3,18 +3,10 @@
  * report blocks analyze and sync print.
  */
 
-import { writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
-import type {
-  AnalysisSummary,
-  AnalyzedFile,
-  CommitRangeEntry,
-  FileStatus,
-  MergeResult,
-  RuntimeConfig,
-} from '../config/types';
+import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
 import { CONFIG_FILE, isManagedFile } from './managed-files';
@@ -31,8 +23,8 @@ export interface LinkOptions {
   upstreamGitHubUrl?: string;
   /** Upstream branch name for file links */
   upstreamBranch?: string;
-  /** File link mode: 'commit' links to commit, 'file' links to file in repo ('local' is deprecated, treated as 'file') */
-  fileLinkMode?: 'commit' | 'file' | 'local';
+  /** File link mode: 'commit' links to commit, 'file' links to file in repo */
+  fileLinkMode?: 'commit' | 'file';
   /** Fork repository path for resolving file paths */
   forkPath?: string;
 }
@@ -241,14 +233,12 @@ function getFileLink(
   options: LinkOptions,
 ): { label: string; url?: string } {
   const { upstreamGitHubUrl, upstreamBranch, fileLinkMode = 'commit' } = options;
-  // The deprecated 'local' value maps to 'file'.
-  const mode = fileLinkMode === 'local' ? 'file' : fileLinkMode;
 
   if (!upstreamGitHubUrl) {
     return { label: commitHash?.slice(0, 9) || '' };
   }
 
-  if (mode === 'file' && upstreamBranch) {
+  if (fileLinkMode === 'file' && upstreamBranch) {
     // Link to file in repo: https://github.com/org/repo/blob/branch/path/to/file
     const url = `${upstreamGitHubUrl}/blob/${upstreamBranch}/${filePath}`;
     return { label: filePath.split('/').pop() || filePath, url };
@@ -319,7 +309,7 @@ interface StatusConfig {
 
 type SummaryStatus = FileStatus | 'managed';
 
-/** Unified status display config: icon, label, color, and description for each status. Key order defines sort priority. */
+/** Unified status display config: icon, label, color, and description for each status. */
 const statusConfig: Record<FileStatus, StatusConfig> = {
   behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will sync' },
   diverged: { icon: pc.magenta('⇅'), label: 'diverged', color: pc.magenta, description: 'both changed, will merge' },
@@ -344,13 +334,10 @@ const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
   ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
 };
 
-/** Ordered status keys derived from statusConfig key order */
-const statusOrder = Object.keys(statusConfig) as FileStatus[];
-
 function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   printSectionHeader(pc.cyan(title));
 
-  const maxCount = Math.max(...statusOrder.map((status) => summary[status]), summary.managed);
+  const maxCount = Math.max(...Object.values(summary));
   const countWidth = String(maxCount).length + 1;
 
   const printLine = (status: SummaryStatus, count: number) => {
@@ -457,7 +444,7 @@ export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
 /** Shared hint for protected-but-behind output (analyze section and sync summary). */
 const PROTECTED_BEHIND_HINT =
   'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
-  'so diff each against upstream (analyze --open-diff <path>) and adopt what you need.';
+  'so diff each against upstream and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
 function protectionIcon(file: AnalyzedFile): string {
@@ -545,36 +532,6 @@ export function printAnalysisFileGroups(
     hint: 'both fork and upstream changed.',
     dateSource: 'upstream',
   });
-}
-
-function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
-  const logPath = join(forkPath, 'cella-sync.log');
-
-  const lines: string[] = [
-    `cella sync analysis: ${new Date().toISOString()}`,
-    DIVIDER,
-    '',
-    `complete file list (${files.length} files)`,
-    DIVIDER,
-    '',
-  ];
-
-  const sortedFiles = [...files].sort((a, b) => {
-    const aOrder = statusOrder.indexOf(a.status);
-    const bOrder = statusOrder.indexOf(b.status);
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return a.path.localeCompare(b.path);
-  });
-
-  for (const file of sortedFiles) {
-    const config = statusConfig[file.status];
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escape sequences requires \x1b literal.
-    const icon = config.icon.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI
-    lines.push(`  ${icon} ${config.label.padEnd(12)} ${file.path}`);
-  }
-
-  writeFileSync(logPath, lines.join('\n'), 'utf8');
-  return logPath;
 }
 
 export function printSyncComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
@@ -739,30 +696,6 @@ function printMaskingPinWarning(files: AnalyzedFile[]): void {
 }
 
 /**
- * Print warnings for aggressive sync flags (--hard / --unpinned) after completion.
- *
- * Explains what each active flag did and its consequence, and adds a shared
- * caution to cherry-pick deliberately when either is used.
- */
-export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean }): void {
-  const { hard, unpinned } = options;
-  if (!hard && !unpinned) return;
-
-  if (hard) {
-    console.info(pc.yellow('⚠ --hard used: drifted files were treated as behind, overwriting with incoming.'));
-  }
-  if (unpinned) {
-    console.info(
-      pc.yellow(
-        '⚠ --unpinned used: pinned files in cella/cella.config.ts were ignored, this can result in more drifts.',
-      ),
-    );
-  }
-  console.info(pc.yellow('  be extra careful and cherry-pick what you want only.'));
-  console.info();
-}
-
-/**
  * Print the post-engine report block shared by analyze and sync: the summary, then the upstream
  * changes the sync never brings in (ignored paths and upstream's own sync config), and pins that
  * silently freeze a file at the old upstream (no conflict, no type error).
@@ -772,12 +705,4 @@ export function printEngineReports(result: MergeResult, title: string): void {
   printIgnoredUpstreamChanges(result);
   printUpstreamOverrideChanges(result);
   printMaskingPinWarning(result.files);
-}
-
-/** Write the full file list to cella-sync.log when --log was passed, and print where it landed. */
-export function printLogFileReport(config: Pick<RuntimeConfig, 'forkPath' | 'logFile'>, files: AnalyzedFile[]): void {
-  if (!config.logFile) return;
-  const logPath = writeLogFile(config.forkPath, files);
-  console.info();
-  console.info(pc.dim(`full file list written to: ${logPath}`));
 }

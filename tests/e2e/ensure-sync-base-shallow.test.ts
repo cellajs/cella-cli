@@ -11,7 +11,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureSyncBase } from '../../src/utils/git';
-import { commitAll, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
+import { commitAll, createRepo, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
 
 describe('ensureSyncBase shallow recovery', () => {
   let testDir: string;
@@ -26,11 +26,7 @@ describe('ensureSyncBase shallow recovery', () => {
     forkPath = path.join(testDir, 'fork');
 
     // Upstream: A -> B, the shared history the fork was created from.
-    fs.mkdirSync(upstreamPath);
-    exec('git init -b main', upstreamPath);
-    exec(GIT_USER, upstreamPath);
-    write(upstreamPath, { 'package.json': '{"name": "cella"}\n', 'README.md': '# Cella\n' });
-    commitAll(upstreamPath, 'A: initial');
+    createRepo(upstreamPath, { 'package.json': '{"name": "cella"}\n', 'README.md': '# Cella\n' });
     write(upstreamPath, { 'README.md': '# Cella\n\nmore\n' });
     commitAll(upstreamPath, 'B: shared ancestor');
   });

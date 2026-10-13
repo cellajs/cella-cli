@@ -13,7 +13,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { getEffectiveMergeBase, merge, withTemporarySyncBaseGraft } from '../../src/utils/git';
-import { commitAll, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
+import { commitAll, createRepo, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
 
 const FILE_BASE = 'export function getItems() {\n  const a = 1;\n  const b = 2;\n  return [a, b];\n}\n';
 /** Upstream inserts this block; the fork's squash sync deliberately resolves it away. */
@@ -32,11 +32,7 @@ describe('withTemporarySyncBaseGraft', () => {
     forkPath = path.join(testDir, 'fork');
 
     // Upstream with real history the fork shares (a true fork, not a scaffold).
-    fs.mkdirSync(upstreamPath);
-    exec('git init -b main', upstreamPath);
-    exec(GIT_USER, upstreamPath);
-    write(upstreamPath, { 'backend/get-items.ts': FILE_BASE, 'shared/util.ts': 'export const util = 1;\n' });
-    commitAll(upstreamPath, 'Initial commit');
+    createRepo(upstreamPath, { 'backend/get-items.ts': FILE_BASE, 'shared/util.ts': 'export const util = 1;\n' });
 
     exec(`git clone "${upstreamPath}" "${forkPath}"`, testDir);
     exec(GIT_USER, forkPath);

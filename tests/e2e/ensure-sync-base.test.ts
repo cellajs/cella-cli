@@ -12,7 +12,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { ensureSyncBase } from '../../src/utils/git';
-import { commitAll, exec, GIT_USER, UPSTREAM_REMOTE, write } from '../helpers/test-env';
+import { commitAll, createRepo, exec, UPSTREAM_REMOTE, write } from '../helpers/test-env';
 
 /** Enough files that scaffold edits stay well under the inference confidence threshold. */
 function templateFiles(): Record<string, string> {
@@ -36,7 +36,7 @@ function templateFiles(): Record<string, string> {
  * stamp it as the `Cella-Base:` provenance trailer like create-cella does.
  */
 function scaffoldFork(upstreamPath: string, ref: string, forkPath: string, trailerSha?: string): void {
-  fs.mkdirSync(forkPath, { recursive: true });
+  createRepo(forkPath);
   exec(`git archive ${ref} | tar -x -C "${forkPath}"`, upstreamPath);
 
   write(forkPath, {
@@ -47,8 +47,6 @@ function scaffoldFork(upstreamPath: string, ref: string, forkPath: string, trail
   });
   fs.rmSync(path.join(forkPath, 'frontend/src/optional'), { recursive: true, force: true });
 
-  exec('git init -b main', forkPath);
-  exec(GIT_USER, forkPath);
   exec('git add -A', forkPath);
   const trailer = trailerSha ? ` -m "Cella-Base: ${trailerSha}"` : '';
   exec(`git commit -m "Initial commit"${trailer}`, forkPath);
@@ -67,11 +65,7 @@ describe('ensureSyncBase scaffold inference', () => {
     upstreamPath = path.join(testDir, 'upstream');
     forkPath = path.join(testDir, 'fork');
 
-    fs.mkdirSync(upstreamPath);
-    exec('git init -b main', upstreamPath);
-    exec(GIT_USER, upstreamPath);
-    write(upstreamPath, templateFiles());
-    commitAll(upstreamPath, 'Initial commit');
+    createRepo(upstreamPath, templateFiles());
   });
 
   afterEach(() => {
@@ -147,14 +141,7 @@ describe('ensureSyncBase scaffold inference', () => {
   });
 
   it('rejects a fork whose root does not resemble any upstream snapshot', async () => {
-    fs.mkdirSync(forkPath);
-    exec('git init -b main', forkPath);
-    exec(GIT_USER, forkPath);
-    write(forkPath, {
-      'index.js': 'console.log("hand-rolled");\n',
-      'lib/util.js': 'module.exports = {};\n',
-    });
-    commitAll(forkPath, 'Initial commit');
+    createRepo(forkPath, { 'index.js': 'console.log("hand-rolled");\n', 'lib/util.js': 'module.exports = {};\n' });
     exec(`git remote add ${UPSTREAM_REMOTE} "${upstreamPath}"`, forkPath);
     exec(`git fetch ${UPSTREAM_REMOTE}`, forkPath);
 

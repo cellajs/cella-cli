@@ -398,22 +398,17 @@ export async function countCommitsBetween(cwd: string, fromRef: string, toRef: s
 }
 
 /**
- * List commits in a ref range, oldest-first to match GitHub compare ordering.
- *
- * Supports skip+limit pagination so callers can show only the most recent N commits
- * without fetching the entire range.
+ * List commits in a ref range, oldest-first to match GitHub compare ordering. With `limit`, only the
+ * newest `limit` commits (git applies `-n` before `--reverse`).
  */
 export async function listCommitsBetween(
   cwd: string,
   fromRef: string,
   toRef: string,
-  options: {
-    skip?: number;
-    limit?: number;
-  } = {},
+  limit?: number,
 ): Promise<CommitRangeEntry[]> {
-  const { skip, limit } = options;
   const args = ['log', '--format=%H%x1f%s%x1f%ar', '--reverse', `${fromRef}..${toRef}`];
+  if (limit) args.push(`-n${limit}`);
 
   const output = await git(args, cwd, { ignoreErrors: true });
   if (!output) return [];
@@ -425,12 +420,10 @@ export async function listCommitsBetween(
     if (!hash || !message || !date) continue;
     commits.push({ hash, message, date });
   }
-
-  const start = Math.max(0, skip ?? 0);
-  return limit && limit > 0 ? commits.slice(start, start + limit) : commits.slice(start);
+  return commits;
 }
 
-interface FileChangeInfo {
+export interface FileChangeInfo {
   date: string;
   hash: string;
   /** Unix epoch seconds of the change, for sorting */
@@ -496,28 +489,6 @@ export async function assertClean(cwd: string, subject = 'working directory'): P
   if (!(await isClean(cwd))) {
     throw new Error(`${subject} has uncommitted changes. please commit or stash before syncing.`);
   }
-}
-
-/** Create a worktree detached at a commit; --detach avoids "branch already checked out" errors. */
-export async function createWorktree(cwd: string, worktreePath: string, commitRef: string): Promise<void> {
-  await git(['worktree', 'add', '--detach', worktreePath, commitRef], cwd);
-}
-
-export async function removeWorktree(cwd: string, worktreePath: string): Promise<void> {
-  await git(['worktree', 'remove', worktreePath, '--force'], cwd, { ignoreErrors: true });
-  await git(['worktree', 'prune'], cwd, { ignoreErrors: true });
-}
-
-export async function listWorktrees(cwd: string): Promise<string[]> {
-  const output = await git(['worktree', 'list', '--porcelain'], cwd);
-  const lines = output.split('\n');
-  const paths: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith('worktree ')) {
-      paths.push(line.slice(9));
-    }
-  }
-  return paths;
 }
 
 /**

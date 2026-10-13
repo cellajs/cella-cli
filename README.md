@@ -37,11 +37,11 @@ Per-service help: `pnpm cella <service> --help`.
 
 | Service | Useful options |
 |---------|----------------|
-| analyze | `--log`, `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--diff <path>`, `--open-diff <path>` |
-| sync | `--log`, `--hard`, `--unpinned`, `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
+| analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>` |
+| sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
 | migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--script <file>`, `--mark <ids...>` |
 | audit | `--list`, `--force` |
-| forks | `--fork <name>`, `--log`, `--hard`, `--keep-config`, `-V, --verbose` |
+| forks | `--fork <name>`, `--keep-config`, `-V, --verbose` |
 | contributions | `--fork <name>`, `--list`, `--json`, `--diff <path>` |
 | stats | `--coverage`, `--since <ref>`, `--md`, `-V, --verbose` |
 
@@ -203,15 +203,6 @@ out:
 assets, config you own). `pinned` = your version always wins but stays visible (files you
 customize). Unconfigured = syncs automatically. Run `pnpm cella analyze` first to preview.
 
-### Aggressive sync flags
-
-Two opt-in flags make `sync` more aggressive. Both resurface full upstream history (natural merge-base, not the last-sync point), so expect a larger diff and a post-run warning: cherry-pick deliberately. They compose (`--hard --unpinned`).
-
-| Flag | Effect |
-|------|--------|
-| `--hard` | Overwrites `drifted` files with upstream (local-only changes are replaced) |
-| `--unpinned` | Ignores `pinned` files so upstream surfaces as `behind`/`diverged`; managed files stay pinned |
-
 ## Status indicators
 
 During analysis and sync, files are displayed with status indicators:
@@ -249,18 +240,18 @@ Both lists end with one `git diff <last-sync>..<upstream> -- <entry>` line per `
   ⨀ frontend/src/styling/tailwind.css · 21 lines changed upstream
   ⨂ shared/config/default.ts · 4 lines changed upstream
   ⨂ shared/config/staging.ts · 2 lines changed upstream
-  pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, so diff each against upstream (analyze --open-diff <path>) and adopt what you need.
+  pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, so diff each against upstream and adopt what you need.
   what upstream changed since the last sync, per pinned/ignored entry:
     git diff e9a8d485e..a81e3353b -- frontend/src/styling/tailwind.css
     git diff e9a8d485e..a81e3353b -- shared/config
 ```
 
-Diff each against upstream (`cella analyze --open-diff <path>`) and adopt what you need. The
-check is relative to the last sync point: a drop that happened in an earlier sync only shows up
-as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
-files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
-tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
-deliberately or not: diff and decide. Ignored files are not annotated.
+Paste those lines to see what upstream changed and adopt what you need. The check is relative to
+the last sync point: a drop that happened in an earlier sync only shows up as plain `ahead`
+afterwards. For that case the `↑ protected in fork` section annotates pinned files with
+`· N upstream lines absent` (lines upstream has that the fork lacks, compared at the tips,
+`--json`: `upstreamLinesAbsent`). That is upstream content the fork never received, deliberately
+or not: diff and decide. Ignored files are not annotated.
 
 ### Upstream changes that never sync
 

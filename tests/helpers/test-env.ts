@@ -9,7 +9,8 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import type { CellaCliConfig, RuntimeConfig, SyncService } from '../../src/config/types';
+import { vi } from 'vitest';
+import type { AnalyzedFile, CellaCliConfig, FileStatus, RuntimeConfig, SyncService } from '../../src/config/types';
 
 /** Git config for test commits */
 export const GIT_USER = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
@@ -49,11 +50,13 @@ export function commitAll(repoPath: string, message: string): string {
 }
 
 /**
- * Create a temp git repo on `main` with the test identity.
- * With `files`, they are committed as the initial commit; without, the repo starts empty.
+ * Create a git repo on `main` with the test identity: at `target` when it is an absolute path, else
+ * in a fresh temp dir named with `target` as prefix. With `files`, they are committed as the
+ * initial commit; without, the repo starts empty.
  */
-export function createRepo(prefix: string, files?: Record<string, string>): string {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
+export function createRepo(target: string, files?: Record<string, string>): string {
+  const dir = path.isAbsolute(target) ? target : fs.mkdtempSync(path.join(os.tmpdir(), target));
+  fs.mkdirSync(dir, { recursive: true });
   // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
   exec('git init -b main', dir);
   exec(GIT_USER, dir);
@@ -90,13 +93,7 @@ export function createTestEnv(options: { files?: Record<string, string> } = {}):
   const upstreamPath = path.join(testDir, 'upstream');
   const forkPath = path.join(testDir, 'fork');
 
-  // Create upstream repo with initial content
-  fs.mkdirSync(upstreamPath);
-  // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
-  exec('git init -b main', upstreamPath);
-  exec(GIT_USER, upstreamPath);
-
-  write(
+  createRepo(
     upstreamPath,
     options.files ?? {
       'backend/src/index.ts': '// Backend entry\nexport const backend = true;\n',
@@ -105,7 +102,6 @@ export function createTestEnv(options: { files?: Record<string, string> } = {}):
       'package.json': '{"name": "test-upstream"}\n',
     },
   );
-  commitAll(upstreamPath, 'Initial commit');
 
   // Clone to create fork (same starting point)
   exec(`git clone ${upstreamPath} ${forkPath}`);
@@ -236,7 +232,6 @@ export function buildRuntimeConfig(
     track: trackOverride,
     ref,
     keepConfig,
-    logFile: false,
     list: false,
     json: false,
     verbose: false,
@@ -254,4 +249,23 @@ export function resetFork(forkPath: string): void {
   }
   exec('git checkout .', forkPath);
   exec('git clean -fd', forkPath);
+}
+
+/** Run `print` with `console.info` captured, and return the printed lines. */
+export function captureInfo(print: () => void): string {
+  const lines: string[] = [];
+  const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+    lines.push(args.map(String).join(' '));
+  });
+  try {
+    print();
+  } finally {
+    spy.mockRestore();
+  }
+  return lines.join('\n');
+}
+
+/** An analyzed file, unprotected and present on both sides unless `overrides` say otherwise. */
+export function analyzedFile(overrides: Partial<AnalyzedFile> & { path: string; status: FileStatus }): AnalyzedFile {
+  return { isIgnored: false, isPinned: false, existsInFork: true, existsInUpstream: true, ...overrides };
 }

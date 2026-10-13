@@ -1,21 +1,15 @@
 /**
- * Upstream override changes for sync CLI.
- *
- * The fork's `cella/cella.config.ts` is a managed file: the sync never merges it, so entries
- * upstream adds to (or drops from) its own `overrides.pinned`/`overrides.ignored`, and keys it
- * adds to or drops from `settings.packageJsonSync`, never reach the fork on their own. This module
- * reads upstream's config at the merge-base and at the incoming ref, extracts the lists without
- * evaluating the file (ts-morph, syntax only), and keeps the entries the fork config does not
- * follow: upstream additions the fork lacks, and upstream removals the fork still carries. Report
- * only: the fork config is never written.
+ * Upstream override changes: the sync never merges the fork's config, so this reads upstream's
+ * `overrides` lists and `packageJsonSync` keys at the merge-base and the incoming ref (ts-morph,
+ * syntax only) and reports the entries the fork config does not follow. Report only.
  */
 
 import { Node, type ObjectLiteralExpression, Project, type SourceFile, SyntaxKind } from 'ts-morph';
 import type { CellaCliConfig, OverrideListChanges, UpstreamOverridesReport } from '../config/types';
 import { DEFAULT_PACKAGE_JSON_SYNC } from './config';
 import { git } from './git';
-import { CONFIG_FILE_PATHS } from './managed-files';
-import { isUnderAnyFolder } from './overrides';
+import { CONFIG_FILE } from './managed-files';
+import { isUnderAnyFolder, normalizeEntry } from './overrides';
 
 /** The lists the comparison reads from a sync config, as plain string entries. */
 interface OverrideLists {
@@ -99,12 +93,8 @@ function readPackageJsonSync(config: ObjectLiteralExpression, sourceFile: Source
 
 /**
  * Extract `overrides.pinned`, `overrides.ignored` and `settings.packageJsonSync` from config source
- * without evaluating it.
- *
- * Only string literals count; other array elements (spreads, variables) are skipped. A missing
- * `overrides` or list reads as empty, a missing `packageJsonSync` as the default keys. Returns null
- * when the config object or a present `overrides`/list cannot be read statically; an unreadable
- * `packageJsonSync` alone reads as null, so the override lists still compare.
+ * without evaluating it; only string literals count. Null when the config object or a present
+ * `overrides`/list cannot be read statically; an unreadable `packageJsonSync` alone reads as null.
  */
 export function parseOverrideLists(source: string): OverrideLists | null {
   try {
@@ -133,11 +123,6 @@ export function parseOverrideLists(source: string): OverrideLists | null {
   } catch {
     return null;
   }
-}
-
-/** Normalize an entry for comparison: trimmed, no leading `./`, no trailing slash. */
-function normalizeEntry(entry: string): string {
-  return entry.trim().replace(/^\.\//, '').replace(/\/+$/, '');
 }
 
 /**
@@ -174,22 +159,11 @@ export function diffOverrideLists(
   return { pinned: diff('pinned'), ignored: diff('ignored'), packageJsonSync: diffKeys() };
 }
 
-/** Upstream's config source at a ref (current path first, then the legacy root path), or null. */
-async function readConfigSourceAtRef(repoPath: string, ref: string): Promise<string | null> {
-  for (const path of CONFIG_FILE_PATHS) {
-    const source = await git(['show', `${ref}:${path}`], repoPath, { ignoreErrors: true });
-    if (source) return source;
-  }
-  return null;
-}
-
 /**
  * Report how upstream's `overrides` and `packageJsonSync` changed between the merge-base and the
  * incoming ref, limited to entries the fork config does not follow (see {@link diffOverrideLists}).
- *
- * Returns undefined when there is nothing to report: upstream has no config at either ref, the
- * config is unchanged, or every change is already mirrored in the fork. Returns `unreadable`
- * when the config is missing or unparsable at one side only.
+ * Undefined when there is nothing to report; `unreadable` when the config is missing or unparsable
+ * at one side only.
  */
 export async function compareUpstreamOverrides(
   repoPath: string,
@@ -197,15 +171,15 @@ export async function compareUpstreamOverrides(
   incomingRef: string,
   forkConfig: CellaCliConfig,
 ): Promise<UpstreamOverridesReport | undefined> {
-  const [baseSource, incomingSource] = await Promise.all([
-    readConfigSourceAtRef(repoPath, mergeBaseRef),
-    readConfigSourceAtRef(repoPath, incomingRef),
-  ]);
+  // Empty when upstream has no config at that ref.
+  const [baseSource, incomingSource] = await Promise.all(
+    [mergeBaseRef, incomingRef].map((ref) => git(['show', `${ref}:${CONFIG_FILE}`], repoPath, { ignoreErrors: true })),
+  );
   if (baseSource === incomingSource) return undefined;
 
-  const base = baseSource === null ? null : parseOverrideLists(baseSource);
+  const base = baseSource ? parseOverrideLists(baseSource) : null;
   if (!base) return { kind: 'unreadable', side: 'base' };
-  const incoming = incomingSource === null ? null : parseOverrideLists(incomingSource);
+  const incoming = incomingSource ? parseOverrideLists(incomingSource) : null;
   if (!incoming) return { kind: 'unreadable', side: 'incoming' };
 
   const fork: OverrideLists = {

@@ -9,8 +9,8 @@ import { Command } from 'commander';
 import type { AnalyzeScope, CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import pc from './utils/colors';
 import { isUpstreamRepo, resolveUpstream } from './utils/config';
-import { MENU_DIVIDER, NAME, printHeader, setJsonMode, VERSION } from './utils/display';
-import { printWarnings, validateOverrides } from './utils/overrides';
+import { MENU_DIVIDER, NAME, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
+import { validateOverrides } from './utils/overrides';
 
 type CliServiceSelection = {
   service?: SyncService;
@@ -19,16 +19,12 @@ type CliServiceSelection = {
 
 type CliOptionState = Pick<
   RuntimeConfig,
-  | 'logFile'
   | 'verbose'
   | 'list'
   | 'json'
   | 'diff'
-  | 'openDiff'
   | 'scope'
   | 'fork'
-  | 'hard'
-  | 'unpinned'
   | 'track'
   | 'ref'
   | 'keepConfig'
@@ -83,16 +79,12 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
   }
 
   return {
-    logFile: flag(opts.log),
     verbose: flag(opts.verbose),
     list: flag(opts.list),
     json: flag(opts.json),
     diff: str(opts.diff),
-    openDiff: str(opts.openDiff),
     scope: normalizedScope,
     fork: str(opts.fork),
-    hard: flag(opts.hard),
-    unpinned: flag(opts.unpinned),
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
     ref: str(opts.ref) || undefined,
     keepConfig: flag(opts.keepConfig),
@@ -111,10 +103,6 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
 }
 
 // Option literals shared verbatim by more than one service.
-const logOption: ServiceOptionDefinition = {
-  flags: '--log',
-  description: 'write complete file list to cella-sync.log',
-};
 const jsonOption: ServiceOptionDefinition = {
   flags: '--json',
   description: 'machine-readable output for tooling/agents',
@@ -126,10 +114,6 @@ const trackOption: ServiceOptionDefinition = {
 const refOption: ServiceOptionDefinition = {
   flags: '--ref <ref>',
   description: 'pin the upstream commit for this run: sha, release tag or branch',
-};
-const hardOption: ServiceOptionDefinition = {
-  flags: '--hard',
-  description: 'overwrite drifted files with upstream version (aggressive realignment)',
 };
 const verboseOption: ServiceOptionDefinition = {
   flags: '-V, --verbose',
@@ -145,14 +129,11 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'analyze',
     description: 'dry run to see what would change on sync',
     options: [
-      logOption,
       { flags: '--list', description: 'non-interactive output for tooling (one file per line)' },
       jsonOption,
       { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
       trackOption,
       refOption,
-      { flags: '--diff <path>', description: 'print the unified diff for one file, then exit' },
-      { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
@@ -160,9 +141,6 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'sync',
     description: 'merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR',
     options: [
-      logOption,
-      hardOption,
-      { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
       trackOption,
       refOption,
       { flags: '--keep-config', description: 'merge with your sync config as it stands when upstream changed its own' },
@@ -200,9 +178,7 @@ const serviceDefinitions: ServiceDefinition[] = [
     description: 'run normal sync inside local fork repositories',
     options: [
       forkOption,
-      { flags: '--log', description: 'write complete file list to cella-sync.log for each synced fork' },
       verboseOption,
-      hardOption,
       {
         flags: '--keep-config',
         description: "merge with the fork's sync config as it stands when upstream changed its own",
@@ -297,9 +273,6 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         'Examples:',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
-        '  $ cella analyze --open-diff frontend/src/routes/index.tsx',
-        '  $ cella sync --hard',
-        '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
         '  $ cella sync --ref 4f7d87c',
         '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
@@ -379,10 +352,8 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
 
   // Ignored entries are validated against the upstream branch as last fetched.
   const warnings = await validateOverrides(userConfig, forkPath, resolveUpstream(userConfig.settings).branchRef);
-  if (warnings.length > 0) {
-    printWarnings(warnings);
-    console.info();
-  }
+  for (const warning of warnings) console.info(`${warningMark} ${warning}`);
+  if (warnings.length > 0) console.info();
 
   if (!selection.service) {
     selection.service = await promptForService(userConfig, forkPath);

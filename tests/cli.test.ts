@@ -76,13 +76,12 @@ describe('parseCli', () => {
   });
 
   it('parses service-specific flags for sync', async () => {
-    process.argv = ['node', 'cella', 'sync', '--log', '--hard'];
+    process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
 
     const config = await parseCli(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('sync');
-    expect(config.logFile).toBe(true);
-    expect(config.hard).toBe(true);
+    expect(config.track).toBe('branch');
   });
 
   it('parses a pinned upstream ref for sync and analyze', async () => {

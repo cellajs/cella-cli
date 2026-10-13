@@ -1,37 +1,20 @@
 /**
- * Direction-agnostic ref analyzer for sync CLI.
- *
- * Compares a "local" ref against an "incoming" ref using a shared merge-base,
- * classifying every changed file (identical / ahead / local / drifted / behind /
- * diverged / pinned / ignored / deleted / renamed). It works purely on git
- * plumbing (ls-tree, diff-tree, log) against refs, never the working tree.
- *
- * Both directions reuse it:
- * - sync (merge-engine): local = fork HEAD, incoming = upstream
- * - contributions: local = cella branch, incoming = fork branch
- *
- * The result fields `existsInFork`/`existsInUpstream` map to local/incoming
- * respectively (named for the sync direction, reused as-is for contributions).
- *
- * Protected files (pinned/ignored) additionally get `upstreamChanged` when both sides
- * changed since the merge-base: the local side wins whole-file there, so incoming's hunks
- * are dropped silently unless surfaced. Ignored files only incoming changed get
- * `upstreamOnly`: nothing local is at stake, but the change never syncs. Managed files and
- * generated output (regenerated locally, never adopted) are left out of that flag.
+ * Direction-agnostic ref analyzer: compares a "local" ref against an "incoming" ref from a shared
+ * merge-base and classifies every changed file, with git plumbing on refs only, never the working
+ * tree. Sync runs it with local = fork HEAD and incoming = upstream, contributions with local =
+ * cella branch and incoming = fork branch; `existsInFork`/`existsInUpstream` map to local/incoming.
  */
 
 import type { AnalyzedFile, FileStatus } from '../config/types';
-import { getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
+import { type FileChangeInfo, getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
 import { isGeneratedFile, isManagedFile } from '../utils/managed-files';
 
-/** Predicates and options that steer classification (direction-specific). */
+/** Predicates that steer classification (direction-specific). */
 export interface AnalyzePredicates {
   /** True if the file is inside owned/ignored territory (never synced). */
   isIgnored: (path: string) => boolean;
   /** True if the file is pinned (local wins on conflict). */
   isPinned: (path: string) => boolean;
-  /** Treat drifted files as behind (overwrite local with incoming). */
-  hard?: boolean;
 }
 
 /** Whether an ignored path can carry `upstreamOnly`: not managed and not generated output. */
@@ -41,15 +24,7 @@ function isReportableIgnored(filePath: string): boolean {
 
 type ProgressCallback = (message: string) => void;
 
-/**
- * Analyze files between a local and an incoming ref using a merge-base.
- *
- * @param repoPath - Repo where all refs are reachable (git ops run here)
- * @param localRef - The "ours" ref (e.g. fork HEAD, or cella branch)
- * @param incomingRef - The "theirs" ref (e.g. upstream, or fork branch)
- * @param mergeBaseRef - Common ancestor ref used for 3-way comparison
- * @param predicates - Direction-specific ignore/pin/hard behavior
- */
+/** Analyze files between a local and an incoming ref using a merge-base, in a repo that reaches all three. */
 export async function analyzeRefs(
   repoPath: string,
   localRef: string,
@@ -110,15 +85,19 @@ export async function analyzeRefs(
 
     const renamedToPath = upstreamRenames.get(filePath);
 
-    if (!changedFiles.has(filePath) && inFork && inUpstream) {
+    const push = (status: FileStatus, extra: Partial<AnalyzedFile> = {}) =>
       analyzedFiles.push({
         path: filePath,
-        status: 'identical',
+        status,
         isIgnored: fileIsIgnored,
         isPinned: fileIsPinned,
-        existsInFork: true,
-        existsInUpstream: true,
+        existsInFork: inFork,
+        existsInUpstream: inUpstream,
+        ...extra,
       });
+
+    if (!changedFiles.has(filePath) && inFork && inUpstream) {
+      push('identical');
       continue;
     }
 
@@ -174,17 +153,7 @@ export async function analyzeRefs(
       // touched the source: an upstream-only change at the new path.
       const upstreamOnly = fileIsIgnored && !forkModifiedOld && isReportableIgnored(filePath);
 
-      analyzedFiles.push({
-        path: filePath,
-        status,
-        isIgnored: fileIsIgnored,
-        isPinned: fileIsPinned,
-        existsInFork: inFork,
-        existsInUpstream: true,
-        renamedFrom,
-        upstreamChanged,
-        upstreamOnly: upstreamOnly || undefined,
-      });
+      push(status, { existsInUpstream: true, renamedFrom, upstreamChanged, upstreamOnly: upstreamOnly || undefined });
       continue;
     }
 
@@ -197,15 +166,9 @@ export async function analyzeRefs(
     if (fileIsIgnored) {
       status = 'ignored';
     } else if (!inFork && inUpstream) {
-      // File is missing locally but present in incoming. Distinguish a genuinely new
-      // incoming file from a file the local side deliberately deleted, by consulting
-      // the merge-base (the symmetric `inFork && !inUpstream` branch does the same):
-      // - pinned: local owns the path, keep it removed.
-      // - existed at base and incoming hasn't touched it since (upstreamHash === baseHash):
-      //   the absence is a deliberate local deletion that stays deleted; re-adding it
-      //   as if incoming introduced a new file would resurface it every sync.
-      // - otherwise (never in base = truly new, or incoming modified a file the local side
-      //   deleted = delete/modify): surface incoming's version.
+      // Missing locally: a pinned path, or one at base that incoming left untouched, is a local
+      // deletion that stays deleted (re-adding it would resurface it every sync). A path new in
+      // incoming, or one incoming modified after the local side deleted it, comes from incoming.
       const locallyDeleted = baseHash !== null && upstreamHash === baseHash;
       status = fileIsPinned || locallyDeleted ? 'deleted' : 'behind';
     } else if (inFork && !inUpstream) {
@@ -228,8 +191,7 @@ export async function analyzeRefs(
       if (forkChanged && upstreamChanged) {
         status = fileIsPinned ? 'pinned' : 'diverged';
       } else if (forkChanged && !upstreamChanged) {
-        // --hard treats drifted as behind (incoming overwrites).
-        status = fileIsPinned ? 'ahead' : predicates.hard ? 'behind' : 'drifted';
+        status = fileIsPinned ? 'ahead' : 'drifted';
       } else {
         status = 'behind';
       }
@@ -249,16 +211,7 @@ export async function analyzeRefs(
     const upstreamOnly =
       fileIsIgnored && isReportableIgnored(filePath) && upstreamHash !== baseHash && forkHash === baseHash;
 
-    analyzedFiles.push({
-      path: filePath,
-      status,
-      isIgnored: fileIsIgnored,
-      isPinned: fileIsPinned,
-      existsInFork: inFork,
-      existsInUpstream: inUpstream,
-      upstreamChanged: upstreamChanged || undefined,
-      upstreamOnly: upstreamOnly || undefined,
-    });
+    push(status, { upstreamChanged: upstreamChanged || undefined, upstreamOnly: upstreamOnly || undefined });
   }
 
   // Size the dropped incoming changes: one numstat call limited to the flagged paths.
@@ -308,16 +261,8 @@ export async function analyzeRefs(
 }
 
 /**
- * Enrich analyzed files with change dates and commit hashes.
- *
- * Mutates each non-identical file in place: local-side dates for ahead/drifted,
- * incoming-side dates for behind, and both sides for diverged/pinned.
- *
- * @param repoPath - Repo where the refs are reachable
- * @param files - Files to enrich (mutated in place)
- * @param mergeBaseRef - Common ancestor ref
- * @param localRef - The "ours" ref
- * @param incomingRef - The "theirs" ref
+ * Enrich analyzed files in place with change dates and commit hashes: local-side dates for
+ * ahead/drifted, incoming-side dates for behind, and both sides for diverged/pinned.
  */
 export async function enrichChangeInfo(
   repoPath: string,
@@ -328,37 +273,28 @@ export async function enrichChangeInfo(
 ): Promise<void> {
   const forkInfo = await getFileChangeInfo(repoPath, mergeBaseRef, localRef);
   const upstreamInfo = await getFileChangeInfo(repoPath, mergeBaseRef, incomingRef);
+  const setChanged = (file: AnalyzedFile, info: FileChangeInfo | undefined) => {
+    if (!info) return;
+    file.changedAt = info.date;
+    file.changedTs = info.timestamp;
+    file.changedCommit = info.hash;
+  };
 
   for (const file of files) {
     if (file.status === 'identical') continue;
 
     if (file.status === 'ahead' || file.status === 'drifted') {
-      const info = forkInfo.get(file.path);
-      if (info) {
-        file.changedAt = info.date;
-        file.changedTs = info.timestamp;
-        file.changedCommit = info.hash;
-      }
+      setChanged(file, forkInfo.get(file.path));
     } else if (file.status === 'behind') {
-      const info = upstreamInfo.get(file.path);
-      if (info) {
-        file.changedAt = info.date;
-        file.changedTs = info.timestamp;
-        file.changedCommit = info.hash;
-      }
+      setChanged(file, upstreamInfo.get(file.path));
     } else if (file.status === 'diverged' || file.status === 'pinned' || file.upstreamChanged) {
       // Diverged/pinned (and protected files incoming also changed) carry both sides.
-      const forkFileInfo = forkInfo.get(file.path);
-      const upstreamFileInfo = upstreamInfo.get(file.path);
-      if (forkFileInfo) {
-        file.changedAt = forkFileInfo.date;
-        file.changedTs = forkFileInfo.timestamp;
-        file.changedCommit = forkFileInfo.hash;
-      }
-      if (upstreamFileInfo) {
-        file.upstreamChangedAt = upstreamFileInfo.date;
-        file.upstreamChangedTs = upstreamFileInfo.timestamp;
-        file.upstreamCommit = upstreamFileInfo.hash;
+      setChanged(file, forkInfo.get(file.path));
+      const info = upstreamInfo.get(file.path);
+      if (info) {
+        file.upstreamChangedAt = info.date;
+        file.upstreamChangedTs = info.timestamp;
+        file.upstreamCommit = info.hash;
       }
     }
   }

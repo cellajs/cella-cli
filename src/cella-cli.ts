@@ -17,7 +17,6 @@ import { runMigrate } from './services/migrate';
 import { runStats } from './services/stats';
 import { runBranchStats } from './services/stats-since';
 import { runSyncCommand } from './services/sync';
-import { registerSignalHandlers } from './utils/cleanup';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
 import { getEnv } from './utils/env';
@@ -65,8 +64,6 @@ function isHelpOrVersionRequest(): boolean {
 }
 
 async function main(): Promise<void> {
-  registerSignalHandlers();
-
   try {
     const forkPath = getForkPath();
 
