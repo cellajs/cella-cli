@@ -33,7 +33,6 @@ type CliOptionState = Pick<
   | 'ref'
   | 'keepConfig'
   | 'force'
-  | 'checkOverrides'
   | 'coverage'
   | 'since'
   | 'md'
@@ -98,7 +97,6 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
     ref: str(opts.ref) || undefined,
     keepConfig: flag(opts.keepConfig),
     force: flag(opts.force),
-    checkOverrides: flag(opts.checkOverrides),
     coverage: flag(opts.coverage),
     since: str(opts.since) || undefined,
     md: flag(opts.md),
@@ -191,11 +189,10 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'audit',
-    description: 'check for outdated packages and vulnerabilities',
+    description: 'update outdated packages, then rebuild the security overrides from a fresh audit',
     options: [
-      { flags: '--list', description: 'skip interactive update prompts after printing audit results' },
+      { flags: '--list', description: 'report only: no prompts, and nothing is written' },
       { flags: '--force', description: 'bypass pnpm metadata cache for fresh registry data' },
-      { flags: '--check-overrides', description: 'check which pnpm.overrides are still needed' },
     ],
   },
   {
@@ -307,7 +304,7 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella sync --ref 4f7d87c',
         '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella migrate --mark 20261002T0614-config-switch',
-        '  $ cella audit --check-overrides',
+        '  $ cella audit --list',
         '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',
       ].join('\n'),

@@ -49,7 +49,7 @@ export interface EnhancedPackageInfo {
 }
 
 /** Vulnerability severity levels */
-type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
+export type VulnerabilitySeverity = 'critical' | 'high' | 'moderate' | 'low' | 'info';
 
 /** Vulnerability info for a package */
 export interface VulnerabilityInfo {
@@ -80,6 +80,7 @@ interface AuditAdvisory {
   patched_versions: string;
   cves: string[];
   url: string;
+  github_advisory_id?: string;
   findings: Array<{ version: string; paths: string[] }>;
 }
 
@@ -256,7 +257,7 @@ export function isMajorVersionChange(current: string, latest: string): boolean {
  * packages or vulnerabilities (expected output, not an error), so the JSON is also rescued
  * from the error's stdout. Returns null for empty or unparsable output; never throws.
  */
-async function runPnpmJson(args: string[], cwd: string): Promise<unknown> {
+export async function runPnpmJson(args: string[], cwd: string): Promise<unknown> {
   const parse = (stdout?: string): unknown => {
     if (!stdout || stdout.trim() === '') return null;
     try {
@@ -283,9 +284,38 @@ export async function getOutdatedPackages(cwd: string): Promise<Record<string, O
   return ((await runPnpmJson(['-r', 'outdated', '--json'], cwd)) ?? {}) as Record<string, OutdatedPackage>;
 }
 
-/** Parsed `pnpm audit --json`; null when the audit fails or finds nothing. */
+/** Runs a pnpm command to completion with its output captured; `ok` is false on a non-zero exit. */
+export async function runPnpm(args: string[], cwd: string): Promise<{ ok: boolean; output: string }> {
+  try {
+    const { stdout, stderr } = await execFileAsync('pnpm', args, {
+      encoding: 'utf8',
+      maxBuffer: 10 * 1024 * 1024,
+      cwd,
+    });
+    return { ok: true, output: `${stdout}${stderr}` };
+  } catch (error) {
+    const { stdout = '', stderr = '' } = error as { stdout?: string; stderr?: string };
+    return {
+      ok: false,
+      output: `${stdout}${stderr}`.trim() || (error instanceof Error ? error.message : String(error)),
+    };
+  }
+}
+
+/**
+ * Parsed `pnpm audit --json`; null when the audit could not run. A clean audit is a result with
+ * no advisories, so a caller can tell "nothing found" from "no answer".
+ */
 export async function runPnpmAudit(cwd: string): Promise<AuditResult | null> {
-  return (await runPnpmJson(['audit', '--json'], cwd)) as AuditResult | null;
+  const result = (await runPnpmJson(['audit', '--json'], cwd)) as Partial<AuditResult> | null;
+  if (!result || typeof result.advisories !== 'object' || result.advisories === null) return null;
+  return result as AuditResult;
+}
+
+/** Publish time per version of a package, as its registry lists them; null when it does not answer. */
+export async function fetchPublishTimes(name: string, cwd: string): Promise<Record<string, string> | null> {
+  const times = await runPnpmJson(['view', name, 'time', '--json'], cwd);
+  return times && typeof times === 'object' ? (times as Record<string, string>) : null;
 }
 
 /**

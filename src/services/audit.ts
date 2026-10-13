@@ -1,7 +1,8 @@
 /**
  * Audit service for the Cella CLI.
  *
- * Checks for outdated packages and security vulnerabilities across the monorepo.
+ * Two layers, in this order: update the outdated packages a developer picks, then run the security
+ * pass on what is left (see audit-security.ts).
  */
 
 import { spawnSync } from 'node:child_process';
@@ -10,7 +11,6 @@ import { basename, join, relative } from 'node:path';
 import { checkbox, confirm, Separator } from '@inquirer/prompts';
 import type { RuntimeConfig } from '../config/types';
 import {
-  type AuditResult,
   buildVulnerabilityMap,
   clearCache,
   type EnhancedPackageInfo,
@@ -27,22 +27,14 @@ import {
   middleTruncate,
   runPnpmAudit,
   saveCache,
-  type VulnerabilityInfo,
 } from '../utils/audit-utils';
 import pc from '../utils/colors';
-import {
-  checkMark,
-  createSpinner,
-  DIVIDER,
-  hyperlink,
-  spinnerSuccess,
-  spinnerText,
-  warningMark,
-} from '../utils/display';
+import { createSpinner, hyperlink, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { parseYamlBlockMap } from '../utils/yaml';
+import { runSecurityPass } from './audit-security';
 
-/** Sentinel value for the audit --fix checkbox */
-const AUDIT_FIX_VALUE = '__audit_fix__';
+/** How the update layer ended: the security pass follows unless it failed or was cancelled. */
+type UpdateOutcome = 'updated' | 'skipped' | 'cancelled' | 'failed';
 
 /** A dependent workspace's package.json: its name plus dependency maps, for display names and pin detection. */
 type DependentPkgJson = { name?: string } & Partial<Record<'dependencies' | 'devDependencies', Record<string, string>>>;
@@ -64,31 +56,10 @@ function createDependentPkgReader(): (location: string) => DependentPkgJson | nu
   };
 }
 
-/** Vulnerability counts per severity, as `pnpm audit` reports them in its metadata. */
-type SeverityCounts = Partial<AuditResult['metadata']['vulnerabilities']>;
-
-/**
- * Colored `N <severity>` parts for the severities with a non-zero count, in display order.
- * `suffix` rides inside each colored part except `low`, which always ends a summary.
- */
-function formatSeverityCounts(counts: SeverityCounts, suffix = ''): string[] {
-  const parts: string[] = [];
-  if (counts.critical) parts.push(pc.red(`${counts.critical} critical${suffix}`));
-  if (counts.high) parts.push(pc.red(`${counts.high} high${suffix}`));
-  if (counts.moderate) parts.push(pc.yellow(`${counts.moderate} moderate${suffix}`));
-  if (counts.low) parts.push(pc.blue(`${counts.low} low`));
-  return parts;
-}
-
 export async function runAudit(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
 
-  if (config.checkOverrides) {
-    await checkOverrides(forkPath);
-    return;
-  }
-
-  const spinner = createSpinner('checking for outdated packages & vulnerabilities...');
+  const spinner = createSpinner('checking for outdated packages...');
   try {
     // --force drops both caches so registry data is fetched fresh.
     if (config.force) {
@@ -98,7 +69,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
         cwd: forkPath,
         stdio: 'ignore',
       });
-      spinnerText('checking for outdated packages & vulnerabilities...');
+      spinnerText('checking for outdated packages...');
     }
 
     const [outdatedPackages, auditResult] = await Promise.all([getOutdatedPackages(forkPath), runPnpmAudit(forkPath)]);
@@ -106,8 +77,10 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     const packageNames = Object.keys(outdatedPackages);
     const vulnMap = buildVulnerabilityMap(auditResult);
 
-    if (packageNames.length === 0 && vulnMap.size === 0) {
-      spinnerSuccess('all packages are up to date and secure');
+    if (packageNames.length === 0) {
+      spinnerSuccess('all packages are up to date');
+      console.info();
+      await runSecurityPass(forkPath, { apply: !config.list });
       return;
     }
 
@@ -179,16 +152,17 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
 
     spinner.stop();
 
-    if (enhancedPackages.length > 0) {
-      printOutdatedResults(enhancedPackages, dependentNameCache, forkPath);
-    }
-    printVulnerabilityResults(auditResult, vulnMap);
+    printOutdatedResults(enhancedPackages, dependentNameCache, forkPath);
+    console.info();
 
-    // --list is the non-interactive mode: report only, no update prompt.
-    const hasVulns = vulnMap.size > 0;
-    if ((enhancedPackages.length > 0 || hasVulns) && !config.list) {
-      await promptForUpdates(enhancedPackages, forkPath, auditResult);
+    // --list is the non-interactive mode: report only, no prompts and no writes.
+    const outcome = config.list ? 'skipped' : await promptForUpdates(enhancedPackages, forkPath);
+    if (outcome === 'cancelled') return;
+    if (outcome === 'failed') {
+      console.info(`${warningMark} security pass skipped: it needs a workspace that installs`);
+      return;
     }
+    await runSecurityPass(forkPath, { apply: !config.list });
   } finally {
     spinner.stop();
   }
@@ -282,14 +256,9 @@ function printOutdatedResults(
   }
 }
 
-/**
- * Build the grouped checkbox choices for the update prompt: the audit --fix entry when
- * vulnerabilities exist, then pinned packages, then the regular ones, with separators.
- */
+/** The grouped checkbox choices for the update prompt: pinned packages, then the regular ones. */
 function buildUpdateChoices(
   packages: EnhancedPackageInfo[],
-  auditResult: AuditResult | null,
-  hasVulnerabilities: boolean,
 ): Array<{ name: string; value: string; checked: boolean } | Separator> {
   const makeChoice = (pkg: EnhancedPackageInfo) => {
     const devTag = pkg.isDev ? pc.dim(' (dev)') : '';
@@ -308,25 +277,12 @@ function buildUpdateChoices(
 
   const choices: Array<{ name: string; value: string; checked: boolean } | Separator> = [];
 
-  if (hasVulnerabilities) {
-    const parts = formatSeverityCounts(auditResult?.metadata?.vulnerabilities || {});
-    const vulnSummary = parts.length > 0 ? ` ${pc.dim('·')} ${parts.join(' ')}` : '';
-    choices.push(new Separator(pc.red(`── vulnerabilities${vulnSummary} ──`)));
-    choices.push({
-      name: `${pc.cyan('pnpm audit --fix override')}  ${pc.dim('add overrides for non-vulnerable versions')}`,
-      value: AUDIT_FIX_VALUE,
-      checked: false,
-    });
-  }
-
   if (pinned.length > 0) {
     choices.push(new Separator(pc.yellow(`── pinned (${pinned.length}) ──`)));
     choices.push(...pinned.map(makeChoice));
   }
   if (regular.length > 0) {
-    if (pinned.length > 0 || hasVulnerabilities) {
-      choices.push(new Separator(pc.dim(`── packages (${regular.length}) ──`)));
-    }
+    if (pinned.length > 0) choices.push(new Separator(pc.dim(`── packages (${regular.length}) ──`)));
     choices.push(...regular.map(makeChoice));
   }
 
@@ -334,36 +290,17 @@ function buildUpdateChoices(
 }
 
 /** Package-selection prompt; the chosen updates run through {@link executeUpdates}. */
-async function promptForUpdates(
-  packages: EnhancedPackageInfo[],
-  forkPath: string,
-  auditResult: AuditResult | null,
-): Promise<void> {
-  const hasVulnerabilities =
-    auditResult !== null && Object.values(auditResult.metadata?.vulnerabilities || {}).some((c) => c > 0);
-  const hasPackages = packages.length > 0;
-
-  let confirmMessage = 'update packages?';
-  if (hasVulnerabilities && hasPackages) {
-    confirmMessage = 'update packages and fix vulnerabilities?';
-  } else if (hasVulnerabilities) {
-    confirmMessage = 'fix vulnerabilities?';
-  }
-
+async function promptForUpdates(packages: EnhancedPackageInfo[], forkPath: string): Promise<UpdateOutcome> {
   let wantsUpdate: boolean;
   try {
-    wantsUpdate = await confirm({
-      message: confirmMessage,
-      default: true,
-    });
+    wantsUpdate = await confirm({ message: 'update packages?', default: true });
   } catch {
-    return;
+    return 'cancelled';
   }
-  if (!wantsUpdate) return;
-
   console.info();
+  if (!wantsUpdate) return 'skipped';
 
-  const choices = buildUpdateChoices(packages, auditResult, hasVulnerabilities);
+  const choices = buildUpdateChoices(packages);
 
   let selected: string[];
   try {
@@ -390,34 +327,20 @@ async function promptForUpdates(
     });
   } catch {
     // User pressed Ctrl+C or escaped
-    return;
+    return 'cancelled';
   }
 
-  const runAuditFix = selected.includes(AUDIT_FIX_VALUE);
-  const selectedPackages = selected.filter((s) => s !== AUDIT_FIX_VALUE);
-
-  await executeUpdates(packages, forkPath, selectedPackages, runAuditFix);
+  return executeUpdates(packages, forkPath, selected);
 }
 
-/**
- * The selected updates: major bumps confirmed first, `pnpm audit --fix override` when chosen,
- * then one recursive `pnpm up` (catalog consumers normalized first).
- */
+/** The selected updates: major bumps confirmed first, then one recursive `pnpm up` (catalog consumers normalized first). */
 async function executeUpdates(
   packages: EnhancedPackageInfo[],
   forkPath: string,
   selectedPackages: string[],
-  runAuditFix: boolean,
-): Promise<void> {
-  const summaryParts: string[] = [];
-  if (selectedPackages.length > 0) {
-    summaryParts.push(`updating ${selectedPackages.length} package${selectedPackages.length !== 1 ? 's' : ''}`);
-  }
-  if (runAuditFix) {
-    summaryParts.push('then updating dependencies');
-  }
+): Promise<UpdateOutcome> {
   console.info();
-  console.info(pc.green(`✓ ${summaryParts.join(' ')}`));
+  console.info(pc.green(`✓ updating ${selectedPackages.length} package${selectedPackages.length !== 1 ? 's' : ''}`));
   console.info();
 
   const selectedMajor = packages.filter((p) => selectedPackages.includes(p.name) && p.isMajorUpdate);
@@ -430,10 +353,11 @@ async function executeUpdates(
       });
       if (!proceed) {
         console.info(pc.dim('  update cancelled'));
-        return;
+        console.info();
+        return 'skipped';
       }
     } catch {
-      return;
+      return 'cancelled';
     }
   }
 
@@ -451,22 +375,6 @@ async function executeUpdates(
     }
   }
 
-  // Audit --fix runs before the package updates so its overrides apply during install.
-  if (runAuditFix) {
-    console.info(pc.dim('running pnpm audit --fix override...'));
-    const auditFixResult = spawnSync('pnpm', ['audit', '--fix', 'override'], {
-      cwd: forkPath,
-      stdio: 'inherit',
-    });
-
-    console.info();
-    if (auditFixResult.status === 0) {
-      console.info(pc.green('✓ pnpm audit --fix override completed'));
-    } else {
-      console.error(pc.red(`✗ pnpm audit --fix override failed (exit code ${auditFixResult.status})`));
-    }
-  }
-
   // Summarize impacted workspaces before running a single workspace-wide update.
   // Catalog consumers are normalized before the recursive update so a strict
   // catalogMode cannot fail it with ERR_PNPM_CATALOG_VERSION_MISMATCH.
@@ -475,74 +383,38 @@ async function executeUpdates(
     console.info(`${pc.cyan('↑')} ${pc.bold(workspace)}: ${pc.dim(pkgList)}`);
   }
 
-  if (selectedPackages.length > 0) {
-    console.info();
+  console.info();
 
-    const selectedCatalogPackages = selectedPackages.filter((pkgName) => catalogPackages.has(pkgName));
+  const selectedCatalogPackages = selectedPackages.filter((pkgName) => catalogPackages.has(pkgName));
 
-    if (selectedCatalogPackages.length > 0) {
-      console.info(pc.dim(`normalizing catalog consumers: ${selectedCatalogPackages.join(', ')}`));
-      const normalizeResult = spawnSync('pnpm', ['-r', 'up', ...selectedCatalogPackages], {
-        cwd: forkPath,
-        stdio: 'inherit',
-      });
-
-      console.info();
-      if (normalizeResult.status !== 0) {
-        console.error(pc.red(`✗ catalog normalization failed (exit code ${normalizeResult.status})`));
-        return;
-      }
-    }
-
-    // Run one recursive update so pnpm can rewrite catalogs and direct consumers atomically.
-    const result = spawnSync('pnpm', ['-r', 'up', '--latest', ...selectedPackages], {
+  if (selectedCatalogPackages.length > 0) {
+    console.info(pc.dim(`normalizing catalog consumers: ${selectedCatalogPackages.join(', ')}`));
+    const normalizeResult = spawnSync('pnpm', ['-r', 'up', ...selectedCatalogPackages], {
       cwd: forkPath,
       stdio: 'inherit',
     });
 
     console.info();
-    if (result.status === 0) {
-      console.info(pc.green(`✓ ${selectedPackages.length} package${selectedPackages.length > 1 ? 's' : ''} updated`));
-    } else {
-      console.error(pc.red(`✗ update failed (exit code ${result.status})`));
+    if (normalizeResult.status !== 0) {
+      console.error(pc.red(`✗ catalog normalization failed (exit code ${normalizeResult.status})`));
+      return 'failed';
     }
   }
-}
 
-function printVulnerabilityResults(auditResult: AuditResult | null, vulnMap: Map<string, VulnerabilityInfo[]>): void {
-  if (auditResult && vulnMap.size > 0) {
-    const vulnMeta = auditResult.metadata?.vulnerabilities || {};
-
-    console.info();
-    console.info(
-      `${pc.red('⚠')} ${pc.bold('vulnerabilities')} ${pc.dim('·')} ${formatSeverityCounts(vulnMeta, ' ').join('')}`,
-    );
-    console.info(DIVIDER);
-
-    for (const [pkgName, vulns] of vulnMap.entries()) {
-      for (const vuln of vulns) {
-        const severityIcon = getVulnIcon(vuln.severity);
-        const cveStr = vuln.cves.length > 0 ? pc.dim(` ${vuln.cves[0]}`) : '';
-        // Source info renders as "in <workspace> via <direct-dep>" or just "in <workspace>".
-        let sourceStr = '';
-        if (vuln.workspace) {
-          sourceStr = pc.dim(` in ${vuln.workspace}`);
-          if (vuln.directDependency) {
-            sourceStr += pc.dim(` via ${vuln.directDependency}`);
-          }
-        }
-        const title = middleTruncate(vuln.title, 60);
-        console.info(
-          `${severityIcon} ${pc.white(pkgName)} ${pc.dim(vuln.vulnerableVersions)}${sourceStr} ${pc.dim('·')} ${title}${cveStr}`,
-        );
-      }
-    }
-  } else {
-    console.info();
-    console.info(`${checkMark} no vulnerabilities found`);
-  }
+  // Run one recursive update so pnpm can rewrite catalogs and direct consumers atomically.
+  const result = spawnSync('pnpm', ['-r', 'up', '--latest', ...selectedPackages], {
+    cwd: forkPath,
+    stdio: 'inherit',
+  });
 
   console.info();
+  if (result.status !== 0) {
+    console.error(pc.red(`✗ update failed (exit code ${result.status})`));
+    return 'failed';
+  }
+  console.info(pc.green(`✓ ${selectedPackages.length} package${selectedPackages.length > 1 ? 's' : ''} updated`));
+  console.info();
+  return 'updated';
 }
 
 function readCatalogPackageNames(forkPath: string): Set<string> {
@@ -553,126 +425,4 @@ function readCatalogPackageNames(forkPath: string): Set<string> {
   } catch {
     return new Set();
   }
-}
-
-/** All pnpm.overrides from package.json and pnpm-workspace.yaml, keyed by override key with target version and source file. */
-function readOverrides(forkPath: string): Map<string, { target: string; source: string }> {
-  const overrides = new Map<string, { target: string; source: string }>();
-
-  const pkgJsonPath = join(forkPath, 'package.json');
-  try {
-    const pkgJson = JSON.parse(readFileSync(pkgJsonPath, 'utf8'));
-    const pnpmOverrides = pkgJson.pnpm?.overrides || {};
-    for (const [key, value] of Object.entries(pnpmOverrides)) {
-      overrides.set(key, { target: value as string, source: 'package.json' });
-    }
-  } catch {
-    // skip
-  }
-
-  const workspacePath = join(forkPath, 'pnpm-workspace.yaml');
-  try {
-    const content = readFileSync(workspacePath, 'utf8');
-    const wsOverrides = parseYamlBlockMap(content, 'overrides');
-    for (const [key, value] of Object.entries(wsOverrides)) {
-      overrides.set(key, { target: value, source: 'pnpm-workspace.yaml' });
-    }
-  } catch {
-    // skip
-  }
-
-  return overrides;
-}
-
-/** The --check-overrides report: each pnpm.override cross-referenced with the current audit. */
-async function checkOverrides(forkPath: string): Promise<void> {
-  const spinner = createSpinner('checking overrides against current audit...');
-
-  const overrides = readOverrides(forkPath);
-
-  if (overrides.size === 0) {
-    spinnerSuccess('no pnpm.overrides found');
-    return;
-  }
-
-  const auditResult = await runPnpmAudit(forkPath);
-
-  const activeAdvisoryPackages = new Set<string>();
-  if (auditResult?.advisories) {
-    for (const advisory of Object.values(auditResult.advisories)) {
-      activeAdvisoryPackages.add(advisory.module_name);
-    }
-  }
-
-  spinner.stop();
-
-  const securityOverrides: Array<{ key: string; pkg: string; target: string; source: string; status: string }> = [];
-  const pinOverrides: Array<{ key: string; target: string; source: string }> = [];
-
-  for (const [key, { target, source }] of overrides) {
-    // Security overrides have version selectors like "pkg@<=1.0.0" or "pkg@>=1.0.0 <2.0.0"
-    const atIndex = key.indexOf('@', key.startsWith('@') ? 1 : 0);
-    if (atIndex > 0) {
-      const pkg = key.slice(0, atIndex);
-      const hasActiveAdvisory = activeAdvisoryPackages.has(pkg);
-      const status = hasActiveAdvisory ? 'active' : 'likely stale';
-      securityOverrides.push({ key, pkg, target, source, status });
-    } else {
-      pinOverrides.push({ key, target, source });
-    }
-  }
-
-  const allKeys = Array.from(overrides.keys());
-  const allValues = Array.from(overrides.values());
-  const maxKeyLen = Math.max(8, ...allKeys.map((k) => k.length));
-  const maxTargetLen = Math.max(6, ...allValues.map((v) => v.target.length));
-
-  if (securityOverrides.length > 0) {
-    console.info(pc.bold(`security overrides (${securityOverrides.length})`));
-    console.info(DIVIDER);
-
-    for (const o of securityOverrides) {
-      const icon = o.status === 'active' ? pc.red('●') : pc.green('○');
-      const statusText = o.status === 'active' ? pc.red('active') : pc.green('likely stale');
-      const keyText = pc.white(o.key.padEnd(maxKeyLen));
-      const targetText = pc.dim(o.target.padEnd(maxTargetLen));
-      const sourceText = pc.dim(o.source);
-      console.info(`  ${icon} ${keyText} → ${targetText} ${statusText}  ${sourceText}`);
-    }
-    console.info();
-  }
-
-  if (pinOverrides.length > 0) {
-    console.info(pc.bold(`version pins (${pinOverrides.length})`));
-    console.info(DIVIDER);
-
-    for (const o of pinOverrides) {
-      const keyText = pc.white(o.key.padEnd(maxKeyLen));
-      const targetText = pc.dim(o.target.padEnd(maxTargetLen));
-      const sourceText = pc.dim(o.source);
-      console.info(`  ${pc.blue('◆')} ${keyText} → ${targetText}  ${sourceText}`);
-    }
-    console.info();
-  }
-
-  const staleCount = securityOverrides.filter((o) => o.status === 'likely stale').length;
-  const activeCount = securityOverrides.filter((o) => o.status === 'active').length;
-
-  if (staleCount > 0) {
-    console.info(
-      `${pc.green('○')} ${staleCount} override${staleCount !== 1 ? 's' : ''} likely stale: no matching advisory found in current audit`,
-    );
-    console.info(pc.dim('  overrides mask vulnerabilities: verify by temporarily removing and running pnpm audit'));
-  }
-  if (activeCount > 0) {
-    console.info(
-      `${pc.red('●')} ${activeCount} override${activeCount !== 1 ? 's' : ''} still active: advisory present without override`,
-    );
-  }
-  if (pinOverrides.length > 0) {
-    console.info(
-      `${pc.blue('◆')} ${pinOverrides.length} version pin${pinOverrides.length !== 1 ? 's' : ''}: not security-related, review manually`,
-    );
-  }
-  console.info();
 }
