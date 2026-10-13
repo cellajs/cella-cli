@@ -231,6 +231,12 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   keepConfig?: boolean;
 
+  /**
+   * Lift every pinned entry for this run (analyze, sync): managed files stay pinned, and the merge
+   * uses the full upstream history, so upstream changes that earlier syncs dropped come back too.
+   */
+  unpinned?: boolean;
+
   /** Count what the current branch changed since it left this ref, by kind of file (stats service) */
   since?: string;
 

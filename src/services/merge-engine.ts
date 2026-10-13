@@ -41,6 +41,7 @@ import {
   getConflictedFiles,
   getCurrentBranch,
   getEffectiveMergeBase,
+  getMergeBase,
   getShortSha,
   getStagedNewFiles,
   getUpstreamStatus,
@@ -118,7 +119,10 @@ function isProtectedFile(file: AnalyzedFile): boolean {
 
 /** Build analyzer predicates for the sync direction (local = fork, incoming = upstream). */
 function syncPredicates(config: RuntimeConfig): AnalyzePredicates {
-  return { isIgnored: (path) => isIgnored(path, config), isPinned: (path) => isPinned(path, config) };
+  return {
+    isIgnored: (path) => isIgnored(path, config),
+    isPinned: (path) => (config.unpinned ? isManagedFile(path) : isPinned(path, config)),
+  };
 }
 
 /**
@@ -244,7 +248,7 @@ async function applyDirectMerge(
 
   // Remaining git conflicts: only ignored/pinned resolve to the fork; the rest keep their markers.
   for (const filePath of await getConflictedFiles(forkPath)) {
-    if (!isIgnored(filePath, config) && !isPinned(filePath, config)) continue;
+    if (!isIgnored(filePath, config) && !syncPredicates(config).isPinned(filePath)) continue;
 
     if (await fileExistsAtRef(forkPath, 'HEAD', filePath)) {
       onProgress?.(`→ ${filePath}: keeping fork (protected conflict)`);
@@ -312,6 +316,8 @@ interface UpstreamContext {
   releaseTag?: string;
   /** Effective merge-base used for the 3-way analysis, which is also the last sync point */
   mergeBase: string;
+  /** Base of the merge itself: the sync point, or the natural merge-base under --unpinned */
+  mergeRef: string;
   /** Upstream GitHub URL base for commit links */
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
@@ -441,6 +447,7 @@ async function prepareUpstream(
 
   // Effective merge base (handles a stale base from previous squash syncs).
   const mergeBase = (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
+  const mergeRef = config.unpinned ? await getMergeBase(forkPath, 'HEAD', upstreamRef) : mergeBase;
 
   const upstreamCommit = await getCommitInfo(forkPath, upstreamRef);
 
@@ -467,7 +474,7 @@ async function prepareUpstream(
 
   onStep?.('fetched upstream', formatFetchedUpstreamDetail(commitCount, upstreamCommits, upstreamGitHubUrl));
 
-  return { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit };
+  return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit };
 }
 
 /**
@@ -583,7 +590,7 @@ async function runSyncMerge(
   onStep?: StepCallback,
 ): Promise<MergeResult> {
   const { forkPath } = config;
-  const { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit } = ctx;
+  const { upstreamRef, releaseTag, mergeRef, upstreamGitHubUrl, upstreamCommit } = ctx;
 
   // Last gate before anything merges (the CLI version gate runs in prepareUpstream)
   await assertSyncConfigFollowed(config, ctx);
@@ -593,7 +600,7 @@ async function runSyncMerge(
   const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
     forkPath,
     upstreamRef,
-    mergeBase,
+    mergeRef,
     config,
     onProgress,
   );
@@ -677,7 +684,7 @@ async function runAnalyzePreview(
     forkPath,
     'HEAD',
     ctx.upstreamRef,
-    ctx.mergeBase,
+    ctx.mergeRef,
     syncPredicates(config),
     onProgress,
   );
