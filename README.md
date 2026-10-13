@@ -37,8 +37,8 @@ Per-service help: `pnpm cella <service> --help`.
 
 | Service | Useful options |
 |---------|----------------|
-| analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>` |
-| sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config` |
+| analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
+| sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
 | audit | `--list` |
 | forks | `--fork <name>`, `--keep-config` |
@@ -251,6 +251,11 @@ afterwards. For that case the `↑ protected in fork` section annotates pinned f
 `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the tips,
 `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received, deliberately
 or not: diff and decide. Ignored files are not annotated.
+
+To pull upstream into every pinned file at once, run `sync --unpinned`: pins are lifted for that
+run (managed files stay pinned) and the merge uses the full upstream history, so changes earlier
+syncs dropped come back too. Review the staged merge in your editor and keep what you want;
+`analyze --unpinned` previews it.
 
 ### Upstream changes that never sync
 

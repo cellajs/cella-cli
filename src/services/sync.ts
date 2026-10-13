@@ -208,6 +208,10 @@ export async function runSync(
 
   // Print summary (no file lists for sync) plus the shared upstream-changes reports
   printEngineReports(result, 'merge summary');
+  if (config.unpinned) {
+    console.info(pc.yellow('⚠ --unpinned: every pinned entry was merged from upstream; keep only what you want.'));
+    console.info();
+  }
 
   const staged = result.files.some((file) => SYNC_APPLIED_STATUSES.includes(file.status));
   const stagedBranch =

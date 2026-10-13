@@ -62,6 +62,7 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
     ref: str(opts.ref) || undefined,
     keepConfig: flag(opts.keepConfig),
+    unpinned: flag(opts.unpinned),
     since: str(opts.since) || undefined,
     md: flag(opts.md),
     all: flag(opts.all),
@@ -77,6 +78,10 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
 const jsonOption: ServiceOption = ['--json', 'machine-readable output for tooling/agents'];
 const trackOption: ServiceOption = ['--track <mode>', 'override upstream tracking for this run: release|branch'];
 const refOption: ServiceOption = ['--ref <ref>', 'pin the upstream commit for this run: sha, release tag or branch'];
+const unpinnedOption: ServiceOption = [
+  '--unpinned',
+  'lift every pinned entry for this run (managed files stay pinned) and merge from the full upstream history',
+];
 const forkOption: ServiceOption = ['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'];
 
 const serviceDefinitions: ServiceDefinition[] = [
@@ -89,6 +94,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       ['--scope <scope>', 'analyze scope for --list/--json: all|risk|protected'],
       trackOption,
       refOption,
+      unpinnedOption,
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
@@ -99,6 +105,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       trackOption,
       refOption,
       ['--keep-config', 'merge with your sync config as it stands when upstream changed its own'],
+      unpinnedOption,
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
