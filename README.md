@@ -347,8 +347,9 @@ To keep an override whatever the audit finds, write it without a version selecto
 For each advisory the audit looks up the published versions itself; it does not trust the patched
 version an advisory claims. Most outcomes need no answer from you:
 
-- **A fix that fits.** When the fix lies inside the range the parents ask for, the lockfile moves
-  to it and no override is written. Otherwise an override is.
+- **A fix that fits.** The audit writes an override. When the fix lies inside the range the
+  parents ask for, the lockfile holds the fixed version on its own, and the following run drops
+  the override.
 - **A breaking fix** (another major, or another minor below 1.0), or a fix for a package you
   depend on directly: you choose between leaving it open, applying the override and ignoring the
   advisory. An override that was in place before the run is applied again without asking.

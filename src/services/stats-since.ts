@@ -8,7 +8,7 @@
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../utils/display';
-import { git } from '../utils/git';
+import { git, revParse } from '../utils/git';
 import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions, type WorkspacePackage } from './stats';
 
 /** Kind of a changed file. `source` is code and styles that are none of the other kinds. */
@@ -161,9 +161,7 @@ export function countLineContent(
  * base, which is what a pull request into that ref shows.
  */
 export async function collectBranchStats(forkPath: string, since: string): Promise<BranchStats> {
-  const sinceSha = await git(['rev-parse', '--verify', '--quiet', `${since}^{commit}`], forkPath, {
-    ignoreErrors: true,
-  });
+  const sinceSha = await revParse(forkPath, `${since}^{commit}`);
   if (!sinceSha) throw new Error(`unknown ref '${since}'. pass a branch, tag or commit, such as origin/main`);
 
   const mergeBase = await git(['merge-base', sinceSha, 'HEAD'], forkPath, { ignoreErrors: true });

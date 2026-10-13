@@ -67,7 +67,7 @@ const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>>
   stats: async (config) => {
     if (config.md && !config.since) throw new Error('--md goes with --since <ref>');
     if (!config.since) return runStats(config);
-    return runBranchStats(config.forkPath, { since: config.since, markdown: config.md, verbose: config.verbose });
+    return runBranchStats(config, config.since);
   },
 };
 

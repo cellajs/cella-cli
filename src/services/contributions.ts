@@ -32,7 +32,15 @@ import {
   writeStdout,
 } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import { getCurrentBranch, getDiffStat, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
+import {
+  checkoutFromRef,
+  getCurrentBranch,
+  getDiffStat,
+  git,
+  gitRm,
+  removeFileFromWorktree,
+  restoreWorktreeFromRef,
+} from '../utils/git';
 import { buildContribBranch, type ContribFile, detectContributableFiles } from './contrib-core';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from './fork-utils';
 
@@ -398,13 +406,13 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
         if (applyUnstaged) {
           await removeFileFromWorktree(config.forkPath, item.path);
         } else {
-          await git(['rm', '-f', '--', item.path], config.forkPath, { ignoreErrors: true });
+          await gitRm(config.forkPath, [item.path]);
         }
       } else {
         if (applyUnstaged) {
           await restoreWorktreeFromRef(config.forkPath, branch, item.path);
         } else {
-          await git(['checkout', branch, '--', item.path], config.forkPath);
+          await checkoutFromRef(config.forkPath, branch, [item.path]);
         }
       }
       applied++;

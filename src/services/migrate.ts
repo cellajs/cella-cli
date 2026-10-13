@@ -26,6 +26,7 @@ import {
   listIdenticalToRef,
   MAX_BUFFER,
   readManifestBaseAtRef,
+  revParse,
 } from '../utils/git';
 import { readManifestBase } from '../utils/manifest';
 import {
@@ -49,8 +50,7 @@ const RESTORED_LIST_MAX = 20;
 /** Make sure an upstream commit is in this clone, fetching upstream once when it is not. */
 async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise<void> {
   const { forkPath } = config;
-  const present = async () =>
-    !!(await git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], forkPath, { ignoreErrors: true }));
+  const present = async () => !!(await revParse(forkPath, `${sha}^{commit}`));
   if (await present()) return;
   await ensureRemote(forkPath, DEFAULT_UPSTREAM_REMOTE, config.settings.upstreamUrl);
   await fetchRemote(forkPath, DEFAULT_UPSTREAM_REMOTE);

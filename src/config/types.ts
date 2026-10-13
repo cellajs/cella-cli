@@ -203,9 +203,6 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Machine-readable JSON output (for tooling/agent usage) */
   json: boolean;
 
-  /** Print the unified diff for one file, then exit (contributions; for tooling/agents) */
-  diff?: string;
-
   /** Scope of files returned in analyze list/json output */
   scope?: AnalyzeScope;
 
@@ -234,9 +231,6 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   keepConfig?: boolean;
 
-  /** Regenerate test coverage before showing the stats summary (stats service) */
-  coverage?: boolean;
-
   /** Count what the current branch changed since it left this ref, by kind of file (stats service) */
   since?: string;
 
@@ -254,9 +248,6 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Run one migration note's codemod, keeping files identical to upstream as they are (migrate service) */
   run?: string;
-
-  /** The script to run with `run`, when the note folder holds more than one (migrate service) */
-  script?: string;
 
   /** Arguments after `--`, passed to the codemod as given (migrate service, with `run`) */
   runArgs?: string[];
