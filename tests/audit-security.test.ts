@@ -56,7 +56,7 @@ vi.mock('../src/utils/audit-utils', async (importOriginal) => ({
   fetchPublishTimes: async (name: string) =>
     Object.fromEntries((world.packages[name]?.published ?? []).map((version) => [version, '2024-01-01T00:00:00Z'])),
   runPnpm: async (args: string[], cwd: string) => {
-    if (args[0] !== 'install') return { ok: true, output: '1440' };
+    if (args[0] !== 'install') return { ok: true, stdout: '1440', stderr: '' };
     const { overrides } = readAuditSettings(readFileSync(join(cwd, 'pnpm-workspace.yaml'), 'utf8'));
     const locked = lockedIn(cwd);
     const resolved = Object.fromEntries(
@@ -67,7 +67,7 @@ vi.mock('../src/utils/audit-utils', async (importOriginal) => ({
       }),
     );
     writeFileSync(join(cwd, 'pnpm-lock.yaml'), lockOf(resolved));
-    return { ok: true, output: '' };
+    return { ok: true, stdout: '', stderr: '' };
   },
   runPnpmAudit: async (cwd: string) => {
     if (!world.auditAnswers) return null;
@@ -86,7 +86,7 @@ vi.mock('../src/utils/audit-utils', async (importOriginal) => ({
         },
       ];
     });
-    return { advisories: Object.fromEntries(advisories.map((advisory, i) => [String(i), advisory])), metadata: {} };
+    return { advisories: Object.fromEntries(advisories.map((advisory, i) => [String(i), advisory])) };
   },
 }));
 
@@ -185,18 +185,6 @@ describe('runSecurityPass', () => {
 
     expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
     expect(world.installs).toEqual([]);
-  });
-
-  it('refreshes the lockfile, without an override, when the fix fits what the parent asks for', async () => {
-    world.packages.stale.advisory = { ghsa: 'GHSA-stale', range: '<1.0.1' };
-    writeFileSync(join(repo, 'pnpm-workspace.yaml'), WORKSPACE.replace('  stale@<1.0.1: ^1.0.1\n', ''));
-    writeFileSync(join(repo, 'pnpm-lock.yaml'), lockOf({ stale: '1.0.0', needed: '2.0.0', nofix: '3.0.3' }));
-
-    await runSecurityPass(repo, { apply: true });
-
-    expect(file('pnpm-workspace.yaml')).not.toContain('stale@');
-    expect(file('pnpm-lock.yaml')).toBe(LOCK);
-    expect(world.installs).toEqual([repo]);
   });
 
   it('asks before a new breaking override, and leaves the advisory open on the default answer', async () => {

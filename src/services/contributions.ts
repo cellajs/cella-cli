@@ -18,7 +18,7 @@ import {
   useState,
 } from '@inquirer/core';
 import { select } from '@inquirer/prompts';
-import type { FileStatus, RuntimeConfig } from '../config/types';
+import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { DEFAULT_BRANCH, isUpstreamRepo, loadConfig } from '../utils/config';
 import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
@@ -32,29 +32,23 @@ import {
   writeStdout,
 } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import { getCurrentBranch, getDiffStat, git, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
-import { buildContribBranch, countDetection, detectContributableFiles } from './contrib-core';
+import {
+  checkoutFromRef,
+  getCurrentBranch,
+  getDiffStat,
+  git,
+  gitRm,
+  removeFileFromWorktree,
+  restoreWorktreeFromRef,
+} from '../utils/git';
+import { buildContribBranch, type ContribFile, detectContributableFiles } from './contrib-core';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from './fork-utils';
 
-interface ContribItem {
-  /** File path relative to repo root */
-  path: string;
-  /** Local contrib branch ref (e.g., contrib/myfork) */
-  ref: string;
-  /** True if adopting this means deleting the file in cella */
-  deleted: boolean;
-  /** True if the file does not exist in cella yet (adopting it creates a new file) */
-  created?: boolean;
-  /** Analyzer status from cella's POV (behind = fork ahead, diverged = both changed) */
-  status?: FileStatus;
-  /** Relative date of the fork's change (e.g. '3 days ago') */
-  changedAt?: string;
-  /** Unix epoch seconds of the fork's change, for sorting */
-  changedTs?: number;
+interface ContribItem extends ContribFile {
   /** Lines added in the fork vs cella base (null for binary files) */
-  additions?: number | null;
+  additions: number | null;
   /** Lines removed in the fork vs cella base (null for binary files) */
-  deletions?: number | null;
+  deletions: number | null;
   /** Whether file is selected for acceptance */
   checked: boolean;
 }
@@ -64,26 +58,13 @@ interface ContribPromptConfig {
   items: ContribItem[];
   /** Name of the fork being reviewed (used to label diffs cella/ vs <fork>/) */
   forkName: string;
-  /** Base ref the contrib branches were built on (for diffing) */
+  /** Base ref the contrib branch was built on (for diffing) */
   baseRef: string;
+  /** The local `contrib/<fork>` branch holding the fork's files */
+  branch: string;
   /** Repo path where contrib branches live */
   cwd: string;
   pageSize?: number;
-}
-
-/**
- * Browser diff for a contrib file (cella base vs the fork's version).
- * Returns the written page path, or null when the file has no changes.
- */
-async function showContribDiff(
-  item: ContribItem,
-  baseRef: string,
-  cwd: string,
-  forkName: string,
-): Promise<string | null> {
-  const patch = gitDiffFile(cwd, `${baseRef}..${item.ref}`, item.path);
-  if (patch.length === 0) return null;
-  return openDiffInBrowser(patch.toString(), { filePath: item.path, srcLabel: 'cella', dstLabel: forkName }, cwd);
 }
 
 /**
@@ -91,7 +72,7 @@ async function showContribDiff(
  * Returns items selected for acceptance.
  */
 const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, done) => {
-  const { pageSize = 20, baseRef, cwd, forkName } = config;
+  const { pageSize = 20, baseRef, branch, cwd, forkName } = config;
 
   const [items, setItems] = useState<ContribItem[]>(config.items);
   const [active, setActive] = useState(0);
@@ -155,9 +136,12 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
 
     // d = open diff in browser (non-blocking, the list stays up)
     if (key.name === 'd') {
+      const { path } = items[active];
       try {
-        const pagePath = await showContribDiff(items[active], baseRef, cwd, forkName);
-        setStatusMsg(pagePath ? `opened ${items[active].path} in browser` : `no changes for ${items[active].path}`);
+        const patch = gitDiffFile(cwd, `${baseRef}..${branch}`, path);
+        if (patch.length === 0) return setStatusMsg(`no changes for ${path}`);
+        await openDiffInBrowser(patch.toString(), { filePath: path, srcLabel: 'cella', dstLabel: forkName }, cwd);
+        setStatusMsg(`opened ${path} in browser`);
       } catch (error) {
         setStatusMsg(`diff failed: ${errorMessage(error)}`);
       }
@@ -195,8 +179,8 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
     renderItem({ item, isActive }) {
       const checkbox = item.checked ? pc.green('●') : pc.dim('○');
       const cursor = isActive ? pc.cyan('❯') : ' ';
-      const newLabel = item.created ? pc.yellow(' · not in cella') : '';
-      const delLabel = item.deleted ? pc.yellow(' [del]') : '';
+      const newLabel = item.kind === 'created' ? pc.yellow(' · not in cella') : '';
+      const delLabel = item.kind === 'deleted' ? pc.yellow(' [del]') : '';
       const statusTag = item.status === 'diverged' ? pc.yellow(' ⚠ diverged') : '';
       const dateLabel = item.changedAt ? pc.dim(` · ${item.changedAt}`) : '';
       const line = `${cursor} ${checkbox} ${item.path}${delLabel}${statusTag}${newLabel}${dateLabel}`;
@@ -227,10 +211,9 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
 });
 
 /**
- * Resolve the fork to pull from: the explicit --fork by name, the single valid fork in
- * non-interactive modes (--list/--json/--diff), or an interactive prompt. Throws when no
- * fork can be selected (main's handler prints the message and exits 1); returns undefined
- * only when the interactive prompt selects nothing.
+ * Resolve the fork to pull from: the explicit --fork by name, the single valid fork with --json,
+ * or an interactive prompt. Throws when no fork can be selected; returns undefined only when the
+ * prompt selects nothing.
  */
 async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Promise<ValidatedFork | undefined> {
   if (config.fork) {
@@ -241,14 +224,10 @@ async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Pr
     return match;
   }
 
-  const validForks = validated.filter((v) => v.valid);
-  if (config.list || config.json || config.diff) {
-    if (validForks.length === 0) {
-      throw new Error('no valid forks configured');
-    }
-    if (validForks.length > 1) {
-      throw new Error('multiple forks configured; pass --fork <name> to choose one');
-    }
+  if (config.json) {
+    const validForks = validated.filter((v) => v.valid);
+    if (validForks.length === 0) throw new Error('no valid forks configured');
+    if (validForks.length > 1) throw new Error('multiple forks configured; pass --fork <name> to choose one');
     return validForks[0];
   }
 
@@ -267,12 +246,6 @@ async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Pr
   const selected = validated.find((v) => v.fork.name === picked);
   if (!selected) console.info(pc.dim('no fork selected.'));
   return selected;
-}
-
-/** Fetch a fork's pullBranch into cella's object store and return the commit sha. */
-async function fetchForkBranch(cellaPath: string, fetchSource: string, pullBranch: string): Promise<string> {
-  await git(['fetch', fetchSource, pullBranch], cellaPath);
-  return git(['rev-parse', 'FETCH_HEAD'], cellaPath);
 }
 
 /** Short sha + relative date of the fork's committed pullBranch HEAD (for the comparison banner). */
@@ -326,11 +299,12 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   createSpinner('pulling fork contributions...');
   const allItems: ContribItem[] = [];
   let forkBanner: { pullBranch: string; sha: string; date: string } | null = null;
+  let branch = '';
 
   try {
     // Prefer the fork's remote (authoritative committed ref) over the local clone.
-    const fetchSource = fork.remoteUrl ?? resolvedPath;
-    const forkRef = await fetchForkBranch(config.forkPath, fetchSource, fork.pullBranch);
+    await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], config.forkPath);
+    const forkRef = await git(['rev-parse', 'FETCH_HEAD'], config.forkPath);
     const meta = await forkRefMeta(config.forkPath, forkRef);
     forkBanner = { pullBranch: fork.pullBranch, sha: meta.sha, date: meta.date };
 
@@ -343,29 +317,16 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
       // Fork may not have a cella/cella.config.ts: no extra territory to exclude
     }
 
-    const detection = await detectContributableFiles(config.forkPath, baseRef, forkRef, config, forkTerritory);
-    if (countDetection(detection) > 0) {
-      const { branch, appliedFiles } = await buildContribBranch(config.forkPath, baseRef, forkRef, detection, forkName);
-      if (appliedFiles.length > 0) {
+    const files = await detectContributableFiles(config.forkPath, baseRef, forkRef, config, forkTerritory);
+    if (files.length > 0) {
+      const built = await buildContribBranch(config.forkPath, baseRef, forkRef, files, forkName);
+      if (built.appliedFiles.length > 0) {
+        branch = built.branch;
         const stat = await getDiffStat(config.forkPath, baseRef, branch);
-        const metaByPath = new Map(detection.files.map((f) => [f.path, f]));
-        const toItem = (path: string, deleted: boolean): ContribItem => {
-          const fileMeta = metaByPath.get(path);
-          return {
-            path,
-            ref: branch,
-            deleted,
-            ...(deleted ? {} : { created: fileMeta?.kind === 'created' }),
-            status: fileMeta?.status,
-            changedAt: fileMeta?.changedAt,
-            changedTs: fileMeta?.changedTs,
-            additions: stat.get(path)?.additions ?? null,
-            deletions: stat.get(path)?.deletions ?? null,
-            checked: false,
-          };
-        };
-        for (const path of [...detection.modified, ...detection.created]) allItems.push(toItem(path, false));
-        for (const path of detection.deleted) allItems.push(toItem(path, true));
+        for (const file of files) {
+          const { additions = null, deletions = null } = stat.get(file.path) ?? {};
+          allItems.push({ ...file, additions, deletions, checked: false });
+        }
       }
     }
   } catch (error) {
@@ -386,25 +347,11 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
   spinnerSuccess(`${allItems.length} files from ${forkName}`);
 
   // Make the comparison basis explicit: the fork is compared at its committed pullBranch HEAD,
-  // not its working tree, so uncommitted fork edits never appear here. Still skipped for
-  // --list/--diff: their human output goes to stderr, and the banner is noise there too.
-  if (!config.list && !config.diff && forkBanner) {
+  // not its working tree, so uncommitted fork edits never appear here.
+  if (forkBanner) {
     console.info(
       `  ${pc.dim(`${forkName}: comparing committed '${forkBanner.pullBranch}' @ ${forkBanner.sha} (${forkBanner.date}); uncommitted fork changes are not included`)}`,
     );
-  }
-
-  // Print the unified diff for a single file, then exit (tooling/agent usage).
-  if (config.diff) {
-    const matches = allItems.filter((i) => i.path === config.diff);
-    if (matches.length === 0) {
-      throw new Error(`no contribution found for path: ${config.diff}`);
-    }
-    for (const item of matches) {
-      const diff = gitDiffFile(config.forkPath, `${baseRef}..${item.ref}`, item.path, { dstPrefix: forkName });
-      writeStdout(diff.toString());
-    }
-    return;
   }
 
   // Machine-readable JSON output for tooling/agent usage
@@ -412,28 +359,14 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     const out = allItems.map((item) => ({
       fork: forkName,
       path: item.path,
-      status: item.status ?? null,
-      kind: item.deleted ? 'deleted' : 'modified',
+      status: item.status,
+      kind: item.kind === 'deleted' ? 'deleted' : 'modified',
       changedAt: item.changedAt ?? null,
       changedTs: item.changedTs ?? null,
-      additions: item.additions ?? null,
-      deletions: item.deletions ?? null,
+      additions: item.additions,
+      deletions: item.deletions,
     }));
     writeStdout(JSON.stringify(out, null, 2));
-    return;
-  }
-
-  // Non-interactive mode: output enriched list for LLM/agent usage.
-  // Columns are tab-separated: fork, status, kind, changedAt, path.
-  // Note: status reflects the fork's committed pullBranch HEAD vs cella's base
-  // (behind = fork ahead, diverged = both changed), not the fork's working tree.
-  if (config.list) {
-    for (const item of allItems) {
-      const status = item.status ?? 'behind';
-      const kind = item.deleted ? 'deleted' : 'modified';
-      const changedAt = item.changedAt ?? '-';
-      writeStdout(`${forkName}\t${status}\t${kind}\t${changedAt}\t${item.path}`);
-    }
     return;
   }
 
@@ -445,6 +378,7 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
     items: allItems,
     forkName,
     baseRef,
+    branch,
     cwd: config.forkPath,
     pageSize: 20,
   });
@@ -468,17 +402,17 @@ export async function runContributions(config: RuntimeConfig): Promise<void> {
         errors.push(`${item.path}: rejected (path traversal)`);
         continue;
       }
-      if (item.deleted) {
+      if (item.kind === 'deleted') {
         if (applyUnstaged) {
           await removeFileFromWorktree(config.forkPath, item.path);
         } else {
-          await git(['rm', '-f', '--', item.path], config.forkPath, { ignoreErrors: true });
+          await gitRm(config.forkPath, [item.path]);
         }
       } else {
         if (applyUnstaged) {
-          await restoreWorktreeFromRef(config.forkPath, item.ref, item.path);
+          await restoreWorktreeFromRef(config.forkPath, branch, item.path);
         } else {
-          await git(['checkout', item.ref, '--', item.path], config.forkPath);
+          await checkoutFromRef(config.forkPath, branch, [item.path]);
         }
       }
       applied++;

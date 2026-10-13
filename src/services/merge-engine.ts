@@ -1,14 +1,8 @@
 /**
- * Merge engine, shared by analyze and sync.
- *
- * Two modes:
- * - Analyze (dry run): previews the merge in a temp worktree without touching the fork
- * - Sync: performs the real merge directly in the fork for full IDE support
- *
- * Sync mode:
- * 1. Start a real merge in the fork (git merge --no-commit)
- * 2. Apply resolutions directly (pinned→ours, ignored→rm, diverged→git's merge)
- * 3. Leave the fork in merge state: conflicts keep their markers for IDE 3-way resolution
+ * Merge engine, shared by analyze and sync. Analyze classifies every file from git refs and never
+ * touches the fork. Sync merges in the fork itself (`git merge --no-commit`), resolves pinned and
+ * ignored files to the fork side and leaves the merge staged, conflicts keeping their markers for
+ * IDE 3-way resolution.
  */
 
 import { existsSync } from 'node:fs';
@@ -23,7 +17,6 @@ import {
   SYNC_APPLIED_STATUSES,
   type UpstreamOverridesReport,
 } from '../config/types';
-import { cleanupLeftoverWorktrees, cleanupWorktree, getWorktreePath, registerWorktree } from '../utils/cleanup';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
@@ -36,12 +29,8 @@ import {
   VERSION,
 } from '../utils/display';
 import {
-  batchGitRm,
-  batchRestoreToHead,
-  batchUnstageFiles,
   checkoutFromRef,
   countCommitsBetween,
-  createWorktree,
   ensureRemote,
   ensureSyncBase,
   fetchRemote,
@@ -52,13 +41,13 @@ import {
   getConflictedFiles,
   getCurrentBranch,
   getEffectiveMergeBase,
-  getMergeBase,
   getShortSha,
   getStagedNewFiles,
   getUpstreamStatus,
   getWorkingTreeChangeCount,
   git,
   gitMv,
+  gitRm,
   isAncestor,
   isPublishedUpstream,
   listCommitsBetween,
@@ -68,7 +57,6 @@ import {
   removeFileFully,
   resolveLatestReleaseTag,
   resolveUpstreamCommit,
-  restoreToHead,
   stagePath,
   storeLastSyncRef,
   withTemporarySyncBaseGraft,
@@ -83,12 +71,7 @@ import {
   readPending,
   writePending,
 } from '../utils/migration-notes';
-import {
-  groupIgnoredUpstreamChanges,
-  groupProtectedUpstreamChanges,
-  isIgnored,
-  isPinnedForSync,
-} from '../utils/overrides';
+import { groupIgnoredUpstreamChanges, groupProtectedUpstreamChanges, isIgnored, isPinned } from '../utils/overrides';
 import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
 
@@ -122,24 +105,10 @@ export class UpstreamConfigChangedError extends Error {
   }
 }
 
-/**
- * Convert a git remote URL to a GitHub base URL.
- * Supports both SSH (git@github.com:org/repo.git) and HTTPS formats.
- */
+/** Convert a git remote URL (SSH `git@github.com:org/repo.git` or HTTPS) to a GitHub base URL. */
 export function getGitHubBaseUrl(remoteUrl: string): string | null {
-  // SSH format: git@github.com:cellajs/cella.git
-  const sshMatch = remoteUrl.match(/git@github\.com:([^/]+)\/([^.]+)(?:\.git)?$/);
-  if (sshMatch) {
-    return `https://github.com/${sshMatch[1]}/${sshMatch[2]}`;
-  }
-
-  // HTTPS format: https://github.com/cellajs/cella.git
-  const httpsMatch = remoteUrl.match(/https:\/\/github\.com\/([^/]+)\/([^/.]+)(?:\.git)?$/);
-  if (httpsMatch) {
-    return `https://github.com/${httpsMatch[1]}/${httpsMatch[2]}`;
-  }
-
-  return null;
+  const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
+  return match ? `https://github.com/${match[1]}/${match[2]}` : null;
 }
 
 /** Protected whole-file resolution: the fork side wins outright (ignored or pinned). */
@@ -149,25 +118,13 @@ function isProtectedFile(file: AnalyzedFile): boolean {
 
 /** Build analyzer predicates for the sync direction (local = fork, incoming = upstream). */
 function syncPredicates(config: RuntimeConfig): AnalyzePredicates {
-  return {
-    isIgnored: (path) => isIgnored(path, config),
-    isPinned: (path) => isPinnedForSync(path, config, config.unpinned),
-    hard: config.hard,
-  };
+  return { isIgnored: (path) => isIgnored(path, config), isPinned: (path) => isPinned(path, config) };
 }
 
 /**
- * Apply merge directly to fork with pre-analysis.
- *
- * Strategy: analyze BEFORE merge (uses git refs only, invisible to IDE),
- * then merge + immediate batch resolution to minimize working tree flickering.
- *
- * 1. Pre-analyze using git refs (no working tree changes)
- * 2. Collect batch resolution plan (which files to restore/remove)
- * 3. Start real merge in fork (git merge --no-commit)
- * 4. Immediately batch-restore pinned/ignored files (single git command)
- * 5. Apply remaining individual resolutions
- * 6. Leave fork in merge state for IDE 3-way conflict resolution
+ * Apply the merge directly in the fork. Files are classified from git refs before the merge starts,
+ * so pinned and ignored files go back to the fork side in one batch right after it, and the merge
+ * is left staged for IDE 3-way conflict resolution.
  */
 async function applyDirectMerge(
   forkPath: string,
@@ -181,9 +138,6 @@ async function applyDirectMerge(
   autoMergedFiles: string[];
   protectedConflicts: string[];
 }> {
-  // Phase 1: Pre-analyze using git refs (invisible to IDE).
-  // analyzeRefs only uses git plumbing (ls-tree, diff-tree) on refs,
-  // not the working tree, so results are identical before or after merge.
   onProgress?.('analyzing files...');
   const analyzedFiles = await analyzeRefs(
     forkPath,
@@ -194,64 +148,39 @@ async function applyDirectMerge(
     onProgress,
   );
 
-  // Phase 2: Collect batch resolution plan for immediate post-merge application.
-  // These files will be restored to HEAD in a single git command right after merge,
-  // preventing the IDE from seeing upstream changes to pinned/ignored files.
+  // Protected files go back to the fork side right after the merge: restored where the fork has
+  // them, removed where it does not, so a fork deletion stands.
   const batchRestorePaths: string[] = [];
   const batchRemovePaths: string[] = [];
-
   for (const file of analyzedFiles) {
-    const { path: filePath, status, isPinned: pinned, isIgnored: ignored, existsInFork } = file;
-    if (status === 'identical' || status === 'ahead') continue;
-    if (!isProtectedFile(file)) continue;
-
-    if (ignored && existsInFork) {
-      batchRestorePaths.push(filePath);
-    } else if (ignored && !existsInFork) {
-      batchRemovePaths.push(filePath);
-    } else if (pinned && !file.renamedFrom && existsInFork) {
-      batchRestorePaths.push(filePath);
-    } else if (pinned && !file.renamedFrom && !existsInFork) {
-      // Pinned file absent in the fork: removed from the merge so the deletion stands.
-      batchRemovePaths.push(filePath);
+    if (file.status === 'identical' || file.status === 'ahead') continue;
+    if (file.isIgnored || (file.isPinned && !file.renamedFrom)) {
+      (file.existsInFork ? batchRestorePaths : batchRemovePaths).push(file.path);
     }
   }
 
-  // Phase 3: Start real merge in fork. Left staged with MERGE_HEAD intact so git and the IDE
-  // treat it as a real in-progress merge (3-way conflict view, `git merge --abort` works).
-  // The finishing rerun squashes the commit to a single parent (`commitSquash`); upstream
-  // ancestry is tracked via the manifest, never via a pushed two-parent merge commit.
-  // The temporary graft makes the merge 3-way against the recorded sync point, not git's
-  // own (squash-stale) merge-base; without it, upstream hunks already integrated by
-  // earlier syncs re-apply or re-conflict on every run.
+  // The temporary graft makes the merge 3-way against the recorded sync point, not git's own
+  // (squash-stale) merge-base; without it, upstream hunks earlier syncs integrated re-apply or
+  // re-conflict on every run.
   onProgress?.('starting merge in fork...');
   await withTemporarySyncBaseGraft(forkPath, 'HEAD', mergeBaseRef, () => merge(forkPath, upstreamRef));
 
-  // Phase 4: Immediately batch-restore pinned/ignored files.
-  // Single git command restores all files at once, minimizing the window
-  // where the IDE sees upstream changes to protected files.
   if (batchRestorePaths.length > 0) {
     onProgress?.(`batch restoring ${batchRestorePaths.length} pinned/ignored files...`);
-    await batchRestoreToHead(forkPath, batchRestorePaths);
+    await checkoutFromRef(forkPath, 'HEAD', batchRestorePaths);
   }
   if (batchRemovePaths.length > 0) {
     onProgress?.(`batch removing ${batchRemovePaths.length} ignored files...`);
-    await batchGitRm(forkPath, batchRemovePaths);
+    await gitRm(forkPath, batchRemovePaths);
     for (const filePath of batchRemovePaths) {
       await removeFileFromWorktree(forkPath, filePath);
     }
   }
 
-  // Phase 5: Apply remaining individual resolutions.
+  // The remaining files, one by one; protected ones went with the batch above.
   for (const file of analyzedFiles) {
     const { path: filePath, status, existsInFork } = file;
-
-    if (status === 'identical' || status === 'ahead') {
-      continue;
-    }
-
-    // Pinned/ignored already handled in the Phase-2/4 batch: skip them here.
-    if (isProtectedFile(file)) continue;
+    if (status === 'identical' || status === 'ahead' || isProtectedFile(file)) continue;
 
     if (status === 'diverged') {
       // git's merge result stands for diverged files.
@@ -262,7 +191,7 @@ async function applyDirectMerge(
     if (status === 'behind') {
       if (!existsInFork) {
         onProgress?.(`→ ${filePath}: adding from upstream (new file)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       } else if (!file.existsInUpstream) {
         // Upstream deleted the file: removed from the fork, including leftovers after a squash merge.
         onProgress?.(`→ ${filePath}: removing (deleted in upstream)`);
@@ -271,7 +200,7 @@ async function applyDirectMerge(
         // Both exist and only upstream changed: upstream's version is taken explicitly,
         // which resolves false conflicts from a stale merge-base (previous squash syncs).
         onProgress?.(`→ ${filePath}: accepting upstream (behind)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       }
       continue;
     }
@@ -294,42 +223,33 @@ async function applyDirectMerge(
         } catch {
           // git mv can fail mid-merge: fall back to remove plus checkout.
           await removeFileFully(forkPath, oldPath);
-          await checkoutFromRef(forkPath, upstreamRef, filePath);
+          await checkoutFromRef(forkPath, upstreamRef, [filePath]);
         }
       } else if (oldPathExists && newPathExists) {
         // Both exist (merge already staged the new file, but the old one is still in the worktree).
         onProgress?.(`→ ${oldPath} → ${filePath}: completing rename (removing old)`);
         await removeFileFully(forkPath, oldPath);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       } else {
         // Rename already applied (or neither path exists): the new path gets upstream's content.
         onProgress?.(`→ ${filePath}: updating from upstream (renamed)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       }
     }
   }
 
-  // Protected files where upstream's changes were dropped by the fork-wins resolution above:
-  // the batch-restored pinned/ignored files that upstream also changed since the merge-base.
-  // Surfaced in the sync summary so the loss is visible right when it happens.
-  const protectedConflicts = analyzedFiles.filter((file) => file.upstreamChanged).map((file) => file.path);
-  // Membership test only: the array keeps the report's order (consumers group/print in path order).
-  const protectedConflictSet = new Set(protectedConflicts);
+  // Protected files whose upstream changes the fork-wins resolution dropped, for the sync summary
+  // (a Set keeps insertion order, so the report order stays).
+  const protectedConflicts = new Set(analyzedFiles.filter((file) => file.upstreamChanged).map((file) => file.path));
 
-  // Handle remaining git conflicts: auto-resolve only ignored/pinned (fork wins);
-  // everything else keeps its markers for IDE 3-way resolution.
-  const gitConflicts = await getConflictedFiles(forkPath);
-  for (const filePath of gitConflicts) {
-    const isProtected = isIgnored(filePath, config) || isPinnedForSync(filePath, config, config.unpinned);
-    if (!isProtected) continue;
+  // Remaining git conflicts: only ignored/pinned resolve to the fork; the rest keep their markers.
+  for (const filePath of await getConflictedFiles(forkPath)) {
+    if (!isIgnored(filePath, config) && !isPinned(filePath, config)) continue;
 
     if (await fileExistsAtRef(forkPath, 'HEAD', filePath)) {
       onProgress?.(`→ ${filePath}: keeping fork (protected conflict)`);
-      await restoreToHead(forkPath, filePath);
-      if (!protectedConflictSet.has(filePath)) {
-        protectedConflictSet.add(filePath);
-        protectedConflicts.push(filePath);
-      }
+      await checkoutFromRef(forkPath, 'HEAD', [filePath]);
+      protectedConflicts.add(filePath);
     } else {
       onProgress?.(`→ ${filePath}: removing (protected conflict, not in fork)`);
       await removeFileFully(forkPath, filePath);
@@ -342,21 +262,19 @@ async function applyDirectMerge(
     .filter((file) => file.status === 'diverged' && !remainingConflictSet.has(file.path))
     .map((file) => file.path);
 
-  // Phase 6: safety net for ignored files still staged after the merge.
-  // During a merge, batchGitRm can silently fail on newly-added files, leaving
-  // them as "Added in index, Deleted from working tree" (AD status). This catches
-  // any ignored files that slipped through the earlier resolution phases.
+  // Safety net: during a merge, the batched `git rm` can silently fail on newly added files, leaving
+  // ignored files staged as added in the index and deleted from the working tree (AD).
   const stagedNewFiles = await getStagedNewFiles(forkPath);
   const staleIgnoredFiles = stagedNewFiles.filter((f) => isIgnored(f, config));
   if (staleIgnoredFiles.length > 0) {
     onProgress?.(`cleaning up ${staleIgnoredFiles.length} ignored files still in index...`);
-    await batchUnstageFiles(forkPath, staleIgnoredFiles);
+    await gitRm(forkPath, staleIgnoredFiles, { cached: true });
     for (const filePath of staleIgnoredFiles) {
       await removeFileFromWorktree(forkPath, filePath);
     }
   }
 
-  return { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts };
+  return { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts: [...protectedConflicts] };
 }
 
 function calculateSummary(files: AnalyzedFile[]): AnalysisSummary {
@@ -392,16 +310,12 @@ interface UpstreamContext {
   upstreamRef: string;
   /** Release tag when tracking releases */
   releaseTag?: string;
-  /** Effective merge-base used for the 3-way analysis */
+  /** Effective merge-base used for the 3-way analysis, which is also the last sync point */
   mergeBase: string;
-  /** Recorded sync point. Same as `mergeBase`, except under --hard/--unpinned, which merge from the natural base */
-  syncPoint: string;
   /** Upstream GitHub URL base for commit links */
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
   upstreamCommit: CommitRangeEntry;
-  /** Commits included in this sync range (oldest-first) */
-  upstreamCommits: CommitRangeEntry[];
 }
 
 function formatLocalCheckoutDetail(
@@ -526,20 +440,16 @@ async function prepareUpstream(
   const upstreamGitHubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
 
   // Effective merge base (handles a stale base from previous squash syncs).
-  // --hard and --unpinned use the natural merge-base, resurfacing the full upstream
-  // history so drift and pins hidden below the sync point reappear consistently.
-  const aggressive = config.hard === true || config.unpinned === true;
-  const syncPoint = (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
-  const mergeBase = aggressive ? await getMergeBase(forkPath, 'HEAD', upstreamRef) : syncPoint;
+  const mergeBase = (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
 
   const upstreamCommit = await getCommitInfo(forkPath, upstreamRef);
 
   // An upstream commit behind the sync point (an earlier run went further with --ref or --track
   // branch) would stage a revert of everything after it as if upstream had undone it: stop.
-  if (upstreamCommit.hash !== syncPoint && (await isAncestor(forkPath, upstreamCommit.hash, syncPoint))) {
+  if (upstreamCommit.hash !== mergeBase && (await isAncestor(forkPath, upstreamCommit.hash, mergeBase))) {
     const [upstreamShort, syncShort] = await Promise.all([
       getShortSha(forkPath, upstreamCommit.hash),
-      getShortSha(forkPath, syncPoint),
+      getShortSha(forkPath, mergeBase),
     ]);
     const hint = config.ref
       ? 'Pick a newer --ref.'
@@ -552,28 +462,24 @@ async function prepareUpstream(
     );
   }
   const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
-  const commitSkip = commitCount > COMMIT_LIST_MAX ? commitCount - COMMIT_LIST_MAX : 0;
   const upstreamCommits =
-    commitCount > 0
-      ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, { skip: commitSkip, limit: COMMIT_LIST_MAX })
-      : [];
+    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_LIST_MAX) : [];
 
   onStep?.('fetched upstream', formatFetchedUpstreamDetail(commitCount, upstreamCommits, upstreamGitHubUrl));
 
-  return { upstreamRef, releaseTag, mergeBase, syncPoint, upstreamGitHubUrl, upstreamCommit, upstreamCommits };
+  return { upstreamRef, releaseTag, mergeBase, upstreamGitHubUrl, upstreamCommit };
 }
 
 /**
  * Stop a new merge when upstream changed its sync config since the sync point in ways the fork
  * config does not follow. The merge runs on the fork's config, so a path upstream newly ignores or
  * pins would arrive as an ordinary synced file (upstream renamed an ignored folder, the fork's list
- * still names the old one). Compared from the sync point, under `--hard`/`--unpinned` too: older
- * changes were reported by the syncs they arrived with. `--keep-config` skips the gate; an
- * unreadable upstream config or a failed comparison never stops the run.
+ * still names the old one). `--keep-config` skips the gate; an unreadable upstream config or a
+ * failed comparison never stops the run.
  */
 async function assertSyncConfigFollowed(config: RuntimeConfig, ctx: UpstreamContext): Promise<void> {
   if (config.keepConfig) return;
-  const report = await compareUpstreamOverrides(config.forkPath, ctx.syncPoint, ctx.upstreamRef, config).catch(
+  const report = await compareUpstreamOverrides(config.forkPath, ctx.mergeBase, ctx.upstreamRef, config).catch(
     () => undefined,
   );
   if (report?.kind === 'changes') throw new UpstreamConfigChangedError(report);
@@ -587,7 +493,6 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
     upstreamTag: ctx.releaseTag,
     upstreamGitHubUrl: ctx.upstreamGitHubUrl,
     upstreamCommit: ctx.upstreamCommit,
-    upstreamCommits: ctx.upstreamCommits,
   };
 }
 
@@ -634,17 +539,16 @@ interface NotesInRange {
 
 /**
  * Read the migration notes for this sync range: upstream's notes at the incoming ref and the ones
- * added since the recorded sync point. `--hard`/`--unpinned` merge from the natural merge-base,
- * but notes count from the sync point either way, so notes from earlier syncs are not added again.
- * Runs before the sync point moves. A failure yields no notes and never fails the run.
+ * added since the recorded sync point. Runs before the sync point moves. A failure yields no notes
+ * and never fails the run.
  */
 async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Promise<NotesInRange | undefined> {
   const { forkPath } = config;
   try {
     const [total, arrived, pending] = await Promise.all([
       listNoteIds(forkPath, ctx.upstreamRef),
-      arrivedNoteIds(forkPath, ctx.syncPoint, ctx.upstreamRef),
-      readPending(forkPath, ctx.syncPoint),
+      arrivedNoteIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
+      readPending(forkPath),
     ]);
     return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
   } catch {
@@ -699,9 +603,8 @@ async function runSyncMerge(
 
   const totalResolved = analyzedFiles.filter((file) => SYNC_APPLIED_STATUSES.includes(file.status)).length;
 
-  // Record the upstream sync point in lockstep: the local `refs/cella/last-sync` ref plus
-  // the committed `cella/cella.manifest.json` (staged so it rides in the sync commit and travels
-  // with the repo for fresh-clone bootstrap).
+  // Record the sync point in lockstep: the local `refs/cella/last-sync` ref plus the manifest,
+  // staged so it rides in the sync commit.
   const syncManifest: SyncManifest = {
     upstream: {
       repo: upstreamGitHubUrl ? upstreamGitHubUrl.replace('https://github.com/', '') : undefined,
@@ -728,11 +631,9 @@ async function runSyncMerge(
     await removeUpstreamOnlyCopy(forkPath, onStep);
   };
 
+  // MERGE_HEAD stays in both staged cases: the IDE shows a 3-way merge, `git merge --abort` works,
+  // and the finishing rerun tells a staged sync from a dirty tree, then commits it single-parent.
   if (remainingConflicts.length > 0) {
-    // Conflicts: leave MERGE_HEAD intact for IDE 3-way merge resolution. The finishing
-    // `cella sync` rerun commits single-parent (`commitSquash`); if the user commits manually
-    // instead, the resulting merge commit is flattened away before the branch is pushed
-    // (`flattenSyncBranch`) so the PR never lists the whole upstream history.
     await recordSyncPoint();
     onStep?.(
       'merge in progress',
@@ -740,9 +641,6 @@ async function runSyncMerge(
     );
   } else if (totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
-    // Keep MERGE_HEAD so the finishing rerun can tell a staged sync from a plain dirty
-    // tree (`mergeInProgress`) and `git merge --abort` still works. The commit itself is
-    // made single-parent at commit time (`commitSquash`).
     await recordSyncPoint();
     onStep?.('synced', `${label} (staged, commit to finish)`);
   } else {
@@ -764,10 +662,7 @@ async function runSyncMerge(
   };
 }
 
-/**
- * ANALYZE MODE: preview the merge in a temp worktree (invisible to the IDE),
- * classify all files, and discard the worktree; the fork is never touched.
- */
+/** ANALYZE MODE: classify every file from git refs; the fork is never touched. */
 async function runAnalyzePreview(
   config: RuntimeConfig,
   ctx: UpstreamContext,
@@ -775,19 +670,7 @@ async function runAnalyzePreview(
   onStep?: StepCallback,
 ): Promise<MergeResult> {
   const { forkPath } = config;
-  const worktreePath = getWorktreePath(forkPath);
   const notes = await readNotesInRange(config, ctx);
-
-  onProgress?.('creating worktree in temp directory...');
-  await createWorktree(forkPath, worktreePath, 'HEAD');
-  onStep?.('worktree created', worktreePath);
-
-  // Perform merge in worktree (always real merge, never --squash, for correct 3-way).
-  // Replace refs are shared across worktrees, so the temporary graft on the fork's HEAD
-  // commit steers this worktree merge to the recorded sync point too.
-  onProgress?.('performing merge in worktree...');
-  await withTemporarySyncBaseGraft(worktreePath, 'HEAD', ctx.mergeBase, () => merge(worktreePath, ctx.upstreamRef));
-  onStep?.('merge complete', 'upstream merged into worktree');
 
   onProgress?.('analyzing files...');
   const analyzedFiles = await analyzeRefs(
@@ -803,9 +686,6 @@ async function runAnalyzePreview(
   const reports = await upstreamOnlyReports(config, ctx, analyzedFiles, protectedConflicts);
   onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run, no changes applied`);
 
-  onProgress?.('cleaning up worktree...');
-  await cleanupWorktree(forkPath, worktreePath);
-
   return {
     success: true,
     files: analyzedFiles,
@@ -819,48 +699,17 @@ async function runAnalyzePreview(
   };
 }
 
-/** Merge engine entry point: prepare upstream once, then run the requested mode. */
-export async function runMergeEngine(
-  config: RuntimeConfig,
-  options: {
-    apply: boolean;
-    onProgress?: ProgressCallback;
-    onStep?: StepCallback;
-  },
-): Promise<MergeResult> {
-  const { forkPath } = config;
-  const worktreePath = getWorktreePath(forkPath);
-  const { apply, onProgress, onStep } = options;
-
-  await cleanupLeftoverWorktrees(forkPath);
-
-  registerWorktree(forkPath, worktreePath);
-
-  try {
-    const ctx = await prepareUpstream(config, onProgress, onStep);
-    return apply
-      ? await runSyncMerge(config, ctx, onProgress, onStep)
-      : await runAnalyzePreview(config, ctx, onProgress, onStep);
-  } catch (error) {
-    await cleanupWorktree(forkPath, worktreePath);
-    throw error;
-  }
-}
-
 /**
- * Run the merge engine with the standard spinner wiring shared by analyze and sync:
- * progress updates the spinner text, each completed step prints with its detail and
- * starts a fresh spinner.
+ * Merge engine entry point for analyze and sync: prepare upstream once, then run the requested
+ * mode. Progress updates the spinner text; each completed step prints with its detail and starts a
+ * fresh spinner.
  */
 export async function runEngineWithSpinner(config: RuntimeConfig, apply: boolean): Promise<MergeResult> {
-  return runMergeEngine(config, {
-    apply,
-    onProgress: (message) => {
-      spinnerText(message);
-    },
-    onStep: (label, detail) => {
-      spinnerSuccess(label, detail);
-      createSpinner('...');
-    },
-  });
+  const onProgress: ProgressCallback = (message) => spinnerText(message);
+  const onStep: StepCallback = (label, detail) => {
+    spinnerSuccess(label, detail);
+    createSpinner('...');
+  };
+  const ctx = await prepareUpstream(config, onProgress, onStep);
+  return apply ? runSyncMerge(config, ctx, onProgress, onStep) : runAnalyzePreview(config, ctx, onProgress, onStep);
 }

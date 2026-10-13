@@ -1,14 +1,8 @@
 /**
- * Coverage utilities for the Cella CLI stats service.
- *
- * Reads the cached `.coverage/coverage-summary.json` produced by the
- * `json-summary` Vitest reporter (see root vitest.config.ts) and renders a
- * compact overview. The stats service normally only reads
- * the artifact from the last default `pnpm test` run, warning when it is stale
- * or missing. Passing `--coverage` refreshes it first.
+ * Coverage overview for the stats service, from the `.coverage/coverage-summary.json` that the
+ * `json-summary` Vitest reporter writes on `pnpm test`.
  */
 
-import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import pc from './colors';
@@ -35,11 +29,6 @@ type CoverageSummary = Record<string, CoverageEntry> & { total: CoverageEntry };
 /** Coverage data is considered stale after this many ms (7 days). */
 const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
 
-/** Path to the cached summary written by the `json-summary` reporter. */
-function summaryPath(forkPath: string): string {
-  return join(forkPath, '.coverage', 'coverage-summary.json');
-}
-
 /** Color a percentage: green ≥ 80, yellow ≥ 50, red below. */
 function colorPct(pct: CoverageMetric['pct']): string {
   if (typeof pct !== 'number' || !Number.isFinite(pct)) return pc.dim('n/a');
@@ -60,49 +49,23 @@ function formatAge(ms: number): string {
   return `${mins} minute${mins === 1 ? '' : 's'} ago`;
 }
 
-/**
- * Re-run the full coverage suite via `pnpm test`. Output is streamed so the
- * user sees progress (Docker boot, test run, etc.). Returns true on success.
- */
-export function refreshCoverage(forkPath: string): boolean {
-  console.info(pc.dim('running `pnpm test` (this spins up Docker and runs the full suite)...'));
-  const result = spawnSync('pnpm', ['test'], { cwd: forkPath, stdio: 'inherit' });
-  return result.status === 0;
-}
-
-/**
- * Print a compact coverage overview from the cached summary file.
- *
- * @param forkPath - Repository root.
- * @param options.refresh - When true, run `pnpm test` first to regenerate
- *   the cache before rendering.
- */
-export function printCoverageSummary(forkPath: string, options: { refresh?: boolean } = {}): void {
-  const file = summaryPath(forkPath);
-
-  if (options.refresh) {
-    const ok = refreshCoverage(forkPath);
-    if (!ok) {
-      console.info(pc.red('coverage run failed: showing last cached results (if any)'));
+/** Print a compact coverage overview from the cached summary file. */
+export function printCoverageSummary(forkPath: string): void {
+  const file = join(forkPath, '.coverage', 'coverage-summary.json');
+  let summary: CoverageSummary | undefined;
+  let mtimeMs = 0;
+  let problem = 'no coverage data found';
+  if (existsSync(file)) {
+    try {
+      mtimeMs = statSync(file).mtimeMs;
+      summary = JSON.parse(readFileSync(file, 'utf8')) as CoverageSummary;
+    } catch {
+      problem = 'could not read coverage-summary.json';
     }
-    console.info();
   }
-
-  if (!existsSync(file)) {
+  if (!summary || !Object.keys(summary).some((key) => key !== 'total')) {
     console.info(pc.bold('coverage'));
-    console.info(pc.yellow('  no coverage data found: run `pnpm test` to generate it'));
-    console.info();
-    return;
-  }
-
-  let summary: CoverageSummary;
-  let mtimeMs: number;
-  try {
-    summary = JSON.parse(readFileSync(file, 'utf8')) as CoverageSummary;
-    mtimeMs = statSync(file).mtimeMs;
-  } catch {
-    console.info(pc.bold('coverage'));
-    console.info(pc.yellow('  could not read coverage-summary.json: run `pnpm test` to regenerate'));
+    console.info(pc.yellow(`  ${problem}: run \`pnpm test\` to generate it`));
     console.info();
     return;
   }
@@ -128,12 +91,6 @@ export function printCoverageSummary(forkPath: string, options: { refresh?: bool
   console.info(pc.bold('coverage'), pc.dim(`(updated ${ageLabel})`));
   if (stale) {
     console.info(pc.yellow('  ⚠ data is older than 7 days: run `pnpm test` to refresh'));
-  }
-
-  if (!Object.keys(summary).some((key) => key !== 'total')) {
-    console.info(pc.yellow('  no coverage data found: run `pnpm test` to regenerate'));
-    console.info();
-    return;
   }
 
   // Overall totals.

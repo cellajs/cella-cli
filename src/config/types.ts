@@ -63,9 +63,8 @@ export interface SyncSettings {
    * How to link files in CLI output.
    * - 'commit' (default): Link to the commit that changed the file on GitHub.
    * - 'file': Link to the file in the repo at the upstream branch on GitHub.
-   * - 'local': Deprecated (the upstream view worktree was replaced by browser diffs); treated as 'file'.
    */
-  fileLinkMode?: 'commit' | 'file' | 'local';
+  fileLinkMode?: 'commit' | 'file';
 }
 
 /**
@@ -154,7 +153,7 @@ export const cellaConfigSchema = z
         releaseBase: z.string().min(1).optional(),
         packageJsonSync: z.array(z.enum(PACKAGE_JSON_SYNC_KEYS)).optional(),
         syncWithPackages: z.boolean().optional(),
-        fileLinkMode: z.enum(['commit', 'file', 'local']).optional(),
+        fileLinkMode: z.enum(['commit', 'file']).optional(),
       })
       .strict(),
     overrides: z
@@ -198,20 +197,11 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Selected sync service */
   service: SyncService;
 
-  /** Write full file list to log file */
-  logFile: boolean;
-
   /** Non-interactive list output (for LLM/agent usage) */
   list: boolean;
 
   /** Machine-readable JSON output (for tooling/agent usage) */
   json: boolean;
-
-  /** Print the unified diff for one file, then exit (analyze and contributions; for tooling/agents) */
-  diff?: string;
-
-  /** Open a browser diff for one file, then exit (analyze) */
-  openDiff?: string;
 
   /** Scope of files returned in analyze list/json output */
   scope?: AnalyzeScope;
@@ -221,17 +211,6 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Pre-selected fork name (skips fork selection prompt) */
   fork?: string;
-
-  /** Overwrite drifted files with upstream version (aggressive realignment) */
-  hard?: boolean;
-
-  /**
-   * Disable pinned entries (cella/cella.config.ts overrides.pinned) for this sync so upstream
-   * versions surface as behind/diverged. Managed files stay pinned because cella
-   * handles them separately. Like --hard, uses the natural merge-base to resurface
-   * full upstream history.
-   */
-  unpinned?: boolean;
 
   /**
    * Override upstream tracking for this run (analyze/sync), ignoring `settings.upstreamTrack`.
@@ -252,12 +231,6 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   keepConfig?: boolean;
 
-  /** Bypass pnpm metadata cache for fresh registry data (audit service) */
-  force?: boolean;
-
-  /** Regenerate test coverage before showing the stats summary (stats service) */
-  coverage?: boolean;
-
   /** Count what the current branch changed since it left this ref, by kind of file (stats service) */
   since?: string;
 
@@ -275,9 +248,6 @@ export interface RuntimeConfig extends CellaCliConfig {
 
   /** Run one migration note's codemod, keeping files identical to upstream as they are (migrate service) */
   run?: string;
-
-  /** The script to run with `run`, when the note folder holds more than one (migrate service) */
-  script?: string;
 
   /** Arguments after `--`, passed to the codemod as given (migrate service, with `run`) */
   runArgs?: string[];
@@ -389,8 +359,6 @@ export interface MergeResult {
   upstreamGitHubUrl?: string;
   /** Upstream commit info */
   upstreamCommit?: CommitRangeEntry;
-  /** Commits included in this sync range (oldest-first when rendered) */
-  upstreamCommits?: CommitRangeEntry[];
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
   /**

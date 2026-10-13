@@ -6,18 +6,8 @@
  * error. `findMaskingPins` isolates exactly those so the sync/analyze output can flag them.
  */
 import { describe, expect, it } from 'vitest';
-import type { AnalyzedFile, FileStatus } from '../src/config/types';
 import { findMaskingPins } from '../src/utils/display';
-
-function file(overrides: Partial<AnalyzedFile> & { path: string; status: FileStatus }): AnalyzedFile {
-  return {
-    isIgnored: false,
-    isPinned: false,
-    existsInFork: true,
-    existsInUpstream: true,
-    ...overrides,
-  };
-}
+import { analyzedFile as file } from './helpers/test-env';
 
 describe('findMaskingPins', () => {
   it('flags a pinned file that is behind upstream (fork == old upstream)', () => {

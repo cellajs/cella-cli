@@ -8,7 +8,7 @@ import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { parseCli } from './cli';
-import type { CellaCliConfig } from './config/types';
+import type { CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import { runAnalyze } from './services/analyze';
 import { runAudit } from './services/audit';
 import { runContributions } from './services/contributions';
@@ -17,7 +17,6 @@ import { runMigrate } from './services/migrate';
 import { runStats } from './services/stats';
 import { runBranchStats } from './services/stats-since';
 import { runSyncCommand } from './services/sync';
-import { registerSignalHandlers } from './utils/cleanup';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
 import { getEnv } from './utils/env';
@@ -57,6 +56,21 @@ function preflight(forkPath: string): void {
   }
 }
 
+/** What each service runs once the command line is parsed. */
+const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>> = {
+  analyze: runAnalyze,
+  sync: runSyncCommand,
+  migrate: runMigrate,
+  audit: runAudit,
+  forks: runForks,
+  contributions: runContributions,
+  stats: async (config) => {
+    if (config.md && !config.since) throw new Error('--md goes with --since <ref>');
+    if (!config.since) return runStats(config);
+    return runBranchStats(config, config.since);
+  },
+};
+
 function isHelpOrVersionRequest(): boolean {
   return (
     process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h' || arg === '--version' || arg === '-v') ||
@@ -65,8 +79,6 @@ function isHelpOrVersionRequest(): boolean {
 }
 
 async function main(): Promise<void> {
-  registerSignalHandlers();
-
   try {
     const forkPath = getForkPath();
 
@@ -84,47 +96,7 @@ async function main(): Promise<void> {
       preflight(forkPath);
     }
 
-    switch (config.service) {
-      case 'analyze': {
-        await runAnalyze(config);
-        break;
-      }
-
-      case 'sync': {
-        await runSyncCommand(config);
-        break;
-      }
-
-      case 'migrate': {
-        await runMigrate(config);
-        break;
-      }
-
-      case 'audit': {
-        await runAudit(config);
-        break;
-      }
-
-      case 'forks': {
-        await runForks(config);
-        break;
-      }
-
-      case 'contributions': {
-        await runContributions(config);
-        break;
-      }
-
-      case 'stats': {
-        if (config.md && !config.since) throw new Error('--md goes with --since <ref>');
-        if (config.since) {
-          await runBranchStats(config.forkPath, { since: config.since, markdown: config.md, verbose: config.verbose });
-        } else {
-          await runStats(config);
-        }
-        break;
-      }
-    }
+    await services[config.service](config);
 
     console.info();
   } catch (error) {

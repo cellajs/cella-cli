@@ -8,12 +8,12 @@
  * end with one `git diff <last-sync>..<upstream>` line per pinned/ignored entry.
  */
 import fs from 'node:fs';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AnalyzedFile, FileStatus, MergeResult } from '../src/config/types';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
 import { findProtectedBehind, printAnalysisFileGroups, printSyncComplete } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
-import { createRepo, exec, write } from './helpers/test-env';
+import { captureInfo, createRepo, exec, analyzedFile as file, write } from './helpers/test-env';
 
 /**
  * Repo with a `main` (fork) and `upstream` branch off one base commit:
@@ -59,10 +59,6 @@ function createScenarioRepo(): string {
   exec('git add -A && git commit -q -m fork', dir);
 
   return dir;
-}
-
-function file(overrides: Partial<AnalyzedFile> & { path: string; status: FileStatus }): AnalyzedFile {
-  return { isIgnored: false, isPinned: false, existsInFork: true, existsInUpstream: true, ...overrides };
 }
 
 describe('analyzeRefs upstreamChanged', () => {
@@ -133,18 +129,8 @@ describe('analyzeRefs upstreamChanged', () => {
 });
 
 describe('printAnalysisFileGroups upstream lines absent', () => {
-  function capture(files: AnalyzedFile[], diffSource?: Parameters<typeof printAnalysisFileGroups>[2]): string {
-    const lines: string[] = [];
-    const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
-      lines.push(args.map(String).join(' '));
-    });
-    try {
-      printAnalysisFileGroups(files, {}, diffSource);
-    } finally {
-      spy.mockRestore();
-    }
-    return lines.join('\n');
-  }
+  const capture = (files: AnalyzedFile[], diffSource?: Parameters<typeof printAnalysisFileGroups>[2]) =>
+    captureInfo(() => printAnalysisFileGroups(files, {}, diffSource));
 
   it('ends the protected-but-behind section with one range diff per entry that holds a listed file', () => {
     const files = [
@@ -222,18 +208,7 @@ describe('printSyncComplete protected conflicts', () => {
     },
   });
 
-  function capture(result: MergeResult): string {
-    const lines: string[] = [];
-    const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
-      lines.push(args.map(String).join(' '));
-    });
-    try {
-      printSyncComplete(result);
-    } finally {
-      spy.mockRestore();
-    }
-    return lines.join('\n');
-  }
+  const capture = (result: MergeResult) => captureInfo(() => printSyncComplete(result));
 
   it('lists dropped protected files with their upstream line count and the hint', () => {
     const result = baseResult();

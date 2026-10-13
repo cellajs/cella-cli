@@ -11,6 +11,7 @@
  * object store), never from the filesystem.
  */
 
+import { rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { CellaCliConfig, FileStatus } from '../config/types';
 import { git } from '../utils/git';
@@ -18,7 +19,7 @@ import { isIgnored, isPinned, isUnderAnyFolder } from '../utils/overrides';
 import { analyzeRefs, enrichChangeInfo } from './analyze-core';
 
 /** A single contributable file with classification and metadata. */
-interface ContribFile {
+export interface ContribFile {
   /** File path relative to repo root */
   path: string;
   /** How adopting this file changes cella */
@@ -29,18 +30,6 @@ interface ContribFile {
   changedAt?: string;
   /** Unix epoch seconds of the fork's change, for sorting */
   changedTs?: number;
-}
-
-/** Files a fork contributes relative to the base branch. */
-interface ContribDetection {
-  /** Files changed in fork that also exist in base */
-  modified: string[];
-  /** New fork files in directories that exist in base (sibling heuristic) */
-  created: string[];
-  /** Files that exist in base but were removed in fork */
-  deleted: string[];
-  /** Enriched per-file metadata for the union of the above */
-  files: ContribFile[];
 }
 
 async function listFilesAtRef(repoPath: string, ref: string): Promise<Set<string>> {
@@ -54,14 +43,7 @@ async function listFilesAtRef(repoPath: string, ref: string): Promise<Set<string
  * Uses a merge-base 3-way analysis (cella = local, fork = incoming) so the
  * result distinguishes fork-ahead changes from cella's own drift. Only files
  * where the fork is ahead (status `behind`) or both sides changed (`diverged`)
- * are contributable.
- *
- * @param repoPath - Cella repo path (where the fork ref has been fetched)
- * @param baseRef - Cella's base branch ref (e.g. 'development')
- * @param forkRef - Fetched fork commit (e.g. a resolved FETCH_HEAD sha)
- * @param config - Cella's config, used to exclude ignored/pinned files
- * @param forkTerritory - Paths the fork owns (from the fork's own
- *   `ignored` list); excluded so fork-specific modules aren't offered back
+ * are contributable. `forkTerritory` (the fork's own `ignored` list) keeps fork-specific modules out.
  */
 export async function detectContributableFiles(
   repoPath: string,
@@ -69,7 +51,7 @@ export async function detectContributableFiles(
   forkRef: string,
   config: CellaCliConfig,
   forkTerritory: string[] = [],
-): Promise<ContribDetection> {
+): Promise<ContribFile[]> {
   // Common ancestor for 3-way comparison; fall back to baseRef if histories are unrelated
   const mergeBase = (await git(['merge-base', baseRef, forkRef], repoPath, { ignoreErrors: true })).trim() || baseRef;
 
@@ -122,17 +104,7 @@ export async function detectContributableFiles(
     files.push({ path: file.path, kind, status: file.status, changedAt, changedTs });
   }
 
-  return {
-    modified: files.filter((f) => f.kind === 'modified').map((f) => f.path),
-    created: files.filter((f) => f.kind === 'created').map((f) => f.path),
-    deleted: files.filter((f) => f.kind === 'deleted').map((f) => f.path),
-    files,
-  };
-}
-
-/** Total number of files in a detection result. */
-export function countDetection(detection: ContribDetection): number {
-  return detection.modified.length + detection.created.length + detection.deleted.length;
+  return files;
 }
 
 /**
@@ -168,7 +140,7 @@ export async function buildContribBranch(
   repoPath: string,
   baseRef: string,
   forkRef: string,
-  detection: ContribDetection,
+  files: ContribFile[],
   forkName: string,
 ): Promise<{ branch: string; appliedFiles: string[] }> {
   const branch = `contrib/${forkName}`;
@@ -184,24 +156,18 @@ export async function buildContribBranch(
 
     const appliedFiles: string[] = [];
 
-    // Overlay modified + created fork files (blobs already in object store via fetch)
-    for (const filePath of [...detection.modified, ...detection.created]) {
-      const blob = await readBlobInfo(repoPath, forkRef, filePath);
+    // Overlay the fork's files (blobs already in the object store via fetch) and remove its deletions
+    for (const { path, kind } of files) {
+      if (kind === 'deleted') {
+        await git(['update-index', '--remove', path], repoPath, { env: indexEnv, ignoreErrors: true });
+        appliedFiles.push(`(deleted) ${path}`);
+        continue;
+      }
+      const blob = await readBlobInfo(repoPath, forkRef, path);
       if (!blob) continue;
-      await git(
-        ['update-index', '--add', '--replace', '--cacheinfo', `${blob.mode},${blob.hash},${filePath}`],
-        repoPath,
-        {
-          env: indexEnv,
-        },
-      );
-      appliedFiles.push(filePath);
-    }
-
-    // Remove deleted files from the index
-    for (const filePath of detection.deleted) {
-      await git(['update-index', '--remove', filePath], repoPath, { env: indexEnv, ignoreErrors: true });
-      appliedFiles.push(`(deleted) ${filePath}`);
+      const cacheinfo = `${blob.mode},${blob.hash},${path}`;
+      await git(['update-index', '--add', '--replace', '--cacheinfo', cacheinfo], repoPath, { env: indexEnv });
+      appliedFiles.push(path);
     }
 
     if (appliedFiles.length === 0) {
@@ -220,11 +186,6 @@ export async function buildContribBranch(
 
     return { branch, appliedFiles };
   } finally {
-    try {
-      const { unlinkSync } = await import('node:fs');
-      unlinkSync(tmpIndex);
-    } catch {
-      // Best effort
-    }
+    rmSync(tmpIndex, { force: true });
   }
 }

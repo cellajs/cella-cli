@@ -9,58 +9,29 @@ import { Command } from 'commander';
 import type { AnalyzeScope, CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import pc from './utils/colors';
 import { isUpstreamRepo, resolveUpstream } from './utils/config';
-import { MENU_DIVIDER, NAME, printHeader, setJsonMode, VERSION } from './utils/display';
-import { printWarnings, validateOverrides } from './utils/overrides';
+import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
+import { validateOverrides } from './utils/overrides';
 
 type CliServiceSelection = {
   service?: SyncService;
   options: CliOptionState;
 };
 
-type CliOptionState = Pick<
-  RuntimeConfig,
-  | 'logFile'
-  | 'verbose'
-  | 'list'
-  | 'json'
-  | 'diff'
-  | 'openDiff'
-  | 'scope'
-  | 'fork'
-  | 'hard'
-  | 'unpinned'
-  | 'track'
-  | 'ref'
-  | 'keepConfig'
-  | 'force'
-  | 'coverage'
-  | 'since'
-  | 'md'
-  | 'all'
-  | 'show'
-  | 'extract'
-  | 'run'
-  | 'script'
-  | 'runArgs'
-  | 'mark'
->;
+type CliOptionState = Omit<RuntimeConfig, keyof CellaCliConfig | 'forkPath' | 'upstreamRef' | 'service'>;
 
 type MenuContext = {
   hasForks: boolean;
   isUpstreamRepo: boolean;
 };
 
-type ServiceOptionDefinition = {
-  flags: string;
-  description: string;
-};
+type ServiceOption = [flags: string, description: string];
 
 type ServiceDefinition = {
   name: SyncService;
   description: string;
-  options?: ServiceOptionDefinition[];
+  options?: ServiceOption[];
   /** Arguments the service takes after its options, e.g. the ones `migrate --run` hands to the codemod. */
-  operands?: ServiceOptionDefinition;
+  operands?: ServiceOption;
   includeInMenu?: (context: MenuContext) => boolean;
 };
 
@@ -83,76 +54,41 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
   }
 
   return {
-    logFile: flag(opts.log),
     verbose: flag(opts.verbose),
     list: flag(opts.list),
     json: flag(opts.json),
-    diff: str(opts.diff),
-    openDiff: str(opts.openDiff),
     scope: normalizedScope,
     fork: str(opts.fork),
-    hard: flag(opts.hard),
-    unpinned: flag(opts.unpinned),
     track: opts.track === 'release' || opts.track === 'branch' ? opts.track : undefined,
     ref: str(opts.ref) || undefined,
     keepConfig: flag(opts.keepConfig),
-    force: flag(opts.force),
-    coverage: flag(opts.coverage),
     since: str(opts.since) || undefined,
     md: flag(opts.md),
     all: flag(opts.all),
     show: str(opts.show),
     extract: str(opts.extract),
     run,
-    script: str(opts.script),
     runArgs: run ? operands : undefined,
     mark: Array.isArray(opts.mark) ? opts.mark.filter((id): id is string => typeof id === 'string') : undefined,
   };
 }
 
 // Option literals shared verbatim by more than one service.
-const logOption: ServiceOptionDefinition = {
-  flags: '--log',
-  description: 'write complete file list to cella-sync.log',
-};
-const jsonOption: ServiceOptionDefinition = {
-  flags: '--json',
-  description: 'machine-readable output for tooling/agents',
-};
-const trackOption: ServiceOptionDefinition = {
-  flags: '--track <mode>',
-  description: 'override upstream tracking for this run: release|branch',
-};
-const refOption: ServiceOptionDefinition = {
-  flags: '--ref <ref>',
-  description: 'pin the upstream commit for this run: sha, release tag or branch',
-};
-const hardOption: ServiceOptionDefinition = {
-  flags: '--hard',
-  description: 'overwrite drifted files with upstream version (aggressive realignment)',
-};
-const verboseOption: ServiceOptionDefinition = {
-  flags: '-V, --verbose',
-  description: 'show detailed output during operations',
-};
-const forkOption: ServiceOptionDefinition = {
-  flags: '--fork <name>',
-  description: 'pre-select a fork by name (skips the fork selection prompt)',
-};
+const jsonOption: ServiceOption = ['--json', 'machine-readable output for tooling/agents'];
+const trackOption: ServiceOption = ['--track <mode>', 'override upstream tracking for this run: release|branch'];
+const refOption: ServiceOption = ['--ref <ref>', 'pin the upstream commit for this run: sha, release tag or branch'];
+const forkOption: ServiceOption = ['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'];
 
 const serviceDefinitions: ServiceDefinition[] = [
   {
     name: 'analyze',
     description: 'dry run to see what would change on sync',
     options: [
-      logOption,
-      { flags: '--list', description: 'non-interactive output for tooling (one file per line)' },
+      ['--list', 'non-interactive output for tooling (one file per line)'],
       jsonOption,
-      { flags: '--scope <scope>', description: 'analyze scope for --list/--json: all|risk|protected' },
+      ['--scope <scope>', 'analyze scope for --list/--json: all|risk|protected'],
       trackOption,
       refOption,
-      { flags: '--diff <path>', description: 'print the unified diff for one file, then exit' },
-      { flags: '--open-diff <path>', description: 'open a browser diff for one file, then exit' },
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
@@ -160,12 +96,9 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'sync',
     description: 'merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR',
     options: [
-      logOption,
-      hardOption,
-      { flags: '--unpinned', description: 'ignore pinned files (except package.json) to resurface upstream changes' },
       trackOption,
       refOption,
-      { flags: '--keep-config', description: 'merge with your sync config as it stands when upstream changed its own' },
+      ['--keep-config', 'merge with your sync config as it stands when upstream changed its own'],
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
@@ -173,65 +106,46 @@ const serviceDefinitions: ServiceDefinition[] = [
     name: 'migrate',
     description: 'list the upstream migration notes this app has not handled yet',
     options: [
-      { flags: '--all', description: 'list every upstream note, handled or not' },
+      ['--all', 'list every upstream note, handled or not'],
       jsonOption,
-      { flags: '--show <id>', description: "print one note's README" },
-      { flags: '--extract <id>', description: "write one note's folder under node_modules/.cache to run its codemod" },
-      { flags: '--run <id>', description: "run one note's codemod; files identical to upstream stay as they are" },
-      { flags: '--script <file>', description: 'with --run: the script to run when the note folder holds several' },
-      { flags: '--mark <ids...>', description: 'record notes as handled' },
+      ['--show <id>', "print one note's README"],
+      ['--extract <id>', "write one note's folder under node_modules/.cache to run its codemod"],
+      ['--run <id>', "run one note's codemod; files identical to upstream stay as they are"],
+      ['--mark <ids...>', 'record notes as handled'],
     ],
-    operands: {
-      flags: '[codemodArgs...]',
-      description: "with --run, after `--`: arguments for the codemod (default: inventory and the note's roots)",
-    },
+    operands: [
+      '[codemodArgs...]',
+      "with --run, after `--`: arguments for the codemod (default: inventory and the note's roots)",
+    ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
     name: 'audit',
     description: 'update outdated packages, then rebuild the security overrides from a fresh audit',
-    options: [
-      { flags: '--list', description: 'report only: no prompts, and nothing is written' },
-      { flags: '--force', description: 'bypass pnpm metadata cache for fresh registry data' },
-    ],
+    options: [['--list', 'report only: no prompts, and nothing is written']],
   },
   {
     name: 'forks',
     description: 'run normal sync inside local fork repositories',
     options: [
       forkOption,
-      { flags: '--log', description: 'write complete file list to cella-sync.log for each synced fork' },
-      verboseOption,
-      hardOption,
-      {
-        flags: '--keep-config',
-        description: "merge with the fork's sync config as it stands when upstream changed its own",
-      },
+      ['--keep-config', "merge with the fork's sync config as it stands when upstream changed its own"],
     ],
     includeInMenu: (context) => context.hasForks,
   },
   {
     name: 'contributions',
     description: 'pull and adopt changes from local forks',
-    options: [
-      forkOption,
-      { flags: '--list', description: 'non-interactive output for tooling (tab-separated rows)' },
-      jsonOption,
-      { flags: '--diff <path>', description: 'print the unified diff for one contributed file, then exit' },
-    ],
+    options: [forkOption, jsonOption],
     includeInMenu: (context) => context.hasForks,
   },
   {
     name: 'stats',
     description: 'count files by category and workspace package',
     options: [
-      verboseOption,
-      { flags: '--coverage', description: 'regenerate test coverage before showing the stats summary' },
-      {
-        flags: '--since <ref>',
-        description: 'count what the current branch changed since it left <ref>, by kind of file',
-      },
-      { flags: '--md', description: 'with --since: print the table as markdown for a pull request description' },
+      ['-V, --verbose', 'show detailed output during operations'],
+      ['--since <ref>', 'count what the current branch changed since it left <ref>, by kind of file'],
+      ['--md', 'with --since: print the table as markdown for a pull request description'],
     ],
   },
 ];
@@ -267,10 +181,8 @@ function addServiceCommand(
 ) {
   const command = program.command(definition.name).description(definition.description);
 
-  for (const option of definition.options ?? []) {
-    command.option(option.flags, option.description);
-  }
-  if (definition.operands) command.argument(definition.operands.flags, definition.operands.description);
+  for (const option of definition.options ?? []) command.option(...option);
+  if (definition.operands) command.argument(...definition.operands);
 
   // Commander hands declared arguments to the action before the options
   command.action((...args: unknown[]) => {
@@ -284,8 +196,7 @@ function addServiceCommand(
 }
 
 function buildProgram(setSelection: (selection: CliServiceSelection) => void): Command {
-  const program = new Command(NAME)
-    .name('cella')
+  const program = new Command('cella')
     .version(VERSION, '-v, --version', 'output the current version')
     .usage('[service] [options]')
     .helpOption('-h, --help', 'display help for a command')
@@ -297,9 +208,6 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         'Examples:',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
-        '  $ cella analyze --open-diff frontend/src/routes/index.tsx',
-        '  $ cella sync --hard',
-        '  $ cella sync --unpinned',
         '  $ cella sync --track branch',
         '  $ cella sync --ref 4f7d87c',
         '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
@@ -352,41 +260,32 @@ function buildRuntimeConfig(
   userConfig: CellaCliConfig,
   forkPath: string,
   selection: CliServiceSelection,
+  upstreamRef: string,
 ): RuntimeConfig {
-  // Static fallback ref (branch tip). For release tracking the merge engine resolves
-  // the concrete release-tag ref after fetching and writes it back to config.upstreamRef.
-  const { branchRef } = resolveUpstream(userConfig.settings);
-
-  return {
-    ...userConfig,
-    forkPath,
-    upstreamRef: branchRef,
-    service: selection.service ?? 'analyze',
-    ...selection.options,
-  };
+  return { ...userConfig, forkPath, upstreamRef, service: selection.service ?? 'analyze', ...selection.options };
 }
 
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
   const selection = parseCommandLine(process.argv);
 
-  // In machine-output modes (--json, --diff, --list, --md), reserve stdout for the payload/patch/rows/table
+  // In machine-output modes (--json, --list, --md), reserve stdout for the payload/rows/table
   // and route all human output (header, warnings, spinner) to stderr. Audit's --list only skips
   // its interactive prompts; its report is the human output and stays on stdout.
   const machineList = selection.options.list && selection.service !== 'audit';
-  if (selection.options.json || selection.options.diff || selection.options.md || machineList) setJsonMode(true);
+  if (selection.options.json || selection.options.md || machineList) setJsonMode(true);
 
   printHeader();
 
-  // Ignored entries are validated against the upstream branch as last fetched.
-  const warnings = await validateOverrides(userConfig, forkPath, resolveUpstream(userConfig.settings).branchRef);
-  if (warnings.length > 0) {
-    printWarnings(warnings);
-    console.info();
-  }
+  // The upstream branch tip as last fetched: ignored entries are validated against it, and it is the
+  // upstreamRef until the merge engine resolves the release tag when tracking releases.
+  const { branchRef } = resolveUpstream(userConfig.settings);
+  const warnings = await validateOverrides(userConfig, forkPath, branchRef);
+  for (const warning of warnings) console.info(`${warningMark} ${warning}`);
+  if (warnings.length > 0) console.info();
 
   if (!selection.service) {
     selection.service = await promptForService(userConfig, forkPath);
   }
 
-  return buildRuntimeConfig(userConfig, forkPath, selection);
+  return buildRuntimeConfig(userConfig, forkPath, selection, branchRef);
 }

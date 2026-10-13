@@ -11,33 +11,28 @@ import { basename, join, relative } from 'node:path';
 import { checkbox, confirm, Separator } from '@inquirer/prompts';
 import type { RuntimeConfig } from '../config/types';
 import {
-  buildVulnerabilityMap,
-  clearCache,
   type EnhancedPackageInfo,
-  fetchNpmMetadata,
-  findChangelogUrl,
   formatDependents,
-  getHighestSeverity,
-  getOutdatedPackages,
   getReleasesUrl,
   getRepoUrl,
   getVulnIcon,
   isMajorVersionChange,
-  loadCache,
   middleTruncate,
+  type OutdatedPackage,
   runPnpmAudit,
-  saveCache,
+  runPnpmJson,
 } from '../utils/audit-utils';
 import pc from '../utils/colors';
-import { createSpinner, hyperlink, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
-import { parseYamlBlockMap } from '../utils/yaml';
+import { createSpinner, hyperlink, spinnerSuccess, warningMark } from '../utils/display';
+import { advisoriesFromAudit, SEVERITIES } from '../utils/security-plan';
+import { readTopLevel } from '../utils/workspace-yaml';
 import { runSecurityPass } from './audit-security';
 
 /** How the update layer ended: the security pass follows unless it failed or was cancelled. */
 type UpdateOutcome = 'updated' | 'skipped' | 'cancelled' | 'failed';
 
-/** A dependent workspace's package.json: its name plus dependency maps, for display names and pin detection. */
-type DependentPkgJson = { name?: string } & Partial<Record<'dependencies' | 'devDependencies', Record<string, string>>>;
+/** A dependent workspace's package.json: its dependency maps, for pin detection. */
+type DependentPkgJson = Partial<Record<'dependencies' | 'devDependencies', Record<string, string>>>;
 
 /** Reader for dependents' package.jsons that loads each one once, caching by location. */
 function createDependentPkgReader(): (location: string) => DependentPkgJson | null {
@@ -61,21 +56,13 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
 
   const spinner = createSpinner('checking for outdated packages...');
   try {
-    // --force drops both caches so registry data is fetched fresh.
-    if (config.force) {
-      spinnerText('clearing pnpm metadata cache...');
-      clearCache();
-      spawnSync('pnpm', ['cache', 'delete', '*'], {
-        cwd: forkPath,
-        stdio: 'ignore',
-      });
-      spinnerText('checking for outdated packages...');
-    }
-
-    const [outdatedPackages, auditResult] = await Promise.all([getOutdatedPackages(forkPath), runPnpmAudit(forkPath)]);
-
+    // --long adds each package's latest manifest, which holds its repository URL.
+    const [outdated, auditResult] = await Promise.all([
+      runPnpmJson(['-r', 'outdated', '--json', '--long'], forkPath),
+      runPnpmAudit(forkPath),
+    ]);
+    const outdatedPackages = (outdated ?? {}) as Record<string, OutdatedPackage>;
     const packageNames = Object.keys(outdatedPackages);
-    const vulnMap = buildVulnerabilityMap(auditResult);
 
     if (packageNames.length === 0) {
       spinnerSuccess('all packages are up to date');
@@ -84,75 +71,47 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
       return;
     }
 
-    // The cache holds resolved changelog URLs.
-    const cache = loadCache();
-
-    spinnerText(`found ${packageNames.length} outdated package(s), fetching metadata...`);
-
+    const advisories = auditResult ? advisoriesFromAudit(auditResult) : [];
+    const severityOf = (name: string) =>
+      SEVERITIES.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
     const readDependentPkg = createDependentPkgReader();
 
-    const dependentNameCache = new Map<string, string>();
-    for (const name of packageNames) {
-      for (const dep of outdatedPackages[name].dependentPackages) {
-        if (!dependentNameCache.has(dep.location)) {
-          dependentNameCache.set(dep.location, readDependentPkg(dep.location)?.name || basename(dep.location));
+    const enhancedPackages: EnhancedPackageInfo[] = packageNames.map((name) => {
+      const pkg = outdatedPackages[name];
+      const repoUrl = getRepoUrl(pkg.latestManifest?.repository?.url);
+
+      // Workspaces that pin this package to an exact version.
+      const pinnedIn: string[] = [];
+      for (const d of pkg.dependentPackages) {
+        const spec = readDependentPkg(d.location)?.[pkg.dependencyType]?.[name] || '';
+        if (spec && !spec.startsWith('^') && !spec.startsWith('~') && !spec.startsWith('>')) {
+          pinnedIn.push(d.name);
         }
       }
-    }
 
-    const enhancedPackages: EnhancedPackageInfo[] = [];
-    const batchSize = 10;
-
-    for (let i = 0; i < packageNames.length; i += batchSize) {
-      const batch = packageNames.slice(i, i + batchSize);
-      const results = await Promise.all(
-        batch.map(async (name) => {
-          const pkg = outdatedPackages[name];
-          const metadata = await fetchNpmMetadata(name);
-          const repoUrl = getRepoUrl(metadata);
-          const changelogUrl = await findChangelogUrl(repoUrl, name, cache);
-
-          // Workspaces that pin this package to an exact version.
-          const pinnedIn: string[] = [];
-          for (const d of pkg.dependentPackages) {
-            const spec = readDependentPkg(d.location)?.[pkg.dependencyType]?.[name] || '';
-            if (spec && !spec.startsWith('^') && !spec.startsWith('~') && !spec.startsWith('>')) {
-              pinnedIn.push(d.name);
-            }
-          }
-
-          return {
-            name,
-            current: pkg.current,
-            latest: pkg.latest,
-            dependents: pkg.dependentPackages.map((d) => d.name),
-            dependentLocations: pkg.dependentPackages.map((d) => d.location),
-            isDev: pkg.dependencyType === 'devDependencies',
-            isMajorUpdate: isMajorVersionChange(pkg.current, pkg.latest),
-            pinnedIn,
-            repoUrl,
-            changelogUrl,
-            releasesUrl: getReleasesUrl(repoUrl),
-            vulnerabilities: vulnMap.get(name) || [],
-          };
-        }),
-      );
-      enhancedPackages.push(...results);
-    }
-
-    saveCache(cache);
+      return {
+        name,
+        current: pkg.current,
+        latest: pkg.latest,
+        dependentPackages: pkg.dependentPackages,
+        isDev: pkg.dependencyType === 'devDependencies',
+        isMajorUpdate: isMajorVersionChange(pkg.current, pkg.latest),
+        pinnedIn,
+        repoUrl,
+        releasesUrl: getReleasesUrl(repoUrl),
+        severity: severityOf(name),
+      };
+    });
 
     enhancedPackages.sort((a, b) => {
-      const depA = formatDependents(a.dependents);
-      const depB = formatDependents(b.dependents);
-      const depCompare = depA.localeCompare(depB);
+      const depCompare = dependentsText(a).localeCompare(dependentsText(b));
       if (depCompare !== 0) return depCompare;
       return a.name.localeCompare(b.name);
     });
 
     spinner.stop();
 
-    printOutdatedResults(enhancedPackages, dependentNameCache, forkPath);
+    printOutdatedResults(enhancedPackages, forkPath);
     console.info();
 
     // --list is the non-interactive mode: report only, no prompts and no writes.
@@ -168,11 +127,10 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
   }
 }
 
-function printOutdatedResults(
-  enhancedPackages: EnhancedPackageInfo[],
-  dependentNameCache: Map<string, string>,
-  forkPath: string,
-): void {
+/** The "in" column: the workspaces that depend on the package, as "first +N" when there are several. */
+const dependentsText = (pkg: EnhancedPackageInfo): string => formatDependents(pkg.dependentPackages.map((d) => d.name));
+
+function printOutdatedResults(enhancedPackages: EnhancedPackageInfo[], forkPath: string): void {
   const DEV_TAG = ' (dev)';
   const MAX_NAME_LEN = 35;
   const MAX_DEPENDENTS_LEN = 15;
@@ -184,7 +142,7 @@ function printOutdatedResults(
   const maxLatestLen = Math.max(6, ...enhancedPackages.map((p) => p.latest.length));
   const maxDependentsLen = Math.min(
     MAX_DEPENDENTS_LEN,
-    Math.max(10, ...enhancedPackages.map((p) => formatDependents(p.dependents).length)),
+    Math.max(10, ...enhancedPackages.map((p) => dependentsText(p).length)),
   );
 
   // The vuln column is a single dot, so it gets no width budget.
@@ -200,8 +158,7 @@ function printOutdatedResults(
   console.info(header);
 
   for (const pkg of enhancedPackages) {
-    const highestSeverity = getHighestSeverity(pkg.vulnerabilities);
-    const vulnIndicator = highestSeverity ? getVulnIcon(highestSeverity) : ' ';
+    const vulnIndicator = pkg.severity ? getVulnIcon(pkg.severity) : ' ';
 
     const fullName = pkg.isDev ? `${pkg.name}${DEV_TAG}` : pkg.name;
     const displayName = middleTruncate(fullName, maxNameLen);
@@ -211,13 +168,9 @@ function printOutdatedResults(
     const latestText = pkg.latest.padEnd(maxLatestLen);
     const latest = pkg.isMajorUpdate ? pc.bold(pc.green(latestText)) : pc.green(latestText);
 
-    const dependentsText = formatDependents(pkg.dependents);
-    const dependents = pc.dim(middleTruncate(dependentsText, maxDependentsLen).padEnd(maxDependentsLen));
+    const dependents = pc.dim(middleTruncate(dependentsText(pkg), maxDependentsLen).padEnd(maxDependentsLen));
 
     const links: string[] = [];
-    if (pkg.changelogUrl) {
-      links.push(hyperlink(pc.magenta('log'), pkg.changelogUrl));
-    }
     if (pkg.releasesUrl) {
       links.push(hyperlink(pc.blue('rel'), pkg.releasesUrl));
     }
@@ -234,13 +187,13 @@ function printOutdatedResults(
   console.info();
   const dependentMap = new Map<string, { location: string; count: number }>();
   for (const pkg of enhancedPackages) {
-    for (const loc of pkg.dependentLocations) {
-      const dependentName = dependentNameCache.get(loc) || basename(loc);
+    for (const { name, location } of pkg.dependentPackages) {
+      const dependentName = name || basename(location);
       const existing = dependentMap.get(dependentName);
       if (existing) {
         existing.count++;
       } else {
-        dependentMap.set(dependentName, { location: loc, count: 1 });
+        dependentMap.set(dependentName, { location, count: 1 });
       }
     }
   }
@@ -326,7 +279,6 @@ async function promptForUpdates(packages: EnhancedPackageInfo[], forkPath: strin
       },
     });
   } catch {
-    // User pressed Ctrl+C or escaped
     return 'cancelled';
   }
 
@@ -368,7 +320,7 @@ async function executeUpdates(
     const pkg = packages.find((p) => p.name === pkgName);
     if (!pkg) continue;
 
-    for (const dependent of pkg.dependents) {
+    for (const { name: dependent } of pkg.dependentPackages) {
       const group = workspacePackages.get(dependent);
       if (group) group.push(pkgName);
       else workspacePackages.set(dependent, [pkgName]);
@@ -402,10 +354,7 @@ async function executeUpdates(
   }
 
   // Run one recursive update so pnpm can rewrite catalogs and direct consumers atomically.
-  const result = spawnSync('pnpm', ['-r', 'up', '--latest', ...selectedPackages], {
-    cwd: forkPath,
-    stdio: 'inherit',
-  });
+  const result = spawnSync('pnpm', ['-r', 'up', '--latest', ...selectedPackages], { cwd: forkPath, stdio: 'inherit' });
 
   console.info();
   if (result.status !== 0) {
@@ -421,7 +370,7 @@ function readCatalogPackageNames(forkPath: string): Set<string> {
   const workspacePath = join(forkPath, 'pnpm-workspace.yaml');
   try {
     const content = readFileSync(workspacePath, 'utf8');
-    return new Set(Object.keys(parseYamlBlockMap(content, 'catalog')));
+    return new Set(Object.keys(readTopLevel(content, 'catalog') ?? {}));
   } catch {
     return new Set();
   }

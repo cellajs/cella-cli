@@ -97,7 +97,7 @@ async function resolveStaging(
 ): Promise<{ lock: string } | { error: string }> {
   writeFileSync(join(staging, WORKSPACE_FILE), writeAuditSettings(workspaceYaml, settings));
   const result = await runPnpm(['install', '--lockfile-only', '--no-frozen-lockfile', '--ignore-scripts'], staging);
-  return result.ok ? { lock: readOr(join(staging, LOCK_FILE)) } : { error: result.output };
+  return result.ok ? { lock: readOr(join(staging, LOCK_FILE)) } : { error: `${result.stdout}${result.stderr}`.trim() };
 }
 
 /** The versions of a package that a lockfile holds. */
@@ -122,7 +122,7 @@ function noteText(item: SecurityItem, releaseAgeHours: number): string {
   return '';
 }
 
-function printGroup(title: string, items: SecurityItem[], releaseAgeHours: number, withNote = false): void {
+function printGroup(title: string, items: SecurityItem[], releaseAgeHours: number): void {
   if (items.length === 0) return;
   const nameWidth = Math.min(30, Math.max(...items.map((item) => item.module.length)));
   const versionWidth = Math.max(...items.map((item) => versionsText(item).length));
@@ -130,9 +130,8 @@ function printGroup(title: string, items: SecurityItem[], releaseAgeHours: numbe
   console.info(pc.bold(`${title} (${items.length})`));
   for (const item of items) {
     const name = pc.white(middleTruncate(item.module, nameWidth).padEnd(nameWidth));
-    const note = withNote ? noteText(item, releaseAgeHours) : '';
     const source = `${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`;
-    const tail = [source, note].filter(Boolean).join(' · ');
+    const tail = [source, noteText(item, releaseAgeHours)].filter(Boolean).join(' · ');
     console.info(
       `${getVulnIcon(item.severity)} ${name}  ${item.severity.padEnd(8)}  ${versionsText(item).padEnd(versionWidth)}  ${pc.dim(tail)}`,
     );
@@ -167,10 +166,8 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
     const { remedy } = item;
     const jump = remedy.kind === 'none' ? '' : `${item.installed} → ${remedy.target}`;
 
-    if (item.standing === 'carried') {
-      decisions.push({ item, action: 'override' });
-    } else if (item.standing === 'ignored') {
-      decisions.push({ item, action: 'ignore' });
+    if (!needsDecision(item)) {
+      decisions.push({ item, action: item.standing === 'ignored' ? 'ignore' : 'override' });
     } else if (remedy.kind === 'none') {
       const ignore = await confirm({
         message: `${item.module}: no fix is published. ignore ${item.ghsas.join(', ')} until one is?`,
@@ -186,7 +183,7 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
         ],
       });
       decisions.push({ item, action, exclude: action === 'override' ? `${item.module}@${remedy.target}` : undefined });
-    } else if (needsDecision(item)) {
+    } else {
       const message = item.direct
         ? `the fix is ${jump}, and ${item.via[0]} depends on it directly`
         : `the fix jumps ${jump}, past what ${formatDependents(item.via)} asks for`;
@@ -199,8 +196,6 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
         ],
       });
       decisions.push({ item, action });
-    } else {
-      decisions.push({ item, action: 'override' });
     }
   }
 
@@ -278,16 +273,14 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     const versionedExcludes = previous.releaseAgeExcludes.flatMap((entry) => parseVersionedExclude(entry)?.name ?? []);
     const names = [...new Set([...advisories.map((advisory) => advisory.module), ...versionedExcludes])];
     const times = await Promise.all(names.map((name) => fetchPublishTimes(name, forkPath)));
-    const published: Record<string, PublishTimes> = {};
-    for (const [i, name] of names.entries()) {
-      const answer = times[i];
-      if (answer) published[name] = answer;
-    }
+    const published: Record<string, PublishTimes> = Object.fromEntries(
+      names.map((name, i) => [name, times[i]]).filter(([, answer]) => answer),
+    );
     // A fix is only judged absent when the registry answered: silence must not turn into an ignore.
     const unanswered = advisories.map((advisory) => advisory.module).filter((name) => !published[name]);
     if (unanswered.length > 0) return fail(`the registry did not answer for ${[...new Set(unanswered)].join(', ')}`);
 
-    const releaseAge = Number.parseInt((await runPnpm(['config', 'get', 'minimumReleaseAge'], forkPath)).output, 10);
+    const releaseAge = Number.parseInt((await runPnpm(['config', 'get', 'minimumReleaseAge'], forkPath)).stdout, 10);
     const releaseAgeMinutes = Number.isNaN(releaseAge) ? 0 : releaseAge;
     const releaseAgeHours = Math.round(releaseAgeMinutes / 60);
     const planInput = { advisories, published, previous, releaseAgeMinutes, now: Date.now() };
@@ -314,15 +307,14 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     try {
       decisions = await decide(items, releaseAgeHours);
     } catch {
-      // Ctrl+C in a prompt.
       console.info(pc.dim('  cancelled, the workspace is unchanged'));
       return;
     }
 
     const open = decisions.filter((decision) => decision.action === 'open').map((decision) => decision.item.module);
     const kept = Object.assign({}, lasting, ...open.map((module) => standingOverrides(module, planInput)));
-    let next = settingsFor(decisions, kept, excludes);
-    let nextYaml = writeAuditSettings(workspaceYaml, next);
+    const next = settingsFor(decisions, kept, excludes);
+    const nextYaml = writeAuditSettings(workspaceYaml, next);
 
     if (nextYaml === workspaceYaml) {
       const state = `${count(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
@@ -349,48 +341,9 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     }
 
     const stagingSpinner = createSpinner('resolving with the new settings...');
-    let staged = await resolveStaging(staging, workspaceYaml, next);
-    if ('error' in staged) {
-      stagingSpinner.stop();
-      return fail('could not resolve the workspace with the new settings', staged.error);
-    }
-
-    // A new override is only needed when its fix lies outside what the parents ask for. With the
-    // fix now in the lockfile, resolve once more without the new ones: an advisory that stays away
-    // shows its override was not needed.
-    const added = decisions.filter((decision) => decision.action === 'override' && decision.item.standing === 'new');
-    const unneeded: SecurityItem[] = [];
-    if (added.length > 0) {
-      spinnerText(`checking whether ${count(added.length, 'new override')} can be left out...`);
-      const addedKeys = new Set(added.flatMap((decision) => Object.keys(decision.item.overrides)));
-      const without = Object.fromEntries(Object.entries(next.overrides).filter(([key]) => !addedKeys.has(key)));
-      const trial = await resolveStaging(staging, workspaceYaml, { ...next, overrides: without, ignoredGhsas: [] });
-      const trialAudit = 'error' in trial ? null : await runPnpmAudit(staging);
-      if (trialAudit) {
-        const returned = new Set(advisoriesFromAudit(trialAudit).map((advisory) => advisory.ghsa));
-        unneeded.push(
-          ...added.map((decision) => decision.item).filter((item) => !item.ghsas.some((ghsa) => returned.has(ghsa))),
-        );
-      }
-      if (unneeded.length > 0) {
-        const needed = decisions.filter((decision) => !unneeded.includes(decision.item));
-        next = { ...settingsFor(needed, kept, excludes), releaseAgeExcludes: next.releaseAgeExcludes };
-        nextYaml = writeAuditSettings(workspaceYaml, next);
-        // Back to the lockfile that holds every fix, then resolve under the settings that stay.
-        writeFileSync(join(staging, LOCK_FILE), staged.lock);
-        staged = await resolveStaging(staging, workspaceYaml, next);
-        if ('error' in staged) {
-          stagingSpinner.stop();
-          return fail('could not resolve the workspace with the new settings', staged.error);
-        }
-      }
-    }
+    const staged = await resolveStaging(staging, workspaceYaml, next);
     stagingSpinner.stop();
-
-    for (const item of unneeded) {
-      const target = item.remedy.kind === 'none' ? '' : item.remedy.target;
-      console.info(`${checkMark} ${item.module} resolves to ${target} on its own ${pc.dim('· no override needed')}`);
-    }
+    if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
 
     writeFileSync(join(forkPath, WORKSPACE_FILE), nextYaml);
     writeFileSync(join(forkPath, LOCK_FILE), staged.lock);
@@ -466,8 +419,8 @@ function printPlan(plan: {
 
   printGroup('override kept', kept, releaseAgeHours);
   printGroup('fix available', added, releaseAgeHours);
-  printGroup('needs a decision', undecided, releaseAgeHours, true);
-  printGroup('ignored', ignored, releaseAgeHours, true);
+  printGroup('needs a decision', undecided, releaseAgeHours);
+  printGroup('ignored', ignored, releaseAgeHours);
   printDropped('override dropped', droppedOverrides);
   printDropped('ignore dropped', droppedIgnores);
 

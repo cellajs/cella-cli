@@ -5,11 +5,7 @@
  * `formatMergeInProgressDetail`, including the VS Code open-file links for
  * auto-merged files.
  */
-import fs from 'node:fs';
-import os from 'node:os';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { LinkOptions } from '../src/utils/display';
+import { describe, expect, it } from 'vitest';
 import { formatFetchedUpstreamDetail, formatMergeInProgressDetail } from '../src/utils/display';
 
 const VSCODE_FILE = 'vscode://file';
@@ -23,14 +19,11 @@ function makeCommits(count: number) {
 }
 
 describe('formatFetchedUpstreamDetail', () => {
-  it('uses singular wording for a single commit', () => {
+  it('counts the commits in singular or plural, without hyperlink escapes when there is no GitHub URL', () => {
     const out = formatFetchedUpstreamDetail(1, makeCommits(1));
     expect(out).toContain('1 new commit since last merge');
-  });
-
-  it('uses plural wording for multiple commits', () => {
-    const out = formatFetchedUpstreamDetail(3, makeCommits(3));
-    expect(out).toContain('3 new commits since last merge');
+    expect(out).not.toContain('\x1b]8;;');
+    expect(formatFetchedUpstreamDetail(3, makeCommits(3))).toContain('3 new commits since last merge');
   });
 
   it('caps the shown commits and reports the remainder', () => {
@@ -46,25 +39,9 @@ describe('formatFetchedUpstreamDetail', () => {
     const out = formatFetchedUpstreamDetail(1, commits, 'https://github.com/cellajs/cella');
     expect(out).toContain(`https://github.com/cellajs/cella/commit/${commits[0].hash}`);
   });
-
-  it('degrades gracefully without a GitHub URL (no hyperlink escapes)', () => {
-    const out = formatFetchedUpstreamDetail(1, makeCommits(1));
-    // No OSC-8 hyperlink escape sequence should be present.
-    expect(out).not.toContain('\x1b]8;;');
-  });
 });
 
 describe('formatMergeInProgressDetail', () => {
-  let forkDir: string;
-
-  beforeEach(() => {
-    forkDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-fork-test-'));
-  });
-
-  afterEach(() => {
-    fs.rmSync(forkDir, { recursive: true, force: true });
-  });
-
   it('shows only the conflict count when there are no auto-merged files', () => {
     const out = formatMergeInProgressDetail(2, [], {});
     expect(out).toContain('2 conflicts to resolve in IDE');
@@ -78,19 +55,13 @@ describe('formatMergeInProgressDetail', () => {
     expect(out).toContain('... + 1 more');
   });
 
-  it('emits a VS Code open-file link for auto-merged files', () => {
-    const options: LinkOptions = { forkPath: forkDir };
+  it('links auto-merged files to VS Code from the fork path, and prints the bare path without one', () => {
+    expect(formatMergeInProgressDetail(1, ['a.ts'], { forkPath: '/tmp/fork' })).toContain(
+      `${VSCODE_FILE}/tmp/fork/a.ts`,
+    );
 
-    const out = formatMergeInProgressDetail(1, ['a.ts'], options);
-
-    expect(out).toContain(VSCODE_FILE);
-    expect(out).toContain(path.join(forkDir, 'a.ts'));
-  });
-
-  it('falls back to the bare path without a fork path', () => {
-    const out = formatMergeInProgressDetail(1, ['a.ts'], {});
-
-    expect(out).toContain('a.ts');
-    expect(out).not.toContain(VSCODE_FILE);
+    const bare = formatMergeInProgressDetail(1, ['a.ts'], {});
+    expect(bare).toContain('  - a.ts');
+    expect(bare).not.toContain(VSCODE_FILE);
   });
 });

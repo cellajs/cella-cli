@@ -20,24 +20,15 @@ import { join } from 'node:path';
 import type { PackageJsonSyncKey, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { DEFAULT_PACKAGE_JSON_SYNC } from '../utils/config';
-import { createSpinner, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
+import { createSpinner, plural, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
+import { errorMessage } from '../utils/errors';
 import { getEffectiveMergeBase, git } from '../utils/git';
 import { isIgnored } from '../utils/overrides';
 import { compareVersions, parseComparableVersion } from '../utils/versions';
 import { type ForkUsage, loadForkUsage } from './package-usage';
 
-/** Package.json structure */
+/** A parsed package.json: only `pnpm` is typed, the synced keys are read through the index signature. */
 interface PackageJson {
-  name?: string;
-  version?: string;
-  dependencies?: Record<string, string>;
-  devDependencies?: Record<string, string>;
-  peerDependencies?: Record<string, string>;
-  optionalDependencies?: Record<string, string>;
-  scripts?: Record<string, string>;
-  engines?: Record<string, string>;
-  packageManager?: string;
-  overrides?: Record<string, string>;
   pnpm?: {
     overrides?: Record<string, string>;
     patchedDependencies?: Record<string, string>;
@@ -190,29 +181,11 @@ function safeMergePnpm(
   const merged: NonNullable<PackageJson['pnpm']> = { ...(forkPnpm || {}) };
   let changed = false;
 
-  // pnpm.overrides: same as dependency overrides (add, follow, bump versions)
-  if (upstreamPnpm.overrides) {
-    const result = mergeRecord(
-      merged.overrides as Record<string, string> | undefined,
-      upstreamPnpm.overrides as Record<string, string>,
-      basePnpm?.overrides as Record<string, string> | undefined,
-    );
+  // overrides add, follow and bump like dependencies; patch paths carry no version to compare
+  for (const sub of ['overrides', 'patchedDependencies'] as const) {
+    const result = mergeRecord(merged[sub], upstreamPnpm[sub], basePnpm?.[sub], { bumpHigher: sub === 'overrides' });
     if (result?.changed) {
-      merged.overrides = result.merged;
-      changed = true;
-    }
-  }
-
-  // pnpm.patchedDependencies: patch paths carry no version to compare, so equality only
-  if (upstreamPnpm.patchedDependencies) {
-    const result = mergeRecord(
-      merged.patchedDependencies as Record<string, string> | undefined,
-      upstreamPnpm.patchedDependencies as Record<string, string>,
-      basePnpm?.patchedDependencies as Record<string, string> | undefined,
-      { bumpHigher: false },
-    );
-    if (result?.changed) {
-      merged.patchedDependencies = result.merged;
+      merged[sub] = result.merged;
       changed = true;
     }
   }
@@ -290,17 +263,14 @@ function setTopLevelKey(pkg: PackageJson, key: string, value: unknown): void {
   Object.assign(pkg, Object.fromEntries(entries));
 }
 
+/** The fork's package.json at `filePath`, null when there is none; one that does not parse throws. */
 function readPackageJson(filePath: string): PackageJson | null {
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, 'utf8'));
-  } catch {
-    return null;
+  } catch (error) {
+    throw new Error(`cannot parse ${filePath}: ${errorMessage(error)}`);
   }
-}
-
-function writePackageJson(filePath: string, data: PackageJson): void {
-  writeFileSync(filePath, `${JSON.stringify(data, null, 2)}\n`, 'utf8');
 }
 
 /** The package.json path of a workspace location ('' is the root). */
@@ -402,25 +372,13 @@ async function syncPackageJson(
     }
 
     if (key === 'packageManager') {
-      // String key: follow upstream when the fork never touched it, else only bump higher
-      const upstreamValue = upstreamPkg[key] as string | undefined;
-      const forkValue = forkPkg[key] as string | undefined;
-      const baseValue = basePkg?.[key] as string | undefined;
-
-      if (upstreamValue && !forkValue) {
-        if (baseValue) continue;
-        forkPkg[key] = upstreamValue;
+      // A string, merged as a one-entry record: it adds, follows and bumps like a dependency
+      const asRecord = (pkg?: PackageJson) => (pkg?.[key] ? { [key]: String(pkg[key]) } : undefined);
+      const result = mergeRecord(asRecord(forkPkg), asRecord(upstreamPkg), asRecord(basePkg));
+      if (result?.changed) {
+        forkPkg[key] = result.merged[key];
         updated = true;
-        changes.push(`${key}: added`);
-      } else if (
-        upstreamValue &&
-        forkValue &&
-        upstreamValue !== forkValue &&
-        (forkValue === baseValue || isHigherVersion(upstreamValue, forkValue))
-      ) {
-        forkPkg[key] = upstreamValue;
-        updated = true;
-        changes.push(`${key}: updated`);
+        changes.push(`${key}: ${result.added.length > 0 ? 'added' : 'updated'}`);
       }
       continue;
     }
@@ -448,7 +406,7 @@ async function syncPackageJson(
     const result = mergeRecord(forkValue, upstreamValue, baseValue, { bumpHigher: key !== 'scripts', findUse });
     kept.push(...(result?.kept ?? []).map(({ name, usedAt }) => `${key}.${name}: used in ${usedAt}`));
     if (result?.changed) {
-      (forkPkg as Record<string, unknown>)[key] = result.merged;
+      forkPkg[key] = result.merged;
       updated = true;
       changes.push(
         ...result.added.map((name) => `${key}.${name}: added`),
@@ -458,9 +416,7 @@ async function syncPackageJson(
     }
   }
 
-  if (updated) {
-    writePackageJson(pkgPath, forkPkg);
-  }
+  if (updated) writeFileSync(pkgPath, `${JSON.stringify(forkPkg, null, 2)}\n`, 'utf8');
 
   return { updated, changes, kept };
 }
@@ -505,10 +461,7 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
   }
 
   const changedCount = reports.filter(({ changes }) => changes.length > 0).length;
-  spinnerSuccess(
-    'package sync complete',
-    `${changedCount} package.json${changedCount === 1 ? ' was' : 's were'} changed`,
-  );
+  spinnerSuccess('package sync complete', `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`);
 
   for (const { path, changes } of reports) {
     if (changes.length === 0) continue;
@@ -518,21 +471,18 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
 
   // Entries upstream dropped that the fork still uses: the user decides when they can go
   const kept = reports.flatMap(({ path, kept }) => kept.map((entry) => `${path} ${entry}`));
-  if (kept.length > 0) {
-    console.info();
-    console.info(
-      `${warningMark} ${pc.yellow(`kept ${kept.length} ${kept.length === 1 ? 'entry' : 'entries'} upstream dropped, the fork still uses ${kept.length === 1 ? 'it' : 'them'}:`)}`,
-    );
-    for (const entry of kept) console.info(`    ${pc.dim('→')} ${entry}`);
-  }
+  const them = kept.length === 1 ? 'it' : 'them';
+  printWarnList(`kept ${plural(kept.length, 'entry', 'entries')} upstream dropped, the fork still uses ${them}:`, kept);
+  printWarnList(
+    `skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella sync\`:`,
+    skipped,
+  );
+}
 
-  if (skipped.length > 0) {
-    console.info();
-    console.info(
-      `${warningMark} ${pc.yellow(`skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella sync\`:`)}`,
-    );
-    for (const path of skipped) {
-      console.info(`    ${pc.dim('→')} ${path}`);
-    }
-  }
+/** A warning header with one `→ entry` line per entry; silent without entries. */
+function printWarnList(header: string, entries: string[]): void {
+  if (entries.length === 0) return;
+  console.info();
+  console.info(`${warningMark} ${pc.yellow(header)}`);
+  for (const entry of entries) console.info(`    ${pc.dim('→')} ${entry}`);
 }

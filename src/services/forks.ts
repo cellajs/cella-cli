@@ -101,24 +101,16 @@ async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: strin
   console.info();
 
   const forkConfig = await loadConfig(forkPath);
-
-  const { branchRef } = resolveUpstream(forkConfig.settings);
-  const upstreamRef = branchRef;
-
-  const forkRuntimeConfig: RuntimeConfig = {
+  await runSyncCommand({
     ...forkConfig,
     forkPath,
-    upstreamRef,
+    upstreamRef: resolveUpstream(forkConfig.settings).branchRef,
     service: 'sync',
-    logFile: config.logFile,
     list: false,
     json: false,
-    verbose: config.verbose,
-    hard: config.hard,
+    verbose: false,
     keepConfig: config.keepConfig,
-  };
-
-  await runSyncCommand(forkRuntimeConfig);
+  });
 }
 
 export async function runForks(config: RuntimeConfig): Promise<void> {

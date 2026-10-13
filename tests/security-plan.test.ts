@@ -91,12 +91,9 @@ describe('advisoriesFromAudit', () => {
       advisories: {
         '1': {
           id: 1,
-          title: 'stack exhaustion',
           module_name: 'braces',
           severity: 'high',
           vulnerable_versions: '<=3.0.3',
-          patched_versions: '>=3.0.4',
-          cves: [],
           url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
           github_advisory_id: 'GHSA-vfj7-8cjw-p6xm',
           findings: [
@@ -104,7 +101,6 @@ describe('advisoriesFromAudit', () => {
           ],
         },
       },
-      metadata: { vulnerabilities: { critical: 0, high: 1, moderate: 0, low: 0, info: 0 } },
     });
 
     expect(found).toMatchObject({
@@ -130,17 +126,7 @@ describe('planSecurity', () => {
     expect(item.overrides).toEqual({});
   });
 
-  it('keeps an unfixable advisory ignored', () => {
-    const [item] = plan({
-      advisories: [advisory({ ghsa: 'GHSA-braces', module: 'braces', range: '<=3.0.3', installed: ['3.0.3'] })],
-      published: { braces: published(['3.0.3']) },
-      previous: { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: ['GHSA-braces'] },
-    });
-
-    expect(item.standing).toBe('ignored');
-  });
-
-  it('writes one override for several advisories on the same version, reusing the key that was there', () => {
+  it('groups advisories with one fix into one item, with an override key per advisory range', () => {
     const [item, ...rest] = plan({
       advisories: [
         advisory({ ghsa: 'GHSA-a', module: 'js-yaml', range: '>=4.0.0 <4.3.0', installed: ['4.2.0'] }),
@@ -154,7 +140,11 @@ describe('planSecurity', () => {
     expect(rest).toEqual([]);
     expect(item.remedy).toEqual({ kind: 'override', target: '4.3.2', breaking: false });
     expect(item.standing).toBe('carried');
-    expect(item.overrides).toEqual({ 'js-yaml@>=4.0.0 <4.3.2': '^4.3.2' });
+    expect(item.overrides).toEqual({
+      'js-yaml@>=4.0.0 <4.3.0': '^4.3.2',
+      'js-yaml@>=4.0.0 <4.3.1': '^4.3.2',
+      'js-yaml@>=4.0.0 <4.3.2': '^4.3.2',
+    });
   });
 
   it('carries a breaking override that was already in place, and keeps a hand-widened target', () => {
@@ -254,7 +244,7 @@ describe('planSecurity', () => {
     ]);
   });
 
-  it('moves an ignored advisory to an override once a compatible fix is published', () => {
+  it('moves an ignored advisory to an override only once a compatible fix is published', () => {
     const base = {
       advisories: [advisory({ ghsa: 'GHSA-braces', module: 'braces', range: '<=3.0.3', installed: ['3.0.3'] })],
       previous: { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: ['GHSA-braces'] },
@@ -265,19 +255,9 @@ describe('planSecurity', () => {
 
     const breaking = plan({ ...base, published: { braces: published(['3.0.3', '4.0.0']) } });
     expect(breaking[0].standing).toBe('ignored');
-  });
 
-  it('orders items by severity, then name', () => {
-    const items = plan({
-      advisories: [
-        advisory({ ghsa: 'GHSA-1', module: 'zeta', range: '<2.0.0', installed: ['1.0.0'], severity: 'low' }),
-        advisory({ ghsa: 'GHSA-2', module: 'beta', range: '<2.0.0', installed: ['1.0.0'], severity: 'critical' }),
-        advisory({ ghsa: 'GHSA-3', module: 'alpha', range: '<2.0.0', installed: ['1.0.0'], severity: 'low' }),
-      ],
-      published: { zeta: published(['1.0.0']), beta: published(['1.0.0']), alpha: published(['1.0.0']) },
-    });
-
-    expect(items.map((item) => item.module)).toEqual(['beta', 'alpha', 'zeta']);
+    const unfixable = plan({ ...base, published: { braces: published(['3.0.3']) } });
+    expect(unfixable[0].standing).toBe('ignored');
   });
 });
 

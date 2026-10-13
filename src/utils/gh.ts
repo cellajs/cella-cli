@@ -35,15 +35,7 @@ function runGh(cwd: string, args: string[]): GhResult {
 }
 
 /**
- * Keep only the pull requests whose head branch is one of cella's temporary sync branches
- * (under the `<prefix>/` namespace, e.g. `cella/sync/`). Pure, unit-tested.
- */
-export function filterSyncPrs(prs: GhPullRequest[], prefix: string): GhPullRequest[] {
-  return prs.filter((pr) => pr.headRefName.startsWith(`${prefix}/`));
-}
-
-/**
- * List open sync PRs (head branch under `<prefix>/`), newest first (highest PR number).
+ * List open sync PRs (head branch under `<prefix>/`, e.g. `cella/sync/`), newest first (highest PR number).
  * Returns an empty array when `gh` fails (no auth, no origin) so callers degrade to a no-op.
  */
 export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
@@ -66,23 +58,12 @@ export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
     return [];
   }
 
-  return filterSyncPrs(parsed, prefix).sort((a, b) => b.number - a.number);
+  return parsed.filter((pr) => pr.headRefName.startsWith(`${prefix}/`)).sort((a, b) => b.number - a.number);
 }
 
-/**
- * Build the argv for `gh pr merge`. Pure, unit-tested.
- *
- * The merge is attempted immediately and fails when the PR is not mergeable.
- */
-export function buildMergeArgs(ref: string, options: { deleteBranch?: boolean } = {}): string[] {
-  const args = ['pr', 'merge', ref, '--squash'];
-  if (options.deleteBranch) args.push('--delete-branch');
-  return args;
-}
-
-/** Squash-merge a PR (by number, branch, or URL). See {@link buildMergeArgs}. */
+/** Squash-merge a PR (by number, branch, or URL) now; fails when the PR is not mergeable. */
 export function mergePrSquash(cwd: string, ref: string | number, options: { deleteBranch?: boolean } = {}): GhResult {
-  return runGh(cwd, buildMergeArgs(String(ref), options));
+  return runGh(cwd, ['pr', 'merge', String(ref), '--squash', ...(options.deleteBranch ? ['--delete-branch'] : [])]);
 }
 
 /** Close a PR without merging (used to discard superseded sync PRs). */

@@ -32,22 +32,13 @@ function redactUrlSecrets(text: string): string {
 interface GitCommandOptions {
   /** Skip editor prompts (for merge commits, etc.) */
   skipEditor?: boolean;
-  /** Maximum buffer size for stdout (default: 50MB) */
-  maxBuffer?: number;
   /** Ignore command errors: a failed command returns an empty string. */
   ignoreErrors?: boolean;
   /** Additional environment variables for the git command */
   env?: Record<string, string>;
 }
 
-/**
- * Executes a git command and returns trimmed stdout.
- *
- * @param args - Git command arguments (e.g., ['status', '--porcelain'])
- * @param cwd - Working directory for the command
- * @param options - Command execution options
- * @returns Trimmed stdout from the command
- */
+/** Executes a git command and returns trimmed stdout. */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
     ...getEnvSnapshot(),
@@ -55,19 +46,21 @@ export async function git(args: string[], cwd: string, options: GitCommandOption
     ...options.env,
   };
 
-  const maxBuffer = options.maxBuffer ?? MAX_BUFFER;
-
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer });
+    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer: MAX_BUFFER });
     return stdout.trim();
   } catch (error) {
     if (options.ignoreErrors) return '';
-    // Tokens/passwords embedded in git remote URLs must not reach the error message.
     if (error instanceof Error) {
       error.message = redactUrlSecrets(error.message);
     }
     throw error;
   }
+}
+
+/** The object `ref` resolves to (`rev-parse -q --verify`), or null when it does not resolve. */
+export async function revParse(cwd: string, ref: string): Promise<string | null> {
+  return (await git(['rev-parse', '-q', '--verify', ref], cwd, { ignoreErrors: true })) || null;
 }
 
 export async function getCurrentBranch(cwd: string): Promise<string> {
@@ -97,7 +90,7 @@ export async function createBranchFrom(cwd: string, branch: string, startPoint: 
 
 /** Whether a local branch exists. */
 export async function branchExists(cwd: string, branch: string): Promise<boolean> {
-  return (await git(['rev-parse', '-q', '--verify', `refs/heads/${branch}`], cwd, { ignoreErrors: true })) !== '';
+  return (await revParse(cwd, `refs/heads/${branch}`)) !== null;
 }
 
 /**
@@ -217,9 +210,7 @@ export async function listBranchMergeCommits(cwd: string, baseRef: string): Prom
  * branch forked off `baseRef`. The tree (content) is kept exactly as-is; only the commit
  * graph changes, so the branch's diff against the base is untouched.
  *
- * Companion to `commitSquash` for commits that already happened: a manual `git commit` during
- * a sync merge records a two-parent merge commit, which makes the PR list the upstream
- * branch's entire (unshared) history. Flattening restores the single-commit shape.
+ * Undoes a two-parent merge commit that was already made; {@link commitSquash} says why one is unwanted.
  */
 export async function flattenBranch(cwd: string, baseRef: string, message: string): Promise<void> {
   const parent = await getMergeBase(cwd, baseRef, 'HEAD');
@@ -264,7 +255,7 @@ export async function stageAll(cwd: string): Promise<void> {
  * Whether a merge is currently in progress (MERGE_HEAD present), in a linked worktree too.
  */
 export async function mergeInProgress(cwd: string): Promise<boolean> {
-  return (await git(['rev-parse', '-q', '--verify', 'MERGE_HEAD'], cwd, { ignoreErrors: true })) !== '';
+  return (await revParse(cwd, 'MERGE_HEAD')) !== null;
 }
 
 export async function getShortSha(cwd: string, ref: string): Promise<string> {
@@ -277,18 +268,10 @@ export async function getWorkingTreeChangeCount(cwd: string): Promise<number> {
   return status.split('\n').filter(Boolean).length;
 }
 
-async function remoteExists(cwd: string, remoteName: string): Promise<boolean> {
-  const remotes = await git(['remote'], cwd);
-  return remotes.split('\n').includes(remoteName);
-}
-
-/** Add the remote, or point an existing one at `url`. */
+/** Add the remote, or point an existing one at `url` (`remote add` fails when it exists). */
 export async function ensureRemote(cwd: string, remoteName: string, url: string): Promise<void> {
-  if (await remoteExists(cwd, remoteName)) {
-    await git(['remote', 'set-url', remoteName, url], cwd);
-  } else {
-    await git(['remote', 'add', remoteName, url], cwd);
-  }
+  await git(['remote', 'add', remoteName, url], cwd, { ignoreErrors: true });
+  await git(['remote', 'set-url', remoteName, url], cwd);
 }
 
 export async function fetchRemote(cwd: string, remoteName: string): Promise<void> {
@@ -349,7 +332,7 @@ export async function resolveUpstreamCommit(
   if (ref.startsWith('-')) return null;
   const tagRef = `refs/${remoteName}/tags/${ref}`;
   for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
-    const sha = await git(['rev-parse', '-q', '--verify', `${candidate}^{commit}`], cwd, { ignoreErrors: true });
+    const sha = await revParse(cwd, `${candidate}^{commit}`);
     if (!sha) continue;
     const release = candidate === tagRef && releaseTagPattern.test(ref) ? { tag: ref, ref: tagRef } : undefined;
     return { sha, release };
@@ -398,22 +381,17 @@ export async function countCommitsBetween(cwd: string, fromRef: string, toRef: s
 }
 
 /**
- * List commits in a ref range, oldest-first to match GitHub compare ordering.
- *
- * Supports skip+limit pagination so callers can show only the most recent N commits
- * without fetching the entire range.
+ * List commits in a ref range, oldest-first to match GitHub compare ordering. With `limit`, only the
+ * newest `limit` commits (git applies `-n` before `--reverse`).
  */
 export async function listCommitsBetween(
   cwd: string,
   fromRef: string,
   toRef: string,
-  options: {
-    skip?: number;
-    limit?: number;
-  } = {},
+  limit?: number,
 ): Promise<CommitRangeEntry[]> {
-  const { skip, limit } = options;
   const args = ['log', '--format=%H%x1f%s%x1f%ar', '--reverse', `${fromRef}..${toRef}`];
+  if (limit) args.push(`-n${limit}`);
 
   const output = await git(args, cwd, { ignoreErrors: true });
   if (!output) return [];
@@ -425,12 +403,10 @@ export async function listCommitsBetween(
     if (!hash || !message || !date) continue;
     commits.push({ hash, message, date });
   }
-
-  const start = Math.max(0, skip ?? 0);
-  return limit && limit > 0 ? commits.slice(start, start + limit) : commits.slice(start);
+  return commits;
 }
 
-interface FileChangeInfo {
+export interface FileChangeInfo {
   date: string;
   hash: string;
   /** Unix epoch seconds of the change, for sorting */
@@ -447,77 +423,32 @@ export async function getFileChangeInfo(
   toRef: string,
 ): Promise<Map<string, FileChangeInfo>> {
   const info = new Map<string, FileChangeInfo>();
+  const output = await git(['log', '--name-only', '--format=%h %ct %ar', `${fromRef}..${toRef}`], cwd, {
+    ignoreErrors: true,
+  });
+  if (!output) return info;
 
-  try {
-    // Per commit: hash, epoch timestamp, relative date, then the list of files changed.
-    const output = await git(['log', '--name-only', '--format=%h %ct %ar', `${fromRef}..${toRef}`], cwd, {
-      ignoreErrors: true,
-    });
-
-    if (!output.trim()) return info;
-
-    const lines = output.split('\n');
-    let currentHash = '';
-    let currentDate = '';
-    let currentTimestamp = 0;
-
-    for (const line of lines) {
-      if (!line) continue;
-
-      // A commit header line: short hash, epoch timestamp, relative date.
-      const match = line.match(/^([a-f0-9]{7,})\s+(\d+)\s+(.+)$/);
-      if (match) {
-        currentHash = match[1];
-        currentTimestamp = Number(match[2]);
-        currentDate = match[3];
-      } else if (currentHash && currentDate && !info.has(line)) {
-        // A file path line; first write wins, so the most recent commit's info is kept.
-        info.set(line, { date: currentDate, hash: currentHash, timestamp: currentTimestamp });
-      }
+  let currentHash = '';
+  let currentDate = '';
+  let currentTimestamp = 0;
+  for (const line of output.split('\n')) {
+    if (!line) continue;
+    const match = line.match(/^([a-f0-9]{7,})\s+(\d+)\s+(.+)$/);
+    if (match) {
+      currentHash = match[1];
+      currentTimestamp = Number(match[2]);
+      currentDate = match[3];
+    } else if (currentHash && currentDate && !info.has(line)) {
+      // git log lists newest first, so the first entry per path is its last change.
+      info.set(line, { date: currentDate, hash: currentHash, timestamp: currentTimestamp });
     }
-  } catch {
-    // Ignore errors, return empty map
   }
-
   return info;
 }
 
 /** Whether the working tree is clean (no uncommitted changes). */
 export async function isClean(cwd: string): Promise<boolean> {
-  const status = await git(['status', '--porcelain'], cwd);
-  return !status;
-}
-
-/**
- * Throw if the working tree has uncommitted changes.
- * `subject` labels the repo in the error (e.g. 'working directory', 'fork').
- */
-export async function assertClean(cwd: string, subject = 'working directory'): Promise<void> {
-  if (!(await isClean(cwd))) {
-    throw new Error(`${subject} has uncommitted changes. please commit or stash before syncing.`);
-  }
-}
-
-/** Create a worktree detached at a commit; --detach avoids "branch already checked out" errors. */
-export async function createWorktree(cwd: string, worktreePath: string, commitRef: string): Promise<void> {
-  await git(['worktree', 'add', '--detach', worktreePath, commitRef], cwd);
-}
-
-export async function removeWorktree(cwd: string, worktreePath: string): Promise<void> {
-  await git(['worktree', 'remove', worktreePath, '--force'], cwd, { ignoreErrors: true });
-  await git(['worktree', 'prune'], cwd, { ignoreErrors: true });
-}
-
-export async function listWorktrees(cwd: string): Promise<string[]> {
-  const output = await git(['worktree', 'list', '--porcelain'], cwd);
-  const lines = output.split('\n');
-  const paths: string[] = [];
-  for (const line of lines) {
-    if (line.startsWith('worktree ')) {
-      paths.push(line.slice(9));
-    }
-  }
-  return paths;
+  return (await getWorkingTreeChangeCount(cwd)) === 0;
 }
 
 /**
@@ -553,9 +484,12 @@ export async function fileExistsAtRef(cwd: string, ref: string, filePath: string
   return result !== '';
 }
 
-/** Check out a file from a ref into index and worktree (restores upstream files missing in the fork). */
-export async function checkoutFromRef(cwd: string, ref: string, filePath: string): Promise<void> {
-  await git(['checkout', ref, '--', filePath], cwd);
+/**
+ * Check out paths from a ref into index and worktree. During a merge this also settles unmerged
+ * (conflicted) paths on `ref`'s version, which `git restore --source` refuses to do.
+ */
+export async function checkoutFromRef(cwd: string, ref: string, paths: string[]): Promise<void> {
+  await git(['checkout', ref, '--', ...paths], cwd);
 }
 
 /**
@@ -618,47 +552,26 @@ export async function getFileChanges(
   baseRef: string,
   targetRef: string,
 ): Promise<Map<string, FileChange>> {
-  // Format for non-renames: :oldmode newmode oldhash newhash status\tpath
-  // Format for renames: :oldmode newmode oldhash newhash Rxx\toldpath\tnewpath
   const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd, {
     ignoreErrors: true,
   });
-
   const changes = new Map<string, FileChange>();
-
-  if (!output) return changes;
 
   // diff-tree prints the all-zero hash for a missing side (added/deleted files).
   const hashOrNull = (hash: string) => (hash === '0'.repeat(40) ? null : hash);
 
   for (const line of output.split('\n')) {
-    if (!line) continue;
-
-    // Rename lines: a space after Rxx, then a tab between the old and new paths.
-    const renameMatch = line.match(/^:\d+ \d+ ([a-f0-9]+) ([a-f0-9]+) R\d*\s+(.+)\t(.+)$/);
-    if (renameMatch) {
-      const [, baseHash, targetHash, oldPath, newPath] = renameMatch;
-      changes.set(newPath, {
-        status: 'R',
-        baseHash: hashOrNull(baseHash),
-        targetHash: hashOrNull(targetHash),
-        oldPath,
-      });
-      continue;
-    }
-
-    // Parse non-rename: :100644 100644 abc123... def456... M\tpath/to/file
-    const match = line.match(/^:\d+ \d+ ([a-f0-9]+) ([a-f0-9]+) ([ADMT])\t(.+)$/);
-    if (match) {
-      const [, baseHash, targetHash, status, filePath] = match;
-      changes.set(filePath, {
-        status: status as 'A' | 'D' | 'M' | 'T',
-        baseHash: hashOrNull(baseHash),
-        targetHash: hashOrNull(targetHash),
-      });
-    }
+    // `:oldmode newmode oldhash newhash status\tpath`; a rename is `Rxx\toldpath\tnewpath`.
+    const m = line.match(/^:\d+ \d+ ([a-f0-9]+) ([a-f0-9]+) ([ADMRT])\d*\t([^\t]+)(?:\t(.+))?$/);
+    if (!m) continue;
+    const status = m[3] as FileChangeStatus;
+    changes.set(m[5] ?? m[4], {
+      status,
+      baseHash: hashOrNull(m[1]),
+      targetHash: hashOrNull(m[2]),
+      ...(status === 'R' ? { oldPath: m[4] } : {}),
+    });
   }
-
   return changes;
 }
 
@@ -718,51 +631,17 @@ export async function getFileHashesAtRef(cwd: string, ref: string): Promise<Map<
 }
 
 /**
- * Restore a file to its HEAD version (our version during a merge), in both index and worktree.
- *
- * Uses `git checkout HEAD --` because `git restore --source=HEAD` fails on unmerged
- * (conflicted) paths during a merge; checkout resolves them by taking HEAD's version.
+ * Tracked delete (`git rm -f`), recording a deletion in the merge result. With `cached`, the paths
+ * leave the index only and the working tree is untouched. Best-effort: never throws.
  */
-export async function restoreToHead(cwd: string, filePath: string): Promise<void> {
-  await git(['checkout', 'HEAD', '--', filePath], cwd);
-}
-
-/**
- * Restore multiple files to their HEAD version in a single git command, which also
- * keeps IDE file-watcher churn down.
- *
- * Uses `git checkout HEAD --` because `git restore --source=HEAD` fails on unmerged
- * (conflicted) paths during a merge; checkout resolves them by taking HEAD's version.
- */
-export async function batchRestoreToHead(cwd: string, filePaths: string[]): Promise<void> {
-  if (filePaths.length === 0) return;
-  await git(['checkout', 'HEAD', '--', ...filePaths], cwd);
-}
-
-/** Tracked delete (`git rm -f`): records a deletion in the merge result. */
-async function gitRm(cwd: string, filePath: string): Promise<void> {
-  await git(['rm', '-f', '--', filePath], cwd, { ignoreErrors: true });
-}
-
-/** Tracked delete for multiple files in a single git command. */
-export async function batchGitRm(cwd: string, filePaths: string[]): Promise<void> {
-  if (filePaths.length === 0) return;
-  await git(['rm', '-f', '--', ...filePaths], cwd, { ignoreErrors: true });
+export async function gitRm(cwd: string, paths: string[], options: { cached?: boolean } = {}): Promise<void> {
+  await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--', ...paths], cwd, { ignoreErrors: true });
 }
 
 /** Files staged as new additions vs HEAD (diff-filter=A): absent at HEAD, brought in by a merge. */
 export async function getStagedNewFiles(cwd: string): Promise<string[]> {
   const output = await git(['diff', '--cached', '--name-only', '--diff-filter=A'], cwd, { ignoreErrors: true });
   return output ? output.split('\n').filter(Boolean) : [];
-}
-
-/**
- * Remove files from the index only (--cached), leaving the working tree untouched,
- * for files staged by a merge that shouldn't be committed.
- */
-export async function batchUnstageFiles(cwd: string, filePaths: string[]): Promise<void> {
-  if (filePaths.length === 0) return;
-  await git(['rm', '--cached', '-f', '--', ...filePaths], cwd, { ignoreErrors: true });
 }
 
 /** Move a file (`git mv -f`), creating parent directories as needed. */
@@ -796,7 +675,7 @@ export async function removeFileFromWorktree(cwd: string, filePath: string): Pro
  * for cases git rm leaves behind (e.g. during a merge), including empty parent dirs.
  */
 export async function removeFileFully(cwd: string, filePath: string): Promise<void> {
-  await gitRm(cwd, filePath);
+  await gitRm(cwd, [filePath]);
   await removeFileFromWorktree(cwd, filePath);
 }
 
@@ -833,10 +712,8 @@ async function cleanupEmptyParentDirs(cwd: string, relativePath: string): Promis
  */
 export async function storeLastSyncRef(cwd: string, upstreamHash: string): Promise<void> {
   await git(['update-ref', 'refs/cella/last-sync', upstreamHash], cwd);
-  const head = await git(['rev-parse', 'HEAD'], cwd, { ignoreErrors: true });
-  if (head) {
-    await git(['update-ref', 'refs/cella/last-sync-head', head], cwd);
-  }
+  const head = await revParse(cwd, 'HEAD');
+  if (head) await git(['update-ref', 'refs/cella/last-sync-head', head], cwd);
 }
 
 /** Stage a single path (git add). Best-effort: never throws. */
@@ -846,14 +723,7 @@ export async function stagePath(cwd: string, path: string): Promise<void> {
 
 /** The stored last-sync upstream ref, or null when no sync has been recorded. */
 export async function getStoredSyncRef(cwd: string): Promise<string | null> {
-  const ref = await git(['rev-parse', 'refs/cella/last-sync'], cwd, { ignoreErrors: true });
-  return ref || null;
-}
-
-/** The fork HEAD recorded when the last-sync ref was stored, or null. */
-async function getStoredSyncHead(cwd: string): Promise<string | null> {
-  const ref = await git(['rev-parse', 'refs/cella/last-sync-head'], cwd, { ignoreErrors: true });
-  return ref || null;
+  return revParse(cwd, 'refs/cella/last-sync');
 }
 
 /**
@@ -892,99 +762,14 @@ export async function readPackageVersionAtRef(cwd: string, ref: string): Promise
 
 /** Whether a commit object is present in the local object store. */
 async function commitObjectExists(cwd: string, sha: string): Promise<boolean> {
-  try {
-    await git(['cat-file', '-e', `${sha}^{commit}`], cwd);
-    return true;
-  } catch {
-    return false;
-  }
+  return (await revParse(cwd, `${sha}^{commit}`)) !== null;
 }
 
-/**
- * The root (parentless) commit of a ref's history. A create-cella scaffold has a
- * single rootless "Initial commit" whose tree is a frozen snapshot of the upstream
- * template at scaffold time. Returns null when no root is found.
- */
+/** The root (parentless) commit of a ref's history, such as a create-cella scaffold's "Initial commit", or null. */
 async function getRootCommit(cwd: string, ref: string): Promise<string | null> {
   const out = await git(['rev-list', '--max-parents=0', ref], cwd, { ignoreErrors: true });
   const roots = out.split('\n').filter(Boolean);
   return roots.length > 0 ? roots[roots.length - 1] : null;
-}
-
-/** Max upstream commits scored when inferring a scaffold base by tree similarity. */
-const SCAFFOLD_CANDIDATE_LIMIT = 400;
-
-/** Concurrent diff-tree scoring calls during scaffold-base inference. */
-const SCAFFOLD_SCORE_CONCURRENCY = 10;
-
-/**
- * Reject an inferred scaffold base when more than this fraction of the root snapshot's
- * paths differ from the best-matching upstream commit. The template cleaner rewrites a
- * fixed handful of files and deselected optional modules remove a few folders, so a real
- * scaffold stays far below this; a hand-rolled repo blows past it.
- */
-const SCAFFOLD_MATCH_MAX_DIFF_RATIO = 0.3;
-
-/**
- * Infer the upstream commit a scaffold was created from, by tree similarity.
- *
- * A create-cella scaffold's root commit is a frozen snapshot of the upstream tree at
- * scaffold time: the template cleaner only rewrites a handful of files (project name,
- * ports, changelog) and drops deselected module folders, so the vast majority of paths
- * stay byte-identical to exactly one upstream commit. Diff the root tree against recent
- * upstream commits and take the closest match; no provenance file is needed.
- *
- * Candidates are bounded to upstream commits no newer than the root commit (plus a
- * clock-skew margin): the scaffold cannot come from a commit that didn't exist yet.
- * Neighboring candidates can tie when the commits between them only touch files the
- * scaffold rewrote anyway (upstream release commits do exactly this); either tie is a
- * correct base for the 3-way merge, and newest wins.
- *
- * Returns null when no candidate matches convincingly (see SCAFFOLD_MATCH_MAX_DIFF_RATIO).
- */
-async function inferScaffoldBase(cwd: string, headRef: string, upstreamRef: string): Promise<string | null> {
-  const root = await getRootCommit(cwd, headRef);
-  if (!root) return null;
-
-  const rootDate = await git(['show', '-s', '--format=%cI', root], cwd, { ignoreErrors: true });
-  if (!rootDate) return null;
-  // A day of margin absorbs clock skew between the scaffolding machine and upstream committers.
-  const before = new Date(new Date(rootDate).getTime() + 24 * 60 * 60 * 1000).toISOString();
-
-  const revList = await git(
-    ['rev-list', `--max-count=${SCAFFOLD_CANDIDATE_LIMIT}`, `--before=${before}`, upstreamRef],
-    cwd,
-    { ignoreErrors: true },
-  );
-  const candidates = revList.split('\n').filter(Boolean);
-  if (candidates.length === 0) return null;
-
-  const totalPaths = (await git(['ls-tree', '-r', '--name-only', root], cwd)).split('\n').filter(Boolean).length;
-  if (totalPaths === 0) return null;
-
-  // Score = differing paths between candidate and root snapshot. rev-list is newest-first
-  // and strict `<` keeps the first (newest) candidate on ties.
-  let best: { sha: string; diff: number } | null = null;
-  outer: for (let i = 0; i < candidates.length; i += SCAFFOLD_SCORE_CONCURRENCY) {
-    const chunk = candidates.slice(i, i + SCAFFOLD_SCORE_CONCURRENCY);
-    const scores = await Promise.all(
-      chunk.map(async (sha) => {
-        try {
-          const out = await git(['diff-tree', '-r', '--name-only', sha, root], cwd);
-          return { sha, diff: out ? out.split('\n').length : 0 };
-        } catch {
-          return { sha, diff: Number.POSITIVE_INFINITY };
-        }
-      }),
-    );
-    for (const score of scores) {
-      if (!best || score.diff < best.diff) best = score;
-      if (best.diff === 0) break outer; // byte-identical snapshot, cannot do better
-    }
-  }
-
-  if (!best || best.diff / totalPaths > SCAFFOLD_MATCH_MAX_DIFF_RATIO) return null;
-  return best.sha;
 }
 
 /**
@@ -1015,8 +800,7 @@ async function isShallowRepository(cwd: string): Promise<boolean> {
 
 /**
  * Restore full history on a shallow clone by fetching from its own origin, so merge-base and the
- * 3-way analysis see the real commit graph. Grafting cannot recover this case (the intermediate
- * commits are genuinely missing, not just disconnected), so the history is deepened for real.
+ * 3-way analysis see the real commit graph.
  *
  * Throws an actionable error when the history cannot be restored (e.g. no reachable origin),
  * because sync cannot run correctly against truncated history.
@@ -1038,32 +822,27 @@ async function unshallowRepository(cwd: string): Promise<void> {
 /**
  * Ensure a native git merge-base exists between the fork and upstream.
  *
- * A create-cella scaffold, or a fork whose upstream squashed its history, has unrelated
- * histories, so `git merge-base` finds nothing and every sync fails at the very first step.
- * This bootstraps ancestry non-destructively:
+ * A create-cella scaffold has unrelated history with upstream, so `git merge-base` finds nothing
+ * and every sync fails at the very first step. This bootstraps ancestry non-destructively:
  *   0. If the repo is a shallow clone, restore its full history first: the real ancestor is
  *      truncated away, so no graft can recover it; deepening the history brings it back.
  *   1. If a native merge-base already exists, do nothing (the common case).
  *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
  *      one whose commit actually exists after the upstream fetch wins: the sync-point
  *      record (`refs/cella/last-sync` ref, then committed/worktree `cella/cella.manifest.json`),
- *      then the scaffold origin (the root commit's `Cella-Base:` trailer, then tree-similarity
- *      inference as reseed fallback for scaffolds whose trailer is absent or stale).
+ *      then the scaffold origin (the root commit's `Cella-Base:` trailer).
  *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native
- *      git operation (merge-base and the 3-way merge itself) sees correct ancestry. The replace
- *      ref is local-only and never pushed, so the fork's own published history stays clean.
+ *      git operation (merge-base and the 3-way merge itself) sees correct ancestry, and record
+ *      the base as `refs/cella/last-sync`. The replace ref is local-only and never pushed, so
+ *      the fork's own published history stays clean.
  *
  * Throws an actionable error when no valid base can be determined.
  */
 export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
-  // A shallow clone has its history truncated below the graft point, so the real common ancestor
-  // is absent and merge-base finds nothing. Restore the full history first: this is not unrelated
-  // history to graft over, it is real history to bring back.
   if (await isShallowRepository(cwd)) {
     await unshallowRepository(cwd);
   }
 
-  // Native ancestry already present: nothing to bootstrap.
   const nativeBase = await git(['merge-base', headRef, upstreamRef], cwd, { ignoreErrors: true });
   if (nativeBase) return;
 
@@ -1072,7 +851,6 @@ export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: 
     () => readManifestBaseAtRef(cwd, headRef),
     () => readManifestBase(cwd),
     () => readRootTrailerBase(cwd, headRef),
-    () => inferScaffoldBase(cwd, headRef, upstreamRef),
   ];
 
   let baseSha: string | null = null;
@@ -1087,7 +865,7 @@ export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: 
     throw new Error(
       `no common ancestor between the fork and '${upstreamRef}', and no sync base could be determined.\n\n` +
         'This fork has unrelated history with upstream (typical for a create-cella scaffold, or after\n' +
-        'upstream squashed its history) and no recorded or inferable base commit exists after fetching\n' +
+        'upstream squashed its history) and no recorded base commit exists after fetching\n' +
         'upstream. Seed it manually with the upstream commit the fork was created from, then re-run sync:\n\n' +
         '  git update-ref refs/cella/last-sync <upstream-sha>\n',
     );
@@ -1096,10 +874,7 @@ export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: 
   const root = await getRootCommit(cwd, headRef);
   if (!root) throw new Error("could not determine the fork's root commit to bootstrap sync ancestry");
 
-  // Graft the fork root onto the base (idempotent via -f) so native git sees the ancestry.
   await git(['replace', '-f', '--graft', root, baseSha], cwd);
-
-  // Record the base as the last-sync ref so future runs and the squash strategy stay consistent.
   await git(['update-ref', 'refs/cella/last-sync', baseSha], cwd);
 }
 
@@ -1115,17 +890,16 @@ export async function isAncestor(cwd: string, ancestor: string, descendant: stri
 
 /**
  * Legacy sync point for forks that last synced before the manifest was committed: the local
- * last-sync ref, guarded against aborted merges. The ref is written while the merge is still
- * staged; if the user ran `git merge --abort` without committing, HEAD never advanced past
- * the recorded sync HEAD and the upstream commits were never integrated, so the ref is discarded.
+ * last-sync ref, discarded while HEAD still sits at the recorded sync HEAD (an aborted merge,
+ * see {@link storeLastSyncRef}).
  */
 async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | null> {
   const storedRef = await getStoredSyncRef(cwd);
   if (!storedRef) return null;
 
-  const storedHead = await getStoredSyncHead(cwd);
+  const storedHead = await revParse(cwd, 'refs/cella/last-sync-head');
   if (storedHead) {
-    const currentHead = await git(['rev-parse', headRef], cwd, { ignoreErrors: true });
+    const currentHead = await revParse(cwd, headRef);
     if (currentHead && currentHead === storedHead) return null;
   }
 
@@ -1137,11 +911,8 @@ async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | 
  * This handles stale merge-base caused by previous squash syncs (single-parent commits
  * don't update git's merge-base graph).
  *
- * The manifest committed at `headRef` is the authoritative record: the sync engine stages it
- * inside every applied sync, so it lands iff the sync commit lands. That makes it immune to
- * aborted merges (never committed) and available on fresh clones and other machines (it
- * travels with the repo, unlike local refs). The local last-sync ref is only consulted as a
- * fallback for forks whose last sync predates the manifest.
+ * The manifest committed at `headRef` is the authoritative record: it lands iff the sync commit lands
+ * and travels with the repo. The local last-sync ref is the fallback for forks whose last sync predates it.
  *
  * @returns The effective base commit, whether git's base was stale, and the recorded sync point
  */
@@ -1189,7 +960,7 @@ export async function withTemporarySyncBaseGraft<T>(
   baseSha: string,
   fn: () => Promise<T>,
 ): Promise<T> {
-  const headSha = await git(['rev-parse', headRef], cwd, { ignoreErrors: true });
+  const headSha = await revParse(cwd, headRef);
   if (!headSha || !(await commitObjectExists(cwd, baseSha))) return fn();
 
   // Native ancestry already covers the base: nothing to graft.

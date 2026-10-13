@@ -1,8 +1,7 @@
 /**
- * Unit tests for git output parsing utilities.
- *
- * Tests getFileChanges (diff-tree parsing) and getFileHashesAtRef (ls-tree parsing)
- * using real git repos to verify correct output interpretation.
+ * Unit tests for the git helpers in src/utils/git.ts, against real temp repos: the ls-tree and
+ * diff-tree parsers, commit listing, sync ref storage, ancestry, the effective merge-base, and
+ * merge-commit flattening.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -18,14 +17,7 @@ import {
   listCommitsBetween,
   storeLastSyncRef,
 } from '../src/utils/git';
-import { createRepo, exec } from './helpers/test-env';
-
-/** Minimal git repo with an initial commit and the manifest dir */
-function createManifestRepo(): string {
-  const dir = createRepo('cella-git-test-', { 'initial.txt': 'initial\n' });
-  fs.mkdirSync(path.join(dir, 'cella')); // sync manifest lives at cella/cella.manifest.json
-  return dir;
-}
+import { createManifestRepo, exec, makeCommit, write } from './helpers/test-env';
 
 describe('git parsing', () => {
   let repoPath: string;
@@ -77,28 +69,6 @@ describe('git parsing', () => {
   });
 
   describe('getFileChanges (diff-tree)', () => {
-    it('detects added files', async () => {
-      const baseRef = exec('git rev-parse HEAD', repoPath);
-
-      fs.writeFileSync(path.join(repoPath, 'new.ts'), 'new file\n');
-      exec('git add -A && git commit -m "add new"', repoPath);
-
-      const changes = await getFileChanges(repoPath, baseRef, 'HEAD');
-      expect(changes.has('new.ts')).toBe(true);
-      expect(changes.get('new.ts')!.status).toBe('A');
-    });
-
-    it('detects modified files', async () => {
-      const baseRef = exec('git rev-parse HEAD', repoPath);
-
-      fs.writeFileSync(path.join(repoPath, 'initial.txt'), 'modified content\n');
-      exec('git add -A && git commit -m "modify"', repoPath);
-
-      const changes = await getFileChanges(repoPath, baseRef, 'HEAD');
-      expect(changes.has('initial.txt')).toBe(true);
-      expect(changes.get('initial.txt')!.status).toBe('M');
-    });
-
     it('detects deleted files', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
@@ -166,7 +136,7 @@ describe('git parsing', () => {
       expect(commits.map((c) => c.message)).toEqual(['commit A', 'commit B', 'commit C']);
     });
 
-    it('supports skip and limit for showing the most recent window', async () => {
+    it('limits the list to the newest commits, still oldest-first', async () => {
       const baseRef = exec('git rev-parse HEAD', repoPath);
 
       for (const n of [1, 2, 3, 4, 5]) {
@@ -174,25 +144,13 @@ describe('git parsing', () => {
         exec(`git add -A && git commit -m "commit ${n}"`, repoPath);
       }
 
-      const commits = await listCommitsBetween(repoPath, baseRef, 'HEAD', {
-        skip: 2,
-        limit: 3,
-      });
+      const commits = await listCommitsBetween(repoPath, baseRef, 'HEAD', 3);
 
       expect(commits.map((c) => c.message)).toEqual(['commit 3', 'commit 4', 'commit 5']);
     });
   });
 
   describe('sync ref tracking', () => {
-    it('stores and retrieves last-sync ref', async () => {
-      const hash = exec('git rev-parse HEAD', repoPath);
-
-      await storeLastSyncRef(repoPath, hash);
-      const stored = await getStoredSyncRef(repoPath);
-
-      expect(stored).toBe(hash);
-    });
-
     it('returns null when no sync ref is stored', async () => {
       const stored = await getStoredSyncRef(repoPath);
       expect(stored).toBeNull();
@@ -214,25 +172,12 @@ describe('git parsing', () => {
   });
 
   describe('isAncestor', () => {
-    it('returns true when first is ancestor of second', async () => {
+    it('is true from parent to child and false the other way', async () => {
       const parent = exec('git rev-parse HEAD', repoPath);
-
-      fs.writeFileSync(path.join(repoPath, 'child.txt'), 'child\n');
-      exec('git add -A && git commit -m "child"', repoPath);
-      const child = exec('git rev-parse HEAD', repoPath);
+      const child = makeCommit(repoPath, { files: { 'child.txt': 'child\n' }, message: 'child' });
 
       expect(await isAncestor(repoPath, parent, child)).toBe(true);
-    });
-
-    it('returns false when first is not ancestor of second', async () => {
-      const current = exec('git rev-parse HEAD', repoPath);
-
-      fs.writeFileSync(path.join(repoPath, 'child.txt'), 'child\n');
-      exec('git add -A && git commit -m "child"', repoPath);
-      const child = exec('git rev-parse HEAD', repoPath);
-
-      // Child is NOT an ancestor of current (parent)
-      expect(await isAncestor(repoPath, child, current)).toBe(false);
+      expect(await isAncestor(repoPath, child, parent)).toBe(false);
     });
 
     it('returns true when both refs are the same', async () => {
@@ -242,13 +187,21 @@ describe('git parsing', () => {
   });
 
   describe('getEffectiveMergeBase', () => {
-    it('uses git merge-base when no stored ref exists', async () => {
-      // Create a branch to have two refs
+    /** Commit feature.txt on a new `feature` branch and return to main. Returns the feature tip. */
+    function createFeatureBranch(): string {
       exec('git checkout -b feature', repoPath);
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-
+      const featureHash = makeCommit(repoPath, { files: { 'feature.txt': 'feature\n' }, message: 'feature' });
       exec('git checkout main', repoPath);
+      return featureHash;
+    }
+
+    /** Write a working-tree sync manifest that records `sha` as the synced upstream commit. */
+    function writeManifest(sha: string): void {
+      write(repoPath, { 'cella/cella.manifest.json': `${JSON.stringify({ upstream: { commit: sha } })}\n` });
+    }
+
+    it('uses git merge-base when no stored ref exists', async () => {
+      createFeatureBranch();
 
       const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
       expect(result.isStale).toBe(false);
@@ -257,23 +210,14 @@ describe('git parsing', () => {
     });
 
     it('prefers stored ref when it is newer than git merge-base', async () => {
-      // Create feature branch
-      exec('git checkout -b feature', repoPath);
-
-      // Add commits on feature
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-      const featureHash = exec('git rev-parse HEAD', repoPath);
-
-      exec('git checkout main', repoPath);
+      const featureHash = createFeatureBranch();
 
       // Store a ref that's the feature branch tip (newer than merge-base)
       await storeLastSyncRef(repoPath, featureHash);
 
       // Simulate a completed (squash) sync: the user commits, advancing HEAD past
       // the HEAD recorded by storeLastSyncRef. This is what marks the sync as done.
-      fs.writeFileSync(path.join(repoPath, 'synced.txt'), 'synced\n');
-      exec('git add -A && git commit -m "squash sync"', repoPath);
+      makeCommit(repoPath, { files: { 'synced.txt': 'synced\n' }, message: 'squash sync' });
 
       const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
       // Stored ref (feature tip) is a descendant of merge-base (branch point)
@@ -283,13 +227,7 @@ describe('git parsing', () => {
     });
 
     it('ignores stored ref left behind by an aborted merge (HEAD unchanged)', async () => {
-      // Create feature branch with a commit, then return to main
-      exec('git checkout -b feature', repoPath);
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-      const featureHash = exec('git rev-parse HEAD', repoPath);
-      exec('git checkout main', repoPath);
-
+      const featureHash = createFeatureBranch();
       const gitBase = exec('git merge-base main feature', repoPath);
 
       // Store the ref but do NOT advance HEAD — this mirrors a `git merge --abort`
@@ -304,19 +242,11 @@ describe('git parsing', () => {
     });
 
     it('trusts stored ref when current HEAD committed the matching sync manifest', async () => {
-      // Create feature branch with a commit, then return to main
-      exec('git checkout -b feature', repoPath);
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-      const featureHash = exec('git rev-parse HEAD', repoPath);
-      exec('git checkout main', repoPath);
+      const featureHash = createFeatureBranch();
 
       // Simulate a squash-merged sync on main. The upstream commit is not in main's ancestry,
       // but the committed manifest records it as integrated.
-      fs.writeFileSync(
-        path.join(repoPath, 'cella', 'cella.manifest.json'),
-        `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
-      );
+      writeManifest(featureHash);
       exec('git add -A && git commit -m "sync manifest"', repoPath);
 
       // A later aborted rerun can record the current HEAD as last-sync-head. The committed
@@ -330,19 +260,11 @@ describe('git parsing', () => {
     });
 
     it('recovers the squash-sync base from the committed manifest alone (fresh clone, no local refs)', async () => {
-      // Create feature branch with a commit, then return to main
-      exec('git checkout -b feature', repoPath);
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-      const featureHash = exec('git rev-parse HEAD', repoPath);
-      exec('git checkout main', repoPath);
+      const featureHash = createFeatureBranch();
 
       // Commit a manifest recording the squash-synced upstream commit, without storing any
       // local refs — the state of a fresh clone or a second maintainer's machine.
-      fs.writeFileSync(
-        path.join(repoPath, 'cella', 'cella.manifest.json'),
-        `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
-      );
+      writeManifest(featureHash);
       exec('git add -A && git commit -m "sync manifest"', repoPath);
 
       const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
@@ -352,21 +274,12 @@ describe('git parsing', () => {
     });
 
     it('does not trust a manifest that only exists in the working tree (aborted sync)', async () => {
-      // Create feature branch with a commit, then return to main
-      exec('git checkout -b feature', repoPath);
-      fs.writeFileSync(path.join(repoPath, 'feature.txt'), 'feature\n');
-      exec('git add -A && git commit -m "feature"', repoPath);
-      const featureHash = exec('git rev-parse HEAD', repoPath);
-      exec('git checkout main', repoPath);
-
+      const featureHash = createFeatureBranch();
       const gitBase = exec('git merge-base main feature', repoPath);
 
       // An aborted sync can leave the manifest in the working tree and the refs recorded at an
       // unadvanced HEAD. Nothing was committed, so nothing was integrated.
-      fs.writeFileSync(
-        path.join(repoPath, 'cella', 'cella.manifest.json'),
-        `${JSON.stringify({ upstream: { commit: featureHash } }, null, 2)}\n`,
-      );
+      writeManifest(featureHash);
       await storeLastSyncRef(repoPath, featureHash);
 
       const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');

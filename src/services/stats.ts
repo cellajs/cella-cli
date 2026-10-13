@@ -12,7 +12,7 @@ import pc from '../utils/colors';
 import { printCoverageSummary } from '../utils/coverage-utils';
 import { createSpinner, DIVIDER, spinnerSuccess } from '../utils/display';
 import { git } from '../utils/git';
-import { parseYamlBlockList } from '../utils/yaml';
+import { readTopLevel } from '../utils/workspace-yaml';
 
 /** Extensions Biome can check (source code, config, styles) */
 export const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
@@ -31,7 +31,6 @@ interface PackageStats {
 interface StatsResult {
   total: number;
   totalLoc: number;
-  skipped: number;
   categories: Record<FileCategory, { files: number; loc: number }>;
   packages: Record<string, PackageStats>;
 }
@@ -47,8 +46,9 @@ export interface WorkspacePackage {
 /** Workspace package names and path prefixes from pnpm-workspace.yaml. */
 export async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
   const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8');
+  const patterns = readTopLevel(content, 'packages');
 
-  return parseYamlBlockList(content, 'packages').map((pattern) => {
+  return (Array.isArray(patterns) ? patterns.map(String) : []).map((pattern) => {
     // Wildcard patterns like 'cli/*' are resolved per file when matching.
     if (pattern.endsWith('/*')) {
       const base = pattern.slice(0, -2);
@@ -119,8 +119,6 @@ const sourcePathspecs = [...sourceExtensions].map((ext) => `*.${ext}`);
 async function collectStats(forkPath: string): Promise<StatsResult> {
   // Tracked source files with line counts (respects .gitignore, ~15ms).
   const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], forkPath, { ignoreErrors: true });
-  const allFilesOutput = await git(['ls-files', '--cached'], forkPath);
-  const allFilesCount = allFilesOutput.split('\n').filter(Boolean).length;
 
   const packages = await getWorkspacePackages(forkPath);
 
@@ -133,7 +131,6 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
     entries.push({ path: line.slice(0, sep), loc: Number.parseInt(line.slice(sep + 1), 10) });
   }
 
-  const skipped = allFilesCount - entries.length;
   const emptyCat = () => ({
     test: { files: 0, loc: 0 },
     stories: { files: 0, loc: 0 },
@@ -167,7 +164,7 @@ async function collectStats(forkPath: string): Promise<StatsResult> {
     [...pkgStats.entries()].sort((a, b) => b[1].categories.other.loc - a[1].categories.other.loc),
   );
 
-  return { total: entries.length, totalLoc, skipped, categories, packages: sortedPackages };
+  return { total: entries.length, totalLoc, categories, packages: sortedPackages };
 }
 
 function pad(n: number, width = 6): string {
@@ -177,10 +174,6 @@ function pad(n: number, width = 6): string {
 function formatLoc(n: number): string {
   if (n >= 1000) return `${(n / 1000).toFixed(1)}k`;
   return String(n);
-}
-
-function formatLocColumn(n: number, width = 8): string {
-  return formatLoc(n).padStart(width);
 }
 
 function fmtPct(value: number, total: number): string {
@@ -205,7 +198,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   ];
   for (const [label, data] of catEntries) {
     console.info(
-      `  ${pad(data.files)} ${pc.dim(fmtPct(data.files, stats.total))}  ${label.padEnd(18)} ${pc.cyan(formatLocColumn(data.loc))}  ${pc.dim(fmtPct(data.loc, stats.totalLoc))}`,
+      `  ${pad(data.files)} ${pc.dim(fmtPct(data.files, stats.total))}  ${label.padEnd(18)} ${pc.cyan(formatLoc(data.loc).padStart(8))}  ${pc.dim(fmtPct(data.loc, stats.totalLoc))}`,
     );
   }
 
@@ -213,28 +206,21 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info(DIVIDER);
   console.info();
 
-  if (verbose) {
-    const header = `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'story'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`;
-    console.info(pc.dim(header));
-    for (const [name, data] of Object.entries(stats.packages)) {
-      const c = data.categories;
-      const srcFiles = c.other.files;
-      const srcLoc = c.other.loc;
-      if (srcFiles === 0) continue;
-      console.info(
-        `  ${pc.dim(pad(srcFiles))}  ${name.padEnd(18)} ${pc.cyan(formatLocColumn(srcLoc))} ${pc.dim(pad(c.test.files))} ${pc.dim(pad(c.stories.files))} ${pc.dim(pad(c.generated.files))} ${pc.dim(pad(c.json.files))} ${pc.dim(pad(srcFiles))}`,
-      );
-    }
-  } else {
-    console.info(pc.dim('  source & config by package'));
-    for (const [name, data] of Object.entries(stats.packages)) {
-      const srcFiles = data.categories.other.files;
-      const srcLoc = data.categories.other.loc;
-      if (srcFiles === 0) continue;
-      console.info(
-        `  ${pad(srcFiles)} ${pc.dim(fmtPct(srcFiles, stats.categories.other.files))}  ${name.padEnd(18)} ${pc.cyan(formatLocColumn(srcLoc))}  ${pc.dim(fmtPct(srcLoc, stats.categories.other.loc))}`,
-      );
-    }
+  const header = verbose
+    ? `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'story'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`
+    : '  source & config by package';
+  console.info(pc.dim(header));
+  const { other } = stats.categories;
+  for (const [name, { categories: c }] of Object.entries(stats.packages)) {
+    if (c.other.files === 0) continue;
+    // Verbose: file counts per category. Plain: shares of all source & config files and lines.
+    const head = verbose
+      ? pc.dim(pad(c.other.files))
+      : `${pad(c.other.files)} ${pc.dim(fmtPct(c.other.files, other.files))}`;
+    const tail = verbose
+      ? ` ${[c.test, c.stories, c.generated, c.json, c.other].map((cat) => pc.dim(pad(cat.files))).join(' ')}`
+      : `  ${pc.dim(fmtPct(c.other.loc, other.loc))}`;
+    console.info(`  ${head}  ${name.padEnd(18)} ${pc.cyan(formatLoc(c.other.loc).padStart(8))}${tail}`);
   }
 
   console.info();
@@ -249,5 +235,5 @@ export async function runStats(config: RuntimeConfig): Promise<void> {
 
   printStats(stats, config.verbose);
   console.info();
-  printCoverageSummary(forkPath, { refresh: config.coverage });
+  printCoverageSummary(forkPath);
 }

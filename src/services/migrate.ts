@@ -26,11 +26,11 @@ import {
   listIdenticalToRef,
   MAX_BUFFER,
   readManifestBaseAtRef,
+  revParse,
 } from '../utils/git';
 import { readManifestBase } from '../utils/manifest';
 import {
   formatNotesLine,
-  isCodemodFile,
   listNoteIds,
   type MigrationNote,
   NOTES_DIR,
@@ -50,8 +50,7 @@ const RESTORED_LIST_MAX = 20;
 /** Make sure an upstream commit is in this clone, fetching upstream once when it is not. */
 async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise<void> {
   const { forkPath } = config;
-  const present = async () =>
-    !!(await git(['rev-parse', '--verify', '--quiet', `${sha}^{commit}`], forkPath, { ignoreErrors: true }));
+  const present = async () => !!(await revParse(forkPath, `${sha}^{commit}`));
   if (await present()) return;
   await ensureRemote(forkPath, DEFAULT_UPSTREAM_REMOTE, config.settings.upstreamUrl);
   await fetchRemote(forkPath, DEFAULT_UPSTREAM_REMOTE);
@@ -73,7 +72,7 @@ async function readNotesStatus(config: RuntimeConfig): Promise<{ total: number; 
   try {
     const ref = await resolveNotesRef(config);
     if (!ref) return null;
-    const [ids, pending] = await Promise.all([listNoteIds(config.forkPath, ref), readPending(config.forkPath, ref)]);
+    const [ids, pending] = await Promise.all([listNoteIds(config.forkPath, ref), readPending(config.forkPath)]);
     return ids.length > 0 || pending.length > 0 ? { total: ids.length, open: pending.length } : null;
   } catch {
     return null;
@@ -95,11 +94,6 @@ export async function printMigrationNotesLine(config: RuntimeConfig, result?: Me
   if (!status) return;
   console.info();
   console.info(pc.dim(formatNotesLine(status.total, status.open)));
-}
-
-/** One note as `--json` reports it. */
-function toJson(note: MigrationNote, url: string | undefined, open: boolean) {
-  return { ...note, kind: note.codemod ? 'codemod' : 'manual', open, url: url ?? null };
 }
 
 /** Print one note in the human list. */
@@ -163,46 +157,18 @@ async function extractNote(config: RuntimeConfig, ref: string, id: string): Prom
 }
 
 /**
- * The codemod of an extracted note: the file named with `--script`, else the one script in the
- * folder itself. Throws when the folder holds no script or several.
+ * `--run <id>`: run the note's codemod with `tsx` from the fork root, then give each file that was
+ * identical to the manifest's upstream commit before the run, and changed by it, its upstream content back.
  */
-function resolveCodemod(id: string, files: string[], script?: string): string {
-  if (script) {
-    const name = script.replace(/^\.\//, '');
-    if (!files.includes(name)) {
-      throw new Error(`migration note '${id}' has no file '${script}'. its files: ${files.join(', ')}`);
-    }
-    return name;
-  }
-  const scripts = files.filter((file) => !file.includes('/') && isCodemodFile(file));
-  if (scripts.length === 0) {
+async function runNote(config: RuntimeConfig, ref: string, id: string): Promise<void> {
+  const { forkPath } = config;
+  const { note, target } = await writeNoteFolder(config, ref, id);
+  if (!note.codemod) {
     throw new Error(
       `migration note '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella migrate --show ${id}\`.`,
     );
   }
-  if (scripts.length > 1) {
-    throw new Error(
-      `migration note '${id}' ships ${scripts.length} scripts (${scripts.join(', ')}): name the one to run with --script <file>.`,
-    );
-  }
-  return scripts[0];
-}
-
-/**
- * `--run <id>`: extract the note and run its codemod with `tsx` from the fork root, with the
- * arguments given after `--`, else `inventory` (report only) and the note's roots.
- *
- * A codemod's roots cover template-owned files too. A file identical to upstream already is the way
- * upstream wants it, so a rewrite there is drift (upstream may have changed the file after writing
- * the codemod). Files identical to the last synced upstream commit before the run, and changed by
- * it, get their upstream content back. That commit is `upstream.commit` in the working tree's
- * manifest, during a staged sync the incoming commit. The whole working tree is compared, so the
- * roots named after `--` are covered whichever they are.
- */
-async function runNote(config: RuntimeConfig, ref: string, id: string): Promise<void> {
-  const { forkPath } = config;
-  const { note, target, files } = await writeNoteFolder(config, ref, id);
-  const script = join(target, resolveCodemod(id, files, config.script));
+  const script = join(target, note.codemod);
   const args = config.runArgs?.length ? config.runArgs : ['inventory', ...note.roots];
 
   const upstreamCommit = (await readManifestBase(forkPath)) ?? ref;
@@ -260,7 +226,7 @@ export async function runMigrate(config: RuntimeConfig): Promise<void> {
     return;
   }
 
-  const pending = await readPending(forkPath, ref);
+  const pending = await readPending(forkPath);
   const githubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
   const urlOf = (id: string) => noteUrl(githubUrl, ref, id);
 
@@ -300,7 +266,12 @@ export async function runMigrate(config: RuntimeConfig): Promise<void> {
       upstreamCommit: ref,
       total,
       open: pending.length,
-      notes: notes.map((note) => toJson(note, urlOf(note.id), open.has(note.id))),
+      notes: notes.map((note) => ({
+        ...note,
+        kind: note.codemod ? 'codemod' : 'manual',
+        open: open.has(note.id),
+        url: urlOf(note.id) ?? null,
+      })),
     };
     writeStdout(JSON.stringify(out, null, 2));
     return;

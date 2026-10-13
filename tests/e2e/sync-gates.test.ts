@@ -86,9 +86,17 @@ describe('sync stops before the merge', () => {
       exec('git switch -q -c work', env.forkPath);
       const head = exec('git rev-parse HEAD', env.forkPath);
 
-      const run = runSyncCommand(buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'] }));
+      const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'] });
+      const stop = await runSyncCommand(config).catch((error: unknown) => error);
 
-      await expect(run).rejects.toBeInstanceOf(UpstreamConfigChangedError);
+      expect(stop).toBeInstanceOf(UpstreamConfigChangedError);
+      expect((stop as UpstreamConfigChangedError).report).toMatchObject({
+        kind: 'changes',
+        pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
+      });
+      expect((stop as Error).message).toMatch(
+        /stopped before the merge, nothing changed[\s\S]*rerun with --keep-config/,
+      );
       expectUntouched('work', head);
       expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(false);
       const out = lines.join('\n');

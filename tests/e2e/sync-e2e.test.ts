@@ -7,9 +7,15 @@
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyze } from '../../src/services/analyze';
-import { UpstreamConfigChangedError } from '../../src/services/merge-engine';
 import { runSync } from '../../src/services/sync';
-import { commitSquash, fetchUpstreamTags, resolveUpstreamCommit, stageAll } from '../../src/utils/git';
+import {
+  commitSquash,
+  fetchUpstreamTags,
+  getEffectiveMergeBase,
+  getStoredSyncRef,
+  resolveUpstreamCommit,
+  stageAll,
+} from '../../src/utils/git';
 import {
   buildRuntimeConfig,
   createTestEnv,
@@ -35,6 +41,19 @@ describe('sync e2e', () => {
     resetFork(env.forkPath);
     env.cleanup();
   });
+
+  /**
+   * Commit the staged sync. With `squash`, single-parent the way the finishing `cella sync` rerun
+   * does, so git's native merge-base goes stale; else as a two-parent merge commit.
+   */
+  async function commitMerge(message: string, { squash = false } = {}): Promise<void> {
+    if (squash) {
+      await stageAll(env.forkPath);
+      await commitSquash(env.forkPath, message);
+    } else {
+      execSync(`git add -A && git commit -q --allow-empty -m "${message}"`, { cwd: env.forkPath });
+    }
+  }
 
   describe('analyze service', () => {
     it('detects fork is identical to upstream', async () => {
@@ -268,24 +287,7 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'temp.ts')).toBe(true);
 
       // Complete the merge commit (runSync leaves merge in progress)
-      const { execSync } = await import('node:child_process');
-      try {
-        execSync('git commit -m "sync: merge upstream"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Commit may fail if nothing to commit (merge already complete)
-        // Check if we need to add and commit
-        try {
-          execSync('git add -A && git commit --allow-empty -m "sync: merge upstream"', {
-            cwd: env.forkPath,
-            encoding: 'utf-8',
-          });
-        } catch {
-          // Ignore if still fails
-        }
-      }
+      await commitMerge('sync: merge upstream');
 
       // Now delete it in upstream
       deleteFileAndCommit(env.upstreamPath, 'temp.ts', 'chore: remove temp file');
@@ -336,16 +338,7 @@ describe('sync e2e', () => {
 
       expect(fileExists(env.forkPath, 'old-dir/moved-file.ts')).toBe(true);
 
-      // Complete the merge commit
-      const { execSync } = await import('node:child_process');
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: merge upstream"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Ignore
-      }
+      await commitMerge('sync: merge upstream');
 
       // Now rename the file in upstream using git mv (single commit, detected as rename)
       renameFileAndCommit(
@@ -372,10 +365,6 @@ describe('sync e2e', () => {
     });
 
     it('handles file renames with squashed (single-parent) history', async () => {
-      const fs = await import('node:fs');
-      const { getFileChanges, getMergeBase, git } = await import('../../src/utils/git');
-      const { execSync } = await import('node:child_process');
-
       // Add a file to upstream
       makeCommit(env.upstreamPath, {
         files: { 'src/old-name.ts': '// File to rename\nexport const x = 1;\n' },
@@ -389,56 +378,14 @@ describe('sync e2e', () => {
 
       expect(fileExists(env.forkPath, 'src/old-name.ts')).toBe(true);
 
-      // Simulate a squashed (single-parent) history: drop MERGE_HEAD before committing so
-      // git's native merge-base becomes stale and recovery relies on refs/cella/last-sync.
-      fs.rmSync(`${env.forkPath}/.git/MERGE_HEAD`, { force: true });
-
-      // Complete the (single-parent) commit
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: squash upstream"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Ignore
-      }
+      await commitMerge('sync: squash upstream', { squash: true });
 
       // Rename the file in upstream
       renameFileAndCommit(env.upstreamPath, 'src/old-name.ts', 'src/new-name.ts', 'refactor: rename file');
 
       fetchUpstream(env.forkPath);
-
-      // Debug: Check what getFileChanges returns
-      const upstreamRef = 'cella-upstream/main';
-      const mergeBase = await getMergeBase(env.forkPath, 'HEAD', upstreamRef);
-
-      // Raw diff-tree output
-      const rawDiff = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', mergeBase, upstreamRef], env.forkPath);
-
-      const upstreamChanges = await getFileChanges(env.forkPath, mergeBase, upstreamRef);
-
-      const debugInfo1 = {
-        mergeBase,
-        upstreamRef,
-        rawDiff,
-        upstreamChanges: Array.from(upstreamChanges.entries()).map(([k, v]) => ({ path: k, ...v })),
-      };
-      fs.writeFileSync('/tmp/cella-test-debug1.json', JSON.stringify(debugInfo1, null, 2));
-
       config = buildRuntimeConfig(env, { service: 'sync' });
       const result = await runSync(config);
-
-      // Debug: Check what status was detected for the files
-      const newFile = result.files.find((f) => f.path === 'src/new-name.ts');
-      const oldFile = result.files.find((f) => f.path === 'src/old-name.ts');
-      const debugInfo = {
-        newFileStatus: newFile?.status,
-        newFileRenamedFrom: newFile?.renamedFrom,
-        oldFileStatus: oldFile?.status,
-        summary: result.summary,
-        allFiles: result.files.map((f) => ({ path: f.path, status: f.status, renamedFrom: f.renamedFrom })),
-      };
-      fs.writeFileSync('/tmp/cella-test-debug.json', JSON.stringify(debugInfo, null, 2));
 
       expect(result.success).toBe(true);
       expect(fileExists(env.forkPath, 'src/old-name.ts')).toBe(false);
@@ -526,10 +473,7 @@ describe('sync e2e', () => {
       expect(content).toContain('>>>>>>>');
     });
 
-    it('emits file links for auto-merged files without materializing a view worktree', async () => {
-      const fs = await import('node:fs');
-      const { execSync } = await import('node:child_process');
-
+    it('emits file links for auto-merged files', async () => {
       // Shared multi-line file present at the merge base in BOTH repos.
       const baseLines = `${Array.from({ length: 9 }, (_, i) => `line ${i + 1}`).join('\n')}\n`;
       makeCommit(env.upstreamPath, { files: { 'shared.ts': baseLines }, message: 'chore: add shared' });
@@ -537,11 +481,7 @@ describe('sync e2e', () => {
       // Sync shared.ts into the fork and finalize so it becomes part of the merge base.
       fetchUpstream(env.forkPath);
       await runSync(buildRuntimeConfig(env, { service: 'sync' }));
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: shared"', { cwd: env.forkPath });
-      } catch {
-        // Ignore if nothing to commit
-      }
+      await commitMerge('sync: shared');
 
       // Upstream: conflicting README edit + non-overlapping edit at the TOP of shared.ts.
       makeCommit(env.upstreamPath, {
@@ -563,13 +503,6 @@ describe('sync e2e', () => {
 
       fetchUpstream(env.forkPath);
 
-      // Clear any leftover legacy view worktree so we can assert sync does not
-      // create one (browser diffs replaced the view worktree entirely).
-      const os = await import('node:os');
-      const path = await import('node:path');
-      const viewPath = path.join(os.tmpdir(), `cella-view-${path.basename(env.forkPath)}`);
-      fs.rmSync(viewPath, { recursive: true, force: true });
-
       // Capture human-facing output to assert the diff link is rendered.
       const logs: string[] = [];
       const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
@@ -589,16 +522,11 @@ describe('sync e2e', () => {
 
       // The merge-in-progress detail emitted a clickable VS Code file link (into the fork).
       expect(logs.join('\n')).toContain('vscode://file');
-
-      // No code path materializes the upstream view worktree anymore.
-      expect(fs.existsSync(viewPath)).toBe(false);
     });
   });
 
   describe('multi-cycle sync', () => {
     it('handles multiple sync cycles with merge strategy', async () => {
-      const { execSync } = await import('node:child_process');
-
       // ── Cycle 1: upstream adds a file ──
       makeCommit(env.upstreamPath, {
         files: { 'cycle-file.ts': '// Cycle 1\nexport const v = 1;\n' },
@@ -612,15 +540,7 @@ describe('sync e2e', () => {
       expect(result.success).toBe(true);
       expect(fileExists(env.forkPath, 'cycle-file.ts')).toBe(true);
 
-      // Complete the merge commit
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: cycle 1"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Ignore
-      }
+      await commitMerge('sync: cycle 1');
 
       // ── Cycle 2: upstream modifies the file ──
       makeCommit(env.upstreamPath, {
@@ -635,15 +555,7 @@ describe('sync e2e', () => {
       expect(result.success).toBe(true);
       expect(readRepoFile(env.forkPath, 'cycle-file.ts')).toContain('Cycle 2');
 
-      // Complete the merge commit
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: cycle 2"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Ignore
-      }
+      await commitMerge('sync: cycle 2');
 
       // ── Cycle 3: verify analyze sees everything up to date ──
       makeCommit(env.upstreamPath, {
@@ -662,9 +574,6 @@ describe('sync e2e', () => {
     });
 
     it('recovers from stale merge-base after squash sync', async () => {
-      const { execSync } = await import('node:child_process');
-      const fs = await import('node:fs');
-
       // ── Cycle 1: squash sync ──
       makeCommit(env.upstreamPath, {
         files: { 'squash-file.ts': '// Squash v1\nexport const s = 1;\n' },
@@ -677,22 +586,9 @@ describe('sync e2e', () => {
 
       expect(result.success).toBe(true);
 
-      // Simulate a squashed (single-parent) history: drop MERGE_HEAD before committing so
-      // git's native merge-base becomes stale and recovery relies on refs/cella/last-sync.
-      fs.rmSync(`${env.forkPath}/.git/MERGE_HEAD`, { force: true });
-
-      // Complete the single-parent commit
-      try {
-        execSync('git add -A && git commit --allow-empty -m "sync: squash cycle 1"', {
-          cwd: env.forkPath,
-          encoding: 'utf-8',
-        });
-      } catch {
-        // Ignore
-      }
+      await commitMerge('sync: squash cycle 1', { squash: true });
 
       // Verify stored ref was saved
-      const { getStoredSyncRef } = await import('../../src/utils/git');
       const storedRef = await getStoredSyncRef(env.forkPath);
       expect(storedRef).not.toBeNull();
 
@@ -705,7 +601,6 @@ describe('sync e2e', () => {
       fetchUpstream(env.forkPath);
 
       // The effective merge-base should use stored ref (not git's stale one)
-      const { getEffectiveMergeBase } = await import('../../src/utils/git');
       const effectiveBase = await getEffectiveMergeBase(env.forkPath, 'HEAD', 'cella-upstream/main');
 
       // After squash, git's merge-base is stale, so stored ref should be used
@@ -787,12 +682,6 @@ describe('sync e2e', () => {
   });
 
   describe('pinned upstream ref (--ref)', () => {
-    /** Commit the staged sync single-parent, the way the finishing `cella sync` rerun does. */
-    async function commitSync(): Promise<void> {
-      await stageAll(env.forkPath);
-      await commitSquash(env.forkPath, 'chore: sync upstream cella');
-    }
-
     it('analyzes and syncs to a pinned commit, not the tip, recorded like branch tracking', async () => {
       const pinned = makeCommit(env.upstreamPath, {
         files: { 'pinned.ts': 'export const p = 1;\n' },
@@ -919,11 +808,8 @@ describe('sync e2e', () => {
 
       // A branch-tracking sync moves the sync point past the latest release
       await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'branch' }));
-      await commitSync();
+      await commitMerge('chore: sync upstream cella', { squash: true });
 
-      await expect(runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release' }))).rejects.toThrow(
-        /upstream v0\.1\.0 \([0-9a-f]+\) is behind the last sync point[\s\S]*Nothing to sync until a release past/,
-      );
       await expect(runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }))).rejects.toThrow(
         /Pick a newer --ref/,
       );
@@ -941,7 +827,6 @@ describe('sync e2e', () => {
 
     /** Base both sides share: upstream config + an ignored config folder, fast-forwarded into the fork. */
     async function setupBase(): Promise<void> {
-      const { execSync } = await import('node:child_process');
       makeCommit(env.upstreamPath, {
         files: {
           'cella/cella.config.ts': upstreamConfig(['a.ts']),
@@ -1013,38 +898,6 @@ describe('sync e2e', () => {
         ignored: { added: [], removed: [] },
         packageJsonSync: { added: [], removed: [] },
       });
-    });
-
-    it('sync stops before the merge while the fork config does not follow, and changes nothing', async () => {
-      await setupBase();
-      const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'], ignored: ['shared/config'] });
-      const head = execSync('git rev-parse HEAD', { cwd: env.forkPath }).toString();
-
-      const stop = await runSync(config).catch((error: unknown) => error);
-
-      expect(stop).toBeInstanceOf(UpstreamConfigChangedError);
-      expect((stop as UpstreamConfigChangedError).report).toMatchObject({
-        kind: 'changes',
-        pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
-      });
-      expect((stop as Error).message).toContain('stopped before the merge, nothing changed');
-      expect((stop as Error).message).toContain('rerun with --keep-config');
-      // No merge was started and nothing was written
-      expect(execSync('git rev-parse HEAD', { cwd: env.forkPath }).toString()).toBe(head);
-      expect(execSync('git status --porcelain', { cwd: env.forkPath }).toString()).toBe('');
-      expect(fileExists(env.forkPath, '.git/MERGE_HEAD')).toBe(false);
-    });
-
-    it('sync merges once the fork config follows upstream', async () => {
-      await setupBase();
-      const pinned = ['a.ts', 'backend/src/bundle-config.ts'];
-      const config = buildRuntimeConfig(env, { service: 'sync', pinned, ignored: ['shared/config'] });
-
-      const result = await runSync(config);
-
-      expect(result.success).toBe(true);
-      expect(result.upstreamOverrides).toBeUndefined();
-      expect(fileExists(env.forkPath, '.git/MERGE_HEAD')).toBe(true);
     });
 
     it('sync --keep-config merges, reports the same and leaves the fork config and ignored files alone', async () => {

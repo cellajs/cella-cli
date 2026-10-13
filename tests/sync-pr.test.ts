@@ -9,14 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { buildSyncPrBody } from '../src/services/sync';
 import { readManifestAtRef, readManifestBaseAtRef, readPackageVersionAtRef } from '../src/utils/git';
-import { createRepo, exec } from './helpers/test-env';
-
-/** Minimal git repo with an initial commit and the manifest dir */
-function createManifestRepo(): string {
-  const dir = createRepo('cella-git-test-', { 'initial.txt': 'initial\n' });
-  fs.mkdirSync(path.join(dir, 'cella')); // sync manifest lives at cella/cella.manifest.json
-  return dir;
-}
+import { createManifestRepo, exec } from './helpers/test-env';
 
 const SHA_A = 'a'.repeat(40);
 const SHA_B = 'b'.repeat(40);

@@ -1,16 +1,8 @@
 /**
- * Static analysis of module ownership for sync CLI.
- *
- * Each module declares ownership via a `registerModule`, `defineBackendModule`, or
- * `defineFrontendModule` call ({ owner, ... }) in its `*-module.ts` file.
- * Modules with `owner: 'app'` are fork-specific: their
- * source folders, plus matching frontend static asset folders when present, are
- * fork territory and must never be added, modified, or deleted by upstream during
- * sync, nor offered back upstream by the contributions service.
- *
- * Parsing is syntax-only (no type-checker), so it is fast and tolerant of
- * formatting, comments, and property order. Built on ts-morph so the same
- * project/AST approach can be reused for other source-introspection tasks.
+ * Static analysis of module ownership. A module with `owner: 'app'` in its `registerModule`,
+ * `defineBackendModule` or `defineFrontendModule` call is fork territory: its source folder, plus
+ * a matching frontend static asset folder, never syncs and is never offered back upstream.
+ * Parsing is syntax-only (ts-morph, no type-checker).
  */
 
 import { existsSync } from 'node:fs';
@@ -28,9 +20,7 @@ const MODULE_FILE_GLOBS = [
 const MODULE_REGISTER_CALLS = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);
 const FRONTEND_STATIC_ROOT = 'frontend/public/static';
 
-/**
- * Read the string value of an object literal's `owner` property, if present.
- */
+/** Read the string value of an object literal's `owner` property, if present. */
 function readOwner(call: import('ts-morph').CallExpression): string | undefined {
   const arg = call.getArguments()[0]?.asKind(SyntaxKind.ObjectLiteralExpression);
   const initializer = arg?.getProperty('owner')?.asKind(SyntaxKind.PropertyAssignment)?.getInitializer();

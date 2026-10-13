@@ -8,14 +8,14 @@
  */
 import fs from 'node:fs';
 import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
 import { findProtectedBehind, printIgnoredUpstreamChanges } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
 import { isGeneratedFile } from '../src/utils/managed-files';
 import { groupIgnoredUpstreamChanges, isUnderAnyFolder } from '../src/utils/overrides';
-import { createRepo, exec, write } from './helpers/test-env';
+import { captureInfo, createRepo, exec, write } from './helpers/test-env';
 
 const IGNORED = [
   'own',
@@ -167,18 +167,8 @@ describe('isGeneratedFile', () => {
 });
 
 describe('printIgnoredUpstreamChanges', () => {
-  function capture(result: Partial<MergeResult>): string {
-    const lines: string[] = [];
-    const spy = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
-      lines.push(args.map(String).join(' '));
-    });
-    try {
-      printIgnoredUpstreamChanges(result as MergeResult);
-    } finally {
-      spy.mockRestore();
-    }
-    return lines.join('\n');
-  }
+  const capture = (result: Partial<MergeResult>) =>
+    captureInfo(() => printIgnoredUpstreamChanges(result as MergeResult));
 
   it('prints one line and one git diff hint per ignored entry', () => {
     const out = capture({

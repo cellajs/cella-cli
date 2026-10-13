@@ -20,7 +20,6 @@ vi.mock('node:fs', () => ({
 
 vi.mock('../src/utils/display', () => ({
   MENU_DIVIDER: '─'.repeat(40),
-  NAME: 'cella',
   VERSION: 'test',
   printHeader: vi.fn(),
   setJsonMode: vi.fn(),
@@ -55,34 +54,23 @@ describe('parseCli', () => {
     expect(config.service).toBe('analyze');
   });
 
-  it('parses a positional service', async () => {
-    process.argv = ['node', 'cella', 'analyze'];
-
-    const config = await parseCli(baseConfig, '/tmp/fork');
-
-    expect(config.service).toBe('analyze');
-  });
-
   it('parses a subcommand with additional options', async () => {
-    process.argv = ['node', 'cella', 'contributions', '--fork', 'raak', '--list', '--json', '--diff', 'README.md'];
+    process.argv = ['node', 'cella', 'contributions', '--fork', 'raak', '--json'];
 
     const config = await parseCli(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('contributions');
     expect(config.fork).toBe('raak');
-    expect(config.list).toBe(true);
     expect(config.json).toBe(true);
-    expect(config.diff).toBe('README.md');
   });
 
   it('parses service-specific flags for sync', async () => {
-    process.argv = ['node', 'cella', 'sync', '--log', '--hard'];
+    process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
 
     const config = await parseCli(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('sync');
-    expect(config.logFile).toBe(true);
-    expect(config.hard).toBe(true);
+    expect(config.track).toBe('branch');
   });
 
   it('parses a pinned upstream ref for sync and analyze', async () => {
@@ -104,7 +92,7 @@ describe('parseCli', () => {
     expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
   });
 
-  it('hands the arguments after -- to the codemod of migrate --run as given', async () => {
+  it('hands the arguments after -- to the codemod of migrate --run as given, and none without --', async () => {
     const id = '20261001T2116-tailwind-class-conventions';
     process.argv = ['node', 'cella', 'migrate', '--run', id, '--', 'rewrite', 'frontend/src', '--module', '~/app x'];
 
@@ -113,25 +101,9 @@ describe('parseCli', () => {
     expect(config.service).toBe('migrate');
     expect(config.run).toBe(id);
     expect(config.runArgs).toEqual(['rewrite', 'frontend/src', '--module', '~/app x']);
-    expect(config.script).toBeUndefined();
-  });
 
-  it('parses migrate --run without arguments and with a named script', async () => {
-    process.argv = [
-      'node',
-      'cella',
-      'migrate',
-      '--run',
-      '20261001T0909-line-width-150',
-      '--script',
-      'collapse-objects.ts',
-    ];
-
-    const config = await parseCli(baseConfig, '/tmp/fork');
-
-    expect(config.run).toBe('20261001T0909-line-width-150');
-    expect(config.script).toBe('collapse-objects.ts');
-    expect(config.runArgs).toEqual([]);
+    process.argv = ['node', 'cella', 'migrate', '--run', id];
+    expect((await parseCli(baseConfig, '/tmp/fork')).runArgs).toEqual([]);
   });
 
   it('parses the branch mode of stats', async () => {

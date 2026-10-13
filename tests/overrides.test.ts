@@ -177,7 +177,7 @@ describe('overrides', () => {
 
     it('warns about an ignored entry only when the path is in neither the fork nor upstream', async () => {
       const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
-      expect(warnings.map((warning) => warning.message)).toEqual(['ignored entry not found: never/existed']);
+      expect(warnings).toEqual(['ignored entry not found: never/existed']);
     });
 
     it('warns once upstream no longer has the path either', async () => {
@@ -185,22 +185,27 @@ describe('overrides', () => {
       fetchUpstream(env.forkPath);
 
       const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
-      expect(warnings.map((warning) => warning.pattern)).toEqual(['json/ledger.json', 'never/existed']);
+      expect(warnings).toEqual(['ignored entry not found: json/ledger.json', 'ignored entry not found: never/existed']);
     });
 
     it('warns about every ignored entry missing from the fork while no upstream ref resolves', async () => {
-      const missing = ['json/ledger.json', 'docs/', 'never/existed'];
-      const unfetched = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/unfetched');
-      expect(unfetched.map((warning) => warning.pattern)).toEqual(missing);
-
-      const noRef = await validateOverrides(buildConfig({ ignored }), env.forkPath);
-      expect(noRef.map((warning) => warning.pattern)).toEqual(missing);
+      const missing = ['json/ledger.json', 'docs/', 'never/existed'].map(
+        (entry) => `ignored entry not found: ${entry}`,
+      );
+      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/unfetched')).toEqual(
+        missing,
+      );
+      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath)).toEqual(missing);
     });
 
     it('keeps warning about pins missing from the fork and about globs', async () => {
       const config = buildConfig({ pinned: ['json/ledger.json', 'src/*.ts'], ignored: ['docs/*'] });
       const warnings = await validateOverrides(config, env.forkPath, 'cella-upstream/main');
-      expect(warnings.map((warning) => warning.type)).toEqual(['pinned-not-found', 'pinned-glob', 'ignored-not-found']);
+      expect(warnings).toEqual([
+        expect.stringMatching(/^pin not found: json\/ledger\.json$/),
+        expect.stringMatching(/^pin uses glob .*: src\/\*\.ts$/),
+        expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
+      ]);
     });
   });
 });

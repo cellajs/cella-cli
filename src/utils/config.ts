@@ -15,7 +15,7 @@ import { resolveAppModuleFolders } from './module-territory';
 /** Default git remote name used to point at the upstream repository. */
 export const DEFAULT_UPSTREAM_REMOTE = 'cella-upstream';
 
-/** Default branch used when a config omits `upstreamBranch`; also cella's fork-compare base. */
+/** Default branch used when a config omits `upstreamBranch` or `releaseBase`; also cella's fork-compare base. */
 export const DEFAULT_BRANCH = 'main';
 
 /**
@@ -26,11 +26,6 @@ export const DEFAULT_BRANCH = 'main';
  * named `cella` or `cella/sync`.
  */
 export const DEFAULT_SYNC_PREFIX = 'cella/sync';
-
-/**
- * Default trunk branch that `cella sync` cuts from and opens PRs into.
- */
-const DEFAULT_RELEASE_BASE = 'main';
 
 /** The package.json keys that sync when a config omits `packageJsonSync`. */
 export const DEFAULT_PACKAGE_JSON_SYNC: PackageJsonSyncKey[] = ['dependencies', 'devDependencies'];
@@ -52,7 +47,7 @@ export function isTemporarySyncBranch(branch: string): boolean {
  * Resolve the trunk branch `cella sync` cuts the temporary branch from and PRs into.
  */
 export function resolveReleaseBase(settings: SyncSettings): string {
-  return settings.releaseBase ?? DEFAULT_RELEASE_BASE;
+  return settings.releaseBase ?? DEFAULT_BRANCH;
 }
 
 /**

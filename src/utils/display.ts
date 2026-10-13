@@ -3,24 +3,13 @@
  * report blocks analyze and sync print.
  */
 
-import { writeFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
-import type {
-  AnalysisSummary,
-  AnalyzedFile,
-  CommitRangeEntry,
-  FileStatus,
-  MergeResult,
-  RuntimeConfig,
-} from '../config/types';
+import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
 import { CONFIG_FILE, isManagedFile } from './managed-files';
-
-/** CLI name */
-export const NAME = 'cella cli';
 
 /** Version from package.json */
 export const VERSION = packageJson.version;
@@ -31,8 +20,8 @@ export interface LinkOptions {
   upstreamGitHubUrl?: string;
   /** Upstream branch name for file links */
   upstreamBranch?: string;
-  /** File link mode: 'commit' links to commit, 'file' links to file in repo ('local' is deprecated, treated as 'file') */
-  fileLinkMode?: 'commit' | 'file' | 'local';
+  /** File link mode: 'commit' links to commit, 'file' links to file in repo */
+  fileLinkMode?: 'commit' | 'file';
   /** Fork repository path for resolving file paths */
   forkPath?: string;
 }
@@ -52,52 +41,8 @@ export const warningMark = pc.yellow('⚠');
 /** Check mark for successful status lines */
 export const checkMark = pc.green('✓');
 
-interface Spinner {
-  text: string;
-  start(): Spinner;
-  stop(): void;
-}
-
-class TerminalSpinner implements Spinner {
-  private readonly frames = ['-', '\\', '|', '/'];
-  private frameIndex = 0;
-  private timer: ReturnType<typeof setInterval> | null = null;
-  private readonly enabled: boolean;
-
-  constructor(
-    public text: string,
-    isSilent: boolean,
-  ) {
-    this.enabled = !isSilent && !!process.stdout.isTTY;
-  }
-
-  start(): Spinner {
-    if (!this.enabled || this.timer) return this;
-
-    this.render();
-    this.timer = setInterval(() => {
-      this.frameIndex = (this.frameIndex + 1) % this.frames.length;
-      this.render();
-    }, 80);
-
-    return this;
-  }
-
-  stop(): void {
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = null;
-    }
-
-    if (!this.enabled) return;
-
-    process.stdout.write('\r\x1b[2K');
-  }
-
-  private render(): void {
-    process.stdout.write(`\r${pc.cyan(this.frames[this.frameIndex])} ${this.text}`);
-  }
-}
+/** A progress line: `text` is read on every frame, `stop()` clears the line. */
+type Spinner = { text: string; stop(): void };
 
 /** Active spinner reference */
 let activeSpinner: Spinner | null = null;
@@ -120,7 +65,6 @@ export function setJsonMode(enabled: boolean): void {
     process.stderr.write(`${args.map((a) => (typeof a === 'string' ? a : String(a))).join(' ')}\n`);
   };
   console.info = toStderr;
-  console.log = toStderr;
   console.warn = toStderr;
 }
 
@@ -129,42 +73,47 @@ export function writeStdout(text: string): void {
   process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
-function getHeader(): string {
-  const right = 'cellajs.com';
-  // Account for ANSI codes when calculating padding
-  const visibleLeft = `⧈ ${NAME} v${VERSION}`;
-  const padding = Math.max(1, 60 - visibleLeft.length - right.length);
-  return `${pc.cyan(`⧈ ${NAME}`)}${pc.dim(` · v${VERSION}`)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`;
-}
-
 export function printHeader(): void {
+  const left = '⧈ cella cli';
+  const right = 'cellajs.com';
+  // Padding counts the visible characters only, not the ANSI codes
+  const padding = Math.max(1, 60 - `${left} v${VERSION}`.length - right.length);
   console.info();
-  console.info(getHeader());
+  console.info(`${pc.cyan(left)}${pc.dim(` · v${VERSION}`)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
   console.info(DIVIDER);
   console.info();
 }
 
-/** A completed step line with check mark; `detail` adds a dim line plus a trailing blank line. */
-function printStep(label: string, detail?: string): void {
-  console.info(`${checkMark} ${label}`);
-  if (detail) {
-    console.info(`  ${pc.dim(detail)}`);
-    console.info(); // blank line after detail block
-  }
-}
-
 /** Start a progress spinner; suppressed in test environments and JSON mode. */
 export function createSpinner(text: string): Spinner {
-  const isTestEnv = !!getEnv('VITEST') || getEnv('NODE_ENV') === 'test';
-  activeSpinner = new TerminalSpinner(text, isTestEnv || jsonMode);
-  activeSpinner.start();
-  return activeSpinner;
+  const enabled = !jsonMode && !getEnv('VITEST') && getEnv('NODE_ENV') !== 'test' && !!process.stdout.isTTY;
+  const frames = ['-', '\\', '|', '/'];
+  let frame = 0;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  const spinner: Spinner = {
+    text,
+    stop() {
+      clearInterval(timer);
+      if (enabled) process.stdout.write('\r\x1b[2K');
+    },
+  };
+  const render = () => process.stdout.write(`\r${pc.cyan(frames[frame++ % frames.length])} ${spinner.text}`);
+  if (enabled) {
+    render();
+    timer = setInterval(render, 80);
+  }
+  activeSpinner = spinner;
+  return spinner;
 }
 
+/** Stop the spinner and print `message` as a completed step; `detail` adds a dim line and a blank line. */
 export function spinnerSuccess(message?: string, detail?: string): void {
   stopSpinner();
-  if (message) {
-    printStep(message, detail);
+  if (!message) return;
+  console.info(`${checkMark} ${message}`);
+  if (detail) {
+    console.info(`  ${pc.dim(detail)}`);
+    console.info();
   }
 }
 
@@ -199,16 +148,6 @@ export function hyperlink(label: string, url?: string): string {
   return `\x1b]8;;${safeUrl}\x07${label}\x1b]8;;\x07`;
 }
 
-/** VS Code deep link that opens a file from the fork workspace. */
-function getVsCodeOpenFileLink(filePath: string, options: LinkOptions): string {
-  const { forkPath } = options;
-  if (!forkPath) return filePath;
-
-  const absolutePath = resolve(forkPath, filePath);
-  const url = `vscode://file${absolutePath}`;
-  return hyperlink(filePath, url);
-}
-
 /** The fetched-upstream detail block, with clickable short commit hashes. */
 export function formatFetchedUpstreamDetail(
   commitCount: number,
@@ -216,8 +155,7 @@ export function formatFetchedUpstreamDetail(
   upstreamGitHubUrl?: string,
   maxShownCommits = COMMIT_LIST_MAX,
 ): string {
-  const commitLabel = commitCount === 1 ? '1 new commit' : `${commitCount} new commits`;
-  const lines = [`${commitLabel} since last merge`];
+  const lines = [`${plural(commitCount, 'new commit')} since last merge`];
 
   const shown = commits.slice(0, maxShownCommits);
   for (const commit of shown) {
@@ -234,35 +172,6 @@ export function formatFetchedUpstreamDetail(
   return lines.join('\n');
 }
 
-/** Link parts (`{ label, url }`) for a file, per the configured fileLinkMode, for hyperlink(). */
-function getFileLink(
-  filePath: string,
-  commitHash: string | undefined,
-  options: LinkOptions,
-): { label: string; url?: string } {
-  const { upstreamGitHubUrl, upstreamBranch, fileLinkMode = 'commit' } = options;
-  // The deprecated 'local' value maps to 'file'.
-  const mode = fileLinkMode === 'local' ? 'file' : fileLinkMode;
-
-  if (!upstreamGitHubUrl) {
-    return { label: commitHash?.slice(0, 9) || '' };
-  }
-
-  if (mode === 'file' && upstreamBranch) {
-    // Link to file in repo: https://github.com/org/repo/blob/branch/path/to/file
-    const url = `${upstreamGitHubUrl}/blob/${upstreamBranch}/${filePath}`;
-    return { label: filePath.split('/').pop() || filePath, url };
-  }
-
-  // Default: link to commit
-  if (commitHash) {
-    const url = `${upstreamGitHubUrl}/commit/${commitHash}`;
-    return { label: commitHash.slice(0, 9), url };
-  }
-
-  return { label: '' };
-}
-
 function printSectionHeader(title: string): void {
   console.info();
   console.info(title);
@@ -270,15 +179,25 @@ function printSectionHeader(title: string): void {
   console.info();
 }
 
+/**
+ * The dim ` ≠ <date> <link>` tail of a file line, per fileLinkMode: the file at the upstream branch,
+ * or the commit (a plain short hash without a GitHub URL). Empty without a date.
+ */
 function formatFileDateInfo(
   filePath: string,
   commit: string | undefined,
   date: string | undefined,
-  linkOptions: LinkOptions,
+  options: LinkOptions,
 ): string {
-  const link = getFileLink(filePath, commit, linkOptions);
-  const linkLabel = link.label ? hyperlink(link.label, link.url) : '';
-  return date ? pc.dim(` ≠ ${date} ${linkLabel}`) : '';
+  if (!date) return '';
+  const { upstreamGitHubUrl: url, upstreamBranch, fileLinkMode = 'commit' } = options;
+  let link = commit?.slice(0, 9) ?? '';
+  if (url && fileLinkMode === 'file' && upstreamBranch) {
+    link = hyperlink(filePath.split('/').pop() || filePath, `${url}/blob/${upstreamBranch}/${filePath}`);
+  } else if (url) {
+    link = commit ? hyperlink(link, `${url}/commit/${commit}`) : '';
+  }
+  return pc.dim(` ≠ ${date} ${link}`);
 }
 
 export function formatMergeInProgressDetail(
@@ -296,10 +215,11 @@ export function formatMergeInProgressDetail(
   lines.push('');
   lines.push(`  auto-merged files (${autoMergedFiles.length}):`);
 
+  // Each file opens in VS Code from the fork workspace when the fork path is known
+  const { forkPath } = linkOptions;
   const shown = autoMergedFiles.slice(0, maxFiles);
   for (const filePath of shown) {
-    const fileLink = getVsCodeOpenFileLink(filePath, linkOptions);
-    lines.push(`  - ${fileLink}`);
+    lines.push(`  - ${forkPath ? hyperlink(filePath, `vscode://file${resolve(forkPath, filePath)}`) : filePath}`);
   }
 
   if (autoMergedFiles.length > shown.length) {
@@ -319,7 +239,7 @@ interface StatusConfig {
 
 type SummaryStatus = FileStatus | 'managed';
 
-/** Unified status display config: icon, label, color, and description for each status. Key order defines sort priority. */
+/** Unified status display config: icon, label, color, and description for each status. */
 const statusConfig: Record<FileStatus, StatusConfig> = {
   behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will sync' },
   diverged: { icon: pc.magenta('⇅'), label: 'diverged', color: pc.magenta, description: 'both changed, will merge' },
@@ -344,40 +264,28 @@ const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
   ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
 };
 
-/** Ordered status keys derived from statusConfig key order */
-const statusOrder = Object.keys(statusConfig) as FileStatus[];
-
 function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   printSectionHeader(pc.cyan(title));
 
-  const maxCount = Math.max(...statusOrder.map((status) => summary[status]), summary.managed);
+  const maxCount = Math.max(...Object.values(summary));
   const countWidth = String(maxCount).length + 1;
 
-  const printLine = (status: SummaryStatus, count: number) => {
-    const { icon, label, color, description } = summaryStatusConfig[status];
-    const countStr = color(String(count).padStart(countWidth));
-    const desc = description ? pc.dim(description) : '';
-    console.info(`  ${icon} ${countStr}  ${label.padEnd(15)}${desc}`);
-  };
-
   // Grouped layout with blank lines between groups
-  printLine('managed', summary.managed);
-  printLine('ignored', summary.ignored);
-
-  console.info();
-  printLine('identical', summary.identical);
-
-  console.info();
-  printLine('ahead', summary.ahead);
-  printLine('local', summary.local);
-  printLine('drifted', summary.drifted);
-
-  console.info();
-  printLine('diverged', summary.diverged);
-  printLine('pinned', summary.pinned);
-
-  console.info();
-  printLine('behind', summary.behind);
+  const groups: SummaryStatus[][] = [
+    ['managed', 'ignored'],
+    ['identical'],
+    ['ahead', 'local', 'drifted'],
+    ['diverged', 'pinned'],
+    ['behind'],
+  ];
+  for (const group of groups) {
+    if (group !== groups[0]) console.info();
+    for (const status of group) {
+      const { icon, label, color, description } = summaryStatusConfig[status];
+      const countStr = color(String(summary[status]).padStart(countWidth));
+      console.info(`  ${icon} ${countStr}  ${label.padEnd(15)}${description ? pc.dim(description) : ''}`);
+    }
+  }
 }
 
 /** Options shared by the file-list section printers. */
@@ -457,7 +365,7 @@ export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
 /** Shared hint for protected-but-behind output (analyze section and sync summary). */
 const PROTECTED_BEHIND_HINT =
   'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
-  'so diff each against upstream (analyze --open-diff <path>) and adopt what you need.';
+  'so diff each against upstream and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
 function protectionIcon(file: AnalyzedFile): string {
@@ -467,8 +375,7 @@ function protectionIcon(file: AnalyzedFile): string {
 /** Per-file detail: how many lines upstream changed (dropped by the fork-wins resolution). */
 function formatUpstreamChangedLines(file: AnalyzedFile): string {
   if (file.upstreamChangedLines === undefined) return '';
-  const n = file.upstreamChangedLines;
-  return pc.yellow(` · ${n} ${n === 1 ? 'line' : 'lines'} changed upstream`);
+  return pc.yellow(` · ${plural(file.upstreamChangedLines, 'line')} changed upstream`);
 }
 
 /** What a protected-but-behind list needs for its `git diff` hints. */
@@ -495,7 +402,7 @@ function protectedDiffHints(source: ProtectedDiffSource | undefined, paths: stri
 /** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
 function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
   const n = file.upstreamLinesAbsent ?? 0;
-  return n > 0 ? pc.yellow(` · ${n} upstream ${n === 1 ? 'line' : 'lines'} absent`) : '';
+  return n > 0 ? pc.yellow(` · ${plural(n, 'upstream line')} absent`) : '';
 }
 
 /**
@@ -547,36 +454,6 @@ export function printAnalysisFileGroups(
   });
 }
 
-function writeLogFile(forkPath: string, files: AnalyzedFile[]): string {
-  const logPath = join(forkPath, 'cella-sync.log');
-
-  const lines: string[] = [
-    `cella sync analysis: ${new Date().toISOString()}`,
-    DIVIDER,
-    '',
-    `complete file list (${files.length} files)`,
-    DIVIDER,
-    '',
-  ];
-
-  const sortedFiles = [...files].sort((a, b) => {
-    const aOrder = statusOrder.indexOf(a.status);
-    const bOrder = statusOrder.indexOf(b.status);
-    if (aOrder !== bOrder) return aOrder - bOrder;
-    return a.path.localeCompare(b.path);
-  });
-
-  for (const file of sortedFiles) {
-    const config = statusConfig[file.status];
-    // biome-ignore lint/suspicious/noControlCharactersInRegex: stripping ANSI escape sequences requires \x1b literal.
-    const icon = config.icon.replace(/\x1b\[[0-9;]*m/g, ''); // Strip ANSI
-    lines.push(`  ${icon} ${config.label.padEnd(12)} ${file.path}`);
-  }
-
-  writeFileSync(logPath, lines.join('\n'), 'utf8');
-  return logPath;
-}
-
 export function printSyncComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
   const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
   const diverged = result.files.filter((file) => file.status === 'diverged').length;
@@ -611,7 +488,7 @@ function printProtectedConflicts(result: MergeResult): void {
   console.info();
   console.info(
     `${warningMark} ${pc.yellow(
-      `${paths.length} protected ${paths.length === 1 ? 'file kept' : 'files kept'} the fork version, dropping upstream changes:`,
+      `${plural(paths.length, 'protected file kept', 'protected files kept')} the fork version, dropping upstream changes:`,
     )}`,
   );
   for (const path of paths) {
@@ -623,7 +500,7 @@ function printProtectedConflicts(result: MergeResult): void {
 }
 
 /** `1 file`, `2 files`: a count with its noun. */
-function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
+export function plural(count: number, singular: string, pluralForm = `${singular}s`): string {
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
@@ -721,11 +598,10 @@ function printMaskingPinWarning(files: AnalyzedFile[]): void {
   const masking = findMaskingPins(files);
   if (masking.length === 0) return;
 
-  const many = masking.length > 1;
   console.info();
   console.info(
     `${warningMark} ${pc.yellow(
-      `${masking.length} pinned ${many ? 'files match' : 'file matches'} the previous upstream but changed upstream:`,
+      `${plural(masking.length, 'pinned file matches', 'pinned files match')} the previous upstream but changed upstream:`,
     )}`,
   );
   console.info(pc.yellow('  the pin keeps the old fork copy and silently drops those upstream changes:'));
@@ -739,30 +615,6 @@ function printMaskingPinWarning(files: AnalyzedFile[]): void {
 }
 
 /**
- * Print warnings for aggressive sync flags (--hard / --unpinned) after completion.
- *
- * Explains what each active flag did and its consequence, and adds a shared
- * caution to cherry-pick deliberately when either is used.
- */
-export function printFlagWarnings(options: { hard?: boolean; unpinned?: boolean }): void {
-  const { hard, unpinned } = options;
-  if (!hard && !unpinned) return;
-
-  if (hard) {
-    console.info(pc.yellow('⚠ --hard used: drifted files were treated as behind, overwriting with incoming.'));
-  }
-  if (unpinned) {
-    console.info(
-      pc.yellow(
-        '⚠ --unpinned used: pinned files in cella/cella.config.ts were ignored, this can result in more drifts.',
-      ),
-    );
-  }
-  console.info(pc.yellow('  be extra careful and cherry-pick what you want only.'));
-  console.info();
-}
-
-/**
  * Print the post-engine report block shared by analyze and sync: the summary, then the upstream
  * changes the sync never brings in (ignored paths and upstream's own sync config), and pins that
  * silently freeze a file at the old upstream (no conflict, no type error).
@@ -772,12 +624,4 @@ export function printEngineReports(result: MergeResult, title: string): void {
   printIgnoredUpstreamChanges(result);
   printUpstreamOverrideChanges(result);
   printMaskingPinWarning(result.files);
-}
-
-/** Write the full file list to cella-sync.log when --log was passed, and print where it landed. */
-export function printLogFileReport(config: Pick<RuntimeConfig, 'forkPath' | 'logFile'>, files: AnalyzedFile[]): void {
-  if (!config.logFile) return;
-  const logPath = writeLogFile(config.forkPath, files);
-  console.info();
-  console.info(pc.dim(`full file list written to: ${logPath}`));
 }

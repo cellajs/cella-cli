@@ -10,12 +10,9 @@ import { git } from '../utils/git';
 import { CONFIG_FILE } from '../utils/managed-files';
 
 /**
- * Base directory that relative fork `localPath` values resolve against.
- *
- * A `localPath` like `../my-app` is written relative to the repository's main checkout. When
- * the CLI runs inside a linked worktree (e.g. `.claude/worktrees/x`), resolving against the
- * worktree would point inside the worktrees directory, so resolve against the main repository
- * root: the parent of the shared git common dir. Falls back to `repoPath` outside a repository.
+ * Base directory that relative fork `localPath` values resolve against: the main checkout (the
+ * parent of the shared git common dir), also from a linked worktree. Falls back to `repoPath`
+ * outside a repository.
  */
 export async function resolveForkBasePath(repoPath: string): Promise<string> {
   const commonDir = await git(['rev-parse', '--git-common-dir'], repoPath, { ignoreErrors: true });
