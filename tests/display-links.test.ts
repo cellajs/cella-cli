@@ -23,9 +23,10 @@ function makeCommits(count: number) {
 }
 
 describe('formatFetchedUpstreamDetail', () => {
-  it('uses singular wording for a single commit', () => {
+  it('uses singular wording and no hyperlink escapes for one commit without a GitHub URL', () => {
     const out = formatFetchedUpstreamDetail(1, makeCommits(1));
     expect(out).toContain('1 new commit since last merge');
+    expect(out).not.toContain('\x1b]8;;');
   });
 
   it('uses plural wording for multiple commits', () => {
@@ -45,12 +46,6 @@ describe('formatFetchedUpstreamDetail', () => {
     const commits = makeCommits(1);
     const out = formatFetchedUpstreamDetail(1, commits, 'https://github.com/cellajs/cella');
     expect(out).toContain(`https://github.com/cellajs/cella/commit/${commits[0].hash}`);
-  });
-
-  it('degrades gracefully without a GitHub URL (no hyperlink escapes)', () => {
-    const out = formatFetchedUpstreamDetail(1, makeCommits(1));
-    // No OSC-8 hyperlink escape sequence should be present.
-    expect(out).not.toContain('\x1b]8;;');
   });
 });
 

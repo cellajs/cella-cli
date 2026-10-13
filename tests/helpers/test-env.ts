@@ -67,6 +67,13 @@ export function createRepo(target: string, files?: Record<string, string>): stri
   return dir;
 }
 
+/** A temp repo with an initial commit and the `cella/` dir the sync manifest lives in. */
+export function createManifestRepo(): string {
+  const dir = createRepo('cella-git-test-', { 'initial.txt': 'initial\n' });
+  fs.mkdirSync(path.join(dir, 'cella'));
+  return dir;
+}
+
 /**
  * Test environment with upstream and fork repos.
  */
@@ -138,13 +145,8 @@ export function makeCommit(
  * Delete a file and commit.
  */
 export function deleteFileAndCommit(repoPath: string, filePath: string, message: string): string {
-  const fullPath = path.join(repoPath, filePath);
-  if (fs.existsSync(fullPath)) {
-    fs.unlinkSync(fullPath);
-  }
-  exec('git add -A', repoPath);
-  exec(`git commit -m "${message}"`, repoPath);
-  return exec('git rev-parse HEAD', repoPath);
+  fs.rmSync(path.join(repoPath, filePath), { force: true });
+  return commitAll(repoPath, message);
 }
 
 /**
@@ -152,13 +154,9 @@ export function deleteFileAndCommit(repoPath: string, filePath: string, message:
  * Uses git mv to ensure git detects it as a rename.
  */
 export function renameFileAndCommit(repoPath: string, oldPath: string, newPath: string, message: string): string {
-  const newDir = path.dirname(path.join(repoPath, newPath));
-  if (!fs.existsSync(newDir)) {
-    fs.mkdirSync(newDir, { recursive: true });
-  }
+  fs.mkdirSync(path.dirname(path.join(repoPath, newPath)), { recursive: true });
   exec(`git mv "${oldPath}" "${newPath}"`, repoPath);
-  exec(`git commit -m "${message}"`, repoPath);
-  return exec('git rev-parse HEAD', repoPath);
+  return commitAll(repoPath, message);
 }
 
 /**

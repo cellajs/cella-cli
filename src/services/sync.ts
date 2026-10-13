@@ -30,7 +30,6 @@ import {
 import { errorMessage } from '../utils/errors';
 import { closePr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
 import {
-  assertClean,
   branchExists,
   commitSquash,
   countCommitsBetween,
@@ -674,7 +673,9 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   }
 
   // Fresh cycle, from a clean tree only.
-  await assertClean(forkPath);
+  if (!(await isClean(forkPath))) {
+    throw new Error('working directory has uncommitted changes. please commit or stash before syncing.');
+  }
   if ((await guardAgainstOpenSyncPr(config)) === 'cancel') return;
 
   const outcome = await runSyncCycle(config);

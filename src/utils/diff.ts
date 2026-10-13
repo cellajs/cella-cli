@@ -12,18 +12,13 @@ import process from 'node:process';
 import { MAX_BUFFER } from './git';
 
 /**
- * Run `git diff` for a single file.
+ * Run `git diff` for a single file over `range` (`a..b`, or one ref to diff against the working
+ * tree). Returns the raw diff, empty when the file is identical.
  *
  * With `dstPrefix`, the sides are labeled `cella/<path>` vs `<dstPrefix>/<path>`,
  * not opaque a/ and b/: used for the `--diff` stdout mode where the labels carry
  * meaning. Without it, standard a/ b/ prefixes are kept, which the HTML
  * renderer's patch parser requires.
- *
- * @param cwd - Repo to run the diff in
- * @param range - Ref range (e.g. 'upstreamRef..HEAD'), or a single ref to diff
- *   that ref against the working tree
- * @param filePath - File to diff
- * @returns Raw diff output (empty when the file is identical)
  */
 export function gitDiffFile(
   cwd: string,
@@ -139,15 +134,11 @@ ${prerenderedHTML}
 </html>`;
 }
 
-/** Open a file or URL with the platform's default handler (best-effort: a
+/** Open a file or URL with `open` (macOS) or `xdg-open` (best-effort: a
  * missing or failing opener is not fatal; the page path is printed anyway). */
 function openWithDefaultApp(target: string): void {
   try {
-    if (process.platform === 'win32') {
-      execFileSync('rundll32', ['url.dll,FileProtocolHandler', target], { stdio: 'ignore' });
-    } else {
-      execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
-    }
+    execFileSync(process.platform === 'darwin' ? 'open' : 'xdg-open', [target], { stdio: 'ignore' });
   } catch {
     // e.g. headless environment without a browser/opener
   }

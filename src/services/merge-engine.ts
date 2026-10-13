@@ -29,9 +29,6 @@ import {
   VERSION,
 } from '../utils/display';
 import {
-  batchGitRm,
-  batchRestoreToHead,
-  batchUnstageFiles,
   checkoutFromRef,
   countCommitsBetween,
   ensureRemote,
@@ -50,6 +47,7 @@ import {
   getWorkingTreeChangeCount,
   git,
   gitMv,
+  gitRm,
   isAncestor,
   isPublishedUpstream,
   listCommitsBetween,
@@ -59,7 +57,6 @@ import {
   removeFileFully,
   resolveLatestReleaseTag,
   resolveUpstreamCommit,
-  restoreToHead,
   stagePath,
   storeLastSyncRef,
   withTemporarySyncBaseGraft,
@@ -170,11 +167,11 @@ async function applyDirectMerge(
 
   if (batchRestorePaths.length > 0) {
     onProgress?.(`batch restoring ${batchRestorePaths.length} pinned/ignored files...`);
-    await batchRestoreToHead(forkPath, batchRestorePaths);
+    await checkoutFromRef(forkPath, 'HEAD', batchRestorePaths);
   }
   if (batchRemovePaths.length > 0) {
     onProgress?.(`batch removing ${batchRemovePaths.length} ignored files...`);
-    await batchGitRm(forkPath, batchRemovePaths);
+    await gitRm(forkPath, batchRemovePaths);
     for (const filePath of batchRemovePaths) {
       await removeFileFromWorktree(forkPath, filePath);
     }
@@ -194,7 +191,7 @@ async function applyDirectMerge(
     if (status === 'behind') {
       if (!existsInFork) {
         onProgress?.(`→ ${filePath}: adding from upstream (new file)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       } else if (!file.existsInUpstream) {
         // Upstream deleted the file: removed from the fork, including leftovers after a squash merge.
         onProgress?.(`→ ${filePath}: removing (deleted in upstream)`);
@@ -203,7 +200,7 @@ async function applyDirectMerge(
         // Both exist and only upstream changed: upstream's version is taken explicitly,
         // which resolves false conflicts from a stale merge-base (previous squash syncs).
         onProgress?.(`→ ${filePath}: accepting upstream (behind)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       }
       continue;
     }
@@ -226,17 +223,17 @@ async function applyDirectMerge(
         } catch {
           // git mv can fail mid-merge: fall back to remove plus checkout.
           await removeFileFully(forkPath, oldPath);
-          await checkoutFromRef(forkPath, upstreamRef, filePath);
+          await checkoutFromRef(forkPath, upstreamRef, [filePath]);
         }
       } else if (oldPathExists && newPathExists) {
         // Both exist (merge already staged the new file, but the old one is still in the worktree).
         onProgress?.(`→ ${oldPath} → ${filePath}: completing rename (removing old)`);
         await removeFileFully(forkPath, oldPath);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       } else {
         // Rename already applied (or neither path exists): the new path gets upstream's content.
         onProgress?.(`→ ${filePath}: updating from upstream (renamed)`);
-        await checkoutFromRef(forkPath, upstreamRef, filePath);
+        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       }
     }
   }
@@ -251,7 +248,7 @@ async function applyDirectMerge(
 
     if (await fileExistsAtRef(forkPath, 'HEAD', filePath)) {
       onProgress?.(`→ ${filePath}: keeping fork (protected conflict)`);
-      await restoreToHead(forkPath, filePath);
+      await checkoutFromRef(forkPath, 'HEAD', [filePath]);
       protectedConflicts.add(filePath);
     } else {
       onProgress?.(`→ ${filePath}: removing (protected conflict, not in fork)`);
@@ -265,13 +262,13 @@ async function applyDirectMerge(
     .filter((file) => file.status === 'diverged' && !remainingConflictSet.has(file.path))
     .map((file) => file.path);
 
-  // Safety net: during a merge, batchGitRm can silently fail on newly added files, leaving ignored
-  // files staged as added in the index and deleted from the working tree (AD).
+  // Safety net: during a merge, the batched `git rm` can silently fail on newly added files, leaving
+  // ignored files staged as added in the index and deleted from the working tree (AD).
   const stagedNewFiles = await getStagedNewFiles(forkPath);
   const staleIgnoredFiles = stagedNewFiles.filter((f) => isIgnored(f, config));
   if (staleIgnoredFiles.length > 0) {
     onProgress?.(`cleaning up ${staleIgnoredFiles.length} ignored files still in index...`);
-    await batchUnstageFiles(forkPath, staleIgnoredFiles);
+    await gitRm(forkPath, staleIgnoredFiles, { cached: true });
     for (const filePath of staleIgnoredFiles) {
       await removeFileFromWorktree(forkPath, filePath);
     }
