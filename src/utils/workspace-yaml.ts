@@ -38,6 +38,11 @@ export function readAuditSettings(content: string): AuditSettings {
   };
 }
 
+/** A top-level setting of the file as plain data, e.g. the `catalog` map; undefined when it is missing. */
+export function readTopLevel(content: string, key: string): unknown {
+  return record(parseDocument(content).toJS())[key];
+}
+
 /** Files that `patchedDependencies` points at, relative to the workspace root. */
 export function readPatchFiles(content: string): string[] {
   return Object.values(stringRecord(record(parseDocument(content).toJS()).patchedDependencies));

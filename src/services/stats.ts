@@ -12,7 +12,7 @@ import pc from '../utils/colors';
 import { printCoverageSummary } from '../utils/coverage-utils';
 import { createSpinner, DIVIDER, spinnerSuccess } from '../utils/display';
 import { git } from '../utils/git';
-import { parseYamlBlockList } from '../utils/yaml';
+import { readTopLevel } from '../utils/workspace-yaml';
 
 /** Extensions Biome can check (source code, config, styles) */
 export const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
@@ -47,8 +47,9 @@ export interface WorkspacePackage {
 /** Workspace package names and path prefixes from pnpm-workspace.yaml. */
 export async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
   const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8');
+  const patterns = readTopLevel(content, 'packages');
 
-  return parseYamlBlockList(content, 'packages').map((pattern) => {
+  return (Array.isArray(patterns) ? patterns.map(String) : []).map((pattern) => {
     // Wildcard patterns like 'cli/*' are resolved per file when matching.
     if (pattern.endsWith('/*')) {
       const base = pattern.slice(0, -2);

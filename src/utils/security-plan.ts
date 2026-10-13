@@ -70,7 +70,8 @@ export interface PlanInput {
   now: number;
 }
 
-const SEVERITIES: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
+/** Severity levels, most severe first. */
+export const SEVERITIES: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
 
 /**
  * Whether an override key is audit output. A key with a version selector and no parent
@@ -114,41 +115,16 @@ export function advisoriesFromAudit(audit: AuditResult): Advisory[] {
   });
 }
 
+/** Milliseconds since `name@version` was published; NaN when the registry lists no time for it. */
+const publishedAgo = (name: string, version: string, input: Pick<PlanInput, 'published' | 'now'>): number =>
+  input.now - Date.parse(input.published[name]?.[version] ?? '');
+
 /** Whether the release age lets `name@version` install: it is old enough, or an exclude names it. */
 function isInstallable(name: string, version: string, input: PlanInput): boolean {
   const excludes = input.previous.releaseAgeExcludes;
   if (excludes.includes(name) || excludes.includes(`${name}@${version}`)) return true;
-  const publishedAt = Date.parse(input.published[name]?.[version] ?? '');
-  return Number.isNaN(publishedAt) || input.now - publishedAt >= input.releaseAgeMinutes * 60_000;
-}
-
-/**
- * The fewest advisory ranges that together match every installed version: pnpm applies an
- * override to a dependency whose requested range meets the selector, so one range per installed
- * version is enough. A range that was a key before wins a tie, which keeps the file stable.
- */
-function selectorRanges(advisories: Advisory[], versions: string[], previousKeys: Set<string>): string[] {
-  const module = advisories[0].module;
-  const ranges = [...new Set(advisories.map((advisory) => advisory.range))];
-  const reach = (range: string, among: string[]) => among.filter((v) => satisfiesComparators(v, range)).length;
-  let uncovered = [...new Set(advisories.flatMap((advisory) => advisory.installed))];
-  const picked: string[] = [];
-
-  while (uncovered.length > 0) {
-    const [best] = ranges
-      .filter((range) => !picked.includes(range) && reach(range, uncovered) > 0)
-      .sort(
-        (a, b) =>
-          reach(b, uncovered) - reach(a, uncovered) ||
-          Number(previousKeys.has(`${module}@${b}`)) - Number(previousKeys.has(`${module}@${a}`)) ||
-          reach(b, versions) - reach(a, versions) ||
-          a.localeCompare(b),
-      );
-    if (!best) break;
-    picked.push(best);
-    uncovered = uncovered.filter((v) => !satisfiesComparators(v, best));
-  }
-  return picked;
+  const age = publishedAgo(name, version, input);
+  return Number.isNaN(age) || age >= input.releaseAgeMinutes * 60_000;
 }
 
 /** Whether an override target such as `^7.0.2` or `>=0.28.1` lets `version` in. */
@@ -183,7 +159,6 @@ export function standingOverrides(
  * one the release age lets install comes before one it holds back.
  */
 export function planSecurity(input: PlanInput): SecurityItem[] {
-  const previousKeys = new Set(Object.keys(input.previous.overrides));
   const ignored = new Set(input.previous.ignoredGhsas);
   const byModule = Map.groupBy(input.advisories, (advisory) => advisory.module);
   const items: SecurityItem[] = [];
@@ -214,14 +189,13 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
       let overrides: Record<string, string> = {};
 
       if (fix) {
-        const publishedAt = Date.parse(input.published[module]?.[fix] ?? '');
-        const hoursOld = Math.max(0, Math.floor((input.now - publishedAt) / 3_600_000));
+        const hoursOld = Math.max(0, Math.floor(publishedAgo(module, fix, input) / 3_600_000));
         remedy = isInstallable(module, fix, input)
           ? { kind: 'override', target: fix, breaking }
           : { kind: 'fresh', target: fix, breaking, hoursOld };
 
         overrides = Object.fromEntries(
-          selectorRanges(group, versions, previousKeys).map((range) => {
+          [...new Set(group.map((advisory) => advisory.range))].map((range) => {
             const key = `${module}@${range}`;
             const kept = input.previous.overrides[key];
             // A target someone widened by hand (`>=1.2.3`) stays as written while it still admits the fix.
@@ -265,7 +239,6 @@ export function liveExcludes(input: Omit<PlanInput, 'advisories'>): string[] {
     const versioned = parseVersionedExclude(entry);
     // Kept as well when the registry gave no answer for the package: silence is not proof of age.
     if (!versioned || !input.published[versioned.name]) return true;
-    const publishedAt = Date.parse(input.published[versioned.name]?.[versioned.version] ?? '');
-    return !Number.isNaN(publishedAt) && input.now - publishedAt < input.releaseAgeMinutes * 60_000;
+    return publishedAgo(versioned.name, versioned.version, input) < input.releaseAgeMinutes * 60_000;
   });
 }

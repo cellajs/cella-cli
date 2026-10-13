@@ -234,9 +234,6 @@ export interface RuntimeConfig extends CellaCliConfig {
    */
   keepConfig?: boolean;
 
-  /** Bypass pnpm metadata cache for fresh registry data (audit service) */
-  force?: boolean;
-
   /** Regenerate test coverage before showing the stats summary (stats service) */
   coverage?: boolean;
 
