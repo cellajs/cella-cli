@@ -206,9 +206,12 @@ export function buildRuntimeConfig(
     ref?: string;
     /** Merge with the fork config as it stands (`--keep-config`) */
     keepConfig?: boolean;
+    /** Lift every pinned entry for this run (`--unpinned`) */
+    unpinned?: boolean;
   } = {},
 ): RuntimeConfig {
   const { service = 'analyze', pinned = [], ignored = [], track = 'branch', trackOverride, ref, keepConfig } = options;
+  const { unpinned } = options;
 
   const config: CellaCliConfig = {
     settings: {
@@ -230,6 +233,7 @@ export function buildRuntimeConfig(
     track: trackOverride,
     ref,
     keepConfig,
+    unpinned,
     list: false,
     json: false,
     verbose: false,

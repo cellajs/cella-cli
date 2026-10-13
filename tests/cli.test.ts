@@ -85,8 +85,10 @@ describe('parseCli', () => {
     process.argv = ['node', 'cella', 'sync'];
     expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
 
-    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c', '--keep-config'];
-    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
+    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c', '--keep-config', '--unpinned'];
+    const aggressive = await parseCli(baseConfig, '/tmp/fork');
+    expect(aggressive.keepConfig).toBe(true);
+    expect(aggressive.unpinned).toBe(true);
 
     process.argv = ['node', 'cella', 'forks', '--fork', 'raak', '--keep-config'];
     expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);

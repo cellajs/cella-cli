@@ -28,6 +28,7 @@ import {
   resetFork,
   type TestEnv,
   tagUpstream,
+  UPSTREAM_REMOTE,
 } from '../helpers/test-env';
 
 describe('sync e2e', () => {
@@ -234,6 +235,34 @@ describe('sync e2e', () => {
       expect(result.success).toBe(true);
       // Fork version should be preserved
       expect(readRepoFile(env.forkPath, 'custom.ts')).toBe(forkContent);
+    });
+
+    it('--unpinned merges upstream into a pinned file, including a change an earlier sync dropped', async () => {
+      const styles = (first: string, third: string, fifth: string) => `${first}\nb\n${third}\nd\n${fifth}\n`;
+      const pinned = ['styles.css'];
+
+      // Both sides start from the same file.
+      makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c', 'e') }, message: 'feat: styles' });
+      fetchUpstream(env.forkPath);
+      execSync(`git merge -q --ff-only ${UPSTREAM_REMOTE}/main`, { cwd: env.forkPath });
+
+      // The fork changes line 1, upstream line 5; a normal sync keeps the pinned fork file whole.
+      makeCommit(env.forkPath, { files: { 'styles.css': styles('a-fork', 'c', 'e') }, message: 'feat: fork styles' });
+      makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c', 'e-up') }, message: 'feat: styles 1' });
+      fetchUpstream(env.forkPath);
+      await runSync(buildRuntimeConfig(env, { service: 'sync', pinned }));
+      await commitMerge('chore: sync upstream cella', { squash: true });
+      expect(readRepoFile(env.forkPath, 'styles.css')).toBe(styles('a-fork', 'c', 'e'));
+
+      // Upstream changes line 3. Analyze shows the file as an ordinary both-changed file under the flag.
+      makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c-up', 'e-up') }, message: 'feat: styles 2' });
+      fetchUpstream(env.forkPath);
+      const preview = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', pinned, unpinned: true }));
+      expect(preview.files.find((f) => f.path === 'styles.css')).toMatchObject({ isPinned: false, status: 'diverged' });
+
+      // The merge brings in line 3 and the line 5 change that the first sync dropped.
+      await runSync(buildRuntimeConfig(env, { service: 'sync', pinned, unpinned: true }));
+      expect(readRepoFile(env.forkPath, 'styles.css')).toBe(styles('a-fork', 'c-up', 'e-up'));
     });
 
     it('skips ignored files during sync', async () => {
