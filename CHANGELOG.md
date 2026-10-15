@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.4.0](https://github.com/cellajs/cella-cli/compare/cli-0.3.3...cli-0.4.0) (2026-10-15)
+
+
+### ⚠ BREAKING CHANGES
+
+* sync loses --hard, --unpinned and --log; forks loses --hard and --log; analyze loses --log, --diff and --open-diff. The legacy root cella.config.ts path is no longer read, and fileLinkMode: 'local' fails config validation.
+* **audit:** `--check-overrides` is removed (`--list` reports which overrides stay and which go), and the `pnpm audit --fix override` entry is gone from the update prompt.
+
+### 🎉 New features
+
+* **audit:** security overrides are rebuilt from a fresh audit on every run ([#45](https://github.com/cellajs/cella-cli/issues/45)) ([ac3041f](https://github.com/cellajs/cella-cli/commit/ac3041f333b6420782c02c815136d92facf892f5))
+* **sync:** --unpinned returns, lifting every pin for one run, and analyze previews it ([#48](https://github.com/cellajs/cella-cli/issues/48)) ([08e1d04](https://github.com/cellajs/cella-cli/commit/08e1d0409152ab80a6450a54f70a52ac1b4463dd))
+
+
+### 🐞 Bug fixes
+
+* **audit:** outdated packages show up when pnpm warns about the Node version ([#49](https://github.com/cellajs/cella-cli/issues/49)) ([aeca882](https://github.com/cellajs/cella-cli/commit/aeca88268a9b26577aac131b8f086ee90d568e47))
+* **sync:** the sync PR keeps its versioned title, scripts keep upstream's order, and pins that do nothing warn ([#50](https://github.com/cellajs/cella-cli/issues/50)) ([9176504](https://github.com/cellajs/cella-cli/commit/9176504d7d6a7d43f338b0f328d2e4229990a521))
+
+
+### 🔧 Small improvements
+
+* trim the CLI by 2,900 lines: dead analyze worktree, unused flags, one helper per git operation ([#47](https://github.com/cellajs/cella-cli/issues/47)) ([d1030d9](https://github.com/cellajs/cella-cli/commit/d1030d9e636c463dc640f7a6e86f7ec783b2ab42))
+
 ## [0.3.3](https://github.com/cellajs/cella-cli/compare/cli-0.3.2...cli-0.3.3) (2026-10-12)
 
 
