@@ -526,6 +526,12 @@ export async function listIdenticalToRef(cwd: string, ref: string): Promise<Set<
   return new Set(nulSeparated(tracked).filter((path) => !differs.has(path)));
 }
 
+/** Tracked paths under `paths` whose working tree copy differs from `ref` (renames not detected). */
+export async function listChangedSinceRef(cwd: string, ref: string, paths: string[]): Promise<string[]> {
+  const out = await git(['--literal-pathspecs', 'diff', '--name-only', '--no-renames', '-z', ref, '--', ...paths], cwd);
+  return out.split('\0').filter(Boolean);
+}
+
 export async function getMergeBase(cwd: string, ref1: string, ref2: string): Promise<string> {
   return git(['merge-base', ref1, ref2], cwd);
 }

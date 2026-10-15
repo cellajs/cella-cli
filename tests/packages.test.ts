@@ -204,6 +204,22 @@ describe('packages merge', () => {
     expect(readPkg(forkPath).scripts).toEqual({ build: 'tsc -b', lint: 'my-linter', test: 'vitest' });
   });
 
+  it("keeps upstream's script order, with the fork's own scripts where the fork put them", async () => {
+    commitPkg(upstreamPath, (pkg) => (pkg.scripts = { dev: 'vite', build: 'tsc', test: 'vitest' }), 'add scripts');
+    exec('git pull --ff-only cella-upstream main', forkPath);
+
+    // Sorted by an earlier sync, plus a script of the fork's own after `test`
+    const forkScripts = { build: 'tsc', dev: 'vite', test: 'vitest', 'test:update': 'vitest -u' };
+    commitPkg(forkPath, (pkg) => (pkg.scripts = forkScripts), 'own script');
+    const upstreamScripts = { dev: 'vite', build: 'tsc -b', test: 'vitest', lint: 'biome check .' };
+    commitPkg(upstreamPath, (pkg) => (pkg.scripts = upstreamScripts), 'add lint');
+    fetchUpstream(forkPath);
+
+    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+
+    expect(Object.keys(readPkg(forkPath).scripts ?? {})).toEqual(['dev', 'build', 'test', 'test:update', 'lint']);
+  });
+
   it('removes a script upstream dropped unless a fork file still runs it', async () => {
     const scripts = { build: 'tsc', 'geoip:download': 'node geoip.js', 'old:task': 'node old.js' };
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = scripts), 'add scripts');

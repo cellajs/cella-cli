@@ -6,7 +6,7 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup, ProtectedUpstreamGroup } from '../config/types';
-import { fileExistsAtRef } from './git';
+import { fileExistsAtRef, listChangedSinceRef, revParse } from './git';
 import { isGeneratedFile, isManagedFile } from './managed-files';
 import { isUpstreamOnly } from './migration-notes';
 
@@ -98,8 +98,10 @@ export function groupProtectedUpstreamChanges(paths: string[], config: CellaCliC
 /**
  * Warnings for override entries that cannot work: globs, pins missing from the fork, and ignored
  * entries neither the fork nor upstream has (a fork may ignore a path to keep it from arriving).
+ * Also pins that do nothing: inside an ignored path (app modules included), gone from upstream
+ * (the path is the app's own), or identical to upstream (it only drops upstream's next change).
  * Upstream is read at `upstreamRef` as last fetched; while it does not resolve, every ignored
- * entry missing from the fork warns.
+ * entry missing from the fork warns and the upstream checks on pins are skipped.
  */
 export async function validateOverrides(
   config: CellaCliConfig,
@@ -107,10 +109,27 @@ export async function validateOverrides(
   upstreamRef?: string,
 ): Promise<string[]> {
   const warnings: string[] = [];
+  const ignored = config.overrides?.ignored ?? [];
+  const upstream = upstreamRef && (await revParse(forkPath, upstreamRef)) ? upstreamRef : undefined;
+  const pinsUpstreamHas: string[] = [];
 
   for (const entry of config.overrides?.pinned ?? []) {
+    const path = normalizeEntry(entry);
+    const ignoredEntry = ignored.find((folder) => isUnderAnyFolder(path, [folder]));
     if (/[*?]/.test(entry)) warnings.push(`pin uses glob (not supported, use a path or folder): ${entry}`);
-    else if (!existsSync(join(forkPath, entry))) warnings.push(`pin not found: ${entry}`);
+    else if (!existsSync(join(forkPath, path))) warnings.push(`pin not found: ${entry}`);
+    else if (ignoredEntry) warnings.push(`pin does nothing, '${normalizeEntry(ignoredEntry)}' is ignored: ${entry}`);
+    else if (!upstream) continue;
+    else if (await fileExistsAtRef(forkPath, upstream, path)) pinsUpstreamHas.push(entry);
+    else warnings.push(`pin does nothing, upstream no longer has it: ${entry}`);
+  }
+
+  if (upstream && pinsUpstreamHas.length > 0) {
+    const differs = await listChangedSinceRef(forkPath, upstream, pinsUpstreamHas.map(normalizeEntry));
+    for (const entry of pinsUpstreamHas) {
+      if (differs.some((changed) => isUnderAnyFolder(changed, [entry]))) continue;
+      warnings.push(`pin is identical to upstream, it only drops upstream's next change: ${entry}`);
+    }
   }
 
   for (const entry of config.overrides?.ignored ?? []) {

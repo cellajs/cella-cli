@@ -63,6 +63,10 @@ has and your app deleted). Every run warns `ignored entry not found` only when n
 upstream has the path. Upstream is read at `settings.upstreamBranch` as last fetched; before the
 first fetch, every `ignored` entry missing from your app warns.
 
+Every run also warns about a `pinned` entry that does nothing: one inside an `ignored` path (app
+modules included), one upstream no longer has (the file is your app's own now), and one identical
+to upstream, which only drops upstream's next change to it.
+
 ## Upstream tracking
 
 The sync CLI tracks upstream cella one of two ways, set via `settings.upstreamTrack`:
@@ -109,7 +113,8 @@ drift triage (`pnpm cella analyze` diffs committed HEAD) and follow-up commits h
    committed; then the run stops on the branch. A conflicted merge stops earlier so you can
    resolve in your IDE (`git add` the resolved files) and re-run to commit.
 2. **Final re-run `pnpm cella sync`** on the committed branch ships it: pushes to `origin`,
-   opens a PR into `main` (via `gh`), and switches you back to `main`.
+   opens a PR into `main` (via `gh`) titled like the sync commit, even with follow-up commits on
+   top, and switches you back to `main`.
 
 Before the merge starts, a first run checks that it can go ahead, and stops without changing
 anything when it cannot: the temporary branch is removed again and you are back on the branch you
@@ -321,7 +326,8 @@ command that runs the script. The sync lists every change and warns about each e
 way, so you can remove it once your code no longer needs it. `exports` are add-only: an entry your fork
 already defines is never rewritten, and `exports` only merges when both sides are subpath maps
 (`{ ".": …, "./config": … }`). A workspace upstream added since your last sync arrives with its
-package.json copied verbatim.
+package.json copied verbatim. A merged section is sorted alphabetically, except `scripts`: they
+keep upstream's order, and a script only your fork has stays after the one it follows.
 
 `type` always syncs, whatever `packageJsonSync` lists: it follows upstream where your fork kept the
 previous value, and a package.json without `type` gets upstream's. Set it yourself (for example

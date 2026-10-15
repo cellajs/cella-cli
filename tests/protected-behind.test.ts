@@ -171,7 +171,7 @@ describe('printAnalysisFileGroups upstream lines absent', () => {
     expect(out).toContain('frontend/src/styling/tailwind.css');
     expect(out).toContain('7 upstream lines absent');
     expect(out).toMatch(/clean\.css\n/);
-    expect(out).toContain('diff and decide');
+    expect(out).toContain('`analyze --unpinned` shows what a merge would bring in');
   });
 });
 

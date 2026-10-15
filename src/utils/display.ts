@@ -427,8 +427,8 @@ export function printAnalysisFileGroups(
     suffix: formatUpstreamLinesAbsent,
     hint: [
       'these files have fork changes but are protected (pinned); upstream did not change them since the last sync.',
-      'pinned files keep the fork side on every conflict; a count here is upstream content the fork never received, ' +
-        'deliberately or not: diff and decide.',
+      'pinned files keep the fork copy whole; a count here is upstream content the fork never received, ' +
+        'deliberately or not: `analyze --unpinned` shows what a merge would bring in.',
     ],
   });
   printFileSection(protectedBehind, `${warningMark} ${pc.yellow('protected but behind upstream')}`, linkOptions, {

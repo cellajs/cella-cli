@@ -68,6 +68,8 @@ interface RecordMergeOptions {
   bumpHigher?: boolean;
   /** Where the fork still uses an entry, so upstream dropping it does not remove it */
   findUse?: (name: string) => string | undefined;
+  /** Order entries as upstream does instead of alphabetically (scripts, which are grouped by hand) */
+  upstreamOrder?: boolean;
 }
 
 /** Keys whose entries are packages the code imports or whose CLIs it runs. */
@@ -86,13 +88,14 @@ const DEPENDENCY_KEYS: readonly PackageJsonSyncKey[] = [
  * version. An entry the fork removed (in base, absent in fork) is not re-added, and one upstream
  * dropped stays while `findUse` finds it in use. Without a base every upstream entry is added or
  * bumped and nothing is removed.
- * Returns the merged record sorted alphabetically, plus the keys added, updated, removed and kept.
+ * Returns the merged record sorted alphabetically (or in upstream's order, see `orderLikeUpstream`),
+ * plus the keys added, updated, removed and kept.
  */
 function mergeRecord(
   forkRecord: Record<string, string> | undefined,
   upstreamRecord: Record<string, string> | undefined,
   baseRecord: Record<string, string> | undefined,
-  { bumpHigher = true, findUse }: RecordMergeOptions = {},
+  { bumpHigher = true, findUse, upstreamOrder = false }: RecordMergeOptions = {},
 ): RecordMergeResult | undefined {
   if (!upstreamRecord) return undefined;
 
@@ -137,9 +140,34 @@ function mergeRecord(
     removed.push(name);
   }
 
-  const sorted = Object.fromEntries(Object.entries(merged).sort(([a], [b]) => a.localeCompare(b)));
+  const keys = upstreamOrder
+    ? orderLikeUpstream(Object.keys(merged), Object.keys(upstreamRecord))
+    : Object.keys(merged).sort((a, b) => a.localeCompare(b));
+  const ordered = Object.fromEntries(keys.map((name) => [name, merged[name]]));
   const changed = added.length + updated.length + removed.length > 0;
-  return { merged: sorted, changed, added, updated, removed, kept };
+  return { merged: ordered, changed, added, updated, removed, kept };
+}
+
+/**
+ * Order record keys as upstream does. A key only the fork has stays right after the key before it
+ * in the fork's order, so the fork's own entries keep their place among the ones they belong with.
+ */
+function orderLikeUpstream(forkKeys: string[], upstreamKeys: string[]): string[] {
+  const upstream = new Set(upstreamKeys);
+  const forkOnlyAfter = new Map<string | undefined, string[]>();
+  let anchor: string | undefined;
+  for (const key of forkKeys) {
+    if (upstream.has(key)) anchor = key;
+    else forkOnlyAfter.set(anchor, [...(forkOnlyAfter.get(anchor) ?? []), key]);
+  }
+
+  const present = new Set(forkKeys);
+  const ordered = [...(forkOnlyAfter.get(undefined) ?? [])];
+  for (const key of upstreamKeys) {
+    if (present.has(key)) ordered.push(key);
+    ordered.push(...(forkOnlyAfter.get(key) ?? []));
+  }
+  return ordered;
 }
 
 /** A subpath map (`{ ".": …, "./config": … }`), not a string or a conditions object. */
@@ -403,7 +431,12 @@ async function syncPackageJson(
     let findUse: RecordMergeOptions['findUse'];
     if (usage && key === 'scripts') findUse = (name) => usage.findScript(name);
     else if (usage && DEPENDENCY_KEYS.includes(key)) findUse = (name) => usage.findPackage(relativePath, name);
-    const result = mergeRecord(forkValue, upstreamValue, baseValue, { bumpHigher: key !== 'scripts', findUse });
+    const isScripts = key === 'scripts';
+    const result = mergeRecord(forkValue, upstreamValue, baseValue, {
+      bumpHigher: !isScripts,
+      findUse,
+      upstreamOrder: isScripts,
+    });
     kept.push(...(result?.kept ?? []).map(({ name, usedAt }) => `${key}.${name}: used in ${usedAt}`));
     if (result?.changed) {
       forkPkg[key] = result.merged;
