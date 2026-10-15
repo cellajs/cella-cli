@@ -389,10 +389,11 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   let prUrl: string | undefined;
   let prOpened = false;
 
-  // The squash commit's subject is the versioned sync message; reused as the PR title so the
-  // PR name carries the upstream version and commit id (release-please only needs the prefix).
-  const headSubject = (await getCommitInfo(forkPath, 'HEAD').catch(() => null))?.message;
-  const prTitle = headSubject?.startsWith(SYNC_PR_TITLE) ? headSubject : SYNC_PR_TITLE;
+  // The PR title is the versioned sync commit subject, rebuilt from the manifest rather than read
+  // from HEAD: drift-triage commits may sit on top of the sync commit (release-please only needs
+  // the prefix).
+  const upstreamCommit = (await readSyncManifest(forkPath))?.upstream.commit;
+  const prTitle = upstreamCommit ? await buildSyncCommitMessage(forkPath, upstreamCommit) : SYNC_PR_TITLE;
 
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {

@@ -207,5 +207,29 @@ describe('overrides', () => {
         expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
       ]);
     });
+
+    it('warns about pins that do nothing: ignored, gone from upstream, or identical to upstream', async () => {
+      makeCommit(env.forkPath, {
+        files: {
+          'own/file.ts': 'export const own = 1;\n',
+          'changed/file.ts': 'export const fork = 1;\n',
+          'json/x.json': '{}\n',
+        },
+        message: 'feat: own files',
+      });
+      makeCommit(env.upstreamPath, { files: { 'changed/file.ts': 'export {};\n' }, message: 'feat: changed' });
+      fetchUpstream(env.forkPath);
+      const config = buildConfig({ pinned: ['kept/', 'own/file.ts', 'changed', 'json/x.json'], ignored: ['json'] });
+
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([
+        'pin does nothing, upstream no longer has it: own/file.ts',
+        "pin does nothing, 'json' is ignored: json/x.json",
+        "pin is identical to upstream, it only drops upstream's next change: kept/",
+      ]);
+      // Before the first fetch only the fork-side checks run
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toEqual([
+        "pin does nothing, 'json' is ignored: json/x.json",
+      ]);
+    });
   });
 });

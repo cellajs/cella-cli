@@ -109,10 +109,11 @@ export interface CellaCliConfig {
     ignored?: string[];
 
     /**
-     * Paths pinned to the fork: fork wins on conflicts.
+     * Paths pinned to the fork: the fork copy wins whole-file.
      * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
      * everything under it, 'README.md' matches that exact file.
-     * Non-conflicting upstream changes merge normally.
+     * Upstream changes to a pinned file are dropped, not merged: analyze lists them under
+     * "protected but behind upstream" to adopt by hand.
      * If fork deleted a pinned file, deletion is respected.
      */
     pinned?: string[];

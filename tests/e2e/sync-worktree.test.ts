@@ -150,6 +150,20 @@ describe('sync from a linked worktree', () => {
       expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toBe('main');
     });
 
+    it('titles the PR after the sync commit when drift-triage commits sit on top', async () => {
+      const worktreePath = setupForkWithWorktree(env);
+      makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
+      await runSyncCommand(syncConfig(env, worktreePath));
+      const syncSubject = exec('git log -1 --format=%s', worktreePath);
+      makeCommit(worktreePath, { files: { 'triage.ts': 'export const t = 1;\n' }, message: 'fix: drift triage' });
+
+      await runSyncCommand(syncConfig(env, worktreePath));
+
+      expect(syncSubject).toMatch(/^chore: sync upstream cella \S+/);
+      const printed = vi.mocked(console.info).mock.calls.map((args) => args.join(' '));
+      expect(printed.some((line) => line.includes(`--title "${syncSubject}"`))).toBe(true);
+    });
+
     it('returns a detached worktree to its start commit when there is nothing to sync', async () => {
       const worktreePath = setupForkWithWorktree(env, '--detach');
       const start = exec('git rev-parse HEAD', worktreePath);
