@@ -23,7 +23,7 @@ import {
   runPnpmJson,
 } from '../utils/audit-utils';
 import pc from '../utils/colors';
-import { createSpinner, hyperlink, spinnerSuccess, warningMark } from '../utils/display';
+import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { advisoriesFromAudit, SEVERITIES } from '../utils/security-plan';
 import { readTopLevel } from '../utils/workspace-yaml';
 import { runSecurityPass } from './audit-security';
@@ -61,7 +61,12 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
       runPnpmJson(['-r', 'outdated', '--json', '--long'], forkPath),
       runPnpmAudit(forkPath),
     ]);
-    const outdatedPackages = (outdated ?? {}) as Record<string, OutdatedPackage>;
+    if (!outdated) {
+      spinnerFail('pnpm outdated gave no answer: run pnpm -r outdated to see why');
+      console.info(`${warningMark} security pass skipped: it runs after the update check`);
+      return;
+    }
+    const outdatedPackages = outdated as Record<string, OutdatedPackage>;
     const packageNames = Object.keys(outdatedPackages);
 
     if (packageNames.length === 0) {
