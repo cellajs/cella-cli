@@ -115,11 +115,12 @@ export async function runPnpm(args: string[], cwd: string): Promise<{ ok: boolea
 /**
  * Runs a pnpm command and parses its JSON stdout. pnpm exits non-zero when it finds outdated
  * packages or vulnerabilities (expected output, not an error), so the exit code is not checked.
- * Returns null for empty or unparsable output; never throws.
+ * pnpm prints warnings, such as a Node version outside `engines`, on stdout ahead of the JSON, so
+ * only errors are logged. Returns null for empty or unparsable output; never throws.
  */
 export async function runPnpmJson(args: string[], cwd: string): Promise<unknown> {
   try {
-    return JSON.parse((await runPnpm(args, cwd)).stdout);
+    return JSON.parse((await runPnpm([...args, '--loglevel=error'], cwd)).stdout);
   } catch {
     return null;
   }
