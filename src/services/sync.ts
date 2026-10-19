@@ -65,6 +65,7 @@ import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-
 import { BehindSyncPointError, runEngineWithSpinner, UpstreamConfigChangedError } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
 import { runPackages } from './packages';
+import { reportReviewPage } from './review-page';
 
 /** Context for the temporary branch a sync cycle runs on. */
 interface TemporarySyncBranch {
@@ -217,6 +218,7 @@ export async function runSync(
   const stagedBranch =
     options?.stagedBranch && result.conflicts.length === 0 && staged ? options.stagedBranch : undefined;
   printSyncComplete(result, { stagedBranch });
+  await reportReviewPage(config.forkPath, result, 'sync');
 
   await printMigrationNotesLine(config, result);
 

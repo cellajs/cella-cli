@@ -338,6 +338,11 @@ function printFileSection(
   }
 }
 
+/** Files with `status`, managed files left out: the list each analyze file group prints. */
+export function filesWithStatus(files: AnalyzedFile[], status: FileStatus): AnalyzedFile[] {
+  return files.filter((f) => f.status === status && !isManagedFile(f.path));
+}
+
 /**
  * Print a group of files with a specific status, including section header and footer.
  */
@@ -347,10 +352,9 @@ function printFileGroup(
   linkOptions: LinkOptions,
   options?: FileSectionOptions,
 ): void {
-  const filtered = files.filter((f) => f.status === status && !isManagedFile(f.path));
   const config = statusConfig[status];
   const title = options?.title ?? `${config.icon} ${config.label}`;
-  printFileSection(filtered, title, linkOptions, { ...options, icon: config.icon });
+  printFileSection(filesWithStatus(files, status), title, linkOptions, { ...options, icon: config.icon });
 }
 
 /**
@@ -505,7 +509,7 @@ export function plural(count: number, singular: string, pluralForm = `${singular
 }
 
 /** Quote a path for a pasteable shell command when it holds characters the shell would interpret. */
-function shellPath(path: string): string {
+export function shellPath(path: string): string {
   return /^[\w./@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
 }
 

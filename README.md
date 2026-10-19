@@ -250,7 +250,8 @@ Both lists end with one `git diff <last-sync>..<upstream> -- <entry>` line per `
     git diff e9a8d485e..a81e3353b -- shared/config
 ```
 
-Paste those lines to see what upstream changed and adopt what you need. The check is relative to
+Paste those lines, or open the [review page](#review-page), to see what upstream changed and adopt
+what you need. The check is relative to
 the last sync point: a drop that happened in an earlier sync only shows up as plain `ahead`
 afterwards. For that case the `↑ protected in fork` section annotates pinned files with
 `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the tips,
@@ -304,6 +305,32 @@ already staged merge never stops for this.
 ```bash
 pnpm cella sync --keep-config   # merge although upstream changed its sync config
 ```
+
+### Review page
+
+Each list above ends in `git diff` lines to paste. The review page holds all those diffs on one
+page in your browser, side by side and highlighted, under the same section titles. `analyze` and
+`sync` write it whenever a list has files, and print its path last:
+
+```
+⧈ review page with 3 diffs, opened in the browser:
+  /Users/you/app/.git/cella-diff/sync-review.html
+```
+
+| Section | `analyze` | `sync` | The diff shows |
+| --- | --- | --- | --- |
+| protected but behind upstream (sync: protected files kept the fork version) | ✓ | ✓ | what upstream changed since the last sync |
+| ignored paths changed upstream | ✓ | ✓ | what upstream changed since the last sync |
+| pinned files that match the previous upstream | ✓ | ✓ | what upstream changed since the last sync |
+| protected in fork, upstream lines absent | ✓ | | the fork against upstream, both as they are now |
+| drifted from upstream | ✓ | | what the fork changed since the last sync |
+
+`sync` opens the page in your browser when it runs in a terminal: the files on it are upstream
+changes the merge did not bring in, and the committed sync branch is where you adopt them.
+`analyze` only prints the path, since you run it often and pinned files keep their absent lines.
+The page lives in the git dir, so it never shows up in `git status`, and each run overwrites it. It
+holds 50 diffs at most; the rest, and files without a text diff, are listed as the `git diff` to
+run instead.
 
 ## Package.json sync
 
@@ -386,7 +413,8 @@ forks: [
 
 Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
 fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
-contributed files. Accepted files are checked out from the contrib branch and staged for review.
+contributed files. Press `d` on a file to open its diff in your browser. Accepted files are
+checked out from the contrib branch and staged for review.
 
 ## Stats of a branch
 

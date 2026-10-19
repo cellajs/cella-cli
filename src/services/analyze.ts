@@ -14,6 +14,7 @@ import {
 import { CONFIG_FILE } from '../utils/managed-files';
 import { runEngineWithSpinner } from './merge-engine';
 import { printMigrationNotesLine } from './migrate';
+import { reportReviewPage } from './review-page';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
   all: new Set(['ahead', 'drifted', 'diverged']),
@@ -90,6 +91,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   printAnalysisFileGroups(result.files, linkOptions, result);
 
   printEngineReports(result, 'analysis summary');
+  await reportReviewPage(config.forkPath, result, 'analyze');
 
   await printMigrationNotesLine(config, result);
 

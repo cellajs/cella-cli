@@ -21,7 +21,7 @@ import { select } from '@inquirer/prompts';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { DEFAULT_BRANCH, isUpstreamRepo, loadConfig } from '../utils/config';
-import { gitDiffFile, openDiffInBrowser } from '../utils/diff';
+import { gitDiffFile, openInBrowser, writeDiffPage } from '../utils/diff';
 import {
   checkMark,
   createSpinner,
@@ -140,8 +140,13 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       try {
         const patch = gitDiffFile(cwd, `${baseRef}..${branch}`, path);
         if (patch.length === 0) return setStatusMsg(`no changes for ${path}`);
-        await openDiffInBrowser(patch.toString(), { filePath: path, srcLabel: 'cella', dstLabel: forkName }, cwd);
-        setStatusMsg(`opened ${path} in browser`);
+        const page = await writeDiffPage(
+          [{ files: [{ path, patch: patch.toString() }] }],
+          { title: path, note: `cella ← → ${forkName}` },
+          cwd,
+          path,
+        );
+        setStatusMsg(openInBrowser(page) ? `opened ${path} in browser` : `diff page: ${page}`);
       } catch (error) {
         setStatusMsg(`diff failed: ${errorMessage(error)}`);
       }
