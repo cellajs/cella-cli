@@ -4,7 +4,7 @@
  * Ignored paths never sync. When both sides changed a file, `upstreamChanged` puts it in the
  * protected-but-behind section; when only upstream changed, added or deleted it, `analyzeRefs`
  * flags it `upstreamOnly`, `groupIgnoredUpstreamChanges` groups it by its `ignored` entry, and
- * `printIgnoredUpstreamChanges` prints one line plus a `git diff` hint per entry.
+ * `printIgnoredUpstreamChanges` prints one line per entry.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -170,7 +170,7 @@ describe('printIgnoredUpstreamChanges', () => {
   const capture = (result: Partial<MergeResult>) =>
     captureInfo(() => printIgnoredUpstreamChanges(result as MergeResult));
 
-  it('prints one line and one git diff hint per ignored entry', () => {
+  it('prints one line per ignored entry, without git diff lines', () => {
     const out = capture({
       upstreamDiffRange: '1a2b3c4..5d6e7f8',
       ignoredUpstreamChanges: [
@@ -185,9 +185,8 @@ describe('printIgnoredUpstreamChanges', () => {
     });
     expect(out).toContain('ignored paths changed upstream · 4 files under 2 entries');
     expect(out).toContain('shared/config · 3 files, 1 new');
-    expect(out).toContain('git diff 1a2b3c4..5d6e7f8 -- shared/config');
     expect(out).toContain('frontend/src/modules/my app · 1 file, 1 deleted');
-    expect(out).toContain(`git diff 1a2b3c4..5d6e7f8 -- 'frontend/src/modules/my app'`);
+    expect(out).not.toContain('git diff');
     // compact: the file paths themselves are not listed
     expect(out).not.toContain('shared/config/a.ts');
   });

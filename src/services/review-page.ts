@@ -16,11 +16,10 @@ import {
   findProtectedBehind,
   hyperlink,
   plural,
-  shellPath,
   spinnerSuccess,
 } from '../utils/display';
 
-/** Diffs on one page at most: each costs ~60 ms to render and ~85 KB of page. The rest are listed. */
+/** Diffs on one page at most: each costs ~60 ms to render and ~85 KB of page. The rest are listed by path. */
 const MAX_PAGE_FILES = 50;
 
 /** Larger patches are listed instead of rendered: highlighting them stalls the run. */
@@ -102,7 +101,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
 /**
  * Write the review page for `sections` and return its path with the number of diffs on it.
  * Files past the page limit, oversized patches and patches without a text hunk (binary, mode
- * only) are listed as the `git diff` to run instead. Undefined when no file has a diff.
+ * only) are listed by path. Undefined when no file has a diff.
  */
 export async function writeReviewPage(
   forkPath: string,
@@ -116,15 +115,14 @@ export async function writeReviewPage(
   for (const section of sections) {
     const pageSection: DiffPageSection = { title: section.title, hint: section.hint, files: [], omitted: [] };
     for (const path of section.paths) {
-      const fallback = `git diff ${section.range} -- ${shellPath(path)}`;
       if (diffs >= MAX_PAGE_FILES) {
-        pageSection.omitted?.push(fallback);
+        pageSection.omitted?.push(path);
         continue;
       }
       const patch = gitDiffFile(forkPath, section.range, path);
       if (patch.length === 0) continue;
       if (patch.length > MAX_PATCH_BYTES || !patch.includes('\n@@ ')) {
-        pageSection.omitted?.push(fallback);
+        pageSection.omitted?.push(path);
         continue;
       }
       pageSection.files.push({ path, patch: patch.toString() });
@@ -146,8 +144,7 @@ export async function writeReviewPage(
 /**
  * After an analyze or sync report: write the review page and print where it is. Sync opens it in
  * the browser when stdout is a terminal, since the upstream changes it lists did not arrive.
- * Silent when there is nothing to review; a failure prints nothing and never fails the run (the
- * report's `git diff` lines still cover it).
+ * Silent when there is nothing to review; a failure prints nothing and never fails the run.
  */
 export async function reportReviewPage(
   forkPath: string,

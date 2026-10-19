@@ -369,7 +369,7 @@ export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
 /** Shared hint for protected-but-behind output (analyze section and sync summary). */
 const PROTECTED_BEHIND_HINT =
   'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
-  'so diff each against upstream and adopt what you need.';
+  'so review what upstream changed and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
 function protectionIcon(file: AnalyzedFile): string {
@@ -380,27 +380,6 @@ function protectionIcon(file: AnalyzedFile): string {
 function formatUpstreamChangedLines(file: AnalyzedFile): string {
   if (file.upstreamChangedLines === undefined) return '';
   return pc.yellow(` · ${plural(file.upstreamChangedLines, 'line')} changed upstream`);
-}
-
-/** What a protected-but-behind list needs for its `git diff` hints. */
-type ProtectedDiffSource = Pick<MergeResult, 'upstreamDiffRange' | 'protectedUpstreamChanges'>;
-
-/**
- * Pasteable `git diff` lines for a protected-but-behind list: one per `pinned` or `ignored` entry
- * that holds a listed path, under a line that introduces them. The range runs from the last sync
- * point to upstream, so each shows only what upstream changed; a diff of the fork against upstream
- * would show the fork's own changes too. Empty without a range or a matching entry.
- */
-function protectedDiffHints(source: ProtectedDiffSource | undefined, paths: string[]): string[] {
-  const range = source?.upstreamDiffRange;
-  if (!range) return [];
-  const listed = new Set(paths);
-  const groups = (source?.protectedUpstreamChanges ?? []).filter((group) => group.paths.some((p) => listed.has(p)));
-  if (groups.length === 0) return [];
-  return [
-    'what upstream changed since the last sync, per pinned/ignored entry:',
-    ...groups.map((group) => `  git diff ${range} -- ${shellPath(group.entry)}`),
-  ];
 }
 
 /** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
@@ -414,14 +393,9 @@ function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
  * behind, ahead (protected), protected-but-behind, drifted, and diverged.
  *
  * Protected-but-behind covers every `pinned`-status file (both changed, fork wins) plus
- * ignored files upstream also changed, so there is no separate `pinned` group. With `diffSource`
- * (the merge result) it ends with one `git diff` line per pinned/ignored entry.
+ * ignored files upstream also changed, so there is no separate `pinned` group.
  */
-export function printAnalysisFileGroups(
-  files: AnalyzedFile[],
-  linkOptions: LinkOptions,
-  diffSource?: ProtectedDiffSource,
-): void {
+export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: LinkOptions): void {
   const protectedBehind = findProtectedBehind(files);
   printFileGroup(files, 'behind', linkOptions, {
     title: pc.cyan('↓ behind on upstream'),
@@ -439,13 +413,7 @@ export function printAnalysisFileGroups(
     icon: protectionIcon,
     suffix: formatUpstreamChangedLines,
     dateSource: 'upstream',
-    hint: [
-      PROTECTED_BEHIND_HINT,
-      ...protectedDiffHints(
-        diffSource,
-        protectedBehind.map((file) => file.path),
-      ),
-    ],
+    hint: PROTECTED_BEHIND_HINT,
   });
   printFileGroup(files, 'drifted', linkOptions, {
     title: `${warningMark} ${pc.yellow('drifted from upstream')}`,
@@ -500,7 +468,7 @@ function printProtectedConflicts(result: MergeResult): void {
     const icon = file ? protectionIcon(file) : statusConfig.pinned.icon;
     console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
   }
-  for (const line of [PROTECTED_BEHIND_HINT, ...protectedDiffHints(result, paths)]) console.info(pc.dim(`  ${line}`));
+  console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
 }
 
 /** `1 file`, `2 files`: a count with its noun. */
@@ -508,16 +476,11 @@ export function plural(count: number, singular: string, pluralForm = `${singular
   return `${count} ${count === 1 ? singular : pluralForm}`;
 }
 
-/** Quote a path for a pasteable shell command when it holds characters the shell would interpret. */
-export function shellPath(path: string): string {
-  return /^[\w./@+-]+$/.test(path) ? path : `'${path.replace(/'/g, `'\\''`)}'`;
-}
-
 /**
  * Ignored paths upstream changed since the last sync while the fork left them untouched
  * (`MergeResult.ignoredUpstreamChanges`). Ignored paths never sync, so this is where new config
  * keys or version bumps under e.g. `shared/config` surface. One line per `ignored` entry with a
- * file count, plus a pasteable `git diff` of upstream's side. Silent when empty.
+ * file count. Silent when empty.
  */
 export function printIgnoredUpstreamChanges(result: MergeResult): void {
   const groups = result.ignoredUpstreamChanges ?? [];
@@ -533,11 +496,8 @@ export function printIgnoredUpstreamChanges(result: MergeResult): void {
     if (group.added > 0) counts.push(`${group.added} new`);
     if (group.deleted > 0) counts.push(`${group.deleted} deleted`);
     console.info(`  ${statusConfig.ignored.icon} ${group.entry} ${pc.dim(`· ${counts.join(', ')}`)}`);
-    if (result.upstreamDiffRange) {
-      console.info(pc.dim(`    git diff ${result.upstreamDiffRange} -- ${shellPath(group.entry)}`));
-    }
   }
-  console.info(pc.dim('  the fork left these untouched and ignored paths never sync: diff and adopt what you need.'));
+  console.info(pc.dim('  the fork left these untouched and ignored paths never sync: review and adopt what you need.'));
 }
 
 /**

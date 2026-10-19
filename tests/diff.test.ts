@@ -116,7 +116,7 @@ describe('diff helpers', () => {
       const html = await renderDiffPage(
         [
           { title: 'first', hint: 'what these show', files: [{ path: 'x.ts', patch }] },
-          { title: 'second', files: [{ path: 'x.ts', patch }], omitted: ['git diff a..b -- y.bin'] },
+          { title: 'second', files: [{ path: 'x.ts', patch }], omitted: ['y.bin'] },
         ],
         { title: 'analyze review' },
       );
@@ -128,7 +128,8 @@ describe('diff helpers', () => {
       expect(text).toContain('first · 1 file');
       expect(text).toContain('second · 2 files');
       expect(text).toContain('what these show');
-      expect(text).toContain('git diff a..b -- y.bin');
+      expect(text).toContain('Not shown here');
+      expect(text).toContain('y.bin');
     });
 
     it('escapes HTML in the title, note, section text and omitted lines', async () => {

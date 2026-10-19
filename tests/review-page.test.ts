@@ -195,14 +195,15 @@ describe('review page', () => {
       }
     });
 
-    it('lists a file without a text diff as the git diff to run instead', async () => {
+    it('lists a file without a text diff by path', async () => {
       const page = await writeReviewPage(repoPath, reviewSections(result, 'analyze'), {
         command: 'analyze',
         range: `${base}..${upstream}`,
       });
 
       const html = fs.readFileSync(page?.path ?? '', 'utf-8');
-      expect(html).toContain(`git diff ${base}..HEAD -- drift.bin`);
+      expect(visibleText(html)).toContain('Not shown here');
+      expect(html).toContain('<li><code>drift.bin</code></li>');
     });
 
     it('writes nothing when no listed file has a diff', async () => {

@@ -34,7 +34,7 @@ export interface DiffPageSection {
   title?: string;
   hint?: string;
   files: DiffPageFile[];
-  /** Files left off the page, one line each (e.g. a `git diff` to run instead) */
+  /** Paths of files listed without a diff (binary, too large, or past the page limit) */
   omitted?: string[];
 }
 
@@ -88,7 +88,9 @@ export async function renderDiffPage(sections: DiffPageSection[], meta: DiffPage
       : '';
     const hint = section.hint ? `<p class="hint">${escapeHtml(section.hint)}</p>` : '';
     const omitted = section.omitted?.length
-      ? `<ul class="omitted">${section.omitted.map((line) => `<li><code>${escapeHtml(line)}</code></li>`).join('')}</ul>`
+      ? `<p class="hint">Not shown here (binary, too large, or past the page limit):</p><ul class="omitted">${section.omitted
+          .map((path) => `<li><code>${escapeHtml(path)}</code></li>`)
+          .join('')}</ul>`
       : '';
     blocks.push(`<section id="section-${index + 1}">${title}${hint}${files.join('\n')}${omitted}</section>`);
   }

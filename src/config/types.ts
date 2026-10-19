@@ -373,9 +373,7 @@ export interface MergeResult {
    * them: upstream's hunks were dropped, not merged. Review each against upstream.
    */
   protectedConflicts?: string[];
-  /** `protectedConflicts` grouped by the `pinned` or `ignored` entry they fall under, for one diff hint per entry. */
-  protectedUpstreamChanges?: ProtectedUpstreamGroup[];
-  /** Pasteable `<merge-base>..<upstream>` range of short SHAs, for `git diff` hints. */
+  /** `<merge-base>..<upstream>` range of short SHAs: what upstream changed since the last sync, for the review page. */
   upstreamDiffRange?: string;
   /** How upstream's own sync config changed since the merge-base, where the fork config does not follow. */
   upstreamOverrides?: UpstreamOverridesReport;
@@ -410,14 +408,6 @@ export type UpstreamOverridesReport =
       packageJsonSync: OverrideListChanges;
     }
   | { kind: 'unreadable'; side: 'base' | 'incoming' };
-
-/** Protected paths upstream also changed, under one `pinned` or `ignored` entry. */
-export interface ProtectedUpstreamGroup {
-  /** The `pinned` or `ignored` entry the paths fall under; the path itself when no entry covers it (a managed file). */
-  entry: string;
-  /** Paths under the entry, sorted. */
-  paths: string[];
-}
 
 /** Upstream-only changes under one `ignored` entry. */
 export interface IgnoredUpstreamGroup {

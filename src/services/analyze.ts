@@ -88,7 +88,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   };
 
   // File lists first (analyze shows them for review); the summary and shared reports close the output.
-  printAnalysisFileGroups(result.files, linkOptions, result);
+  printAnalysisFileGroups(result.files, linkOptions);
 
   printEngineReports(result, 'analysis summary');
   await reportReviewPage(config.forkPath, result, 'analyze');
