@@ -226,11 +226,27 @@ function changeLine(label: string, before: string[], after: string[]): string {
   return `  ${label.padEnd(9)}  ${counts.padEnd(7)}  ${pc.dim(moved || 'unchanged')}`;
 }
 
+/** Files the update step changed, written by the security pass together with its own settings. */
+export interface WorkspaceEdits {
+  /** Manifests whose dependencies changed, by path from the workspace root: staged before the resolve. */
+  manifests: Record<string, string>;
+  /** Other files, such as runtime pins: written as they are, with nothing to resolve. */
+  files: Record<string, string>;
+}
+
+const NO_EDITS: WorkspaceEdits = { manifests: {}, files: {} };
+
 /**
- * Run the security pass on the workspace at `forkPath`. With `apply` off it reports what it would
- * do and writes nothing.
+ * Run the security pass on the workspace at `forkPath`, with the update step's `edits` already in
+ * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
+ * written once, at the end; with `apply` off nothing is written. Returns whether the edits landed:
+ * false for a report, a failure or a cancelled prompt, which all leave the workspace as it was.
  */
-export async function runSecurityPass(forkPath: string, options: { apply: boolean }): Promise<void> {
+export async function runSecurityPass(
+  forkPath: string,
+  options: { apply: boolean; releaseAgeMinutes: number; edits?: WorkspaceEdits },
+): Promise<boolean> {
+  const { releaseAgeMinutes, edits = NO_EDITS } = options;
   const workspaceYaml = readOr(join(forkPath, WORKSPACE_FILE));
   const workspaceLock = readOr(join(forkPath, LOCK_FILE));
   let previous: AuditSettings;
@@ -240,29 +256,36 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     console.error(
       `${pc.red('✗')} ${WORKSPACE_FILE} could not be read: ${error instanceof Error ? error.message : error}`,
     );
-    return;
+    return false;
   }
   const auditKeys = Object.keys(previous.overrides).filter(isAuditOverride);
   const lasting = Object.fromEntries(Object.entries(previous.overrides).filter(([key]) => !isAuditOverride(key)));
+  const updatesManifests = Object.keys(edits.manifests).length > 0;
 
   const spinner = createSpinner(
     auditKeys.length > 0
       ? `resolving without the ${count(auditKeys.length, 'audit override')}...`
       : 'resolving the workspace...',
   );
-  const fail = (message: string, detail = ''): void => {
+  const fail = (message: string, detail = ''): false => {
     spinner.stop();
     console.error(`${pc.red('✗')} ${message}`);
     if (detail) console.error(pc.dim(detail.split('\n').slice(-12).join('\n')));
     console.info(pc.dim('  the workspace is unchanged'));
     console.info();
+    return false;
   };
 
   const staging = await createStaging(forkPath, workspaceYaml);
   try {
+    for (const [file, content] of Object.entries(edits.manifests)) writeFileSync(join(staging, file), content);
+
     // Ignores come off as well, so an ignored advisory is seen again and can pick up a fix.
     const bare = await resolveStaging(staging, workspaceYaml, { ...previous, overrides: lasting, ignoredGhsas: [] });
-    if ('error' in bare) return fail('could not resolve the workspace without its audit overrides', bare.error);
+    if ('error' in bare) {
+      const without = updatesManifests ? 'with the selected updates' : 'without its audit overrides';
+      return fail(`could not resolve the workspace ${without}`, bare.error);
+    }
 
     spinnerText('checking for vulnerabilities...');
     const audit = await runPnpmAudit(staging);
@@ -280,8 +303,6 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     const unanswered = advisories.map((advisory) => advisory.module).filter((name) => !published[name]);
     if (unanswered.length > 0) return fail(`the registry did not answer for ${[...new Set(unanswered)].join(', ')}`);
 
-    const releaseAge = Number.parseInt((await runPnpm(['config', 'get', 'minimumReleaseAge'], forkPath)).stdout, 10);
-    const releaseAgeMinutes = Number.isNaN(releaseAge) ? 0 : releaseAge;
     const releaseAgeHours = Math.round(releaseAgeMinutes / 60);
     const planInput = { advisories, published, previous, releaseAgeMinutes, now: Date.now() };
     const items = planSecurity(planInput);
@@ -300,7 +321,7 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     if (!options.apply) {
       if (changes) console.info(pc.dim('run without --list to apply'));
       console.info();
-      return;
+      return false;
     }
 
     let decisions: Decision[];
@@ -308,22 +329,31 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
       decisions = await decide(items, releaseAgeHours);
     } catch {
       console.info(pc.dim('  cancelled, the workspace is unchanged'));
-      return;
+      return false;
     }
 
     const open = decisions.filter((decision) => decision.action === 'open').map((decision) => decision.item.module);
     const kept = Object.assign({}, lasting, ...open.map((module) => standingOverrides(module, planInput)));
     const next = settingsFor(decisions, kept, excludes);
     const nextYaml = writeAuditSettings(workspaceYaml, next);
+    const settingsChanged = nextYaml !== workspaceYaml;
 
-    if (nextYaml === workspaceYaml) {
+    const otherFiles = Object.keys(edits.files);
+    const writeFiles = (): void => {
+      for (const [file, content] of Object.entries(edits.files)) writeFileSync(join(forkPath, file), content);
+      if (otherFiles.length > 0) console.info(`${checkMark} ${otherFiles.join(', ')} updated`);
+    };
+
+    if (!settingsChanged && !updatesManifests) {
+      writeFiles();
       const state = `${count(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
       console.info(`${checkMark} security settings are current ${pc.dim(`· ${state}`)}`);
       printOpen(open);
-      return;
+      return true;
     }
 
     const summarize = (): void => {
+      if (!settingsChanged) return;
       console.info(pc.bold(WORKSPACE_FILE));
       console.info(changeLine('overrides', auditKeys, Object.keys(next.overrides).filter(isAuditOverride)));
       console.info(changeLine('excludes', previous.releaseAgeExcludes, next.releaseAgeExcludes));
@@ -332,12 +362,13 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     };
 
     // Ignores and aged excludes do not change what resolves: the file is all there is to write.
-    if (sameEntries(next.overrides, previous.overrides)) {
+    if (!updatesManifests && sameEntries(next.overrides, previous.overrides)) {
+      writeFiles();
       writeFileSync(join(forkPath, WORKSPACE_FILE), nextYaml);
       console.info(`${checkMark} ${WORKSPACE_FILE} updated ${pc.dim('· nothing to install')}`);
       printOpen(open);
       summarize();
-      return;
+      return true;
     }
 
     const stagingSpinner = createSpinner('resolving with the new settings...');
@@ -345,17 +376,19 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     stagingSpinner.stop();
     if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
 
-    writeFileSync(join(forkPath, WORKSPACE_FILE), nextYaml);
-    writeFileSync(join(forkPath, LOCK_FILE), staged.lock);
+    const written = { ...edits.files, ...edits.manifests, [WORKSPACE_FILE]: nextYaml, [LOCK_FILE]: staged.lock };
+    const before = Object.fromEntries(Object.keys(written).map((file) => [file, readOr(join(forkPath, file))]));
+    before[WORKSPACE_FILE] = workspaceYaml;
+    before[LOCK_FILE] = workspaceLock;
+    for (const [file, content] of Object.entries(written)) writeFileSync(join(forkPath, file), content);
     const install = spawnSync('pnpm', ['install'], { cwd: forkPath, stdio: 'inherit' });
     console.info();
     if (install.status !== 0) {
-      writeFileSync(join(forkPath, WORKSPACE_FILE), workspaceYaml);
-      writeFileSync(join(forkPath, LOCK_FILE), workspaceLock);
+      for (const [file, content] of Object.entries(before)) writeFileSync(join(forkPath, file), content);
       console.error(`${pc.red('✗')} pnpm install failed (exit code ${install.status})`);
-      console.info(pc.dim(`  ${WORKSPACE_FILE} and ${LOCK_FILE} are back as they were; run pnpm install to match`));
+      console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
       console.info();
-      return;
+      return false;
     }
 
     // The workspace's own audit has the last word on what is still reported.
@@ -365,6 +398,7 @@ export async function runSecurityPass(forkPath: string, options: { apply: boolea
     printOpen(reported);
 
     summarize();
+    return true;
   } finally {
     spinner.stop();
     rmSync(staging, { recursive: true, force: true });

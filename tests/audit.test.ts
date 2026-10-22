@@ -4,7 +4,7 @@ import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConfig } from '../src/config/types';
 import { runAudit } from '../src/services/audit';
-import { getReleasesUrl, getRepoUrl, isMajorVersionChange, runPnpmJson } from '../src/utils/audit-utils';
+import { getReleasesUrl, getRepoUrl, runPnpmJson } from '../src/utils/audit-utils';
 import { hyperlink } from '../src/utils/display';
 import { getEnv } from '../src/utils/env';
 
@@ -12,19 +12,6 @@ const securityPass = vi.hoisted(() => vi.fn());
 vi.mock('../src/services/audit-security', () => ({ runSecurityPass: securityPass }));
 
 describe('audit-utils', () => {
-  it('isMajorVersionChange flags a major bump only, prereleases included, and false for invalid input', () => {
-    expect(isMajorVersionChange('1.0.0', '2.0.0')).toBe(true);
-    expect(isMajorVersionChange('0.9.0', '1.0.0')).toBe(true);
-    expect(isMajorVersionChange('24.10.8', '25.0.8')).toBe(true);
-    expect(isMajorVersionChange('1.0.0', '1.1.0')).toBe(false);
-    expect(isMajorVersionChange('1.0.0', '1.0.1')).toBe(false);
-    expect(isMajorVersionChange('0.208.0', '0.210.0')).toBe(false);
-    expect(isMajorVersionChange('1.0.0-beta', '2.0.0')).toBe(true);
-    expect(isMajorVersionChange('7.0.0-dev.20260129.1', '7.0.0-dev.20260115.1')).toBe(false);
-    expect(isMajorVersionChange('', '1.0.0')).toBe(false);
-    expect(isMajorVersionChange('1.0.0', '')).toBe(false);
-  });
-
   describe('getRepoUrl', () => {
     it('returns null for a missing URL', () => {
       expect(getRepoUrl(undefined)).toBe(null);

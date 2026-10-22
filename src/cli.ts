@@ -128,7 +128,7 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'audit',
-    description: 'update outdated packages, then rebuild the security overrides from a fresh audit',
+    description: 'update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit',
     options: [['--list', 'report only: no prompts, and nothing is written']],
   },
   {
