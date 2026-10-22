@@ -72,7 +72,7 @@ import {
   readPending,
   writePending,
 } from '../utils/migration-notes';
-import { groupIgnoredUpstreamChanges, groupProtectedUpstreamChanges, isIgnored, isPinned } from '../utils/overrides';
+import { groupIgnoredUpstreamChanges, isIgnored, isPinned } from '../utils/overrides';
 import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
 
@@ -506,18 +506,15 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 /**
  * Upstream changes the fork never receives, shared by both engine modes: the upstream config's
  * `overrides` entries and `packageJsonSync` keys the fork config does not follow (the config itself
- * never syncs), ignored files only upstream changed, and the protected files upstream also changed
- * (`protectedConflicts`) grouped by entry. Report only, read from refs (the merge state is
- * irrelevant); a failure here yields no report and never fails the run.
+ * never syncs), ignored files only upstream changed, and the range the review page diffs upstream's
+ * changes over. Report only, read from refs (the merge state is irrelevant); a failure here yields
+ * no report and never fails the run.
  */
 async function upstreamOnlyReports(
   config: RuntimeConfig,
   ctx: UpstreamContext,
   files: AnalyzedFile[],
-  protectedConflicts: string[],
-): Promise<
-  Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges' | 'protectedUpstreamChanges'>
-> {
+): Promise<Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges'>> {
   const { forkPath } = config;
   try {
     const [baseSha, upstreamSha, upstreamOverrides] = await Promise.all([
@@ -530,7 +527,6 @@ async function upstreamOnlyReports(
       upstreamDiffRange: `${baseSha}..${upstreamSha}`,
       upstreamOverrides,
       ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, config.overrides?.ignored ?? []),
-      protectedUpstreamChanges: groupProtectedUpstreamChanges(protectedConflicts, config),
     };
   } catch {
     return {};
@@ -664,7 +660,7 @@ async function runSyncMerge(
     autoMergedFiles,
     protectedConflicts,
     ...resultMeta(config, ctx),
-    ...(await upstreamOnlyReports(config, ctx, analyzedFiles, protectedConflicts)),
+    ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
     ...notesResult(notes),
   };
 }
@@ -690,7 +686,7 @@ async function runAnalyzePreview(
   );
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
   const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
-  const reports = await upstreamOnlyReports(config, ctx, analyzedFiles, protectedConflicts);
+  const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
   onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run, no changes applied`);
 
   return {

@@ -5,7 +5,7 @@
 
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup, ProtectedUpstreamGroup } from '../config/types';
+import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { fileExistsAtRef, listChangedSinceRef, revParse } from './git';
 import { isGeneratedFile, isManagedFile } from './managed-files';
 import { isUpstreamOnly } from './migration-notes';
@@ -73,26 +73,6 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 
   for (const group of groups.values()) group.paths.sort();
   return entries.flatMap((entry) => groups.get(entry) ?? []);
-}
-
-/**
- * Group protected paths upstream also changed by the most specific `pinned` or `ignored` entry
- * they fall under, for one diff hint per entry. A path no entry covers (a managed file) stands for
- * itself; groups follow the order the paths come in.
- */
-export function groupProtectedUpstreamChanges(paths: string[], config: CellaCliConfig): ProtectedUpstreamGroup[] {
-  const [, findEntry] = entryMatcher([...(config.overrides?.pinned ?? []), ...(config.overrides?.ignored ?? [])]);
-  const groups = new Map<string, ProtectedUpstreamGroup>();
-
-  for (const path of paths) {
-    const entry = findEntry(path) ?? path;
-    const group = groups.get(entry) ?? { entry, paths: [] };
-    group.paths.push(path);
-    groups.set(entry, group);
-  }
-
-  for (const group of groups.values()) group.paths.sort();
-  return [...groups.values()];
 }
 
 /**

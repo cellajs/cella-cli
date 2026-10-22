@@ -234,28 +234,21 @@ missing new upstream utilities that synced components rely on), so both commands
   `--scope all` and `--scope protected` (`--json` adds `upstreamChanged` and `upstreamChangedLines`).
 - `sync` prints the same list at the end of its summary, right when the drop happens.
 
-Both lists end with one `git diff <last-sync>..<upstream> -- <entry>` line per `pinned` or
-`ignored` entry that holds a listed file, to paste. The range is what makes it useful:
-`git diff HEAD <upstream> -- shared/config` shows your whole config against the template's, while
-`<last-sync>..<upstream>` shows only what upstream changed since your last sync.
-
 ```
 ⚠ 3 protected files kept the fork version, dropping upstream changes:
   ⨀ frontend/src/styling/tailwind.css · 21 lines changed upstream
   ⨂ shared/config/default.ts · 4 lines changed upstream
   ⨂ shared/config/staging.ts · 2 lines changed upstream
-  pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, so diff each against upstream and adopt what you need.
-  what upstream changed since the last sync, per pinned/ignored entry:
-    git diff e9a8d485e..a81e3353b -- frontend/src/styling/tailwind.css
-    git diff e9a8d485e..a81e3353b -- shared/config
+  pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, so review what upstream changed and adopt what you need.
 ```
 
-Paste those lines to see what upstream changed and adopt what you need. The check is relative to
-the last sync point: a drop that happened in an earlier sync only shows up as plain `ahead`
-afterwards. For that case the `↑ protected in fork` section annotates pinned files with
-`· N upstream lines absent` (lines upstream has that the fork lacks, compared at the tips,
-`--json`: `upstreamLinesAbsent`). That is upstream content the fork never received, deliberately
-or not: diff and decide. Ignored files are not annotated.
+The [review page](#review-page) shows what upstream changed in each of them since the last sync.
+The check is relative to the last sync point: a drop that happened in an earlier sync only shows
+up as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
+files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
+tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
+deliberately or not: the review page shows the difference, so you can decide. Ignored files are
+not annotated.
 
 To pull upstream into every pinned file at once, run `sync --unpinned`: pins are lifted for that
 run (managed files stay pinned) and the merge uses the full upstream history, so changes earlier
@@ -270,9 +263,9 @@ its summary, and `sync` after its merge summary:
 - **Ignored paths changed upstream.** Upstream changed, added or deleted a file under an `ignored`
   entry (app-owned module folders included) and the fork left it untouched. No conflict marks it,
   so this is where new config keys and version bumps under `shared/config` show up. Each `ignored`
-  entry gets one line with a file count and a `git diff <last-sync>..<upstream> -- <entry>` line to
-  paste. Files both sides changed stay in the section above, and generated output the fork
-  regenerates itself (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
+  entry gets one line with a file count, and the [review page](#review-page) shows the diffs. Files
+  both sides changed stay in the section above, and generated output the fork regenerates itself
+  (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
   files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
 - **Upstream sync config changes.** `cella/cella.config.ts` never syncs, so entries upstream adds to
   its own `overrides.pinned` or `overrides.ignored`, and keys it adds to `settings.packageJsonSync`
@@ -284,8 +277,7 @@ its summary, and `sync` after its merge summary:
 ```
 ⚠ ignored paths changed upstream · 1 file under 1 entry
   ⨂ frontend/src/modules/marketing · 1 file
-    git diff e9a8d485e..a81e3353b -- frontend/src/modules/marketing
-  the fork left these untouched and ignored paths never sync: diff and adopt what you need.
+  the fork left these untouched and ignored paths never sync: review and adopt what you need.
 
 ⚠ upstream changed its sync config · 2 entries to review
   + pinned: backend/src/bundle-config.ts
@@ -304,6 +296,31 @@ already staged merge never stops for this.
 ```bash
 pnpm cella sync --keep-config   # merge although upstream changed its sync config
 ```
+
+### Review page
+
+The terminal lists files; the review page shows their diffs, side by side and highlighted, on one
+page in your browser under the same section titles. `analyze` and `sync` write it whenever a list
+has files, and print its path last:
+
+```
+⧈ review page with 3 diffs, opened in the browser:
+  /Users/you/app/.git/cella-diff/sync-review.html
+```
+
+| Section | `analyze` | `sync` | The diff shows |
+| --- | --- | --- | --- |
+| protected but behind upstream (sync: protected files kept the fork version) | ✓ | ✓ | what upstream changed since the last sync |
+| ignored paths changed upstream | ✓ | ✓ | what upstream changed since the last sync |
+| pinned files that match the previous upstream | ✓ | ✓ | what upstream changed since the last sync |
+| protected in fork, upstream lines absent | ✓ | | the fork against upstream, both as they are now |
+| drifted from upstream | ✓ | | what the fork changed since the last sync |
+
+`sync` opens the page in your browser when it runs in a terminal: the files on it are upstream
+changes the merge did not bring in, and the committed sync branch is where you adopt them.
+`analyze` only prints the path, since you run it often and pinned files keep their absent lines.
+The page lives in the git dir, so it never shows up in `git status`, and each run overwrites it. It
+holds 50 diffs at most; the rest, and files without a text diff, are listed by path.
 
 ## Package.json sync
 
@@ -417,7 +434,8 @@ forks: [
 
 Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
 fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
-contributed files. Accepted files are checked out from the contrib branch and staged for review.
+contributed files. Press `d` on a file to open its diff in your browser. Accepted files are
+checked out from the contrib branch and staged for review.
 
 ## Stats of a branch
 

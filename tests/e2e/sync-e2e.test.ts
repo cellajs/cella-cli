@@ -7,7 +7,9 @@
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyze } from '../../src/services/analyze';
+import { reviewSections } from '../../src/services/review-page';
 import { runSync } from '../../src/services/sync';
+import { gitDiffFile } from '../../src/utils/diff';
 import {
   commitSquash,
   fetchUpstreamTags,
@@ -948,7 +950,7 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'shared/config/staging.ts')).toBe(false);
     });
 
-    it('groups protected files both sides changed by entry, with a range that shows only upstream changes', async () => {
+    it('lists protected files both sides changed, diffed over a range that shows only upstream changes', async () => {
       await setupBase();
       // The fork changed an ignored config file and a pinned file that upstream changes too
       makeCommit(env.upstreamPath, {
@@ -964,19 +966,17 @@ describe('sync e2e', () => {
       });
       fetchUpstream(env.forkPath);
       const options = { pinned: ['a.ts', 'backend/src'], ignored: ['shared/config'], keepConfig: true };
-      const groups = [
-        { entry: 'backend/src', paths: ['backend/src/index.ts'] },
-        { entry: 'shared/config', paths: ['shared/config/default.ts'] },
-      ];
+      const dropped = ['backend/src/index.ts', 'shared/config/default.ts'];
 
       const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', ...options }));
-      expect(analysis.protectedUpstreamChanges).toEqual(groups);
+      expect(analysis.protectedConflicts?.sort()).toEqual(dropped);
 
       const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ...options }));
-      expect(result.protectedUpstreamChanges).toEqual(groups);
+      const [section] = reviewSections(result, 'sync');
+      expect(section.paths.sort()).toEqual(dropped);
 
-      // The printed command: upstream's side of the entry since the last sync, without the fork's own changes
-      const diff = execSync(`git diff ${result.upstreamDiffRange} -- shared/config`, { cwd: env.forkPath }).toString();
+      // The review page's diff: upstream's side since the last sync, without the fork's own changes
+      const diff = gitDiffFile(env.forkPath, section.range, 'shared/config/default.ts').toString();
       expect(diff).toContain('+export const config = { a: 1, newKey: true };');
       expect(diff).not.toContain('forkKey');
     });

@@ -8,13 +8,7 @@
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CellaCliConfig } from '../src/config/types';
 import { isManagedFile } from '../src/utils/managed-files';
-import {
-  groupProtectedUpstreamChanges,
-  isIgnored,
-  isPinned,
-  isUnderAnyFolder,
-  validateOverrides,
-} from '../src/utils/overrides';
+import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from '../src/utils/overrides';
 import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from './helpers/test-env';
 
 /** Helper to build a minimal config with overrides */
@@ -119,39 +113,6 @@ describe('overrides', () => {
       };
       expect(isPinned('any/file.ts', config)).toBe(false);
       expect(isIgnored('any/file.ts', config)).toBe(false);
-    });
-  });
-
-  describe('groupProtectedUpstreamChanges', () => {
-    const config = buildConfig({
-      pinned: ['frontend/src/styling', 'frontend/src/styling/tailwind.css', 'backend/src/modules.ts'],
-      ignored: ['shared/config/'],
-    });
-
-    it('groups paths under their most specific pinned or ignored entry, in the order they come', () => {
-      const paths = [
-        'shared/config/staging.ts',
-        'frontend/src/styling/tailwind.css',
-        'frontend/src/styling/gradients.css',
-        'shared/config/default.ts',
-        'frontend/src/styling/base.css',
-      ];
-      expect(groupProtectedUpstreamChanges(paths, config)).toEqual([
-        { entry: 'shared/config', paths: ['shared/config/default.ts', 'shared/config/staging.ts'] },
-        { entry: 'frontend/src/styling/tailwind.css', paths: ['frontend/src/styling/tailwind.css'] },
-        {
-          entry: 'frontend/src/styling',
-          paths: ['frontend/src/styling/base.css', 'frontend/src/styling/gradients.css'],
-        },
-      ]);
-    });
-
-    it('lets a path no entry covers stand for itself', () => {
-      expect(groupProtectedUpstreamChanges(['package.json', 'backend/src/modules.ts'], config)).toEqual([
-        { entry: 'package.json', paths: ['package.json'] },
-        { entry: 'backend/src/modules.ts', paths: ['backend/src/modules.ts'] },
-      ]);
-      expect(groupProtectedUpstreamChanges([], config)).toEqual([]);
     });
   });
 
