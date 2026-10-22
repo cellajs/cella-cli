@@ -20,7 +20,7 @@ pnpm cella audit
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Update outdated packages, then rebuild the security overrides from a fresh audit |
+| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -337,9 +337,40 @@ previous value, and a package.json without `type` gets upstream's. Set it yourse
 
 `pnpm cella audit` works in two layers, in this order:
 
-1. **Updates.** It lists the outdated packages and updates the ones you pick.
-2. **Security.** It audits what is left and brings three settings in `pnpm-workspace.yaml` in line
-   with that audit.
+1. **Updates.** It lists the outdated packages and runtime pins in one table and asks once which to
+   update. Rows with a high or critical advisory start ticked; submitting with nothing ticked skips
+   this layer.
+2. **Security.** It audits the workspace as the picked updates leave it and brings three settings
+   in `pnpm-workspace.yaml` in line with that audit.
+
+Nothing is written until the end: the updates and the security settings land together, with a
+single `pnpm install`. Cancelling any prompt leaves the workspace as it was.
+
+### Runtime pins
+
+`pnpm audit` only sees the lockfile, so the audit also checks the runtimes the workspace pins to an
+exact version, against their own release feeds:
+
+| Pin | Feed | Dot |
+|-----|------|-----|
+| root `engines.node` | nodejs.org release index | red when a newer release in the line is a security release |
+| root `packageManager` (pnpm) | npm registry and its advisory database | red when the newer version fixes an advisory on yours |
+| `FROM image:2.8-suffix` in tracked Dockerfiles | Docker Hub tags | yellow when your tag has had no push for 6 months while a newer one has |
+
+A pin moves within its major, to the newest version older than `minimumReleaseAge`. A Node bump
+waits until Docker Hub has the `node:<version><suffix>` images the Dockerfiles build from, and the
+audit prints what is left to do on your machine: switching its Node, and building each changed image.
+
+### Holding a package back
+
+To keep a package off the update list, use pnpm's own setting, with the reason as a comment.
+`pnpm outdated` skips it, so the audit does too, and `pnpm audit` still checks it:
+
+```yaml
+updateConfig:
+  ignoreDependencies:
+    - typescript # 7 drops the JS compiler API that SDK codegen needs
+```
 
 The security layer treats its overrides as output, not as configuration. Every run it drops them,
 resolves the workspace without them in a temporary copy, and puts back only the ones a current

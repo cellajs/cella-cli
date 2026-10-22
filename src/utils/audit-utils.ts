@@ -5,13 +5,14 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import pc from './colors';
-import { parseComparableVersion } from './versions';
+import type { RuntimeUpdate } from './runtimes';
 
 const execFileAsync = promisify(execFile);
 
 /** One package in `pnpm -r outdated --json --long`. */
 export interface OutdatedPackage {
-  current: string;
+  /** Missing for a dependency that is not installed. */
+  current?: string;
   latest: string;
   dependencyType: 'dependencies' | 'devDependencies';
   dependentPackages: Array<{ name: string; location: string }>;
@@ -24,13 +25,16 @@ export interface EnhancedPackageInfo {
   latest: string;
   dependentPackages: OutdatedPackage['dependentPackages'];
   isDev: boolean;
-  isMajorUpdate: boolean;
+  /** The update leaves the range a caret allows: another major, or another minor below 1.0. */
+  breaking: boolean;
   /** Workspace names where this package is pinned to an exact version (no ^ or ~) */
   pinnedIn: string[];
   repoUrl: string | null;
   releasesUrl: string | null;
   /** The highest severity the audit reports for the package, or null when it reports none. */
   severity: VulnerabilitySeverity | null;
+  /** Set for a runtime pin (Node, pnpm, an image tag) shown among the packages. */
+  runtime?: RuntimeUpdate;
 }
 
 /** Vulnerability severity levels */
@@ -89,13 +93,6 @@ export function getReleasesUrl(repoUrl: string | null): string | null {
   return `${repoUrl}/releases`;
 }
 
-/** Whether the update is a major version change. */
-export function isMajorVersionChange(current: string, latest: string): boolean {
-  const from = parseComparableVersion(current);
-  const to = parseComparableVersion(latest);
-  return !!from && !!to && to.major > from.major;
-}
-
 /** Runs a pnpm command to completion with its output captured; `ok` is false on a non-zero exit. */
 export async function runPnpm(args: string[], cwd: string): Promise<{ ok: boolean; stdout: string; stderr: string }> {
   try {
@@ -136,10 +133,38 @@ export async function runPnpmAudit(cwd: string): Promise<AuditResult | null> {
   return result as AuditResult;
 }
 
+/** pnpm's `minimumReleaseAge` in minutes; 0 when it is unset or unreadable. */
+export async function readReleaseAgeMinutes(cwd: string): Promise<number> {
+  const minutes = Number.parseInt((await runPnpm(['config', 'get', 'minimumReleaseAge'], cwd)).stdout, 10);
+  return Number.isNaN(minutes) ? 0 : minutes;
+}
+
 /** Publish time per version of a package, as its registry lists them; null when it does not answer. */
 export async function fetchPublishTimes(name: string, cwd: string): Promise<Record<string, string> | null> {
   const times = await runPnpmJson(['view', name, 'time', '--json'], cwd);
-  return times && typeof times === 'object' ? (times as Record<string, string>) : null;
+  // A failed lookup still prints JSON, as `{ "error": … }`.
+  return times && typeof times === 'object' && !('error' in times) ? (times as Record<string, string>) : null;
+}
+
+/**
+ * JSON text after `change` ran on its parsed value, written back with the file's own indent and
+ * final newline, the way pnpm writes a manifest.
+ */
+export function editJsonText(content: string, change: (json: Record<string, unknown>) => void): string {
+  const json = JSON.parse(content) as Record<string, unknown>;
+  change(json);
+  const indent = content.match(/^[ \t]+(?=")/m)?.[0] ?? '  ';
+  return `${JSON.stringify(json, null, indent)}${content.endsWith('\n') ? '\n' : ''}`;
+}
+
+/**
+ * The specifier that moves a dependency to `latest` and keeps its prefix (`^`, `~` or exact), as
+ * `pnpm up --latest` writes it; null for one the audit leaves as written (`workspace:`, `catalog:`,
+ * `npm:` aliases, operator ranges, tags).
+ */
+export function rewriteSpecifier(spec: string, latest: string): string | null {
+  const match = spec.match(/^([\^~]?)\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?$/);
+  return match ? `${match[1]}${latest}` : null;
 }
 
 /** Severity dot per vulnerability level. */

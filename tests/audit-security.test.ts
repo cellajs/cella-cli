@@ -119,13 +119,23 @@ overrides:
 
 const LOCK = lockOf({ stale: '1.0.1', needed: '2.0.0', nofix: '3.0.3' });
 
+const MANIFEST = '{"name":"app"}\n';
+const DOCKERFILE = 'FROM caddy:2.8-alpine\n';
+
+/** What the update step hands over: a manifest with a raised dependency, and a raised image tag. */
+const EDITS = {
+  manifests: { 'package.json': '{"name":"app","dependencies":{"stale":"^1.0.1"}}\n' },
+  files: { Dockerfile: 'FROM caddy:2.11-alpine\n' },
+};
+
 describe('runSecurityPass', () => {
   let repo: string;
   const file = (name: string) => readFileSync(join(repo, name), 'utf8');
 
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'cella-audit-test-'));
-    writeFileSync(join(repo, 'package.json'), '{"name":"app"}\n');
+    writeFileSync(join(repo, 'package.json'), MANIFEST);
+    writeFileSync(join(repo, 'Dockerfile'), DOCKERFILE);
     writeFileSync(join(repo, 'pnpm-workspace.yaml'), WORKSPACE);
     writeFileSync(join(repo, 'pnpm-lock.yaml'), LOCK);
     Object.assign(world, { packages: structuredClone(PACKAGES), auditAnswers: true, installStatus: 0, installs: [] });
@@ -140,18 +150,20 @@ describe('runSecurityPass', () => {
     vi.restoreAllMocks();
   });
 
-  it('drops the override the workspace no longer needs and keeps the rest', async () => {
-    await runSecurityPass(repo, { apply: true });
+  it('drops the override the workspace no longer needs, keeps the rest, and writes the updates with the same install', async () => {
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
 
     expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE.replace('  stale@<1.0.1: ^1.0.1\n', ''));
     expect(file('pnpm-lock.yaml')).toBe(LOCK);
+    expect(file('package.json')).toBe(EDITS.manifests['package.json']);
+    expect(file('Dockerfile')).toBe(EDITS.files.Dockerfile);
     expect(world.installs).toEqual([repo]);
     expect(prompts.confirm).not.toHaveBeenCalled();
     expect(prompts.select).not.toHaveBeenCalled();
   });
 
   it('writes nothing in report-only mode', async () => {
-    await runSecurityPass(repo, { apply: false });
+    await runSecurityPass(repo, { apply: false, releaseAgeMinutes: 1440 });
 
     expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
     expect(file('pnpm-lock.yaml')).toBe(LOCK);
@@ -159,29 +171,31 @@ describe('runSecurityPass', () => {
   });
 
   it('changes nothing on a second run', async () => {
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
     const settled = file('pnpm-workspace.yaml');
     world.installs = [];
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(file('pnpm-workspace.yaml')).toBe(settled);
     expect(world.installs).toEqual([]);
   });
 
-  it('puts both files back when the install fails', async () => {
+  it('puts every file back when the install fails', async () => {
     world.installStatus = 1;
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
 
     expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
     expect(file('pnpm-lock.yaml')).toBe(LOCK);
+    expect(file('package.json')).toBe(MANIFEST);
+    expect(file('Dockerfile')).toBe(DOCKERFILE);
   });
 
   it('leaves the workspace alone when the audit gives no answer', async () => {
     world.auditAnswers = false;
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
     expect(world.installs).toEqual([]);
@@ -191,13 +205,13 @@ describe('runSecurityPass', () => {
     writeFileSync(join(repo, 'pnpm-workspace.yaml'), WORKSPACE.replace('  needed@<2.0.0: ^2.0.0\n', ''));
     prompts.select.mockResolvedValue('open');
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(prompts.select).toHaveBeenCalledOnce();
     expect(file('pnpm-workspace.yaml')).not.toContain('needed@');
 
     prompts.select.mockResolvedValue('override');
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(file('pnpm-workspace.yaml')).toContain('  needed@<2.0.0: ^2.0.0\n');
   });
@@ -207,7 +221,7 @@ describe('runSecurityPass', () => {
     world.packages.needed.advisory = { ghsa: 'GHSA-needed', range: '<3.0.0' };
     prompts.select.mockResolvedValue('open');
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(prompts.select).toHaveBeenCalledOnce();
     expect(file('pnpm-workspace.yaml')).toContain('  needed@<2.0.0: ^2.0.0\n');
@@ -218,7 +232,7 @@ describe('runSecurityPass', () => {
     writeFileSync(join(repo, 'pnpm-workspace.yaml'), 'overrides:\n  needed@<2.0.0: ^2.0.0\n');
     prompts.confirm.mockResolvedValue(true);
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
     expect(file('pnpm-workspace.yaml')).toBe(
       'auditConfig:\n  ignoreGhsas:\n    - GHSA-nofix\noverrides:\n  needed@<2.0.0: ^2.0.0\n',
@@ -230,9 +244,11 @@ describe('runSecurityPass', () => {
     writeFileSync(join(repo, 'pnpm-workspace.yaml'), 'overrides:\n  stale@<1.0.1: ^1.0.1\n  needed@<2.0.0: ^2.0.0\n');
     prompts.confirm.mockRejectedValue(new Error('User force closed the prompt'));
 
-    await runSecurityPass(repo, { apply: true });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
 
     expect(file('pnpm-workspace.yaml')).toContain('stale@<1.0.1');
+    expect(file('package.json')).toBe(MANIFEST);
+    expect(file('Dockerfile')).toBe(DOCKERFILE);
     expect(world.installs).toEqual([]);
   });
 });
