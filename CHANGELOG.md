@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.4.1](https://github.com/cellajs/cella-cli/compare/cli-0.4.0...cli-0.4.1) (2026-10-22)
+
+
+### 🎉 New features
+
+* analyze and sync write one review page with the diff of every file they list ([#51](https://github.com/cellajs/cella-cli/issues/51)) ([5ca9542](https://github.com/cellajs/cella-cli/commit/5ca954207c45f5dffb4ec8d5171caf8120e678c9))
+* **audit:** runtime pins join the update table, and a run asks once and installs once ([#52](https://github.com/cellajs/cella-cli/issues/52)) ([3ffcf6e](https://github.com/cellajs/cella-cli/commit/3ffcf6e48dadefede299febfa74eeee21e7666ed))
+
+
+### 🐞 Bug fixes
+
+* **deps:** installs run pnpm 11.28.7, which fixes three high advisories in 11.8.0 ([#53](https://github.com/cellajs/cella-cli/issues/53)) ([b7eeaa0](https://github.com/cellajs/cella-cli/commit/b7eeaa0195e1da422e953443667398ef2512042a))
+
 ## [0.4.0](https://github.com/cellajs/cella-cli/compare/cli-0.3.3...cli-0.4.0) (2026-10-15)
 
 
