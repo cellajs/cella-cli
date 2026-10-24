@@ -54,7 +54,7 @@ export interface LocalToolCheck {
   severity: VulnerabilitySeverity | null;
   /** What it misses (`5 advisories, 1 high`), why it was not checked, or empty. */
   note: string;
-  /** The upgrade command, or the version to move to when the audit cannot tell how the tool was installed. */
+  /** The command that gets the fixes (`update to <version>` for an install the audit cannot tell); empty when nothing is missed. */
   fix: string;
 }
 
