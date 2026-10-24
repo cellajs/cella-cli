@@ -1,5 +1,17 @@
 # Changelog
 
+## [0.4.2](https://github.com/cellajs/cella-cli/compare/cli-0.4.1...cli-0.4.2) (2026-10-24)
+
+
+### 🎉 New features
+
+* **audit:** report the security fixes this machine's Node, pnpm and gh miss ([#56](https://github.com/cellajs/cella-cli/issues/56)) ([1a7b5cb](https://github.com/cellajs/cella-cli/commit/1a7b5cbff4887f34f41d8c02cb1ed6baa835f474))
+
+
+### 🐞 Bug fixes
+
+* **audit:** a package that two workspaces list under different dependency types gets updated ([#55](https://github.com/cellajs/cella-cli/issues/55)) ([235a585](https://github.com/cellajs/cella-cli/commit/235a5851c830e4aae2a09dc500e76096a1ce600e))
+
 ## [0.4.1](https://github.com/cellajs/cella-cli/compare/cli-0.4.0...cli-0.4.1) (2026-10-22)
 
 
