@@ -17,6 +17,12 @@ vi.mock('@inquirer/prompts', async (importOriginal) => ({
   checkbox: async ({ choices }: { choices: Array<{ value?: string }> }) => choices.flatMap((c) => c.value ?? []),
 }));
 
+// The machine's own tools stay out of these runs: no binaries asked, no feeds fetched.
+vi.mock('../src/utils/local-tools', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../src/utils/local-tools')>()),
+  readLocalTools: async () => ({ node: { version: '26.12.1', installer: null, releases: [] }, pnpm: null, gh: null }),
+}));
+
 describe('audit-utils', () => {
   describe('getRepoUrl', () => {
     it('returns null for a missing URL', () => {

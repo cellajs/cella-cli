@@ -62,7 +62,10 @@ FROM nginx`;
           '11.28.7': iso(1),
           '12.15.0': iso(27),
         },
-        advisories: [{ vulnerable_versions: '>=11.0.0 <11.11.0' }, { vulnerable_versions: '>=11.0.0 <12.0.0' }],
+        advisories: [
+          { vulnerable_versions: '>=11.0.0 <11.11.0', severity: 'high' },
+          { vulnerable_versions: '>=11.0.0 <12.0.0', severity: 'high' },
+        ],
       },
       images: [
         {

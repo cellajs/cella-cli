@@ -3,7 +3,8 @@
  *
  * One table and one checkbox for outdated packages and runtime pins (Node, pnpm, image tags). The
  * picked updates become file edits that the security pass (see audit-security.ts) stages, checks
- * and writes, so the workspace changes once and only with a single install.
+ * and writes, so the workspace changes once and only with a single install. Below the table, the
+ * security fixes this machine's own Node, pnpm and gh miss (see local-tools.ts).
  */
 
 import { readFileSync } from 'node:fs';
@@ -28,6 +29,7 @@ import {
 import pc from '../utils/colors';
 import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
+import { type LocalToolCheck, planLocalTools, readLocalTools } from '../utils/local-tools';
 import {
   applyRuntimeUpdate,
   fetchRuntimeFeeds,
@@ -73,11 +75,12 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     const pins = await readRuntimePins(forkPath);
     const now = Date.now();
     // --long adds each package's latest manifest, which holds its repository URL.
-    const [outdated, auditResult, releaseAgeMinutes, feeds] = await Promise.all([
+    const [outdated, auditResult, releaseAgeMinutes, feeds, machine] = await Promise.all([
       runPnpmJson(['-r', 'outdated', '--json', '--long'], forkPath),
       runPnpmAudit(forkPath),
       readReleaseAgeMinutes(forkPath),
       fetchRuntimeFeeds(pins, forkPath, now),
+      readLocalTools(forkPath, now),
     ]);
     if (!outdated) {
       spinnerFail('pnpm outdated gave no answer: run pnpm -r outdated to see why');
@@ -86,6 +89,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     }
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
+    const localTools = planLocalTools(machine, { releaseAgeMinutes, now });
     const rows = [
       ...packageRows(outdated as Record<string, OutdatedPackage>, auditResult ? advisoriesFromAudit(auditResult) : []),
       ...runtimes.updates.map(runtimeRow),
@@ -95,6 +99,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
       spinnerSuccess('all packages and runtimes are up to date');
       printNotes(forkPath, runtimes.unchecked);
       console.info();
+      printLocalTools(localTools);
       await runSecurityPass(forkPath, { apply: !config.list, releaseAgeMinutes });
       return;
     }
@@ -103,6 +108,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     printOutdatedResults(rows, forkPath);
     printNotes(forkPath, runtimes.unchecked);
     console.info();
+    printLocalTools(localTools);
 
     // --list is the non-interactive mode: report only, no prompts and no writes.
     if (config.list) {
@@ -268,6 +274,20 @@ function printNotes(forkPath: string, unchecked: string[]): void {
   if (held.length > 0) console.info(`  ${pc.dim(`held: ${held.join(', ')} · pnpm-workspace.yaml updateConfig`)}`);
   if (unchecked.length > 0)
     console.info(`  ${pc.dim(`not checked, no answer from the feed: ${unchecked.join(', ')}`)}`);
+}
+
+/** The tools this machine works with, each with the security fixes it misses and how to get them. */
+function printLocalTools(checks: LocalToolCheck[]): void {
+  const width = Math.max(...checks.map((tool) => `${tool.name} ${tool.version}`.length));
+  console.info(pc.bold('this machine'));
+  for (const tool of checks) {
+    const label = `${tool.name} ${tool.version}`.padEnd(width);
+    const detail = tool.severity
+      ? `${tool.note} ${pc.dim('·')} ${tool.fix}`
+      : pc.dim(tool.note || 'no missing security fixes');
+    console.info(`${tool.severity ? getVulnIcon(tool.severity) : ' '} ${label}  ${detail}`);
+  }
+  console.info();
 }
 
 /** The grouped checkbox choices: runtimes, pinned packages, then the regular ones. A red dot starts ticked. */

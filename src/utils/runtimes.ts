@@ -6,7 +6,7 @@
 
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
-import { editJsonText, fetchPublishTimes } from './audit-utils';
+import { editJsonText, fetchPublishTimes, type VulnerabilitySeverity } from './audit-utils';
 import { git } from './git';
 import { compareVersionStrings, isPrerelease, parseComparableVersion, satisfiesComparators } from './versions';
 
@@ -42,9 +42,10 @@ export interface HubTag {
   pushedAt: number;
 }
 
-/** An npm advisory, reduced to its vulnerable range. */
-interface BulkAdvisory {
+/** An npm advisory, reduced to its vulnerable range and severity. */
+export interface BulkAdvisory {
   vulnerable_versions: string;
+  severity: VulnerabilitySeverity;
 }
 
 /** What the feeds answered; null where a feed did not answer. */
@@ -157,7 +158,8 @@ export async function readRuntimePins(forkPath: string): Promise<RuntimePins> {
   };
 }
 
-async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
+/** The parsed JSON answer of a URL; null for an error status, a timeout or unparsable output. */
+export async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
   try {
     const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
     return response.ok ? await response.json() : null;
@@ -179,7 +181,7 @@ const hubTag = (entry: unknown): HubTag | null => {
  * two days, where the day alone cannot settle the release age, gets its exact time from the
  * Last-Modified header of its checksum file (the end of its day when that does not answer).
  */
-async function fetchNodeReleases(major: number, now: number): Promise<NodeRelease[] | null> {
+export async function fetchNodeReleases(major: number, now: number): Promise<NodeRelease[] | null> {
   const index = await fetchJson('https://nodejs.org/dist/index.json');
   if (!Array.isArray(index)) return null;
   const releases = index
@@ -225,27 +227,26 @@ async function fetchImageTags(pin: ImagePin): Promise<{ pinned: HubTag | null; t
   return { pinned: hubTag(pinned), tags: results.flatMap((entry) => hubTag(entry) ?? []) };
 }
 
+/** The npm advisories against a pnpm version; null when the registry does not answer. */
+export async function fetchPnpmAdvisories(version: string): Promise<BulkAdvisory[] | null> {
+  const answer = await fetchJson('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ pnpm: [version] }),
+  });
+  return answer ? ((answer as { pnpm?: BulkAdvisory[] }).pnpm ?? []) : null;
+}
+
 /** Ask every feed the pins need, in parallel. Only pins whose tag names a minor reach Docker Hub. */
 export async function fetchRuntimeFeeds(pins: RuntimePins, cwd: string, now: number): Promise<RuntimeFeeds> {
   const nodeMajor = pins.node ? parseComparableVersion(pins.node)?.major : undefined;
   const [node, published, advisories, images] = await Promise.all([
     nodeMajor === undefined ? null : fetchNodeReleases(nodeMajor, now),
     pins.pnpm ? fetchPublishTimes('pnpm', cwd) : null,
-    pins.pnpm
-      ? fetchJson('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', {
-          method: 'POST',
-          headers: { 'content-type': 'application/json' },
-          body: JSON.stringify({ pnpm: [pins.pnpm] }),
-        })
-      : null,
+    pins.pnpm ? fetchPnpmAdvisories(pins.pnpm) : null,
     Promise.all(pins.images.map(fetchImageTags)),
   ]);
-  const pnpmAdvisories = (advisories as { pnpm?: BulkAdvisory[] } | null)?.pnpm;
-  return {
-    node,
-    pnpm: published && advisories ? { published, advisories: pnpmAdvisories ?? [] } : null,
-    images,
-  };
+  return { node, pnpm: published && advisories ? { published, advisories } : null, images };
 }
 
 const count = (n: number, noun: string, plural = `${noun}s`): string => `${n} ${n === 1 ? noun : plural}`;
@@ -254,7 +255,7 @@ const monthYear = (time: number): string =>
   new Date(time).toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).toLowerCase();
 
 /** The highest version above `pinned` in its major that is older than the release age. */
-function newestAged(pinned: string, versions: Array<{ version: string; publishedAt: number }>, cutoff: number) {
+export function newestAged(pinned: string, versions: Array<{ version: string; publishedAt: number }>, cutoff: number) {
   const major = parseComparableVersion(pinned)?.major;
   return versions
     .filter(

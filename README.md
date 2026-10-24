@@ -20,7 +20,7 @@ pnpm cella audit
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
 | `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit |
+| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -377,6 +377,21 @@ exact version, against their own release feeds:
 A pin moves within its major, to the newest version older than `minimumReleaseAge`. A Node bump
 waits until Docker Hub has the `node:<version><suffix>` images the Dockerfiles build from, and the
 audit prints what is left to do on your machine: switching its Node, and building each changed image.
+
+### This machine
+
+The pins say what the workspace should run; the tools on your machine can still miss security
+fixes. Below the table the audit shows, for each one, what it misses:
+
+| Tool | Which one | Feed |
+|------|-----------|------|
+| Node | the one running the audit, which also runs the workspace | nodejs.org release index |
+| pnpm | the one your terminal starts, before it switches to `packageManager` | npm advisory database |
+| gh | the one on your PATH | OSV |
+
+A tool that misses a fix gets a dot and the command to fix it, for the way it was installed (Volta,
+Homebrew, or pnpm's own `self-update`), naming the newest version that has every fix and is older
+than `minimumReleaseAge`. The audit does not change these tools itself.
 
 ### Holding a package back
 
