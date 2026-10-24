@@ -19,7 +19,20 @@ export interface OutdatedPackage {
   latestManifest?: { repository?: { url?: string } };
 }
 
+/**
+ * The package name of a `pnpm -r outdated --json` key. pnpm keys a name that has several entries
+ * (another installed version or dependency type) as `name@current (dev)`.
+ */
+export function outdatedPackageName(key: string): string {
+  const name = key.split(' ')[0];
+  const at = name.indexOf('@', 1);
+  return at === -1 ? name : name.slice(0, at);
+}
+
 export interface EnhancedPackageInfo {
+  /** The checkbox value: pnpm's outdated key for a package, `runtime:<file>:<name>` for a runtime pin. */
+  key: string;
+  /** The package name as a manifest lists it, or the runtime's name. */
   name: string;
   current: string;
   latest: string;

@@ -1,4 +1,4 @@
-import { chmodSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -10,6 +10,12 @@ import { getEnv } from '../src/utils/env';
 
 const securityPass = vi.hoisted(() => vi.fn());
 vi.mock('../src/services/audit-security', () => ({ runSecurityPass: securityPass }));
+
+// The update prompt ticks every row.
+vi.mock('@inquirer/prompts', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@inquirer/prompts')>()),
+  checkbox: async ({ choices }: { choices: Array<{ value?: string }> }) => choices.flatMap((c) => c.value ?? []),
+}));
 
 describe('audit-utils', () => {
   describe('getRepoUrl', () => {
@@ -55,6 +61,7 @@ describe('audit-utils', () => {
     let bin: string;
 
     beforeEach(() => {
+      securityPass.mockClear();
       bin = mkdtempSync(join(tmpdir(), 'cella-fake-pnpm-'));
       const script = join(bin, 'pnpm');
       writeFileSync(
@@ -89,6 +96,36 @@ describe('audit-utils', () => {
       expect(printed).toContain('pnpm outdated gave no answer');
       expect(printed).not.toContain('up to date');
       expect(securityPass).not.toHaveBeenCalled();
+    });
+
+    it('updates a package that one workspace lists as a dependency and another as a devDependency', async () => {
+      const fork = join(bin, 'fork');
+      const entry = (dependencyType: string, dependent: string) => {
+        mkdirSync(join(fork, dependent), { recursive: true });
+        writeFileSync(
+          join(fork, dependent, 'package.json'),
+          `${JSON.stringify({ name: dependent, [dependencyType]: { i18next: '^26.5.4' } }, null, 2)}\n`,
+        );
+        return {
+          current: '26.5.4',
+          latest: '26.5.6',
+          dependencyType,
+          dependentPackages: [{ name: dependent, location: join(fork, dependent) }],
+        };
+      };
+      // pnpm 11 keys a name with several entries as `name@current (dev)`.
+      const outdated = {
+        'i18next@26.5.4': entry('dependencies', 'frontend'),
+        'i18next@26.5.4 (dev)': entry('devDependencies', 'backend'),
+      };
+      vi.stubEnv('FAKE_PNPM_STDOUT', JSON.stringify(outdated));
+      vi.spyOn(console, 'info').mockImplementation(() => {});
+
+      await runAudit({ forkPath: fork } as RuntimeConfig);
+
+      const { manifests } = securityPass.mock.calls[0][1].edits;
+      expect(JSON.parse(manifests['frontend/package.json']).dependencies.i18next).toBe('^26.5.6');
+      expect(JSON.parse(manifests['backend/package.json']).devDependencies.i18next).toBe('^26.5.6');
     });
   });
 });

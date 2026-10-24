@@ -19,6 +19,7 @@ import {
   getVulnIcon,
   middleTruncate,
   type OutdatedPackage,
+  outdatedPackageName,
   readReleaseAgeMinutes,
   rewriteSpecifier,
   runPnpmAudit,
@@ -124,7 +125,8 @@ function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Retu
     SEVERITIES.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
   const readDependentPkg = createDependentPkgReader();
 
-  const rows: EnhancedPackageInfo[] = Object.entries(outdated).map(([name, pkg]) => {
+  const rows: EnhancedPackageInfo[] = Object.entries(outdated).map(([key, pkg]) => {
+    const name = outdatedPackageName(key);
     const repoUrl = getRepoUrl(pkg.latestManifest?.repository?.url);
     // pnpm leaves `current` out for a dependency that is not installed.
     const current = pkg.current ?? 'missing';
@@ -139,6 +141,7 @@ function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Retu
     }
 
     return {
+      key,
       name,
       current,
       latest: pkg.latest,
@@ -157,6 +160,7 @@ function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Retu
 
 function runtimeRow(update: RuntimeUpdate): EnhancedPackageInfo {
   return {
+    key: `runtime:${update.file}:${update.name}`,
     name: update.name,
     current: update.current,
     latest: update.target,
@@ -170,10 +174,6 @@ function runtimeRow(update: RuntimeUpdate): EnhancedPackageInfo {
     runtime: update,
   };
 }
-
-/** The checkbox value of a row; runtime rows get their own namespace, so a package name never collides. */
-const rowKey = (row: EnhancedPackageInfo): string =>
-  row.runtime ? `runtime:${row.runtime.file}:${row.name}` : row.name;
 
 const isRed = (row: EnhancedPackageInfo): boolean => row.severity === 'critical' || row.severity === 'high';
 
@@ -284,7 +284,7 @@ function buildUpdateChoices(
     ].filter(Boolean);
     return {
       name: `${row.name}${devTag}  ${version}${notes.length > 0 ? `  ${notes.join('  ')}` : ''}`,
-      value: rowKey(row),
+      value: row.key,
       checked: isRed(row),
     };
   };
@@ -371,7 +371,7 @@ async function planEdits(
     summary.set(label, [...(summary.get(label) ?? []), item]);
   };
 
-  const chosen = rows.filter((row) => selected.includes(rowKey(row)));
+  const chosen = rows.filter((row) => selected.includes(row.key));
   for (const row of chosen) {
     if (row.runtime) continue;
     for (const { name: dependent, location } of row.dependentPackages) {
