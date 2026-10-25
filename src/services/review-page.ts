@@ -19,11 +19,32 @@ import {
   spinnerSuccess,
 } from '../utils/display';
 
-/** Diffs on one page at most: each costs ~60 ms to render and ~85 KB of page. The rest are listed by path. */
-const MAX_PAGE_FILES = 50;
+/**
+ * What one page renders at most; the rest is listed by path. A rendered patch line costs about
+ * 0.6 KB of page, so the line budget keeps a page near 9 MB: 42 drizzle snapshot diffs once made
+ * a 164 MB page that browsers could not open.
+ */
+export interface ReviewPageLimits {
+  /** Diffs on the page, each ~60 ms to render */
+  files: number;
+  /** Patch lines across the page */
+  lines: number;
+  /** Patch lines of one file: a larger patch would take a large share of the page */
+  patchLines: number;
+}
 
-/** Larger patches are listed instead of rendered: highlighting them stalls the run. */
+const PAGE_LIMITS: ReviewPageLimits = { files: 50, lines: 15_000, patchLines: 2_000 };
+
+/** Larger patches are listed without counting their lines: highlighting them stalls the run. */
 const MAX_PATCH_BYTES = 512 * 1024;
+
+/** What {@link writeReviewPage} wrote: the page, its diffs, and the files it lists without one. */
+export interface ReviewPage {
+  path: string;
+  diffs: number;
+  listed: number;
+  sections: number;
+}
 
 /** The files of one terminal list, and the `from..to` refs their diffs run over. */
 export interface ReviewSection {
@@ -98,47 +119,68 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
   return sections.filter((section) => section.paths.length > 0);
 }
 
+/** Lines in a patch, without decoding it. */
+function countLines(patch: Buffer): number {
+  let count = 0;
+  for (let at = patch.indexOf(10); at !== -1; at = patch.indexOf(10, at + 1)) count++;
+  return count;
+}
+
 /**
- * Write the review page for `sections` and return its path with the number of diffs on it.
- * Files past the page limit, oversized patches and patches without a text hunk (binary, mode
- * only) are listed by path. Undefined when no file has a diff.
+ * Write the review page for `sections` and return its path, its diffs and the files it lists
+ * without one. Sections take turns, one file each, so a section of large diffs cannot fill the
+ * page before the next gets any. Files past the page limits, oversized patches and patches without
+ * a text hunk (binary, mode only) are listed by path. Undefined when no file has a diff.
  */
 export async function writeReviewPage(
   forkPath: string,
   sections: ReviewSection[],
   meta: { command: 'analyze' | 'sync'; range: string },
-): Promise<{ path: string; diffs: number } | undefined> {
+  limits: ReviewPageLimits = PAGE_LIMITS,
+): Promise<ReviewPage | undefined> {
   const [base, upstream] = meta.range.split('..');
+  const pageSections: Array<Required<DiffPageSection>> = sections.map((section) => ({
+    title: section.title,
+    hint: section.hint,
+    files: [],
+    omitted: [],
+  }));
+  const queues = sections.map((section) => [...section.paths]);
   let diffs = 0;
-  const pageSections: DiffPageSection[] = [];
+  let lines = 0;
 
-  for (const section of sections) {
-    const pageSection: DiffPageSection = { title: section.title, hint: section.hint, files: [], omitted: [] };
-    for (const path of section.paths) {
-      if (diffs >= MAX_PAGE_FILES) {
-        pageSection.omitted?.push(path);
+  while (queues.some((queue) => queue.length > 0)) {
+    for (const [index, queue] of queues.entries()) {
+      const path = queue.shift();
+      if (path === undefined) continue;
+      const pageSection = pageSections[index];
+      if (diffs >= limits.files || lines >= limits.lines) {
+        pageSection.omitted.push(path);
         continue;
       }
-      const patch = gitDiffFile(forkPath, section.range, path);
+      const patch = gitDiffFile(forkPath, sections[index].range, path);
       if (patch.length === 0) continue;
-      if (patch.length > MAX_PATCH_BYTES || !patch.includes('\n@@ ')) {
-        pageSection.omitted?.push(path);
+      const patchLines = patch.length > MAX_PATCH_BYTES ? Number.POSITIVE_INFINITY : countLines(patch);
+      if (patchLines > limits.patchLines || lines + patchLines > limits.lines || !patch.includes('\n@@ ')) {
+        pageSection.omitted.push(path);
         continue;
       }
       pageSection.files.push({ path, patch: patch.toString() });
       diffs++;
+      lines += patchLines;
     }
-    if (pageSection.files.length > 0 || pageSection.omitted?.length) pageSections.push(pageSection);
   }
 
   if (diffs === 0) return undefined;
+  const shown = pageSections.filter((section) => section.files.length > 0 || section.omitted.length > 0);
   const page = await writeDiffPage(
-    pageSections,
+    shown,
     { title: `${meta.command} review`, note: `${basename(forkPath)} · last sync ${base} → upstream ${upstream}` },
     forkPath,
     `${meta.command}-review`,
   );
-  return { path: page, diffs };
+  const listed = shown.reduce((count, section) => count + section.omitted.length, 0);
+  return { path: page, diffs, listed, sections: shown.length };
 }
 
 /**
@@ -155,7 +197,7 @@ export async function reportReviewPage(
   if (sections.length === 0 || !result.upstreamDiffRange) return;
 
   createSpinner('writing review page...');
-  let page: Awaited<ReturnType<typeof writeReviewPage>>;
+  let page: ReviewPage | undefined;
   try {
     page = await writeReviewPage(forkPath, sections, { command, range: result.upstreamDiffRange });
   } catch {
@@ -165,9 +207,10 @@ export async function reportReviewPage(
   if (!page) return;
 
   const opened = command === 'sync' && process.stdout.isTTY === true && openInBrowser(page.path);
+  const listed = page.listed > 0 ? `, ${page.listed} listed without one` : '';
   console.info();
   console.info(
-    `${pc.cyan('⧈')} review page with ${plural(page.diffs, 'diff')}${opened ? ', opened in the browser' : ''}:`,
+    `${pc.cyan('⧈')} review page with ${plural(page.diffs, 'diff')}${listed}${opened ? ', opened in the browser' : ''}:`,
   );
   console.info(pc.dim(`  ${hyperlink(page.path, pathToFileURL(page.path).href)}`));
 }

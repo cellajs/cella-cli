@@ -5,7 +5,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { MAX_BUFFER } from './git';
 
@@ -180,12 +180,16 @@ export async function writeDiffPage(
   name: string,
 ): Promise<string> {
   const html = await renderDiffPage(sections, meta);
-  const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: repoPath, encoding: 'utf8' }).trim();
-  const dir = join(gitDir, 'cella-diff');
-  mkdirSync(dir, { recursive: true });
-  const outPath = join(dir, `${name.replace(/[^\w.-]+/g, '-')}.html`);
+  const outPath = diffPagePath(repoPath, name);
+  mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
   return outPath;
+}
+
+/** Where {@link writeDiffPage} writes the page called `name`: `<git dir>/cella-diff/<name>.html`. */
+export function diffPagePath(repoPath: string, name: string): string {
+  const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: repoPath, encoding: 'utf8' }).trim();
+  return join(gitDir, 'cella-diff', `${name.replace(/[^\w.-]+/g, '-')}.html`);
 }
 
 /**

@@ -186,7 +186,7 @@ describe('review page', () => {
       });
 
       expect(page?.path).toBe(path.join(fs.realpathSync(repoPath), '.git', 'cella-diff', 'analyze-review.html'));
-      expect(page?.diffs).toBe(5);
+      expect(page).toMatchObject({ diffs: 5, listed: 1, sections: 5 });
       const text = visibleText(fs.readFileSync(page?.path ?? '', 'utf-8'));
       for (const title of ['protected but behind upstream', 'drifted from upstream']) expect(text).toContain(title);
       // Each section's diff runs over its own refs: upstream's changes, and the fork's own change.
@@ -206,6 +206,51 @@ describe('review page', () => {
       expect(html).toContain('<li><code>drift.bin</code></li>');
     });
 
+    it('lists a patch over the per-file line limit instead of rendering it', async () => {
+      const page = await writeReviewPage(
+        repoPath,
+        reviewSections(result, 'analyze'),
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 50, lines: 15_000, patchLines: 1 },
+      );
+
+      // Every text patch has more than one line, so only listings are left and nothing renders.
+      expect(page).toBeUndefined();
+    });
+
+    it('lets sections take turns, so a long section cannot fill the page before the next gets a diff', async () => {
+      const sections = [
+        { title: 'first', hint: '', range: `${base}..${upstream}`, paths: ['pinned.css', 'masking.css', 'plain.ts'] },
+        { title: 'second', hint: '', range: `${base}..HEAD`, paths: ['drift.ts'] },
+      ];
+
+      const page = await writeReviewPage(
+        repoPath,
+        sections,
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 2, lines: 15_000, patchLines: 2_000 },
+      );
+
+      expect(page).toMatchObject({ diffs: 2, listed: 2, sections: 2 });
+      const html = fs.readFileSync(page?.path ?? '', 'utf-8');
+      expect(visibleText(html)).toContain('fork-change');
+      expect(html).toContain('<li><code>masking.css</code></li>');
+      expect(html).toContain('<li><code>plain.ts</code></li>');
+    });
+
+    it('stops rendering at the page line budget and lists the rest', async () => {
+      const page = await writeReviewPage(
+        repoPath,
+        reviewSections(result, 'analyze'),
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 50, lines: 12, patchLines: 2_000 },
+      );
+
+      expect(page?.diffs).toBeGreaterThan(0);
+      expect(page?.diffs).toBeLessThan(5);
+      expect((page?.diffs ?? 0) + (page?.listed ?? 0)).toBe(6);
+    });
+
     it('writes nothing when no listed file has a diff', async () => {
       const sections = [{ title: 'none', hint: '', range: 'HEAD..HEAD', paths: ['drift.ts'] }];
 
@@ -217,7 +262,7 @@ describe('review page', () => {
     it('prints the page path after analyze without opening it', async () => {
       const out = await report('analyze');
 
-      expect(out).toContain('review page with 5 diffs:');
+      expect(out).toContain('review page with 5 diffs, 1 listed without one:');
       expect(out).toContain(path.join('.git', 'cella-diff', 'analyze-review.html'));
       expect(fs.existsSync(argsFile)).toBe(false);
     });
