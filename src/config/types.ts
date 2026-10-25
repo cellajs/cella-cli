@@ -182,7 +182,7 @@ export const cellaConfigSchema = z
 // Internal types for the services.
 
 /** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'sync' | 'migrate' | 'audit' | 'forks' | 'contributions' | 'stats';
+export type SyncService = 'analyze' | 'sync' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
 
 /** Analyze output scope for interactive and machine-readable flows */
 export type AnalyzeScope = 'all' | 'risk' | 'protected';
@@ -244,22 +244,22 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Print the `since` table as markdown for a pull request description (stats service) */
   md?: boolean;
 
-  /** List every upstream migration note, not only the open ones (migrate service) */
+  /** List every upstream alignment, not only the open ones (align service) */
   all?: boolean;
 
-  /** Print one migration note's README (migrate service) */
+  /** Print one alignment's README (align service) */
   show?: string;
 
-  /** Write one migration note's folder where its codemod can run (migrate service) */
+  /** Write one alignment's folder where its codemod can run (align service) */
   extract?: string;
 
-  /** Run one migration note's codemod, keeping files identical to upstream as they are (migrate service) */
+  /** Run one alignment's codemod, keeping files identical to upstream as they are (align service) */
   run?: string;
 
-  /** Arguments after `--`, passed to the codemod as given (migrate service, with `run`) */
+  /** Arguments after `--`, passed to the codemod as given (align service, with `run`) */
   runArgs?: string[];
 
-  /** Migration note ids to record as handled (migrate service) */
+  /** Alignment ids to record as handled (align service) */
   mark?: string[];
 }
 
@@ -380,10 +380,10 @@ export interface MergeResult {
   /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
   /**
-   * Upstream migration notes: how many the incoming ref holds, which ones upstream added since the
+   * Upstream alignments: how many the incoming ref holds, which ones upstream added since the
    * sync point, and how many stay open in the fork once those are added.
    */
-  migrationNotes?: { total: number; arrived: string[]; open: number };
+  alignments?: { total: number; arrived: string[]; open: number };
 }
 
 /** Entries of one sync config list (`pinned`, `ignored` or `packageJsonSync`) that the fork config does not mirror. */

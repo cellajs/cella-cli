@@ -17,6 +17,14 @@ import {
   SYNC_APPLIED_STATUSES,
   type UpstreamOverridesReport,
 } from '../config/types';
+import {
+  arrivedAlignmentIds,
+  listAlignmentIds,
+  PENDING_FILE,
+  readPending,
+  UPSTREAM_ONLY_DIRS,
+  writePending,
+} from '../utils/alignments';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
@@ -64,14 +72,6 @@ import {
 } from '../utils/git';
 import { CONFIG_FILE, isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
-import {
-  arrivedNoteIds,
-  listNoteIds,
-  NOTES_DIR,
-  PENDING_FILE,
-  readPending,
-  writePending,
-} from '../utils/migration-notes';
 import { groupIgnoredUpstreamChanges, isIgnored, isPinned } from '../utils/overrides';
 import { compareUpstreamOverrides } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
@@ -533,24 +533,27 @@ async function upstreamOnlyReports(
   }
 }
 
-/** Upstream migration notes for this sync range, plus the fork's pending list once the arrivals are added. */
-interface NotesInRange {
+/** Upstream alignments for this sync range, plus the fork's pending list once the arrivals are added. */
+interface AlignmentsInRange {
   total: number;
   arrived: string[];
   pending: string[];
 }
 
 /**
- * Read the migration notes for this sync range: upstream's notes at the incoming ref and the ones
- * added since the recorded sync point. Runs before the sync point moves. A failure yields no notes
- * and never fails the run.
+ * Read the alignments for this sync range: upstream's alignments at the incoming ref and the ones
+ * added since the recorded sync point. Runs before the sync point moves. A failure yields no
+ * alignments and never fails the run.
  */
-async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Promise<NotesInRange | undefined> {
+async function readAlignmentsInRange(
+  config: RuntimeConfig,
+  ctx: UpstreamContext,
+): Promise<AlignmentsInRange | undefined> {
   const { forkPath } = config;
   try {
     const [total, arrived, pending] = await Promise.all([
-      listNoteIds(forkPath, ctx.upstreamRef),
-      arrivedNoteIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
+      listAlignmentIds(forkPath, ctx.upstreamRef),
+      arrivedAlignmentIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
       readPending(forkPath),
     ]);
     return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
@@ -559,20 +562,24 @@ async function readNotesInRange(config: RuntimeConfig, ctx: UpstreamContext): Pr
   }
 }
 
-/** The {@link MergeResult} view of {@link NotesInRange}. */
-function notesResult(notes: NotesInRange | undefined): Pick<MergeResult, 'migrationNotes'> {
-  return notes ? { migrationNotes: { total: notes.total, arrived: notes.arrived, open: notes.pending.length } } : {};
+/** The {@link MergeResult} view of {@link AlignmentsInRange}. */
+function alignmentsResult(alignments: AlignmentsInRange | undefined): Pick<MergeResult, 'alignments'> {
+  return alignments
+    ? { alignments: { total: alignments.total, arrived: alignments.arrived, open: alignments.pending.length } }
+    : {};
 }
 
 /**
- * Remove the fork's copy of the upstream-only notes folder (forks that synced it before it became
+ * Remove the fork's copy of an upstream-only folder (forks that synced it before it became
  * upstream-only, and new apps whose scaffold cloned it). Staged with the sync.
  */
 async function removeUpstreamOnlyCopy(forkPath: string, onStep?: StepCallback): Promise<void> {
-  if (!existsSync(join(forkPath, NOTES_DIR))) return;
-  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', NOTES_DIR], forkPath);
-  await rm(join(forkPath, NOTES_DIR), { recursive: true, force: true });
-  onStep?.('migration notes', `removed ${NOTES_DIR}/: notes stay upstream, list them with pnpm cella migrate`);
+  for (const dir of UPSTREAM_ONLY_DIRS) {
+    if (!existsSync(join(forkPath, dir))) continue;
+    await git(['rm', '-r', '-q', '--ignore-unmatch', '--', dir], forkPath);
+    await rm(join(forkPath, dir), { recursive: true, force: true });
+    onStep?.('alignments', `removed ${dir}/: alignments stay upstream, list them with pnpm cella align`);
+  }
 }
 
 /**
@@ -591,7 +598,7 @@ async function runSyncMerge(
   // Last gate before anything merges (the CLI version gate runs in prepareUpstream)
   await assertSyncConfigFollowed(config, ctx);
 
-  const notes = await readNotesInRange(config, ctx);
+  const alignments = await readAlignmentsInRange(config, ctx);
 
   const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
     forkPath,
@@ -626,9 +633,9 @@ async function runSyncMerge(
     await storeLastSyncRef(forkPath, upstreamCommit.hash);
     await writeSyncManifest(forkPath, syncManifest);
     await stagePath(forkPath, MANIFEST_FILE);
-    // Notes that arrived join the fork's pending list; an empty list deletes the file.
-    if (notes) {
-      await writePending(forkPath, notes.pending);
+    // Alignments that arrived join the fork's pending list; an empty list deletes the file.
+    if (alignments) {
+      await writePending(forkPath, alignments.pending);
       await stagePath(forkPath, PENDING_FILE);
     }
     await removeUpstreamOnlyCopy(forkPath, onStep);
@@ -661,7 +668,7 @@ async function runSyncMerge(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
-    ...notesResult(notes),
+    ...alignmentsResult(alignments),
   };
 }
 
@@ -673,7 +680,7 @@ async function runAnalyzePreview(
   onStep?: StepCallback,
 ): Promise<MergeResult> {
   const { forkPath } = config;
-  const notes = await readNotesInRange(config, ctx);
+  const alignments = await readAlignmentsInRange(config, ctx);
 
   onProgress?.('analyzing files...');
   const analyzedFiles = await analyzeRefs(
@@ -698,7 +705,7 @@ async function runAnalyzePreview(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...reports,
-    ...notesResult(notes),
+    ...alignmentsResult(alignments),
   };
 }
 
