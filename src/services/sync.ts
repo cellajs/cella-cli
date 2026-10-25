@@ -254,9 +254,9 @@ async function syncAlignmentsStep(config: RuntimeConfig, run?: MergeResult): Pro
   return view ? alignmentsStep(config, view) : undefined;
 }
 
-/** The review page of this sync: the one this run wrote, or the one the merge run left. */
+/** The review page of this sync: the one this run wrote, or on a rerun the one the merge run left. */
 function syncReviewStep(config: RuntimeConfig, run?: SyncRunResult): NextStep | undefined {
-  const page = run?.reviewPage ?? existingSyncReviewPage(config.forkPath);
+  const page = run ? run.reviewPage : existingSyncReviewPage(config.forkPath);
   return page ? reviewStep(page) : undefined;
 }
 

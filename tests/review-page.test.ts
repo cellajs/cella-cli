@@ -295,12 +295,15 @@ describe('review page', () => {
       expect(await report('analyze')).toBeUndefined();
     });
 
-    it('finds the page an earlier sync run wrote', async () => {
+    it('finds the page the merge run of a sync wrote, and drops it when a later sync has nothing to review', async () => {
       expect(existingSyncReviewPage(repoPath)).toBeUndefined();
 
       await report('sync');
-
       expect(existingSyncReviewPage(repoPath)).toContain('sync-review.html');
+
+      result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
+      expect(await report('sync')).toBeUndefined();
+      expect(existingSyncReviewPage(repoPath)).toBeUndefined();
     });
   });
 

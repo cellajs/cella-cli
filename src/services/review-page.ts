@@ -3,7 +3,7 @@
  * asks you to review, under the same sections the terminal prints.
  */
 
-import { existsSync } from 'node:fs';
+import { existsSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
@@ -197,7 +197,8 @@ export interface ReviewPageReport extends ReviewPage {
 /**
  * After an analyze or sync report: write the review page. Sync opens it in the browser when
  * stdout is a terminal, since the upstream changes it lists did not arrive. Undefined when there
- * is nothing to review; a failure is undefined too and never fails the run.
+ * is nothing to review; a failure is undefined too and never fails the run. A sync with nothing to
+ * review removes the page an earlier sync left, so a rerun that resumes this merge never lists it.
  */
 export async function reportReviewPage(
   forkPath: string,
@@ -205,23 +206,34 @@ export async function reportReviewPage(
   command: 'analyze' | 'sync',
 ): Promise<ReviewPageReport | undefined> {
   const sections = reviewSections(result, command);
-  if (sections.length === 0 || !result.upstreamDiffRange) return undefined;
-
-  createSpinner('writing review page...');
   let page: ReviewPage | undefined;
-  try {
-    page = await writeReviewPage(forkPath, sections, { command, range: result.upstreamDiffRange });
-  } catch {
-    page = undefined;
+  if (sections.length > 0 && result.upstreamDiffRange) {
+    createSpinner('writing review page...');
+    try {
+      page = await writeReviewPage(forkPath, sections, { command, range: result.upstreamDiffRange });
+    } catch {
+      page = undefined;
+    }
+    spinnerSuccess();
   }
-  spinnerSuccess();
-  if (!page) return undefined;
+  if (!page) {
+    if (command === 'sync') removeSyncReviewPage(forkPath);
+    return undefined;
+  }
 
   const opened = command === 'sync' && process.stdout.isTTY === true && openInBrowser(page.path);
   return { ...page, command, opened };
 }
 
-/** The sync review page an earlier run of this sync wrote, when it is still there. */
+function removeSyncReviewPage(forkPath: string): void {
+  try {
+    rmSync(diffPagePath(forkPath, 'sync-review'), { force: true });
+  } catch {
+    // Not a git repo or no git: there is no page to remove either.
+  }
+}
+
+/** The sync review page the merge run of this sync wrote, when it is still there. */
 export function existingSyncReviewPage(forkPath: string): string | undefined {
   try {
     const path = diffPagePath(forkPath, 'sync-review');
