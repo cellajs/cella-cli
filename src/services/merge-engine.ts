@@ -533,11 +533,16 @@ async function upstreamOnlyReports(
   }
 }
 
-/** Upstream alignments for this sync range, plus the fork's pending list once the arrivals are added. */
+/** Upstream alignments for this sync range, and the fork's pending list before the arrivals are added. */
 interface AlignmentsInRange {
   total: number;
   arrived: string[];
   pending: string[];
+}
+
+/** The fork's pending list once a sync records the arrivals. */
+function pendingAfterSync(alignments: AlignmentsInRange): string[] {
+  return [...new Set([...alignments.pending, ...alignments.arrived])];
 }
 
 /**
@@ -556,17 +561,23 @@ async function readAlignmentsInRange(
       arrivedAlignmentIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
       readPending(forkPath),
     ]);
-    return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
+    return { total: total.length, arrived, pending };
   } catch {
     return undefined;
   }
 }
 
-/** The {@link MergeResult} view of {@link AlignmentsInRange}. */
-function alignmentsResult(alignments: AlignmentsInRange | undefined): Pick<MergeResult, 'alignments'> {
-  return alignments
-    ? { alignments: { total: alignments.total, arrived: alignments.arrived, open: alignments.pending.length } }
-    : {};
+/**
+ * The {@link MergeResult} view of {@link AlignmentsInRange}. A sync records the arrivals as open; a
+ * dry run leaves them arriving, since `pnpm cella align` only lists them once the sync lands.
+ */
+function alignmentsResult(
+  alignments: AlignmentsInRange | undefined,
+  options: { dryRun: boolean },
+): Pick<MergeResult, 'alignments'> {
+  if (!alignments) return {};
+  const open = options.dryRun ? alignments.pending : pendingAfterSync(alignments);
+  return { alignments: { total: alignments.total, arrived: alignments.arrived, open } };
 }
 
 /**
@@ -635,7 +646,7 @@ async function runSyncMerge(
     await stagePath(forkPath, MANIFEST_FILE);
     // Alignments that arrived join the fork's pending list; an empty list deletes the file.
     if (alignments) {
-      await writePending(forkPath, alignments.pending);
+      await writePending(forkPath, pendingAfterSync(alignments));
       await stagePath(forkPath, PENDING_FILE);
     }
     await removeUpstreamOnlyCopy(forkPath, onStep);
@@ -668,7 +679,7 @@ async function runSyncMerge(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
-    ...alignmentsResult(alignments),
+    ...alignmentsResult(alignments, { dryRun: false }),
   };
 }
 
@@ -705,7 +716,7 @@ async function runAnalyzePreview(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...reports,
-    ...alignmentsResult(alignments),
+    ...alignmentsResult(alignments, { dryRun: true }),
   };
 }
 

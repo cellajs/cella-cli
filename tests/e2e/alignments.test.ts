@@ -62,7 +62,7 @@ describe('alignments e2e', () => {
     expect(fileExists(env.forkPath, 'feature.ts')).toBe(true);
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
   });
 
   it('gives an app synced before the alignments only the ones upstream holds after deleting its notes', async () => {
@@ -87,7 +87,7 @@ describe('alignments e2e', () => {
 
     const result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
 
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
     expect(fileExists(env.forkPath, 'cella/migrations')).toBe(false);
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
@@ -164,7 +164,7 @@ describe('alignments e2e', () => {
 
     const result = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' }));
 
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [] });
     expect(pending(env.forkPath)).toBeNull();
   });
 

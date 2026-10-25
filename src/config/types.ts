@@ -381,9 +381,10 @@ export interface MergeResult {
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
   /**
    * Upstream alignments: how many the incoming ref holds, which ones upstream added since the
-   * sync point, and how many stay open in the fork once those are added.
+   * sync point, and the ones open in the fork after the run. A sync opens the arrivals; a dry run
+   * leaves them out of `open`.
    */
-  alignments?: { total: number; arrived: string[]; open: number };
+  alignments?: { total: number; arrived: string[]; open: string[] };
 }
 
 /** Entries of one sync config list (`pinned`, `ignored` or `packageJsonSync`) that the fork config does not mirror. */

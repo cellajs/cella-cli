@@ -125,7 +125,7 @@ export async function printAlignmentsLine(config: RuntimeConfig, result?: MergeR
     console.info();
     console.info(
       pc.dim(
-        formatAlignmentsLine(alignments.total, alignments.open, alignments.arrived.length, {
+        formatAlignmentsLine(alignments.total, alignments.open.length, alignments.arrived.length, {
           dryRun: config.service === 'analyze',
         }),
       ),

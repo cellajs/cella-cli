@@ -75,11 +75,12 @@ export function writeStdout(text: string): void {
 
 export function printHeader(): void {
   const left = '⧈ cella cli';
+  const version = ` · v${VERSION}`;
   const right = 'cellajs.com';
   // Padding counts the visible characters only, not the ANSI codes
-  const padding = Math.max(1, 60 - `${left} v${VERSION}`.length - right.length);
+  const padding = Math.max(1, DIVIDER.length - `${left}${version}${right}`.length);
   console.info();
-  console.info(`${pc.cyan(left)}${pc.dim(` · v${VERSION}`)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
+  console.info(`${pc.cyan(left)}${pc.dim(version)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
   console.info(DIVIDER);
   console.info();
 }

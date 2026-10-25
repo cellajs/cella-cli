@@ -67,10 +67,16 @@ describe('formatAlignmentsLine', () => {
     expect(formatAlignmentsLine(97, 3, 3)).toBe(
       'alignments: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella align',
     );
-    expect(formatAlignmentsLine(97, 3, 2, { dryRun: true })).toBe(
-      'alignments: 94 of 97 handled · 2 arrive with this sync · 3 open: pnpm cella align',
-    );
     expect(formatAlignmentsLine(97, 0)).toBe('alignments: all 97 handled');
+  });
+
+  it('counts arrivals in a dry run as neither handled nor open', () => {
+    expect(formatAlignmentsLine(97, 3, 2, { dryRun: true })).toBe(
+      'alignments: 92 of 97 handled · 2 arrive with this sync · 3 open: pnpm cella align',
+    );
+    expect(formatAlignmentsLine(1, 0, 1, { dryRun: true })).toBe(
+      'alignments: 0 of 1 handled · 1 arrives with this sync',
+    );
   });
 });
 
