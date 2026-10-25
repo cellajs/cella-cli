@@ -225,6 +225,27 @@ export function formatUpstreamCommits(
   return lines;
 }
 
+/** One step of `next steps`: a label for what to do, the command or link, and lines under it. */
+export interface NextStep {
+  label: string;
+  line: string;
+  details?: string[];
+}
+
+/**
+ * The `next steps` section that closes analyze and sync, numbered in the order to take them. The
+ * line and details of each step start at the column the engine's step details do.
+ */
+export function printNextSteps(steps: NextStep[]): void {
+  if (steps.length === 0) return;
+  printSectionHeader(pc.cyan('next steps'));
+  for (const [index, step] of steps.entries()) {
+    const label = step.label.padEnd(STEP_INDENT - 5);
+    console.info(`  ${pc.dim(String(index + 1))} ${pc.bold(label)} ${step.line}`.trimEnd());
+    for (const detail of step.details ?? []) console.info(`${' '.repeat(STEP_INDENT)}${detail}`);
+  }
+}
+
 /** A section header: a blank line, the title, the divider under it, and a blank line. */
 export function printSectionHeader(title: string): void {
   console.info();
@@ -239,7 +260,7 @@ export function formatMergeInProgressDetail(
   linkOptions: LinkOptions,
   maxFiles = 100,
 ): string {
-  const lines = [`${conflictCount} conflicts to resolve in IDE`];
+  const lines = [`${plural(conflictCount, 'conflict')} to resolve in your editor`];
 
   if (autoMergedFiles.length === 0) {
     return lines.join('\n');
@@ -359,15 +380,17 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
   const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
   const conflicts = result.conflicts.length;
 
+  const counts = `${plural(updated, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
   console.info();
   if (options.stagedBranch) {
     console.info(`${checkMark} sync merge staged on '${options.stagedBranch}'`);
-    console.info(
-      pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. committing next...`),
-    );
+    console.info(pc.dim(`  ${counts}. committing next...`));
+  } else if (conflicts > 0) {
+    console.info(`${warningMark} sync merge staged with conflicts`);
+    console.info(pc.dim(`  ${counts}`));
   } else {
     console.info(`${checkMark} sync complete`);
-    console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
+    console.info(pc.dim(`  ${counts}`));
   }
 
   printProtectedConflicts(result);

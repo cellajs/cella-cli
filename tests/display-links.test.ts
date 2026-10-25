@@ -62,7 +62,8 @@ describe('formatUpstreamCommits', () => {
 describe('formatMergeInProgressDetail', () => {
   it('shows only the conflict count when there are no auto-merged files', () => {
     const out = formatMergeInProgressDetail(2, [], {});
-    expect(out).toContain('2 conflicts to resolve in IDE');
+    expect(out).toContain('2 conflicts to resolve in your editor');
+    expect(formatMergeInProgressDetail(1, [], {})).toContain('1 conflict to resolve in your editor');
     expect(out).not.toContain('auto-merged files');
   });
 

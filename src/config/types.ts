@@ -368,6 +368,8 @@ export interface MergeResult {
   upstreamGitHubUrl?: string;
   /** Upstream commit info */
   upstreamCommit?: CommitRangeEntry;
+  /** Upstream commits since the last sync point */
+  upstreamCommitCount?: number;
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
   /**

@@ -21,7 +21,12 @@ import {
   COMMIT_LIST_MAX,
   checkMark,
   createSpinner,
+  hyperlink,
+  type NextStep,
+  plural,
   printEngineReports,
+  printNextSteps,
+  printStep,
   printSyncComplete,
   printUpstreamOverrideChanges,
   spinnerFail,
@@ -47,7 +52,6 @@ import {
   getMergeBase,
   getShortSha,
   getUpstreamStatus,
-  git,
   isAncestor,
   isClean,
   listBranchMergeCommits,
@@ -63,15 +67,15 @@ import {
   switchDetached,
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
-import { printAlignmentsLine } from './align';
+import { alignmentsStep, readOpenAlignments } from './align';
 import {
   BehindSyncPointError,
-  getGitHubBaseUrl,
+  readOriginGitHubUrl,
   runEngineWithSpinner,
   UpstreamConfigChangedError,
 } from './merge-engine';
 import { runPackages } from './packages';
-import { reportReviewPage } from './review-page';
+import { existingSyncReviewPage, type ReviewPageReport, reportReviewPage, reviewStep } from './review-page';
 
 /** Context for the temporary branch a sync cycle runs on. */
 interface TemporarySyncBranch {
@@ -184,13 +188,18 @@ async function returnToBase(forkPath: string, base: string): Promise<string> {
   return `back on '${base}'`;
 }
 
+/** A sync's merge result, with the review page the run wrote. */
+export interface SyncRunResult extends MergeResult {
+  reviewPage?: ReviewPageReport;
+}
+
 /** Run the merge engine against the current branch, leaving the merge staged in the fork. */
 export async function runSync(
   config: RuntimeConfig,
   options?: {
     stagedBranch?: string;
   },
-): Promise<MergeResult> {
+): Promise<SyncRunResult> {
   createSpinner('starting sync...');
 
   let result: MergeResult;
@@ -224,11 +233,55 @@ export async function runSync(
   const stagedBranch =
     options?.stagedBranch && result.conflicts.length === 0 && staged ? options.stagedBranch : undefined;
   printSyncComplete(result, { stagedBranch });
-  await reportReviewPage(config.forkPath, result, 'sync');
+  const reviewPage = await reportReviewPage(config.forkPath, result, 'sync');
 
-  await printAlignmentsLine(config, result);
+  return { ...result, reviewPage };
+}
 
-  return result;
+/** Conflicted files the `resolve` step lists before it counts the rest. */
+const CONFLICTS_LISTED = 10;
+
+/**
+ * The `align` step after a sync run: from the merge result when this run merged, otherwise from
+ * the fork's sync point and pending list.
+ */
+async function syncAlignmentsStep(config: RuntimeConfig, run?: MergeResult): Promise<NextStep | undefined> {
+  if (run?.alignments && run.upstreamCommit) {
+    const { open, arrived } = run.alignments;
+    return alignmentsStep(config, { ref: run.upstreamCommit.hash, open, arrived });
+  }
+  const view = await readOpenAlignments(config);
+  return view ? alignmentsStep(config, view) : undefined;
+}
+
+/** The review page of this sync: the one this run wrote, or the one the merge run left. */
+function syncReviewStep(config: RuntimeConfig, run?: SyncRunResult): NextStep | undefined {
+  const page = run?.reviewPage ?? existingSyncReviewPage(config.forkPath);
+  return page ? reviewStep(page) : undefined;
+}
+
+/** Next steps while a sync branch holds conflicts: resolve, let a rerun commit, review, align. */
+async function conflictSteps(config: RuntimeConfig, conflicts: string[], run?: SyncRunResult): Promise<NextStep[]> {
+  const listed = conflicts.slice(0, CONFLICTS_LISTED).map((file) => pc.dim(file));
+  if (conflicts.length > CONFLICTS_LISTED) listed.push(pc.dim(`+ ${conflicts.length - CONFLICTS_LISTED} more`));
+  const steps: Array<NextStep | undefined> = [
+    {
+      label: 'resolve',
+      line: `${plural(conflicts.length, 'conflict')} in your editor, then stage them`,
+      details: listed,
+    },
+    {
+      label: 'finish',
+      line: 'pnpm cella sync',
+      details: [
+        pc.dim('commits the sync and stops for drift triage'),
+        pc.dim('let the rerun commit: a manual `git commit` records a merge commit that bloats the PR'),
+      ],
+    },
+    syncReviewStep(config, run),
+    await syncAlignmentsStep(config, run),
+  ];
+  return steps.filter((step): step is NextStep => !!step);
 }
 
 /** Conventional PR title prefix required by release-please. */
@@ -430,8 +483,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   if (ghAvailable()) {
     console.info(pc.dim('opening a pull request...'));
     const prBody = (await buildSyncPrBodyForBranch(forkPath, cutBase)) ?? '';
-    const origin = await git(['remote', 'get-url', 'origin'], forkPath, { ignoreErrors: true });
-    const repoSlug = getGitHubBaseUrl(origin)?.replace('https://github.com/', '') ?? null;
+    const repoSlug = (await readOriginGitHubUrl(forkPath))?.replace('https://github.com/', '') ?? null;
     const pr = createPr(forkPath, repoSlug, { base, head: branch, title: prTitle, body: prBody });
     prUrl = pr.url;
     prOpened = pr.ok;
@@ -455,7 +507,17 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     console.info(`${checkMark} sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
-  await printAlignmentsLine(config);
+  const steps: Array<NextStep | undefined> = [
+    prUrl
+      ? {
+          label: 'merge',
+          line: hyperlink(pc.cyan(prUrl), prUrl),
+          details: [pc.dim(`squash-merge it into '${base}'; the next sync offers to while it is open`)],
+        }
+      : undefined,
+    await syncAlignmentsStep(config),
+  ];
+  printNextSteps(steps.filter((step): step is NextStep => !!step));
 }
 
 /**
@@ -472,11 +534,11 @@ function finalizeWorkspace(forkPath: string): boolean {
   return true;
 }
 
-/** Outcome of a sync cycle run on a fresh temporary branch. */
+/** Outcome of a sync cycle run on a fresh temporary branch, with its merge result when it merged. */
 type SyncCycleOutcome =
-  | { status: 'conflicts'; branch: TemporarySyncBranch }
-  | { status: 'staged'; branch: TemporarySyncBranch }
-  | { status: 'noop'; behind?: string };
+  | { status: 'conflicts'; branch: TemporarySyncBranch; result: SyncRunResult }
+  | { status: 'staged'; branch: TemporarySyncBranch; result: SyncRunResult }
+  | { status: 'noop'; behind?: string; result?: SyncRunResult };
 
 /**
  * Return to where the cycle started and drop the throwaway branch. Only for a branch that holds
@@ -517,7 +579,7 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
   const { forkPath } = config;
   const branch = await setupTemporarySyncBranch(config);
 
-  let result: MergeResult;
+  let result: SyncRunResult;
   try {
     result = await runSync(config, { stagedBranch: branch.temporaryBranch });
   } catch (error) {
@@ -536,31 +598,31 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
     await runPackages(config, { conflictedFiles: result.conflicts });
   }
 
-  if (result.conflicts.length > 0) return { status: 'conflicts', branch };
+  if (result.conflicts.length > 0) return { status: 'conflicts', branch, result };
 
   // Nothing staged: already up to date. Return to where the run started and drop the throwaway
   // branch (a fresh cycle never starts on a sync branch: those resume or ship instead).
   if (!(await mergeInProgress(forkPath))) {
     await discardTemporarySyncBranch(forkPath, branch);
-    return { status: 'noop' };
+    return { status: 'noop', result };
   }
 
-  return { status: 'staged', branch };
+  return { status: 'staged', branch, result };
 }
 
 /**
  * Commit an in-progress merge on the temporary sync branch as one single-parent commit, then stop
  * there for drift triage; shipping is always its own rerun. Stops early while conflicts remain.
+ * `run` is the merge this run made, absent when it resumes an earlier run's merge.
  */
-async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<void> {
+async function commitSyncMerge(config: RuntimeConfig, branch: string, run?: SyncRunResult): Promise<void> {
   const { forkPath } = config;
   const conflicts = await getConflictedFiles(forkPath);
 
   console.info();
   if (conflicts.length > 0) {
-    console.info(pc.yellow(`${conflicts.length} file(s) still conflict on '${branch}':`));
-    for (const file of conflicts) console.info(pc.dim(`  ${file}`));
-    console.info(pc.dim('resolve and stage them, then re-run `pnpm cella sync` to finish (it commits for you).'));
+    printStep('conflicts', `${plural(conflicts.length, 'file')} still conflict on '${branch}'`, warningMark);
+    printNextSteps(await conflictSteps(config, conflicts, run));
     return;
   }
 
@@ -569,9 +631,11 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<v
 
   if (!finalizeWorkspace(forkPath)) {
     console.info();
-    console.info(
-      pc.yellow('`pnpm install`/`pnpm check` failed. fix the issues, then re-run `pnpm cella sync` to finish.'),
-    );
+    printStep('checks', '`pnpm install` or `pnpm check` failed', warningMark);
+    printNextSteps([
+      { label: 'fix', line: 'what failed above', details: [pc.dim(`the merge stays staged on '${branch}'`)] },
+      { label: 'finish', line: 'pnpm cella sync', details: [pc.dim('commits the sync and stops for drift triage')] },
+    ]);
     return;
   }
 
@@ -580,11 +644,18 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   await stageAll(forkPath);
   await commitSquash(forkPath, message);
   console.info();
-  console.info(pc.green(`committed the sync on '${branch}' as '${message}'.`));
-  console.info(pc.dim(`staying on '${branch}' without pushing.`));
-  console.info(pc.dim('  run drift triage (`pnpm cella analyze`), commit any follow-ups, then:'));
-  console.info(pc.dim('  pnpm cella sync   (pushes the branch and opens the PR)'));
-  await printAlignmentsLine(config);
+  printStep('committed', `${message}\n${pc.dim(`on '${branch}', not pushed`)}`);
+  const steps: Array<NextStep | undefined> = [
+    syncReviewStep(config, run),
+    {
+      label: 'triage',
+      line: 'pnpm cella analyze',
+      details: [pc.dim('drift triage: commit any follow-ups on this branch')],
+    },
+    await syncAlignmentsStep(config, run),
+    { label: 'ship', line: 'pnpm cella sync', details: [pc.dim('pushes the branch and opens the squash-merge PR')] },
+  ];
+  printNextSteps(steps.filter((step): step is NextStep => !!step));
 }
 
 /**
@@ -703,26 +774,27 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   if ((await guardAgainstOpenSyncPr(config)) === 'cancel') return;
 
   const outcome = await runSyncCycle(config);
-  console.info();
 
   if (outcome.status === 'noop') {
+    console.info();
     if (outcome.behind) {
       console.info(pc.green('nothing to sync: the last sync already went past this upstream point.'));
       for (const line of outcome.behind.split('\n')) console.info(pc.dim(`  ${line}`));
     } else {
       console.info(pc.green('already up to date with upstream, nothing to sync.'));
     }
+    const align = await syncAlignmentsStep(config, outcome.result);
+    if (align) printNextSteps([align]);
     return;
   }
 
   const { temporaryBranch } = outcome.branch;
   if (outcome.status === 'conflicts') {
-    console.info(`${warningMark} ${pc.yellow(`conflicts on '${temporaryBranch}'. Resolve and stage them, then:`)}`);
-    console.info(pc.dim('  pnpm cella sync'));
-    console.info(pc.dim('  rerun commits the sync and stops for drift triage; a further rerun ships (push + PR).'));
-    console.info(pc.dim('  let the rerun commit: a manual `git commit` records a merge commit that bloats the PR.'));
+    const conflicts = await getConflictedFiles(forkPath);
+    printStep('conflicts', `${plural(conflicts.length, 'file')} on '${temporaryBranch}'`, warningMark);
+    printNextSteps(await conflictSteps(config, conflicts, outcome.result));
     return;
   }
 
-  await commitSyncMerge(config, temporaryBranch);
+  await commitSyncMerge(config, temporaryBranch, outcome.result);
 }

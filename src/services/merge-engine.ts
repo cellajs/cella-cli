@@ -331,6 +331,8 @@ interface UpstreamContext {
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
   upstreamCommit: CommitRangeEntry;
+  /** Upstream commits since the last sync */
+  commitCount: number;
 }
 
 /**
@@ -500,7 +502,7 @@ async function prepareUpstream(
     ].join('\n'),
   );
 
-  return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit };
+  return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit, commitCount };
 }
 
 /**
@@ -526,6 +528,7 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
     upstreamTag: ctx.releaseTag,
     upstreamGitHubUrl: ctx.upstreamGitHubUrl,
     upstreamCommit: ctx.upstreamCommit,
+    upstreamCommitCount: ctx.commitCount,
   };
 }
 
@@ -682,10 +685,7 @@ async function runSyncMerge(
   // and the finishing rerun tells a staged sync from a dirty tree, then commits it single-parent.
   if (remainingConflicts.length > 0) {
     await recordSyncPoint();
-    onStep?.(
-      'merge in progress',
-      formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100),
-    );
+    onStep?.('merged', formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100));
   } else if (totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
     await recordSyncPoint();

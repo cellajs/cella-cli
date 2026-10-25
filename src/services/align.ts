@@ -17,7 +17,8 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import type { MergeResult, RuntimeConfig } from '../config/types';
+import process from 'node:process';
+import type { RuntimeConfig } from '../config/types';
 import {
   ALIGNMENTS_DIR,
   type Alignment,
@@ -33,7 +34,7 @@ import {
 } from '../utils/alignments';
 import pc from '../utils/colors';
 import { DEFAULT_UPSTREAM_REMOTE } from '../utils/config';
-import { checkMark, writeStdout } from '../utils/display';
+import { checkMark, hyperlink, type NextStep, plural, writeStdout } from '../utils/display';
 import {
   batchRestoreWorktreeFromRef,
   ensureRemote,
@@ -105,37 +106,70 @@ async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | nul
   return ref;
 }
 
-/** Open and total alignment counts at the fork's sync point, for the info line; null before any sync. */
-async function readAlignmentsStatus(config: RuntimeConfig): Promise<{ total: number; open: number } | null> {
+/** Open alignments at the fork's sync point, for a run without a merge result; null before any sync. */
+export async function readOpenAlignments(config: RuntimeConfig): Promise<AlignmentsView | null> {
   try {
     const ref = await resolveAlignmentsRef(config);
     if (!ref) return null;
-    const [ids, pending] = await Promise.all([listAlignmentIds(config.forkPath, ref), readPending(config.forkPath)]);
-    return ids.length > 0 || pending.length > 0 ? { total: ids.length, open: pending.length } : null;
+    return { ref, open: await readPending(config.forkPath) };
   } catch {
     return null;
   }
 }
 
-/** Print the dim info line at the end of a sync or analyze run. Never fails the run. */
-export async function printAlignmentsLine(config: RuntimeConfig, result?: MergeResult): Promise<void> {
-  const alignments = result?.alignments;
-  if (alignments) {
-    if (alignments.total === 0) return;
-    console.info();
-    console.info(
-      pc.dim(
-        formatAlignmentsLine(alignments.total, alignments.open.length, alignments.arrived.length, {
-          dryRun: config.service === 'analyze',
-        }),
-      ),
-    );
-    return;
+/** Alignments for the `align` step: the ref to read them at, and the ids by state. */
+export interface AlignmentsView {
+  ref: string;
+  /** Open in the fork: listed by `pnpm cella align` */
+  open: string[];
+  /** Arriving with a sync a dry run previews: not open until the sync lands */
+  arriving?: string[];
+  /** Arrived with the sync this run made: open, and counted as such */
+  arrived?: string[];
+}
+
+/** Alignment rows the `align` step lists before it points to `pnpm cella align`. */
+const STEP_ROWS_MAX = 5;
+
+/** `manual · not sync-breaking`, `codemod · sync-breaking · caught by compiler`. */
+function alignmentTags(alignment: Alignment): string {
+  return [
+    alignment.codemod ? 'codemod' : 'manual',
+    alignment.syncBreaking ? 'sync-breaking' : 'not sync-breaking',
+    alignment.caughtBy ? `caught by ${alignment.caughtBy}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+}
+
+/**
+ * The `align` step that closes analyze and sync: the alignments arriving with the sync (in a dry
+ * run) and the open ones, by title with their kind, then the command. Without a terminal each row
+ * also gets its id, for `pnpm cella align --show <id>`. Undefined when there are none.
+ */
+export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView): Promise<NextStep | undefined> {
+  const arriving = view.arriving ?? [];
+  const open = view.open.filter((id) => !arriving.includes(id));
+  const arrived = (view.arrived ?? []).filter((id) => open.includes(id));
+  if (arriving.length === 0 && open.length === 0) return undefined;
+
+  const line =
+    arriving.length > 0
+      ? `${plural(arriving.length, 'alignment')} ${arriving.length === 1 ? 'arrives' : 'arrive'} with this sync${open.length > 0 ? pc.dim(` · ${open.length} open`) : ''}`
+      : `${plural(open.length, 'alignment')} open${arrived.length > 0 ? pc.dim(` · ${arrived.length} arrived with this sync`) : ''}`;
+
+  const githubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
+  const ids = [...arriving, ...open];
+  const details: string[] = [];
+  for (const id of ids.slice(0, STEP_ROWS_MAX)) {
+    const alignment = await readAlignment(config.forkPath, view.ref, id).catch(() => null);
+    const title = hyperlink(alignment?.title ?? id, alignmentUrl(githubUrl, view.ref, id));
+    details.push(`${pc.cyan('○')} ${title}${alignment ? pc.dim(` · ${alignmentTags(alignment)}`) : ''}`);
+    if (!process.stdout.isTTY) details.push(pc.dim(`  id ${id}`));
   }
-  const status = await readAlignmentsStatus(config);
-  if (!status) return;
-  console.info();
-  console.info(pc.dim(formatAlignmentsLine(status.total, status.open)));
+  if (ids.length > STEP_ROWS_MAX) details.push(pc.dim(`+ ${ids.length - STEP_ROWS_MAX} more`));
+  details.push(`${arriving.length > 0 ? pc.dim('after the sync: ') : ''}pnpm cella align`);
+  return { label: 'align', line, details };
 }
 
 /** Read the fork's overrides and its differences from the sync point, for the derived fields. */

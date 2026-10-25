@@ -242,22 +242,11 @@ export function alignmentUrl(upstreamGitHubUrl: string | undefined, commit: stri
 }
 
 /**
- * The one info line sync, analyze and align print, e.g.
- * `alignments: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella align`. In a dry
- * run the arrivals are not open yet, so they count as neither handled nor open.
+ * The info line `cella align` ends with, e.g. `alignments: 94 of 97 handled · 3 open: pnpm cella align`.
+ * Analyze and sync list the alignments under their `next steps` instead.
  */
-export function formatAlignmentsLine(
-  total: number,
-  open: number,
-  arrived?: number,
-  options: { dryRun?: boolean } = {},
-): string {
-  const unhandled = open + (options.dryRun ? (arrived ?? 0) : 0);
-  const parts = [unhandled === 0 ? `all ${total} handled` : `${Math.max(0, total - unhandled)} of ${total} handled`];
-  if (arrived) {
-    const verb = options.dryRun ? (arrived === 1 ? 'arrives' : 'arrive') : 'arrived';
-    parts.push(`${arrived} ${verb} with this sync`);
-  }
+export function formatAlignmentsLine(total: number, open: number): string {
+  const parts = [open === 0 ? `all ${total} handled` : `${Math.max(0, total - open)} of ${total} handled`];
   if (open > 0) parts.push(`${open} open: pnpm cella align`);
   return `alignments: ${parts.join(' · ')}`;
 }

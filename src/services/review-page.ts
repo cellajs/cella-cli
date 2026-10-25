@@ -3,18 +3,20 @@
  * asks you to review, under the same sections the terminal prints.
  */
 
+import { existsSync } from 'node:fs';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import type { MergeResult } from '../config/types';
 import pc from '../utils/colors';
-import { type DiffPageSection, gitDiffFile, openInBrowser, writeDiffPage } from '../utils/diff';
+import { type DiffPageSection, diffPagePath, gitDiffFile, openInBrowser, writeDiffPage } from '../utils/diff';
 import {
   createSpinner,
   filesWithStatus,
   findMaskingPins,
   findProtectedBehind,
   hyperlink,
+  type NextStep,
   plural,
   spinnerSuccess,
 } from '../utils/display';
@@ -186,18 +188,24 @@ export async function writeReviewPage(
   return { path: page, diffs, listed, sections: shown.length };
 }
 
+/** A written review page, and whether the run opened it in the browser. */
+export interface ReviewPageReport extends ReviewPage {
+  command: 'analyze' | 'sync';
+  opened: boolean;
+}
+
 /**
- * After an analyze or sync report: write the review page and print where it is. Sync opens it in
- * the browser when stdout is a terminal, since the upstream changes it lists did not arrive.
- * Silent when there is nothing to review; a failure prints nothing and never fails the run.
+ * After an analyze or sync report: write the review page. Sync opens it in the browser when
+ * stdout is a terminal, since the upstream changes it lists did not arrive. Undefined when there
+ * is nothing to review; a failure is undefined too and never fails the run.
  */
 export async function reportReviewPage(
   forkPath: string,
   result: MergeResult,
   command: 'analyze' | 'sync',
-): Promise<void> {
+): Promise<ReviewPageReport | undefined> {
   const sections = reviewSections(result, command);
-  if (sections.length === 0 || !result.upstreamDiffRange) return;
+  if (sections.length === 0 || !result.upstreamDiffRange) return undefined;
 
   createSpinner('writing review page...');
   let page: ReviewPage | undefined;
@@ -207,13 +215,43 @@ export async function reportReviewPage(
     page = undefined;
   }
   spinnerSuccess();
-  if (!page) return;
+  if (!page) return undefined;
 
   const opened = command === 'sync' && process.stdout.isTTY === true && openInBrowser(page.path);
-  const listed = page.listed > 0 ? `, ${page.listed} listed without one` : '';
-  console.info();
-  console.info(
-    `${pc.cyan('⧈')} review page with ${plural(page.diffs, 'diff')}${listed}${opened ? ', opened in the browser' : ''}:`,
-  );
-  console.info(pc.dim(`  ${hyperlink(page.path, pathToFileURL(page.path).href)}`));
+  return { ...page, command, opened };
+}
+
+/** The sync review page an earlier run of this sync wrote, when it is still there. */
+export function existingSyncReviewPage(forkPath: string): string | undefined {
+  try {
+    const path = diffPagePath(forkPath, 'sync-review');
+    return existsSync(path) ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `review` step: the page as a `file://` URL in full, so a terminal without OSC 8 links still
+ * makes it clickable, and what is on it. A page from an earlier run has no counts.
+ */
+export function reviewStep(page: ReviewPageReport | string): NextStep {
+  const path = typeof page === 'string' ? page : page.path;
+  const url = pathToFileURL(path).href;
+  let detail = pc.dim('upstream changes the sync did not bring in, from the merge run');
+  if (typeof page !== 'string') {
+    const what =
+      page.command === 'sync'
+        ? `${plural(page.diffs, 'diff')} of upstream changes that did not arrive`
+        : `${plural(page.diffs, 'diff')} in ${plural(page.sections, 'section')}`;
+    const notes = [
+      page.listed > 0 ? `${page.listed} listed without a diff` : '',
+      page.opened ? 'opened in the browser' : '',
+    ]
+      .filter(Boolean)
+      .map((note) => ` · ${note}`)
+      .join('');
+    detail = `${what}${notes ? pc.dim(notes) : ''}`;
+  }
+  return { label: 'review', line: hyperlink(pc.cyan(url), url), details: [detail] };
 }
