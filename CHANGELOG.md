@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.5.0](https://github.com/cellajs/cella-cli/compare/cli-0.4.2...cli-0.5.0) (2026-10-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* migration notes become alignments: pnpm cella align, and each one says how it is caught and what to grep for ([#58](https://github.com/cellajs/cella-cli/issues/58))
+
+### 🎉 New features
+
+* **analyze:** a shorter run that ends on next steps, and a review page that fits the browser ([#61](https://github.com/cellajs/cella-cli/issues/61)) ([689fcd2](https://github.com/cellajs/cella-cli/commit/689fcd2a0b0edfee3f2fb9ac50750f0cbd406c1f))
+* migration notes become alignments: pnpm cella align, and each one says how it is caught and what to grep for ([#58](https://github.com/cellajs/cella-cli/issues/58)) ([d65995e](https://github.com/cellajs/cella-cli/commit/d65995ea3e8343e704a572b884a367ffb3d9a69e))
+
+
+### 🐞 Bug fixes
+
+* **sync:** open the sync PR through the GitHub REST API, so it also opens from a cloud session ([#59](https://github.com/cellajs/cella-cli/issues/59)) ([f1351e5](https://github.com/cellajs/cella-cli/commit/f1351e54df2636d1312d8581187e0036596888f7))
+
 ## [0.4.2](https://github.com/cellajs/cella-cli/compare/cli-0.4.1...cli-0.4.2) (2026-10-24)
 
 
