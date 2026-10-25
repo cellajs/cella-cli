@@ -258,6 +258,12 @@ export async function mergeInProgress(cwd: string): Promise<boolean> {
   return (await revParse(cwd, 'MERGE_HEAD')) !== null;
 }
 
+/** A trailing `(#1519)` that squash merges add to a commit subject: the PR number, and the subject without it. */
+export function splitPrNumber(subject: string): { subject: string; pr?: number } {
+  const match = /\s*\(#(\d+)\)\s*$/.exec(subject);
+  return match ? { subject: subject.slice(0, match.index), pr: Number(match[1]) } : { subject };
+}
+
 export async function getShortSha(cwd: string, ref: string): Promise<string> {
   return git(['rev-parse', '--short', ref], cwd);
 }

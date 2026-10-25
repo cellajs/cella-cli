@@ -5,9 +5,16 @@
  * `formatMergeInProgressDetail`, including the VS Code open-file links for
  * auto-merged files.
  */
+
+import process from 'node:process';
 import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import { formatMergeInProgressDetail, formatUpstreamCommits } from '../src/utils/display';
+import {
+  formatCheckoutStep,
+  formatMergeInProgressDetail,
+  formatUpstreamCommits,
+  formatUpstreamStep,
+} from '../src/utils/display';
 
 const VSCODE_FILE = 'vscode://file';
 
@@ -82,5 +89,60 @@ describe('formatMergeInProgressDetail', () => {
     const bare = formatMergeInProgressDetail(1, ['a.ts'], {});
     expect(bare).toContain('  - a.ts');
     expect(bare).not.toContain(VSCODE_FILE);
+  });
+});
+
+describe('formatCheckoutStep', () => {
+  const checkout = {
+    forkPath: process.cwd(),
+    branch: 'main',
+    headSha: 'ac6106a',
+    changeCount: 0,
+    upstream: { upstream: 'origin/main', ahead: 0, behind: 0 },
+  };
+
+  it('says the tree is clean, and leaves out a branch in step with its remote', () => {
+    expect(stripVTControlCharacters(formatCheckoutStep(checkout))).toBe('main @ ac6106a · clean');
+  });
+
+  it('counts uncommitted changes and how far the branch is from its remote', () => {
+    const out = formatCheckoutStep({
+      ...checkout,
+      changeCount: 1,
+      upstream: { upstream: 'origin/main', ahead: 2, behind: 0 },
+    });
+
+    expect(stripVTControlCharacters(out)).toBe(
+      'main @ ac6106a · 1 uncommitted change, not included in the analysis · 2 ahead, 0 behind origin/main',
+    );
+  });
+
+  it('names the repo when it is not the current directory', () => {
+    expect(stripVTControlCharacters(formatCheckoutStep({ ...checkout, forkPath: '/elsewhere/fork' }))).toBe(
+      'main @ ac6106a · clean\n/elsewhere/fork',
+    );
+  });
+});
+
+describe('formatUpstreamStep', () => {
+  const upstream = { label: 'main', sha: 'b374861', baseSha: '3d56cca', pinned: false, commitCount: 0, commits: [] };
+
+  it('says when upstream has nothing new', () => {
+    expect(stripVTControlCharacters(formatUpstreamStep(upstream))).toBe(
+      'main @ b374861 · no new commits since the last sync',
+    );
+  });
+
+  it('counts the commits since the last sync and marks a pinned ref', () => {
+    const out = formatUpstreamStep({
+      ...upstream,
+      pinned: true,
+      commitCount: 1,
+      commits: [{ hash: 'b374861'.padEnd(40, '0'), message: 'fix: x (#7)', date: '' }],
+    });
+
+    const [first, commit] = stripVTControlCharacters(out).split('\n');
+    expect(first).toBe('main @ b374861 · --ref · 1 new commit since the last sync at 3d56cca');
+    expect(commit).toMatch(/^b374861 {2}fix: x +#7$/);
   });
 });

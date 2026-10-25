@@ -9,7 +9,7 @@ import type { AnalyzedFile, MergeResult } from '../config/types';
 import pc from '../utils/colors';
 import {
   filesWithStatus,
-  findProtectedBehind,
+  findProtectedBehindUpstream,
   hyperlink,
   type LinkOptions,
   plural,
@@ -338,11 +338,13 @@ function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Ro
  */
 function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions): void {
   const findEntry = entryFinder(options.overrides);
-  const ignoredOnly = new Set((result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths));
-  const items: ProtectedItem[] = [
-    ...findProtectedBehind(result.files).map((file) => ({ file, kind: 'changed' as const })),
-    ...result.files.filter((file) => ignoredOnly.has(file.path)).map((file) => ({ file, kind: changeKind(file) })),
-  ].map((item) => ({ ...item, entry: findEntry(item.file.path) }));
+  // Both sides changed reads as a change even where the fork deleted its copy; only upstream's own
+  // additions and deletions get a tag.
+  const items: ProtectedItem[] = findProtectedBehindUpstream(result).map((file) => ({
+    file,
+    kind: file.upstreamOnly ? changeKind(file) : 'changed',
+    entry: findEntry(file.path),
+  }));
   if (items.length === 0) return;
 
   const groups = new Map<string, ProtectedItem[]>();

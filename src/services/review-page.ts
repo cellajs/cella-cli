@@ -14,7 +14,7 @@ import {
   createSpinner,
   filesWithStatus,
   findMaskingPins,
-  findProtectedBehind,
+  findProtectedBehindUpstream,
   hyperlink,
   type NextStep,
   plural,
@@ -68,7 +68,6 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
   const [base, upstream] = result.upstreamDiffRange?.split('..') ?? [];
   if (!base || !upstream) return [];
   const sinceSync = `${base}..${upstream}`;
-  const ignoredOnly = (result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths);
 
   const sections: ReviewSection[] =
     command === 'sync'
@@ -83,7 +82,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
             title: 'ignored paths changed upstream',
             hint: 'What upstream changed under ignored paths since the last sync. The fork left these files untouched, and ignored paths never sync.',
             range: sinceSync,
-            paths: ignoredOnly,
+            paths: (result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths),
           },
         ]
       : [
@@ -91,7 +90,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
             title: 'protected but behind upstream',
             hint: 'What upstream changed in these files since the last sync. They are pinned or ignored, so the sync keeps the fork version and none of it arrives: adopt what you need.',
             range: sinceSync,
-            paths: [...findProtectedBehind(result.files).map((file) => file.path), ...ignoredOnly],
+            paths: findProtectedBehindUpstream(result).map((file) => file.path),
           },
         ];
 

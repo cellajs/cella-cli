@@ -7,8 +7,7 @@
 
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { join, resolve } from 'node:path';
-import process from 'node:process';
+import { join } from 'node:path';
 import {
   type AnalysisSummary,
   type AnalyzedFile,
@@ -32,8 +31,9 @@ import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
   COMMIT_STEP_MAX,
   createSpinner,
+  formatCheckoutStep,
   formatMergeInProgressDetail,
-  formatUpstreamCommits,
+  formatUpstreamStep,
   plural,
   printStep,
   spinnerText,
@@ -336,28 +336,6 @@ interface UpstreamContext {
 }
 
 /**
- * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
- * its remote when it is ahead or behind. The path shows when it is not the current directory, as
- * when `forks` syncs another repo.
- */
-function formatLocalCheckoutDetail(
-  forkPath: string,
-  branch: string,
-  headSha: string,
-  changeCount: number,
-  upstream: { upstream: string | null; ahead: number; behind: number },
-): string {
-  const parts = [
-    changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
-  ];
-  if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
-    parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
-  }
-  const line = `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
-  return resolve(forkPath) === resolve(process.cwd()) ? line : `${line}\n${pc.dim(forkPath)}`;
-}
-
-/**
  * Resolve a `--ref` to the upstream commit this run syncs to, after the fetch: an upstream branch
  * name, a release tag or a sha (see `resolveUpstreamCommit`). Refuses a ref that does not resolve,
  * or one upstream never published on its branch or in a release (a fork commit, an upstream
@@ -406,7 +384,7 @@ async function prepareUpstream(
     getWorkingTreeChangeCount(forkPath),
     getUpstreamStatus(forkPath),
   ]);
-  onStep?.('checkout', formatLocalCheckoutDetail(forkPath, branch, headSha, changeCount, upstreamStatus));
+  onStep?.('checkout', formatCheckoutStep({ forkPath, branch, headSha, changeCount, upstream: upstreamStatus }));
 
   onProgress?.('setting up upstream remote...');
   const { track: configTrack, branchRef } = resolveUpstream(config.settings);
@@ -490,16 +468,17 @@ async function prepareUpstream(
     getShortSha(forkPath, upstreamCommit.hash),
     getShortSha(forkPath, mergeBase),
   ]);
-  const commits =
-    commitCount === 0
-      ? 'no new commits since the last sync'
-      : `${plural(commitCount, 'new commit')} since the last sync at ${baseShort}`;
   onStep?.(
     'upstream',
-    [
-      `${releaseTag ?? branchRef.replace(`${remoteName}/`, '')} @ ${upstreamShort}${pc.dim(`${config.ref ? ' · --ref' : ''} · ${commits}`)}`,
-      ...formatUpstreamCommits(commitCount, upstreamCommits, upstreamGitHubUrl),
-    ].join('\n'),
+    formatUpstreamStep({
+      label: releaseTag ?? branchRef.replace(`${remoteName}/`, ''),
+      sha: upstreamShort,
+      baseSha: baseShort,
+      pinned: !!config.ref,
+      commitCount,
+      commits: upstreamCommits,
+      githubUrl: upstreamGitHubUrl,
+    }),
   );
 
   return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit, commitCount };

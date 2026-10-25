@@ -9,6 +9,7 @@ import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
+import { splitPrNumber } from './git';
 import { fitText, padVisible, shortAge, terminalColumns } from './layout';
 import { CONFIG_FILE, isGeneratedFile, isManagedFile } from './managed-files';
 
@@ -172,17 +173,58 @@ export function hyperlink(label: string, url?: string): string {
   return `\x1b]8;;${safeUrl}\x07${label}\x1b]8;;\x07`;
 }
 
-/** A trailing `(#1519)` in a squash-merge subject: the PR number, and the subject without it. */
-function splitPrNumber(subject: string): { subject: string; pr?: number } {
-  const match = /\s*\(#(\d+)\)\s*$/.exec(subject);
-  return match ? { subject: subject.slice(0, match.index), pr: Number(match[1]) } : { subject };
-}
-
 /** A commit subject colored by kind: releases dim, breaking changes (`feat!:`) with a yellow type. */
 function styleSubject(subject: string): string {
   if (/^chore(\([^)]*\))?: release\b/.test(subject)) return pc.dim(subject);
   const breaking = /^([a-z]+(\([^)]*\))?!:)/.exec(subject);
   return breaking ? `${pc.yellow(breaking[1])}${subject.slice(breaking[1].length)}` : subject;
+}
+
+/**
+ * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
+ * its remote when it is ahead or behind. The path shows when it is not the current directory, as
+ * when `forks` syncs another repo.
+ */
+export function formatCheckoutStep(checkout: {
+  forkPath: string;
+  branch: string;
+  headSha: string;
+  changeCount: number;
+  upstream: { upstream: string | null; ahead: number; behind: number };
+}): string {
+  const { forkPath, branch, headSha, changeCount, upstream } = checkout;
+  const parts = [
+    changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
+  ];
+  if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
+    parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
+  }
+  const line = `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
+  return resolve(forkPath) === resolve(process.cwd()) ? line : `${line}\n${pc.dim(forkPath)}`;
+}
+
+/**
+ * The `upstream` step: the branch or release synced to and how many commits it brings since the
+ * last sync, then those commits (see {@link formatUpstreamCommits}).
+ */
+export function formatUpstreamStep(upstream: {
+  label: string;
+  sha: string;
+  baseSha: string;
+  pinned: boolean;
+  commitCount: number;
+  commits: CommitRangeEntry[];
+  githubUrl?: string;
+}): string {
+  const { label, sha, baseSha, pinned, commitCount, commits, githubUrl } = upstream;
+  const since =
+    commitCount === 0
+      ? 'no new commits since the last sync'
+      : `${plural(commitCount, 'new commit')} since the last sync at ${baseSha}`;
+  return [
+    `${label} @ ${sha}${pc.dim(`${pinned ? ' · --ref' : ''} · ${since}`)}`,
+    ...formatUpstreamCommits(commitCount, commits, githubUrl),
+  ].join('\n');
 }
 
 /**
@@ -356,6 +398,19 @@ export function filesWithStatus(files: AnalyzedFile[], status: FileStatus): Anal
 export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
   // Generated output is rebuilt from the fork's own sources, so upstream's copy has nothing to adopt.
   return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path) && !isGeneratedFile(file.path));
+}
+
+/**
+ * Every protected file upstream changed since the last sync that the sync leaves as the fork has
+ * it: those both sides changed ({@link findProtectedBehind}) and the ignored files only upstream
+ * changed, added or deleted (`MergeResult.ignoredUpstreamChanges`). Analyze lists them as one
+ * section, on the terminal and on the review page.
+ */
+export function findProtectedBehindUpstream(
+  result: Pick<MergeResult, 'files' | 'ignoredUpstreamChanges'>,
+): AnalyzedFile[] {
+  const ignoredOnly = new Set((result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths));
+  return [...findProtectedBehind(result.files), ...result.files.filter((file) => ignoredOnly.has(file.path))];
 }
 
 /** Hint under the protected files a sync kept the fork version of. */

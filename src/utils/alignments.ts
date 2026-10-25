@@ -15,7 +15,7 @@
 import { existsSync } from 'node:fs';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
-import { git } from './git';
+import { git, splitPrNumber } from './git';
 
 /** Upstream folder holding one subfolder per alignment. Upstream-only: never synced into a fork. */
 export const ALIGNMENTS_DIR = 'cella/alignments';
@@ -165,7 +165,7 @@ export async function readAlignmentSource(cwd: string, ref: string, id: string):
   );
   if (!out) return null;
   const [commit, subject = ''] = out.split('\t');
-  const pr = /\(#(\d+)\)\s*$/.exec(subject)?.[1];
+  const { pr = null } = splitPrNumber(subject);
 
   const nulSeparated = (text: string) => text.split('\0').filter(Boolean);
   const [changed, added] = await Promise.all([
@@ -192,7 +192,7 @@ export async function readAlignmentSource(cwd: string, ref: string, id: string):
     .filter((other): other is string => !!other && other !== id && ALIGNMENT_ID.test(other))
     .sort();
 
-  return { commit, pr: pr ? Number(pr) : null, sharedCommit, changedFiles: nulSeparated(changed) };
+  return { commit, pr, sharedCommit, changedFiles: nulSeparated(changed) };
 }
 
 /**
