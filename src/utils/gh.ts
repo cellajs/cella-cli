@@ -1,7 +1,7 @@
 /**
  * GitHub CLI (`gh`) helpers for the cella CLI.
  *
- * Thin wrappers around `gh` used by the sync service to list, merge, and close the sync pull
+ * Thin wrappers around `gh` used by the sync service to open, list, merge, and close the sync pull
  * requests. Every wrapper degrades gracefully when `gh` is missing or a call fails, so a sync
  * run on a repo without `gh`/`origin` still works; it just skips the PR automation.
  */
@@ -59,6 +59,40 @@ export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
   }
 
   return parsed.filter((pr) => pr.headRefName.startsWith(`${prefix}/`)).sort((a, b) => b.number - a.number);
+}
+
+/**
+ * Open a PR through the GitHub REST API. `gh pr create` goes through GraphQL, which a Claude
+ * cloud session's GitHub proxy refuses. `repoSlug` is `owner/repo`; without it `gh` resolves
+ * `{owner}/{repo}` from the current repository. When the create fails, `url` is the open PR for
+ * the same head branch, if there is one (a PR that already exists gets a 422).
+ */
+export function createPr(
+  cwd: string,
+  repoSlug: string | null,
+  pr: { base: string; head: string; title: string; body: string },
+): GhResult & { url?: string } {
+  const repo = repoSlug ?? '{owner}/{repo}';
+  const fields = ['title', 'head', 'base', 'body'] as const;
+  const created = runGh(cwd, [
+    'api',
+    `repos/${repo}/pulls`,
+    '-X',
+    'POST',
+    ...fields.flatMap((field) => ['-f', `${field}=${pr[field]}`]),
+    '--jq',
+    '.html_url',
+  ]);
+  if (created.ok) return { ...created, url: created.output || undefined };
+
+  const owner = repoSlug ? repoSlug.split('/')[0] : '{owner}';
+  const existing = runGh(cwd, [
+    'api',
+    `repos/${repo}/pulls?state=open&head=${owner}:${pr.head}`,
+    '--jq',
+    '.[0].html_url // empty',
+  ]);
+  return { ...created, url: existing.ok && existing.output ? existing.output : undefined };
 }
 
 /** Squash-merge a PR (by number, branch, or URL) now; fails when the PR is not mergeable. */

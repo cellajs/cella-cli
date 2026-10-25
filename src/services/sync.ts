@@ -29,7 +29,7 @@ import {
   warningMark,
 } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import { closePr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
+import { closePr, createPr, type GhPullRequest, ghAvailable, listOpenSyncPrs, mergePrSquash } from '../utils/gh';
 import {
   branchExists,
   commitSquash,
@@ -47,6 +47,7 @@ import {
   getMergeBase,
   getShortSha,
   getUpstreamStatus,
+  git,
   isAncestor,
   isClean,
   listBranchMergeCommits,
@@ -63,7 +64,12 @@ import {
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
 import { printAlignmentsLine } from './align';
-import { BehindSyncPointError, runEngineWithSpinner, UpstreamConfigChangedError } from './merge-engine';
+import {
+  BehindSyncPointError,
+  getGitHubBaseUrl,
+  runEngineWithSpinner,
+  UpstreamConfigChangedError,
+} from './merge-engine';
 import { runPackages } from './packages';
 import { reportReviewPage } from './review-page';
 
@@ -423,15 +429,12 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
   if (ghAvailable()) {
     console.info(pc.dim('opening a pull request...'));
-    const prBody = await buildSyncPrBodyForBranch(forkPath, cutBase);
-    const bodyArgs = prBody ? ['--body', prBody] : ['--fill'];
-    const pr = spawnSync('gh', ['pr', 'create', '--base', base, '--head', branch, '--title', prTitle, ...bodyArgs], {
-      cwd: forkPath,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'pipe'],
-    });
-    prUrl = `${pr.stdout ?? ''}\n${pr.stderr ?? ''}`.match(/https?:\/\/\S+/)?.[0];
-    prOpened = pr.status === 0;
+    const prBody = (await buildSyncPrBodyForBranch(forkPath, cutBase)) ?? '';
+    const origin = await git(['remote', 'get-url', 'origin'], forkPath, { ignoreErrors: true });
+    const repoSlug = getGitHubBaseUrl(origin)?.replace('https://github.com/', '') ?? null;
+    const pr = createPr(forkPath, repoSlug, { base, head: branch, title: prTitle, body: prBody });
+    prUrl = pr.url;
+    prOpened = pr.ok;
     if (!prOpened) {
       console.info(pc.yellow('could not open the PR automatically (it may already exist). open it with:'));
       if (prUrl) console.info(pc.dim(`  ${prUrl}`));
