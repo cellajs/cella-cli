@@ -214,8 +214,10 @@ export async function analyzeRefs(
     push(status, { upstreamChanged: upstreamChanged || undefined, upstreamOnly: upstreamOnly || undefined });
   }
 
-  // Size the dropped incoming changes: one numstat call limited to the flagged paths.
-  const flagged = analyzedFiles.filter((file) => file.upstreamChanged && !renamedProtected.has(file.path));
+  // Size the incoming changes the sync leaves out: one numstat call limited to the flagged paths.
+  const flagged = analyzedFiles.filter(
+    (file) => (file.upstreamChanged && !renamedProtected.has(file.path)) || file.upstreamOnly,
+  );
   if (flagged.length > 0) {
     const stat = await getDiffStat(
       repoPath,
@@ -287,8 +289,8 @@ export async function enrichChangeInfo(
       setChanged(file, forkInfo.get(file.path));
     } else if (file.status === 'behind') {
       setChanged(file, upstreamInfo.get(file.path));
-    } else if (file.status === 'diverged' || file.status === 'pinned' || file.upstreamChanged) {
-      // Diverged/pinned (and protected files incoming also changed) carry both sides.
+    } else if (file.status === 'diverged' || file.status === 'pinned' || file.upstreamChanged || file.upstreamOnly) {
+      // Diverged/pinned (and protected files incoming changed) carry both sides.
       setChanged(file, forkInfo.get(file.path));
       const info = upstreamInfo.get(file.path);
       if (info) {

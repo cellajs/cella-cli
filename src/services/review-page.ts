@@ -58,44 +58,47 @@ export interface ReviewSection {
 /**
  * The review page's sections for a run, from the same lists the terminal prints. Sync shows the
  * upstream changes it did not bring in; analyze adds pinned files missing upstream lines and the
- * fork's own changes to files that still sync. Empty sections are left out, and so is every
- * section when the engine could not resolve the sync range.
+ * fork's own changes to files that still sync. Analyze lists ignored files only upstream changed
+ * under protected but behind upstream, as its terminal does. Empty sections are left out, and so is
+ * every section when the engine could not resolve the sync range.
  */
 export function reviewSections(result: MergeResult, command: 'analyze' | 'sync'): ReviewSection[] {
   const [base, upstream] = result.upstreamDiffRange?.split('..') ?? [];
   if (!base || !upstream) return [];
   const sinceSync = `${base}..${upstream}`;
+  const ignoredOnly = (result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths);
 
-  const dropped: ReviewSection =
+  const sections: ReviewSection[] =
     command === 'sync'
-      ? {
-          title: 'protected files kept the fork version',
-          hint: 'What upstream changed in these files since the last sync. The fork kept its own version, so none of it arrived: adopt what you need.',
-          range: sinceSync,
-          paths: result.protectedConflicts ?? [],
-        }
-      : {
-          title: 'protected but behind upstream',
-          hint: 'What upstream changed in these files since the last sync. They are pinned or ignored, so the sync keeps the fork version and none of it arrives: adopt what you need.',
-          range: sinceSync,
-          paths: findProtectedBehind(result.files).map((file) => file.path),
-        };
+      ? [
+          {
+            title: 'protected files kept the fork version',
+            hint: 'What upstream changed in these files since the last sync. The fork kept its own version, so none of it arrived: adopt what you need.',
+            range: sinceSync,
+            paths: result.protectedConflicts ?? [],
+          },
+          {
+            title: 'ignored paths changed upstream',
+            hint: 'What upstream changed under ignored paths since the last sync. The fork left these files untouched, and ignored paths never sync.',
+            range: sinceSync,
+            paths: ignoredOnly,
+          },
+        ]
+      : [
+          {
+            title: 'protected but behind upstream',
+            hint: 'What upstream changed in these files since the last sync. They are pinned or ignored, so the sync keeps the fork version and none of it arrives: adopt what you need.',
+            range: sinceSync,
+            paths: [...findProtectedBehind(result.files).map((file) => file.path), ...ignoredOnly],
+          },
+        ];
 
-  const sections: ReviewSection[] = [
-    dropped,
-    {
-      title: 'ignored paths changed upstream',
-      hint: 'What upstream changed under ignored paths since the last sync. The fork left these files untouched, and ignored paths never sync.',
-      range: sinceSync,
-      paths: (result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths),
-    },
-    {
-      title: 'pinned files that match the previous upstream',
-      hint: 'What upstream changed in these files since the last sync. The fork copy still equals the previous upstream, so the pin only drops these changes: unpin to take them.',
-      range: sinceSync,
-      paths: findMaskingPins(result.files).map((file) => file.path),
-    },
-  ];
+  sections.push({
+    title: 'pinned files that match the previous upstream',
+    hint: 'What upstream changed in these files since the last sync. The fork copy still equals the previous upstream, so the pin only drops these changes: unpin to take them.',
+    range: sinceSync,
+    paths: findMaskingPins(result.files).map((file) => file.path),
+  });
 
   if (command === 'analyze') {
     sections.push(

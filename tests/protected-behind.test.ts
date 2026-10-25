@@ -5,13 +5,14 @@
  * merge-base, upstream's hunks are dropped silently. `analyzeRefs` flags exactly those files
  * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehind` selects them for display,
  * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync. The diffs
- * themselves are on the review page, so neither list prints `git diff` lines.
+ * themselves are on the review page, so the list prints no `git diff` lines. The analyze section
+ * is covered in `analyze-report.test.ts`.
  */
 import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
-import { findProtectedBehind, printAnalysisFileGroups, printSyncComplete } from '../src/utils/display';
+import { findProtectedBehind, printSyncComplete } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
 import { captureInfo, createRepo, exec, analyzedFile as file, write } from './helpers/test-env';
 
@@ -128,42 +129,13 @@ describe('analyzeRefs upstreamChanged', () => {
   });
 });
 
-describe('printAnalysisFileGroups upstream lines absent', () => {
-  const capture = (files: AnalyzedFile[]) => captureInfo(() => printAnalysisFileGroups(files, {}));
-
-  it('lists protected-but-behind files with the hint and no git diff lines', () => {
-    const out = capture([
-      file({ path: 'shared/config/default.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
-      file({ path: 'frontend/src/my styles.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
-      file({ path: 'package.json', status: 'pinned', isPinned: true, upstreamChanged: true }),
-    ]);
-
-    expect(out).toContain('protected but behind upstream');
-    expect(out).toContain('shared/config/default.ts');
-    expect(out).toContain('frontend/src/my styles.css');
-    expect(out).toContain('adopt what you need');
-    expect(out).not.toContain('package.json');
-    expect(out).not.toContain('git diff');
-  });
-
-  it('annotates pinned ahead files with a positive count and prints the hint', () => {
-    const out = capture([
-      file({ path: 'frontend/src/styling/tailwind.css', status: 'ahead', isPinned: true, upstreamLinesAbsent: 7 }),
-      file({ path: 'clean.css', status: 'ahead', isPinned: true, upstreamLinesAbsent: 0 }),
-    ]);
-    expect(out).toContain('frontend/src/styling/tailwind.css');
-    expect(out).toContain('7 upstream lines absent');
-    expect(out).toMatch(/clean\.css\n/);
-    expect(out).toContain('`analyze --unpinned` shows what a merge would bring in');
-  });
-});
-
 describe('findProtectedBehind', () => {
-  it('selects flagged files and skips managed ones', () => {
+  it('selects flagged files and skips managed and generated ones', () => {
     const files = [
       file({ path: 'frontend/src/styling/tailwind.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
       file({ path: 'own/a.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
       file({ path: 'package.json', status: 'pinned', isPinned: true, upstreamChanged: true }),
+      file({ path: 'sdk/gen/types.gen.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
       file({ path: 'ahead.ts', status: 'ahead', isPinned: true }),
       file({ path: 'plain.ts', status: 'behind' }),
     ];

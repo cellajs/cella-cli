@@ -7,7 +7,8 @@
 
 import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import process from 'node:process';
 import {
   type AnalysisSummary,
   type AnalyzedFile,
@@ -26,13 +27,15 @@ import {
   writePending,
 } from '../utils/alignments';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
+import pc from '../utils/colors';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
-  COMMIT_LIST_MAX,
+  COMMIT_STEP_MAX,
   createSpinner,
-  formatFetchedUpstreamDetail,
   formatMergeInProgressDetail,
-  spinnerSuccess,
+  formatUpstreamCommits,
+  plural,
+  printStep,
   spinnerText,
   VERSION,
 } from '../utils/display';
@@ -110,6 +113,12 @@ export class UpstreamConfigChangedError extends Error {
 export function getGitHubBaseUrl(remoteUrl: string): string | null {
   const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
   return match ? `https://github.com/${match[1]}/${match[2]}` : null;
+}
+
+/** The fork's GitHub base URL from its `origin` remote; undefined without one on GitHub. */
+export async function readOriginGitHubUrl(forkPath: string): Promise<string | undefined> {
+  const origin = await git(['remote', 'get-url', 'origin'], forkPath, { ignoreErrors: true });
+  return getGitHubBaseUrl(origin.trim()) ?? undefined;
 }
 
 /** Protected whole-file resolution: the fork side wins outright (ignored or pinned). */
@@ -324,6 +333,11 @@ interface UpstreamContext {
   upstreamCommit: CommitRangeEntry;
 }
 
+/**
+ * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
+ * its remote when it is ahead or behind. The path shows when it is not the current directory, as
+ * when `forks` syncs another repo.
+ */
 function formatLocalCheckoutDetail(
   forkPath: string,
   branch: string,
@@ -331,15 +345,14 @@ function formatLocalCheckoutDetail(
   changeCount: number,
   upstream: { upstream: string | null; ahead: number; behind: number },
 ): string {
-  const tracking = upstream.upstream
-    ? `, tracking ${upstream.upstream} (${upstream.ahead} ahead, ${upstream.behind} behind)`
-    : ', no tracking branch';
-  const workingTree =
-    changeCount === 0
-      ? '  working tree clean'
-      : `  ${changeCount} uncommitted change${changeCount === 1 ? '' : 's'} in working tree, not included in analysis`;
-
-  return [`${forkPath}`, `  ${branch} @ ${headSha}${tracking}`, workingTree].join('\n');
+  const parts = [
+    changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
+  ];
+  if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
+    parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
+  }
+  const line = `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
+  return resolve(forkPath) === resolve(process.cwd()) ? line : `${line}\n${pc.dim(forkPath)}`;
 }
 
 /**
@@ -391,7 +404,7 @@ async function prepareUpstream(
     getWorkingTreeChangeCount(forkPath),
     getUpstreamStatus(forkPath),
   ]);
-  onStep?.('local checkout', formatLocalCheckoutDetail(forkPath, branch, headSha, changeCount, upstreamStatus));
+  onStep?.('checkout', formatLocalCheckoutDetail(forkPath, branch, headSha, changeCount, upstreamStatus));
 
   onProgress?.('setting up upstream remote...');
   const { track: configTrack, branchRef } = resolveUpstream(config.settings);
@@ -430,7 +443,6 @@ async function prepareUpstream(
   // Expose the resolved ref to downstream steps (packages/analyze read config.upstreamRef
   // after the engine runs). The static fallback set at CLI parse time is the branch tip.
   config.upstreamRef = upstreamRef;
-  onStep?.('remote configured', `${upstreamLabel} → ${config.settings.upstreamUrl}`);
 
   // Stop before anything merges when upstream was built with a newer CLI than this one.
   const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
@@ -470,9 +482,23 @@ async function prepareUpstream(
   }
   const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
   const upstreamCommits =
-    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_LIST_MAX) : [];
+    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_STEP_MAX) : [];
 
-  onStep?.('fetched upstream', formatFetchedUpstreamDetail(commitCount, upstreamCommits, upstreamGitHubUrl));
+  const [upstreamShort, baseShort] = await Promise.all([
+    getShortSha(forkPath, upstreamCommit.hash),
+    getShortSha(forkPath, mergeBase),
+  ]);
+  const commits =
+    commitCount === 0
+      ? 'no new commits since the last sync'
+      : `${plural(commitCount, 'new commit')} since the last sync at ${baseShort}`;
+  onStep?.(
+    'upstream',
+    [
+      `${releaseTag ?? branchRef.replace(`${remoteName}/`, '')} @ ${upstreamShort}${pc.dim(`${config.ref ? ' · --ref' : ''} · ${commits}`)}`,
+      ...formatUpstreamCommits(commitCount, upstreamCommits, upstreamGitHubUrl),
+    ].join('\n'),
+  );
 
   return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit };
 }
@@ -705,7 +731,7 @@ async function runAnalyzePreview(
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
   const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
   const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
-  onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run, no changes applied`);
+  onStep?.('analyzed', `${plural(analyzedFiles.length, 'file')}${pc.dim(' · dry run, nothing changed')}`);
 
   return {
     success: true,
@@ -728,7 +754,7 @@ async function runAnalyzePreview(
 export async function runEngineWithSpinner(config: RuntimeConfig, apply: boolean): Promise<MergeResult> {
   const onProgress: ProgressCallback = (message) => spinnerText(message);
   const onStep: StepCallback = (label, detail) => {
-    spinnerSuccess(label, detail);
+    printStep(label, detail);
     createSpinner('...');
   };
   const ctx = await prepareUpstream(config, onProgress, onStep);

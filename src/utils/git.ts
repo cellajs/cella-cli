@@ -390,7 +390,7 @@ export async function listCommitsBetween(
   toRef: string,
   limit?: number,
 ): Promise<CommitRangeEntry[]> {
-  const args = ['log', '--format=%H%x1f%s%x1f%ar', '--reverse', `${fromRef}..${toRef}`];
+  const args = ['log', '--format=%H%x1f%s%x1f%ar%x1f%ct', '--reverse', `${fromRef}..${toRef}`];
   if (limit) args.push(`-n${limit}`);
 
   const output = await git(args, cwd, { ignoreErrors: true });
@@ -399,9 +399,9 @@ export async function listCommitsBetween(
   const commits: CommitRangeEntry[] = [];
   for (const line of output.split('\n')) {
     if (!line) continue;
-    const [hash, message, date] = line.split('\x1f');
+    const [hash, message, date, timestamp] = line.split('\x1f');
     if (!hash || !message || !date) continue;
-    commits.push({ hash, message, date });
+    commits.push({ hash, message, date, timestamp: Number(timestamp) || undefined });
   }
   return commits;
 }

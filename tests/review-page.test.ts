@@ -151,12 +151,11 @@ describe('review page', () => {
   }
 
   describe('reviewSections', () => {
-    it('lists the analyze sections in terminal order, each with the refs its diffs run over', () => {
+    it('lists the analyze sections, each with the refs its diffs run over, ignored upstream changes under protected', () => {
       const sections = reviewSections(result, 'analyze');
 
       expect(sections.map((s) => [s.title, s.range, s.paths])).toEqual([
-        ['protected but behind upstream', `${base}..${upstream}`, ['pinned.css']],
-        ['ignored paths changed upstream', `${base}..${upstream}`, ['own/new.ts']],
+        ['protected but behind upstream', `${base}..${upstream}`, ['pinned.css', 'own/new.ts']],
         ['pinned files that match the previous upstream', `${base}..${upstream}`, ['masking.css']],
         ['protected in fork, upstream lines absent', `HEAD..${upstream}`, ['stale.css']],
         ['drifted from upstream', `${base}..HEAD`, ['drift.bin', 'drift.ts']],
@@ -186,7 +185,7 @@ describe('review page', () => {
       });
 
       expect(page?.path).toBe(path.join(fs.realpathSync(repoPath), '.git', 'cella-diff', 'analyze-review.html'));
-      expect(page).toMatchObject({ diffs: 5, listed: 1, sections: 5 });
+      expect(page).toMatchObject({ diffs: 5, listed: 1, sections: 4 });
       const text = visibleText(fs.readFileSync(page?.path ?? '', 'utf-8'));
       for (const title of ['protected but behind upstream', 'drifted from upstream']) expect(text).toContain(title);
       // Each section's diff runs over its own refs: upstream's changes, and the fork's own change.

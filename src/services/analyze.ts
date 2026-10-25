@@ -5,15 +5,16 @@
 import type { MergeResult, RuntimeConfig } from '../config/types';
 import {
   createSpinner,
-  type LinkOptions,
-  printAnalysisFileGroups,
-  printEngineReports,
+  printMaskingPinWarning,
+  printSummary,
+  printUpstreamOverrideChanges,
   spinnerSuccess,
   writeStdout,
 } from '../utils/display';
 import { CONFIG_FILE } from '../utils/managed-files';
 import { printAlignmentsLine } from './align';
-import { runEngineWithSpinner } from './merge-engine';
+import { printAnalysisFileGroups } from './analyze-report';
+import { readOriginGitHubUrl, runEngineWithSpinner } from './merge-engine';
 import { reportReviewPage } from './review-page';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
@@ -80,17 +81,21 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     return result;
   }
 
-  const linkOptions: LinkOptions = {
-    upstreamGitHubUrl: result.upstreamGitHubUrl,
-    upstreamBranch: result.upstreamBranch,
-    fileLinkMode: config.settings.fileLinkMode,
-    forkPath: config.forkPath,
-  };
-
-  // File lists first (analyze shows them for review); the summary and shared reports close the output.
-  printAnalysisFileGroups(result.files, linkOptions);
-
-  printEngineReports(result, 'analysis summary');
+  // File sections first, ordered by how much they need you; the summary and the review page close the output.
+  printAnalysisFileGroups(result, {
+    links: {
+      upstreamGitHubUrl: result.upstreamGitHubUrl,
+      upstreamSha: result.upstreamCommit?.hash,
+      forkGitHubUrl: await readOriginGitHubUrl(config.forkPath),
+      fileLinkMode: config.settings.fileLinkMode,
+      forkPath: config.forkPath,
+    },
+    all: config.all,
+    overrides: config.overrides,
+  });
+  printUpstreamOverrideChanges(result);
+  printMaskingPinWarning(result.files);
+  printSummary(result.summary, 'analysis summary');
   await reportReviewPage(config.forkPath, result, 'analyze');
 
   await printAlignmentsLine(config, result);

@@ -244,7 +244,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Print the `since` table as markdown for a pull request description (stats service) */
   md?: boolean;
 
-  /** List every upstream alignment, not only the open ones (align service) */
+  /** List every file instead of collapsing large groups (analyze), or every upstream alignment (align) */
   all?: boolean;
 
   /** Print one alignment's README (align service) */
@@ -284,6 +284,8 @@ export interface CommitRangeEntry {
   hash: string;
   message: string;
   date: string;
+  /** Unix epoch seconds of the commit */
+  timestamp?: number;
 }
 
 /** Analyzed file with status and metadata */
@@ -317,7 +319,7 @@ export interface AnalyzedFile {
    * side wins whole-file, so upstream's changes to this path are dropped by the sync.
    */
   upstreamChanged?: boolean;
-  /** For `upstreamChanged` files: lines upstream changed since the merge-base (undefined for binary) */
+  /** For `upstreamChanged` and `upstreamOnly` files: lines upstream changed since the merge-base (undefined for binary) */
   upstreamChangedLines?: number;
   /**
    * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
