@@ -6,9 +6,9 @@
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
+import { isUpstreamOnly } from './alignments';
 import { fileExistsAtRef, listChangedSinceRef, revParse } from './git';
 import { isGeneratedFile, isManagedFile } from './managed-files';
-import { isUpstreamOnly } from './migration-notes';
 
 /** Normalize an override entry: trimmed, no leading `./`, no trailing slash. */
 export function normalizeEntry(entry: string): string {
@@ -27,7 +27,7 @@ export function isUnderAnyFolder(filePath: string, folders: string[]): boolean {
 }
 
 /**
- * Whether a file is inside an ignored path, or an upstream-only one (migration notes),
+ * Whether a file is inside an ignored path, or an upstream-only one (alignments),
  * which every fork ignores without listing it.
  */
 export function isIgnored(filePath: string, config: CellaCliConfig): boolean {

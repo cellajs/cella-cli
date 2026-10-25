@@ -1,5 +1,5 @@
 /**
- * E2E tests for `cella migrate --run <id>`: the note's codemod runs from its extracted copy with
+ * E2E tests for `cella align --run <id>`: the alignment's codemod runs from its extracted copy with
  * `tsx`, and files that were identical to the last synced upstream commit get their upstream
  * content back when the codemod changed them.
  *
@@ -10,7 +10,7 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runMigrate } from '../../src/services/migrate';
+import { runAlign } from '../../src/services/align';
 import { runSync } from '../../src/services/sync';
 import { commitSquash, stageAll } from '../../src/utils/git';
 import {
@@ -37,9 +37,9 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawnSync };
 });
 
-const NOTE = '20261001T2116-icon-classes';
-const MANUAL = '20261002T0000-manual-note';
-const EXTRACTED = `node_modules/.cache/cella/migrations/${NOTE}/icon-classes.ts`;
+const CODEMOD_ID = '20261001T2116-icon-classes';
+const MANUAL = '20261002T0000-manual-alignment';
+const EXTRACTED = `node_modules/.cache/cella/alignments/${CODEMOD_ID}/icon-classes.ts`;
 
 const readme = (title: string, roots?: string) =>
   `---\nsyncBreaking: true\nclientCacheBump: false\n${roots ? `roots: ${roots}\n` : ''}---\n\n# ${title}\n\nWhat the app changes.\n`;
@@ -79,17 +79,17 @@ if (mode === 'crash') {
 console.log(\`\${mode}: \${count} file(s)\`);
 `;
 
-describe('migrate --run e2e', () => {
+describe('align --run e2e', () => {
   let env: TestEnv;
   let lines: string[];
   let upstreamCommit: string;
 
   const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
   const run = (options: { run: string; runArgs?: string[] }) =>
-    runMigrate({ ...buildRuntimeConfig(env, { service: 'migrate' }), ...options });
+    runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), ...options });
 
   /**
-   * The app has its own file and its own edit of a template file. Upstream then ships the notes,
+   * The app has its own file and its own edit of a template file. Upstream then ships the alignments,
    * plus template files that still hold the class the codemod rewrites: upstream changed them
    * after writing the codemod. The sync that brings those in is staged, not committed.
    */
@@ -119,12 +119,12 @@ describe('migrate --run e2e', () => {
         'backend/src/template.ts': 'export const backend = "icon-xs";\n',
         'mcp/src/[id].ts': 'export const route = "icon-xs";\n',
         'mcp/src/i.ts': 'export const index = "icon-xs";\n',
-        [`cella/migrations/${NOTE}/README.md`]: readme('Icon classes', 'frontend/src'),
-        [`cella/migrations/${NOTE}/icon-classes.ts`]: CODEMOD,
-        [`cella/migrations/${NOTE}/icon-classes.test.ts`]: 'export {};\n',
-        [`cella/migrations/${MANUAL}/README.md`]: readme('Manual note'),
+        [`cella/alignments/${CODEMOD_ID}/README.md`]: readme('Icon classes', 'frontend/src'),
+        [`cella/alignments/${CODEMOD_ID}/icon-classes.ts`]: CODEMOD,
+        [`cella/alignments/${CODEMOD_ID}/icon-classes.test.ts`]: 'export {};\n',
+        [`cella/alignments/${MANUAL}/README.md`]: readme('Manual alignment'),
       },
-      message: 'feat: notes and template files',
+      message: 'feat: alignments and template files',
     });
     fetchUpstream(env.forkPath);
 
@@ -141,7 +141,7 @@ describe('migrate --run e2e', () => {
   });
 
   it('passes the arguments after -- as given, rewrites app files and restores files identical to upstream', async () => {
-    await run({ run: NOTE, runArgs: ['rewrite', 'frontend/src'] });
+    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'frontend/src'] });
 
     expect(codemodRuns).toEqual([{ cwd: env.forkPath, args: [EXTRACTED, 'rewrite', 'frontend/src'] }]);
     // App-owned content is rewritten
@@ -167,7 +167,7 @@ describe('migrate --run e2e', () => {
       message: 'feat: app edit of a template file',
     });
 
-    await run({ run: NOTE, runArgs: ['rewrite', 'frontend/src'] });
+    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'frontend/src'] });
 
     // No longer identical to upstream: the app owns the edit, so the rewrite stays
     expect(readRepoFile(env.forkPath, 'frontend/src/template.ts')).toBe('export const template = "size-3 app";\n');
@@ -176,24 +176,24 @@ describe('migrate --run e2e', () => {
   });
 
   it('covers the roots named after --, whichever they are', async () => {
-    await run({ run: NOTE, runArgs: ['rewrite', 'backend/src'] });
+    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'backend/src'] });
 
     expect(readRepoFile(env.forkPath, 'backend/src/template.ts')).toBe('export const backend = "icon-xs";\n');
     expect(lines.join('\n')).toContain('restored 1 file(s)');
   });
 
-  it("defaults to a report-only run over the note's roots", async () => {
-    await run({ run: NOTE });
+  it("defaults to a report-only run over the alignment's roots", async () => {
+    await run({ run: CODEMOD_ID });
 
     expect(codemodRuns[0].args).toEqual([EXTRACTED, 'inventory', 'frontend/src']);
     expect(readRepoFile(env.forkPath, 'frontend/src/app-only.ts')).toBe('export const mine = "icon-xs";\n');
     const out = lines.join('\n');
     expect(out).toContain(`no file identical to upstream ${upstreamCommit.slice(0, 9)} was changed`);
-    expect(out).toContain(`report only. to apply: pnpm cella migrate --run ${NOTE} -- rewrite frontend/src`);
+    expect(out).toContain(`report only. to apply: pnpm cella align --run ${CODEMOD_ID} -- rewrite frontend/src`);
   });
 
   it('restores what a failing codemod changed or deleted, then fails', async () => {
-    await expect(run({ run: NOTE, runArgs: ['crash', 'frontend/src'] })).rejects.toThrow(
+    await expect(run({ run: CODEMOD_ID, runArgs: ['crash', 'frontend/src'] })).rejects.toThrow(
       'the codemod exited with code 3',
     );
 
@@ -202,11 +202,11 @@ describe('migrate --run e2e', () => {
     expect(lines.join('\n')).toContain('restored 2 file(s)');
   });
 
-  it('refuses a note without a script, and an unknown note', async () => {
+  it('refuses an alignment without a script, and an unknown alignment', async () => {
     await expect(run({ run: MANUAL })).rejects.toThrow(
-      `migration note '${MANUAL}' ships no codemod script: its steps are manual`,
+      `alignment '${MANUAL}' ships no codemod script: its steps are manual`,
     );
-    await expect(run({ run: '20260101T0000-unknown' })).rejects.toThrow(/no migration note/);
+    await expect(run({ run: '20260101T0000-unknown' })).rejects.toThrow(/no alignment/);
     expect(codemodRuns).toEqual([]);
   });
 
@@ -214,7 +214,7 @@ describe('migrate --run e2e', () => {
     // As a pattern, `[id].ts` also names `i.ts`, which the app changed: its rewrite has to stay
     fs.writeFileSync(path.join(env.forkPath, 'mcp/src/i.ts'), 'export const index = "icon-xs app";\n');
 
-    await run({ run: NOTE, runArgs: ['rewrite', 'mcp/src'] });
+    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'mcp/src'] });
 
     expect(readRepoFile(env.forkPath, 'mcp/src/[id].ts')).toBe('export const route = "icon-xs";\n');
     expect(readRepoFile(env.forkPath, 'mcp/src/i.ts')).toBe('export const index = "size-3 app";\n');

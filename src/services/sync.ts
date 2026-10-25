@@ -9,6 +9,7 @@
 import { spawnSync } from 'node:child_process';
 import { select } from '@inquirer/prompts';
 import { type CommitRangeEntry, type MergeResult, type RuntimeConfig, SYNC_APPLIED_STATUSES } from '../config/types';
+import { alignmentUrl, listAlignmentIds, readAlignment, readPending } from '../utils/alignments';
 import pc from '../utils/colors';
 import {
   buildTemporarySyncBranch,
@@ -61,9 +62,8 @@ import {
   switchDetached,
 } from '../utils/git';
 import { readSyncManifest } from '../utils/manifest';
-import { listNoteIds, noteUrl, readNote, readPending } from '../utils/migration-notes';
+import { printAlignmentsLine } from './align';
 import { BehindSyncPointError, runEngineWithSpinner, UpstreamConfigChangedError } from './merge-engine';
-import { printMigrationNotesLine } from './migrate';
 import { runPackages } from './packages';
 import { reportReviewPage } from './review-page';
 
@@ -220,7 +220,7 @@ export async function runSync(
   printSyncComplete(result, { stagedBranch });
   await reportReviewPage(config.forkPath, result, 'sync');
 
-  await printMigrationNotesLine(config, result);
+  await printAlignmentsLine(config, result);
 
   return result;
 }
@@ -268,13 +268,13 @@ interface SyncPrBodyInput {
   commits: CommitRangeEntry[];
   /** Total commits in the range (may exceed `commits.length` when truncated). */
   totalCount: number;
-  /** Upstream migration notes at the sync point: the total, and the ones the app has not handled yet. */
-  notes?: { total: number; open: Array<{ id: string; title: string; url?: string }> };
+  /** Upstream alignments at the sync point: the total, and the ones the app has not handled yet. */
+  alignments?: { total: number; open: Array<{ id: string; title: string; url?: string }> };
 }
 
 /** Render the sync PR body: where the sync moved to, plus the upstream commits it brought in. */
 export function buildSyncPrBody(input: SyncPrBodyInput): string {
-  const { repoSlug, version, fromSha, toSha, commits, totalCount, notes } = input;
+  const { repoSlug, version, fromSha, toSha, commits, totalCount, alignments } = input;
   const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
   const short = (sha: string) => sha.slice(0, 7);
   const commitRef = (sha: string) =>
@@ -293,17 +293,19 @@ export function buildSyncPrBody(input: SyncPrBodyInput): string {
     }
   }
 
-  if (notes && notes.total > 0) {
-    const { total, open } = notes;
-    if (open.length === 0) lines.push('', `**Migration notes**: all ${total} handled.`);
+  if (alignments && alignments.total > 0) {
+    const { total, open } = alignments;
+    if (open.length === 0) lines.push('', `**Alignments**: all ${total} handled.`);
     else {
       lines.push(
         '',
-        `**Migration notes**: ${Math.max(0, total - open.length)} of ${total} handled, open (\`pnpm cella migrate\`):`,
+        `**Alignments**: ${Math.max(0, total - open.length)} of ${total} handled, open (\`pnpm cella align\`):`,
         '',
       );
-      for (const note of open)
-        lines.push(`- ${note.url ? `[${note.title}](${note.url})` : note.title} (\`${note.id}\`)`);
+      for (const alignment of open)
+        lines.push(
+          `- ${alignment.url ? `[${alignment.title}](${alignment.url})` : alignment.title} (\`${alignment.id}\`)`,
+        );
     }
   }
 
@@ -330,19 +332,31 @@ async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise
   const totalCount = fromSha ? await countCommitsBetween(forkPath, fromSha, toSha).catch(() => 0) : 0;
   const commits = fromSha && totalCount > 0 ? await listCommitsBetween(forkPath, fromSha, toSha, COMMIT_LIST_MAX) : [];
 
-  const notes = await readPrBodyNotes(forkPath, toSha, manifest.upstream.repo).catch(() => undefined);
-  return buildSyncPrBody({ repoSlug: manifest.upstream.repo, version, fromSha, toSha, commits, totalCount, notes });
+  const alignments = await readPrBodyAlignments(forkPath, toSha, manifest.upstream.repo).catch(() => undefined);
+  return buildSyncPrBody({
+    repoSlug: manifest.upstream.repo,
+    version,
+    fromSha,
+    toSha,
+    commits,
+    totalCount,
+    alignments,
+  });
 }
 
-/** Migration notes for the PR body: the total at the sync point and the app's open ones, with permalinks. */
-async function readPrBodyNotes(forkPath: string, toSha: string, repoSlug?: string): Promise<SyncPrBodyInput['notes']> {
+/** Alignments for the PR body: the total at the sync point and the app's open ones, with permalinks. */
+async function readPrBodyAlignments(
+  forkPath: string,
+  toSha: string,
+  repoSlug?: string,
+): Promise<SyncPrBodyInput['alignments']> {
   const githubUrl = repoSlug ? `https://github.com/${repoSlug}` : undefined;
-  const [ids, pending] = await Promise.all([listNoteIds(forkPath, toSha), readPending(forkPath)]);
+  const [ids, pending] = await Promise.all([listAlignmentIds(forkPath, toSha), readPending(forkPath)]);
   const open = await Promise.all(
     pending.map(async (id) => ({
       id,
-      title: (await readNote(forkPath, toSha, id))?.title ?? id,
-      url: noteUrl(githubUrl, toSha, id),
+      title: (await readAlignment(forkPath, toSha, id))?.title ?? id,
+      url: alignmentUrl(githubUrl, toSha, id),
     })),
   );
   return { total: ids.length, open };
@@ -438,7 +452,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
     console.info(`${checkMark} sync branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
-  await printMigrationNotesLine(config);
+  await printAlignmentsLine(config);
 }
 
 /**
@@ -567,7 +581,7 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string): Promise<v
   console.info(pc.dim(`staying on '${branch}' without pushing.`));
   console.info(pc.dim('  run drift triage (`pnpm cella analyze`), commit any follow-ups, then:'));
   console.info(pc.dim('  pnpm cella sync   (pushes the branch and opens the PR)'));
-  await printMigrationNotesLine(config);
+  await printAlignmentsLine(config);
 }
 
 /**

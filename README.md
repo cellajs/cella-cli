@@ -19,7 +19,7 @@ pnpm cella audit
 |---------|-------------|
 | `analyze` | Dry run to see what would change on sync. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-sync` and a graft for the sync base |
 | `sync` | Merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR into `main` |
-| `migrate` | List the upstream migration notes this app has not handled yet, read them, run their codemods, record them |
+| `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
 | `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run normal sync inside local fork repositories |
@@ -39,7 +39,7 @@ Per-service help: `pnpm cella <service> --help`.
 |---------|----------------|
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
-| migrate | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
+| align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
 | audit | `--list` |
 | forks | `--fork <name>`, `--keep-config` |
 | contributions | `--fork <name>`, `--json` |
@@ -146,39 +146,54 @@ git push -u origin cella/sync/<stamp>
 gh pr create --base main --head cella/sync/<stamp> --fill
 ```
 
-## Migration notes
+## Alignments
 
-Upstream ships a note for every change that app code has to follow, in `cella/migrations/<id>/`:
-a README (frontmatter, title, summary, then the steps) and sometimes a codemod. The notes stay
-upstream. The sync never brings that folder into the app and removes a copy it finds; `migrate`
-reads the notes from the upstream commit the app last synced to, which the sync already fetched.
+Upstream ships an alignment for every change that app code has to follow, in
+`cella/alignments/<id>/`: a README (frontmatter, title, summary, then the steps) and sometimes a
+codemod. Alignments stay upstream. The sync never brings that folder into the app and removes a
+copy it finds (also of `cella/migrations/`, the migration notes upstream deleted when it started
+the alignments); `align` reads them from the upstream commit the app last synced to, which the sync
+already fetched.
 
-The app keeps one small record, `cella/cella.migrations.json`, listing the notes it has not
-handled yet. The sync adds the notes that arrive with it, `migrate --mark` removes them, and the
-file is deleted once the list is empty. No file means nothing is pending, so a new app starts
-without one.
+The frontmatter says what the change asks of the app: `syncBreaking`, `clientCacheBump`,
+`caughtBy` (`compiler`, `tests` or `nothing`: what catches app code the change leaves behind),
+`generate` (the change needs `pnpm generate`), `grep` (words app code may still use) and, beside a
+codemod, its `roots`.
 
-Notes are information, never a gate. Each sync run, and `analyze`, ends with one line:
+The app keeps one small record, `cella/cella.alignments.json`, listing the alignments it has not
+handled yet. The sync adds the ones that arrive with it, `align --mark` removes them, and the file
+is deleted once the list is empty. No file means nothing is pending, so a new app starts without
+one.
+
+Alignments are information, never a gate. Each sync run, and `analyze`, ends with one line:
 
 ```
-migration notes: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella migrate
+alignments: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella align
 ```
 
-and the sync PR lists the open notes with links. Handle them in the sync PR or later; they stay
-listed until marked.
+and the sync PR lists the open alignments with links. Handle them in the sync PR or later; they
+stay listed until marked.
 
 ```bash
-pnpm cella migrate                    # open notes, with summary and links
-pnpm cella migrate --show <id>        # one note's README
-pnpm cella migrate --run <id>         # run its codemod, report only
-pnpm cella migrate --run <id> -- rewrite frontend/src   # run it with your own arguments
-pnpm cella migrate --extract <id>     # its folder under node_modules/.cache/cella/migrations/<id>/
-pnpm cella migrate --mark <id> [...]  # record notes as handled
+pnpm cella align                    # open alignments, with summary and links
+pnpm cella align --show <id>        # one alignment's README and what git tells about it
+pnpm cella align --run <id>         # run its codemod, report only
+pnpm cella align --run <id> -- rewrite frontend/src   # run it with your own arguments
+pnpm cella align --extract <id>     # its folder under node_modules/.cache/cella/alignments/<id>/
+pnpm cella align --mark <id> [...]  # record alignments as handled
 ```
 
-`--run` extracts the note and runs its codemod with `tsx` from your app root. Everything after `--`
-goes to the codemod as given; without it the codemod gets `inventory` and the note's `roots`, the
-report-only run.
+Next to its README, each alignment shows what git can tell about it: the upstream commit and PR
+that added it, the other alignments of that commit, the files of that commit the app pins, ignores
+or changed, and the lines of app code that hold one of its `grep` words. Only files that differ
+from the last synced upstream commit count, so a template file the app never touched is never a
+hit. Two or more open alignments with `generate` get one line: work their code steps first, then
+generate once. `--show` reads an alignment the sync point does not have yet from the fetched
+upstream branch, so it works before the sync that brings it.
+
+`--run` extracts the alignment and runs its codemod with `tsx` from your app root. Everything after
+`--` goes to the codemod as given; without it the codemod gets `inventory` and the alignment's
+`roots`, the report-only run.
 
 A codemod's roots cover template-owned files too, and a file that is identical to upstream already
 is the way upstream wants it: upstream may have changed it after writing the codemod, so a rewrite
