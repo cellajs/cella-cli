@@ -9,11 +9,11 @@ import { join, resolve } from 'node:path';
 import process from 'node:process';
 import { parseCli } from './cli';
 import type { CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
+import { runAlign } from './services/align';
 import { runAnalyze } from './services/analyze';
 import { runAudit } from './services/audit';
 import { runContributions } from './services/contributions';
 import { runForks } from './services/forks';
-import { runMigrate } from './services/migrate';
 import { runStats } from './services/stats';
 import { runBranchStats } from './services/stats-since';
 import { runSyncCommand } from './services/sync';
@@ -60,7 +60,7 @@ function preflight(forkPath: string): void {
 const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>> = {
   analyze: runAnalyze,
   sync: runSyncCommand,
-  migrate: runMigrate,
+  align: runAlign,
   audit: runAudit,
   forks: runForks,
   contributions: runContributions,

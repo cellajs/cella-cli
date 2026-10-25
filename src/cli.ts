@@ -30,7 +30,7 @@ type ServiceDefinition = {
   name: SyncService;
   description: string;
   options?: ServiceOption[];
-  /** Arguments the service takes after its options, e.g. the ones `migrate --run` hands to the codemod. */
+  /** Arguments the service takes after its options, e.g. the ones `align --run` hands to the codemod. */
   operands?: ServiceOption;
   includeInMenu?: (context: MenuContext) => boolean;
 };
@@ -110,19 +110,19 @@ const serviceDefinitions: ServiceDefinition[] = [
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
-    name: 'migrate',
-    description: 'list the upstream migration notes this app has not handled yet',
+    name: 'align',
+    description: 'list the upstream alignments this app has not handled yet',
     options: [
-      ['--all', 'list every upstream note, handled or not'],
+      ['--all', 'list every upstream alignment, handled or not'],
       jsonOption,
-      ['--show <id>', "print one note's README"],
-      ['--extract <id>', "write one note's folder under node_modules/.cache to run its codemod"],
-      ['--run <id>', "run one note's codemod; files identical to upstream stay as they are"],
-      ['--mark <ids...>', 'record notes as handled'],
+      ['--show <id>', "print one alignment's README and what git tells about it"],
+      ['--extract <id>', "write one alignment's folder under node_modules/.cache to run its codemod"],
+      ['--run <id>', "run one alignment's codemod; files identical to upstream stay as they are"],
+      ['--mark <ids...>', 'record alignments as handled'],
     ],
     operands: [
       '[codemodArgs...]',
-      "with --run, after `--`: arguments for the codemod (default: inventory and the note's roots)",
+      "with --run, after `--`: arguments for the codemod (default: inventory and the alignment's roots)",
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
@@ -217,8 +217,8 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella analyze --json --scope risk',
         '  $ cella sync --track branch',
         '  $ cella sync --ref 4f7d87c',
-        '  $ cella migrate --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
-        '  $ cella migrate --mark 20261002T0614-config-switch',
+        '  $ cella align --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
+        '  $ cella align --mark 20261002T0614-config-switch',
         '  $ cella audit --list',
         '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',

@@ -94,17 +94,17 @@ describe('parseCli', () => {
     expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
   });
 
-  it('hands the arguments after -- to the codemod of migrate --run as given, and none without --', async () => {
+  it('hands the arguments after -- to the codemod of align --run as given, and none without --', async () => {
     const id = '20261001T2116-tailwind-class-conventions';
-    process.argv = ['node', 'cella', 'migrate', '--run', id, '--', 'rewrite', 'frontend/src', '--module', '~/app x'];
+    process.argv = ['node', 'cella', 'align', '--run', id, '--', 'rewrite', 'frontend/src', '--module', '~/app x'];
 
     const config = await parseCli(baseConfig, '/tmp/fork');
 
-    expect(config.service).toBe('migrate');
+    expect(config.service).toBe('align');
     expect(config.run).toBe(id);
     expect(config.runArgs).toEqual(['rewrite', 'frontend/src', '--module', '~/app x']);
 
-    process.argv = ['node', 'cella', 'migrate', '--run', id];
+    process.argv = ['node', 'cella', 'align', '--run', id];
     expect((await parseCli(baseConfig, '/tmp/fork')).runArgs).toEqual([]);
   });
 
@@ -120,10 +120,10 @@ describe('parseCli', () => {
   });
 
   it('refuses arguments after the options without --run', async () => {
-    process.argv = ['node', 'cella', 'migrate', '--', 'rewrite', 'frontend/src'];
+    process.argv = ['node', 'cella', 'align', '--', 'rewrite', 'frontend/src'];
     await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow(/unexpected argument 'rewrite'.*--run <id>/);
 
-    process.argv = ['node', 'cella', 'migrate', '--mark', '20261002T0614-config-switch'];
+    process.argv = ['node', 'cella', 'align', '--mark', '20261002T0614-config-switch'];
     const config = await parseCli(baseConfig, '/tmp/fork');
     expect(config.mark).toEqual(['20261002T0614-config-switch']);
     expect(config.runArgs).toBeUndefined();
