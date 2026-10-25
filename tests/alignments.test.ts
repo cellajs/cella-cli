@@ -64,12 +64,7 @@ describe('parseAlignment', () => {
 
 describe('formatAlignmentsLine', () => {
   it('counts handled alignments and names the command while any are open', () => {
-    expect(formatAlignmentsLine(97, 3, 3)).toBe(
-      'alignments: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella align',
-    );
-    expect(formatAlignmentsLine(97, 3, 2, { dryRun: true })).toBe(
-      'alignments: 94 of 97 handled · 2 arrive with this sync · 3 open: pnpm cella align',
-    );
+    expect(formatAlignmentsLine(97, 3)).toBe('alignments: 94 of 97 handled · 3 open: pnpm cella align');
     expect(formatAlignmentsLine(97, 0)).toBe('alignments: all 97 handled');
   });
 });

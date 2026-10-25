@@ -9,7 +9,9 @@ import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
 import pc from './colors';
 import { getEnv } from './env';
-import { CONFIG_FILE, isManagedFile } from './managed-files';
+import { splitPrNumber } from './git';
+import { fitText, padVisible, shortAge, terminalColumns } from './layout';
+import { CONFIG_FILE, isGeneratedFile, isManagedFile } from './managed-files';
 
 /** Version from package.json */
 export const VERSION = packageJson.version;
@@ -18,8 +20,10 @@ export const VERSION = packageJson.version;
 export interface LinkOptions {
   /** Base GitHub URL for upstream (e.g., 'https://github.com/cellajs/cella') */
   upstreamGitHubUrl?: string;
-  /** Upstream branch name for file links */
-  upstreamBranch?: string;
+  /** Upstream commit the run analyzed: file links show the file as it is there */
+  upstreamSha?: string;
+  /** Base GitHub URL of the fork's `origin`, for links to the fork's own commits */
+  forkGitHubUrl?: string;
   /** File link mode: 'commit' links to commit, 'file' links to file in repo */
   fileLinkMode?: 'commit' | 'file';
   /** Fork repository path for resolving file paths */
@@ -32,8 +36,17 @@ export const DIVIDER = '─'.repeat(60);
 /** Divider used above the exit entry of interactive menus */
 export const MENU_DIVIDER = '─'.repeat(40);
 
-/** Most recent upstream commits shown per commit list (fetch detail, PR body) */
+/** Most recent upstream commits listed in the sync PR body */
 export const COMMIT_LIST_MAX = 50;
+
+/** Most recent upstream commits listed under the `upstream` step */
+export const COMMIT_STEP_MAX = 10;
+
+/** Width of the label column of step lines (`✓ upstream   …`) */
+const STEP_LABEL_WIDTH = 9;
+
+/** Where the detail of a step line starts: the mark, the label column and two spaces */
+export const STEP_INDENT = 2 + STEP_LABEL_WIDTH + 2;
 
 /** Warning mark for non-fatal warnings */
 export const warningMark = pc.yellow('⚠');
@@ -75,11 +88,12 @@ export function writeStdout(text: string): void {
 
 export function printHeader(): void {
   const left = '⧈ cella cli';
+  const version = ` · v${VERSION}`;
   const right = 'cellajs.com';
   // Padding counts the visible characters only, not the ANSI codes
-  const padding = Math.max(1, 60 - `${left} v${VERSION}`.length - right.length);
+  const padding = Math.max(1, DIVIDER.length - `${left}${version}${right}`.length);
   console.info();
-  console.info(`${pc.cyan(left)}${pc.dim(` · v${VERSION}`)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
+  console.info(`${pc.cyan(left)}${pc.dim(version)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
   console.info(DIVIDER);
   console.info();
 }
@@ -104,6 +118,17 @@ export function createSpinner(text: string): Spinner {
   }
   activeSpinner = spinner;
   return spinner;
+}
+
+/**
+ * Print a completed step of the merge engine on one line, `✓ label  detail`; further lines of
+ * `detail` line up under its first.
+ */
+export function printStep(label: string, detail?: string, mark = checkMark): void {
+  stopSpinner();
+  const [first = '', ...rest] = (detail ?? '').split('\n');
+  console.info(`${mark} ${pc.bold(label.padEnd(STEP_LABEL_WIDTH))}  ${first}`.trimEnd());
+  for (const line of rest) console.info(line ? `${' '.repeat(STEP_INDENT)}${line}` : '');
 }
 
 /** Stop the spinner and print `message` as a completed step; `detail` adds a dim line and a blank line. */
@@ -148,56 +173,127 @@ export function hyperlink(label: string, url?: string): string {
   return `\x1b]8;;${safeUrl}\x07${label}\x1b]8;;\x07`;
 }
 
-/** The fetched-upstream detail block, with clickable short commit hashes. */
-export function formatFetchedUpstreamDetail(
+/** A commit subject colored by kind: releases dim, breaking changes (`feat!:`) with a yellow type. */
+function styleSubject(subject: string): string {
+  if (/^chore(\([^)]*\))?: release\b/.test(subject)) return pc.dim(subject);
+  const breaking = /^([a-z]+(\([^)]*\))?!:)/.exec(subject);
+  return breaking ? `${pc.yellow(breaking[1])}${subject.slice(breaking[1].length)}` : subject;
+}
+
+/**
+ * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
+ * its remote when it is ahead or behind. The path shows when it is not the current directory, as
+ * when `forks` syncs another repo.
+ */
+export function formatCheckoutStep(checkout: {
+  forkPath: string;
+  branch: string;
+  headSha: string;
+  changeCount: number;
+  upstream: { upstream: string | null; ahead: number; behind: number };
+}): string {
+  const { forkPath, branch, headSha, changeCount, upstream } = checkout;
+  const parts = [
+    changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
+  ];
+  if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
+    parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
+  }
+  const line = `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
+  return resolve(forkPath) === resolve(process.cwd()) ? line : `${line}\n${pc.dim(forkPath)}`;
+}
+
+/**
+ * The `upstream` step: the branch or release synced to and how many commits it brings since the
+ * last sync, then those commits (see {@link formatUpstreamCommits}).
+ */
+export function formatUpstreamStep(upstream: {
+  label: string;
+  sha: string;
+  baseSha: string;
+  pinned: boolean;
+  commitCount: number;
+  commits: CommitRangeEntry[];
+  githubUrl?: string;
+}): string {
+  const { label, sha, baseSha, pinned, commitCount, commits, githubUrl } = upstream;
+  const since =
+    commitCount === 0
+      ? 'no new commits since the last sync'
+      : `${plural(commitCount, 'new commit')} since the last sync at ${baseSha}`;
+  return [
+    `${label} @ ${sha}${pc.dim(`${pinned ? ' · --ref' : ''} · ${since}`)}`,
+    ...formatUpstreamCommits(commitCount, commits, githubUrl),
+  ].join('\n');
+}
+
+/**
+ * The upstream commits under the `upstream` step: newest first, one line each with the short hash,
+ * the subject cut to the terminal width, the PR number and the age; hash and PR link to GitHub.
+ * `commits` comes oldest first, as `listCommitsBetween` returns it.
+ */
+export function formatUpstreamCommits(
   commitCount: number,
   commits: CommitRangeEntry[],
   upstreamGitHubUrl?: string,
-  maxShownCommits = COMMIT_LIST_MAX,
-): string {
-  const lines = [`${plural(commitCount, 'new commit')} since last merge`];
+  options: { columns?: number; max?: number; nowMs?: number } = {},
+): string[] {
+  const { columns = terminalColumns(), max = COMMIT_STEP_MAX, nowMs } = options;
+  const shown = commits.slice(-max).reverse();
+  const rows = shown.map((commit) => ({ commit, ...splitPrNumber(commit.message) }));
+  const prWidth = Math.max(0, ...rows.map((row) => (row.pr ? `#${row.pr}`.length : 0)));
+  const ages = rows.map((row) => (row.commit.timestamp ? shortAge(row.commit.timestamp, nowMs) : ''));
+  const ageWidth = Math.max(0, ...ages.map((age) => age.length));
+  const subjectWidth = Math.max(
+    20,
+    columns - STEP_INDENT - 7 - 2 - (prWidth ? prWidth + 2 : 0) - (ageWidth ? ageWidth + 2 : 0),
+  );
 
-  const shown = commits.slice(0, maxShownCommits);
-  for (const commit of shown) {
-    const shortHash = commit.hash.slice(0, 7);
-    const commitUrl = upstreamGitHubUrl ? `${upstreamGitHubUrl}/commit/${commit.hash}` : undefined;
-    const hashLabel = hyperlink(shortHash, commitUrl);
-    lines.push(`  ${hashLabel} "${commit.message}" (${commit.date})`);
-  }
-
-  if (commitCount > shown.length) {
-    lines.push(`  ... and ${commitCount - shown.length} more`);
-  }
-
-  return lines.join('\n');
+  const lines = rows.map((row, index) => {
+    const hash = hyperlink(
+      row.commit.hash.slice(0, 7),
+      upstreamGitHubUrl && `${upstreamGitHubUrl}/commit/${row.commit.hash}`,
+    );
+    const subject = fitText(row.subject, subjectWidth);
+    let line = `${pc.dim(hash)}  ${padVisible(styleSubject(subject), subjectWidth)}`;
+    if (prWidth) {
+      const pr = row.pr ? hyperlink(`#${row.pr}`, upstreamGitHubUrl && `${upstreamGitHubUrl}/pull/${row.pr}`) : '';
+      line += `  ${pc.dim(padVisible(pr, prWidth))}`;
+    }
+    if (ageWidth) line += `  ${pc.dim(ages[index].padStart(ageWidth))}`;
+    return line.trimEnd();
+  });
+  if (commitCount > shown.length) lines.push(pc.dim(`+ ${commitCount - shown.length} earlier`));
+  return lines;
 }
 
-function printSectionHeader(title: string): void {
+/** One step of `next steps`: a label for what to do, the command or link, and lines under it. */
+export interface NextStep {
+  label: string;
+  line: string;
+  details?: string[];
+}
+
+/**
+ * The `next steps` section that closes analyze and sync, numbered in the order to take them. The
+ * line and details of each step start at the column the engine's step details do.
+ */
+export function printNextSteps(steps: NextStep[]): void {
+  if (steps.length === 0) return;
+  printSectionHeader(pc.cyan('next steps'));
+  for (const [index, step] of steps.entries()) {
+    const label = step.label.padEnd(STEP_INDENT - 5);
+    console.info(`  ${pc.dim(String(index + 1))} ${pc.bold(label)} ${step.line}`.trimEnd());
+    for (const detail of step.details ?? []) console.info(`${' '.repeat(STEP_INDENT)}${detail}`);
+  }
+}
+
+/** A section header: a blank line, the title, the divider under it, and a blank line. */
+export function printSectionHeader(title: string): void {
   console.info();
   console.info(title);
   console.info(DIVIDER);
   console.info();
-}
-
-/**
- * The dim ` ≠ <date> <link>` tail of a file line, per fileLinkMode: the file at the upstream branch,
- * or the commit (a plain short hash without a GitHub URL). Empty without a date.
- */
-function formatFileDateInfo(
-  filePath: string,
-  commit: string | undefined,
-  date: string | undefined,
-  options: LinkOptions,
-): string {
-  if (!date) return '';
-  const { upstreamGitHubUrl: url, upstreamBranch, fileLinkMode = 'commit' } = options;
-  let link = commit?.slice(0, 9) ?? '';
-  if (url && fileLinkMode === 'file' && upstreamBranch) {
-    link = hyperlink(filePath.split('/').pop() || filePath, `${url}/blob/${upstreamBranch}/${filePath}`);
-  } else if (url) {
-    link = commit ? hyperlink(link, `${url}/commit/${commit}`) : '';
-  }
-  return pc.dim(` ≠ ${date} ${link}`);
 }
 
 export function formatMergeInProgressDetail(
@@ -206,7 +302,7 @@ export function formatMergeInProgressDetail(
   linkOptions: LinkOptions,
   maxFiles = 100,
 ): string {
-  const lines = [`${conflictCount} conflicts to resolve in IDE`];
+  const lines = [`${plural(conflictCount, 'conflict')} to resolve in your editor`];
 
   if (autoMergedFiles.length === 0) {
     return lines.join('\n');
@@ -264,7 +360,8 @@ const summaryStatusConfig: Record<SummaryStatus, StatusConfig> = {
   ignored: { ...statusConfig.ignored, description: 'protected by ignored config' },
 };
 
-function printSummary(summary: AnalysisSummary, title = 'summary'): void {
+/** The grouped count of every status, under its own section header. */
+export function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   printSectionHeader(pc.cyan(title));
 
   const maxCount = Math.max(...Object.values(summary));
@@ -288,73 +385,9 @@ function printSummary(summary: AnalysisSummary, title = 'summary'): void {
   }
 }
 
-/** Options shared by the file-list section printers. */
-interface FileSectionOptions {
-  /** Override section header title */
-  title?: string;
-  /** Footer hint text (dimmed), one line per entry */
-  hint?: string | string[];
-  /** Which commit/date fields to use: 'fork' or 'upstream' */
-  dateSource?: 'fork' | 'upstream';
-  /** Per-file detail appended after the date/link info */
-  suffix?: (file: AnalyzedFile) => string;
-}
-
-/**
- * Print a list of files as a section: header, one line per file (capped), optional hint.
- * `icon` may vary per file (e.g. pinned vs ignored) and `suffix` appends per-file detail.
- */
-function printFileSection(
-  files: AnalyzedFile[],
-  title: string,
-  linkOptions: LinkOptions,
-  options: FileSectionOptions & { icon: string | ((file: AnalyzedFile) => string) },
-): void {
-  if (files.length === 0) return;
-
-  printSectionHeader(`${title} ${pc.dim(`· ${files.length} files`)}`);
-
-  const useUpstream = options.dateSource === 'upstream';
-  const maxLines = 100;
-  const shown = files.length > maxLines ? files.slice(0, maxLines) : files;
-
-  for (const file of shown) {
-    const icon = typeof options.icon === 'string' ? options.icon : options.icon(file);
-    const commit = useUpstream ? file.upstreamCommit : file.changedCommit;
-    const date = useUpstream ? file.upstreamChangedAt : file.changedAt;
-    const dateInfo = formatFileDateInfo(file.path, commit, date, linkOptions);
-    console.info(`  ${icon} ${file.path}${dateInfo}${options.suffix?.(file) ?? ''}`);
-  }
-
-  if (files.length > maxLines) {
-    console.info(pc.dim(`  ... + ${files.length - maxLines} more`));
-  }
-
-  if (options.hint) {
-    console.info();
-    for (const line of Array.isArray(options.hint) ? options.hint : [options.hint]) {
-      console.info(pc.dim(`  ${line}`));
-    }
-  }
-}
-
 /** Files with `status`, managed files left out: the list each analyze file group prints. */
 export function filesWithStatus(files: AnalyzedFile[], status: FileStatus): AnalyzedFile[] {
   return files.filter((f) => f.status === status && !isManagedFile(f.path));
-}
-
-/**
- * Print a group of files with a specific status, including section header and footer.
- */
-function printFileGroup(
-  files: AnalyzedFile[],
-  status: FileStatus,
-  linkOptions: LinkOptions,
-  options?: FileSectionOptions,
-): void {
-  const config = statusConfig[status];
-  const title = options?.title ?? `${config.icon} ${config.label}`;
-  printFileSection(filesWithStatus(files, status), title, linkOptions, { ...options, icon: config.icon });
 }
 
 /**
@@ -363,16 +396,30 @@ function printFileGroup(
  * a pinned stylesheet misses new upstream utilities that synced components rely on.
  */
 export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
-  return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path));
+  // Generated output is rebuilt from the fork's own sources, so upstream's copy has nothing to adopt.
+  return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path) && !isGeneratedFile(file.path));
 }
 
-/** Shared hint for protected-but-behind output (analyze section and sync summary). */
+/**
+ * Every protected file upstream changed since the last sync that the sync leaves as the fork has
+ * it: those both sides changed ({@link findProtectedBehind}) and the ignored files only upstream
+ * changed, added or deleted (`MergeResult.ignoredUpstreamChanges`). Analyze lists them as one
+ * section, on the terminal and on the review page.
+ */
+export function findProtectedBehindUpstream(
+  result: Pick<MergeResult, 'files' | 'ignoredUpstreamChanges'>,
+): AnalyzedFile[] {
+  const ignoredOnly = new Set((result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths));
+  return [...findProtectedBehind(result.files), ...result.files.filter((file) => ignoredOnly.has(file.path))];
+}
+
+/** Hint under the protected files a sync kept the fork version of. */
 const PROTECTED_BEHIND_HINT =
   'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
   'so review what upstream changed and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
-function protectionIcon(file: AnalyzedFile): string {
+export function protectionIcon(file: AnalyzedFile): string {
   return file.isIgnored ? statusConfig.ignored.icon : statusConfig.pinned.icon;
 }
 
@@ -382,65 +429,23 @@ function formatUpstreamChangedLines(file: AnalyzedFile): string {
   return pc.yellow(` · ${plural(file.upstreamChangedLines, 'line')} changed upstream`);
 }
 
-/** Per-file detail for pinned `ahead` files: upstream lines the fork lacks (only when > 0). */
-function formatUpstreamLinesAbsent(file: AnalyzedFile): string {
-  const n = file.upstreamLinesAbsent ?? 0;
-  return n > 0 ? pc.yellow(` · ${plural(n, 'upstream line')} absent`) : '';
-}
-
-/**
- * Print all analyze-mode file group sections in review order:
- * behind, ahead (protected), protected-but-behind, drifted, and diverged.
- *
- * Protected-but-behind covers every `pinned`-status file (both changed, fork wins) plus
- * ignored files upstream also changed, so there is no separate `pinned` group.
- */
-export function printAnalysisFileGroups(files: AnalyzedFile[], linkOptions: LinkOptions): void {
-  const protectedBehind = findProtectedBehind(files);
-  printFileGroup(files, 'behind', linkOptions, {
-    title: pc.cyan('↓ behind on upstream'),
-  });
-  printFileGroup(files, 'ahead', linkOptions, {
-    title: `${pc.blue('↑ protected in fork')}`,
-    suffix: formatUpstreamLinesAbsent,
-    hint: [
-      'these files have fork changes but are protected (pinned); upstream did not change them since the last sync.',
-      'pinned files keep the fork copy whole; a count here is upstream content the fork never received, ' +
-        'deliberately or not: `analyze --unpinned` shows what a merge would bring in.',
-    ],
-  });
-  printFileSection(protectedBehind, `${warningMark} ${pc.yellow('protected but behind upstream')}`, linkOptions, {
-    icon: protectionIcon,
-    suffix: formatUpstreamChangedLines,
-    dateSource: 'upstream',
-    hint: PROTECTED_BEHIND_HINT,
-  });
-  printFileGroup(files, 'drifted', linkOptions, {
-    title: `${warningMark} ${pc.yellow('drifted from upstream')}`,
-    hint: 'these files have fork changes but are not pinned or ignored.',
-  });
-  printFileGroup(files, 'diverged', linkOptions, {
-    title: `${pc.magenta('⇅ diverged')}`,
-    hint: 'both fork and upstream changed.',
-    dateSource: 'upstream',
-  });
-}
-
 export function printSyncComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
   const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
   const diverged = result.files.filter((file) => file.status === 'diverged').length;
   const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
   const conflicts = result.conflicts.length;
 
+  const counts = `${plural(updated, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
   console.info();
   if (options.stagedBranch) {
     console.info(`${checkMark} sync merge staged on '${options.stagedBranch}'`);
-    console.info(
-      pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts. committing next...`),
-    );
+    console.info(pc.dim(`  ${counts}. committing next...`));
+  } else if (conflicts > 0) {
+    console.info(`${warningMark} sync merge staged with conflicts`);
+    console.info(pc.dim(`  ${counts}`));
   } else {
     console.info(`${checkMark} sync complete`);
-    console.info(pc.dim(`  ${updated} files updated, ${merged} auto-merged, ${conflicts} conflicts`));
+    console.info(pc.dim(`  ${counts}`));
   }
 
   printProtectedConflicts(result);
@@ -558,7 +563,7 @@ export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
  * Warn when pins are masking upstream changes (see `findMaskingPins`). Silent by design
  * when there is nothing to report, so it is safe to call unconditionally after a summary.
  */
-function printMaskingPinWarning(files: AnalyzedFile[]): void {
+export function printMaskingPinWarning(files: AnalyzedFile[]): void {
   const masking = findMaskingPins(files);
   if (masking.length === 0) return;
 

@@ -26,13 +26,16 @@ import {
   writePending,
 } from '../utils/alignments';
 import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
+import pc from '../utils/colors';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
-  COMMIT_LIST_MAX,
+  COMMIT_STEP_MAX,
   createSpinner,
-  formatFetchedUpstreamDetail,
+  formatCheckoutStep,
   formatMergeInProgressDetail,
-  spinnerSuccess,
+  formatUpstreamStep,
+  plural,
+  printStep,
   spinnerText,
   VERSION,
 } from '../utils/display';
@@ -110,6 +113,12 @@ export class UpstreamConfigChangedError extends Error {
 export function getGitHubBaseUrl(remoteUrl: string): string | null {
   const match = remoteUrl.match(/github\.com[:/]([^/]+)\/([^/]+?)(?:\.git)?$/);
   return match ? `https://github.com/${match[1]}/${match[2]}` : null;
+}
+
+/** The fork's GitHub base URL from its `origin` remote; undefined without one on GitHub. */
+export async function readOriginGitHubUrl(forkPath: string): Promise<string | undefined> {
+  const origin = await git(['remote', 'get-url', 'origin'], forkPath, { ignoreErrors: true });
+  return getGitHubBaseUrl(origin.trim()) ?? undefined;
 }
 
 /** Protected whole-file resolution: the fork side wins outright (ignored or pinned). */
@@ -322,24 +331,8 @@ interface UpstreamContext {
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
   upstreamCommit: CommitRangeEntry;
-}
-
-function formatLocalCheckoutDetail(
-  forkPath: string,
-  branch: string,
-  headSha: string,
-  changeCount: number,
-  upstream: { upstream: string | null; ahead: number; behind: number },
-): string {
-  const tracking = upstream.upstream
-    ? `, tracking ${upstream.upstream} (${upstream.ahead} ahead, ${upstream.behind} behind)`
-    : ', no tracking branch';
-  const workingTree =
-    changeCount === 0
-      ? '  working tree clean'
-      : `  ${changeCount} uncommitted change${changeCount === 1 ? '' : 's'} in working tree, not included in analysis`;
-
-  return [`${forkPath}`, `  ${branch} @ ${headSha}${tracking}`, workingTree].join('\n');
+  /** Upstream commits since the last sync */
+  commitCount: number;
 }
 
 /**
@@ -391,7 +384,7 @@ async function prepareUpstream(
     getWorkingTreeChangeCount(forkPath),
     getUpstreamStatus(forkPath),
   ]);
-  onStep?.('local checkout', formatLocalCheckoutDetail(forkPath, branch, headSha, changeCount, upstreamStatus));
+  onStep?.('checkout', formatCheckoutStep({ forkPath, branch, headSha, changeCount, upstream: upstreamStatus }));
 
   onProgress?.('setting up upstream remote...');
   const { track: configTrack, branchRef } = resolveUpstream(config.settings);
@@ -430,7 +423,6 @@ async function prepareUpstream(
   // Expose the resolved ref to downstream steps (packages/analyze read config.upstreamRef
   // after the engine runs). The static fallback set at CLI parse time is the branch tip.
   config.upstreamRef = upstreamRef;
-  onStep?.('remote configured', `${upstreamLabel} → ${config.settings.upstreamUrl}`);
 
   // Stop before anything merges when upstream was built with a newer CLI than this one.
   const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
@@ -470,11 +462,26 @@ async function prepareUpstream(
   }
   const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
   const upstreamCommits =
-    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_LIST_MAX) : [];
+    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_STEP_MAX) : [];
 
-  onStep?.('fetched upstream', formatFetchedUpstreamDetail(commitCount, upstreamCommits, upstreamGitHubUrl));
+  const [upstreamShort, baseShort] = await Promise.all([
+    getShortSha(forkPath, upstreamCommit.hash),
+    getShortSha(forkPath, mergeBase),
+  ]);
+  onStep?.(
+    'upstream',
+    formatUpstreamStep({
+      label: releaseTag ?? branchRef.replace(`${remoteName}/`, ''),
+      sha: upstreamShort,
+      baseSha: baseShort,
+      pinned: !!config.ref,
+      commitCount,
+      commits: upstreamCommits,
+      githubUrl: upstreamGitHubUrl,
+    }),
+  );
 
-  return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit };
+  return { upstreamRef, releaseTag, mergeBase, mergeRef, upstreamGitHubUrl, upstreamCommit, commitCount };
 }
 
 /**
@@ -500,6 +507,7 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
     upstreamTag: ctx.releaseTag,
     upstreamGitHubUrl: ctx.upstreamGitHubUrl,
     upstreamCommit: ctx.upstreamCommit,
+    upstreamCommitCount: ctx.commitCount,
   };
 }
 
@@ -533,11 +541,16 @@ async function upstreamOnlyReports(
   }
 }
 
-/** Upstream alignments for this sync range, plus the fork's pending list once the arrivals are added. */
+/** Upstream alignments for this sync range, and the fork's pending list before the arrivals are added. */
 interface AlignmentsInRange {
   total: number;
   arrived: string[];
   pending: string[];
+}
+
+/** The fork's pending list once a sync records the arrivals. */
+function pendingAfterSync(alignments: AlignmentsInRange): string[] {
+  return [...new Set([...alignments.pending, ...alignments.arrived])];
 }
 
 /**
@@ -556,17 +569,23 @@ async function readAlignmentsInRange(
       arrivedAlignmentIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
       readPending(forkPath),
     ]);
-    return { total: total.length, arrived, pending: [...new Set([...pending, ...arrived])] };
+    return { total: total.length, arrived, pending };
   } catch {
     return undefined;
   }
 }
 
-/** The {@link MergeResult} view of {@link AlignmentsInRange}. */
-function alignmentsResult(alignments: AlignmentsInRange | undefined): Pick<MergeResult, 'alignments'> {
-  return alignments
-    ? { alignments: { total: alignments.total, arrived: alignments.arrived, open: alignments.pending.length } }
-    : {};
+/**
+ * The {@link MergeResult} view of {@link AlignmentsInRange}. A sync records the arrivals as open; a
+ * dry run leaves them arriving, since `pnpm cella align` only lists them once the sync lands.
+ */
+function alignmentsResult(
+  alignments: AlignmentsInRange | undefined,
+  options: { dryRun: boolean },
+): Pick<MergeResult, 'alignments'> {
+  if (!alignments) return {};
+  const open = options.dryRun ? alignments.pending : pendingAfterSync(alignments);
+  return { alignments: { total: alignments.total, arrived: alignments.arrived, open } };
 }
 
 /**
@@ -635,7 +654,7 @@ async function runSyncMerge(
     await stagePath(forkPath, MANIFEST_FILE);
     // Alignments that arrived join the fork's pending list; an empty list deletes the file.
     if (alignments) {
-      await writePending(forkPath, alignments.pending);
+      await writePending(forkPath, pendingAfterSync(alignments));
       await stagePath(forkPath, PENDING_FILE);
     }
     await removeUpstreamOnlyCopy(forkPath, onStep);
@@ -645,10 +664,7 @@ async function runSyncMerge(
   // and the finishing rerun tells a staged sync from a dirty tree, then commits it single-parent.
   if (remainingConflicts.length > 0) {
     await recordSyncPoint();
-    onStep?.(
-      'merge in progress',
-      formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100),
-    );
+    onStep?.('merged', formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100));
   } else if (totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
     await recordSyncPoint();
@@ -668,7 +684,7 @@ async function runSyncMerge(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...(await upstreamOnlyReports(config, ctx, analyzedFiles)),
-    ...alignmentsResult(alignments),
+    ...alignmentsResult(alignments, { dryRun: false }),
   };
 }
 
@@ -694,7 +710,7 @@ async function runAnalyzePreview(
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
   const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
   const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
-  onStep?.('analysis complete', `${analyzedFiles.length} files analyzed, dry run, no changes applied`);
+  onStep?.('analyzed', `${plural(analyzedFiles.length, 'file')}${pc.dim(' · dry run, nothing changed')}`);
 
   return {
     success: true,
@@ -705,7 +721,7 @@ async function runAnalyzePreview(
     protectedConflicts,
     ...resultMeta(config, ctx),
     ...reports,
-    ...alignmentsResult(alignments),
+    ...alignmentsResult(alignments, { dryRun: true }),
   };
 }
 
@@ -717,7 +733,7 @@ async function runAnalyzePreview(
 export async function runEngineWithSpinner(config: RuntimeConfig, apply: boolean): Promise<MergeResult> {
   const onProgress: ProgressCallback = (message) => spinnerText(message);
   const onStep: StepCallback = (label, detail) => {
-    spinnerSuccess(label, detail);
+    printStep(label, detail);
     createSpinner('...');
   };
   const ctx = await prepareUpstream(config, onProgress, onStep);

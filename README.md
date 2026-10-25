@@ -37,7 +37,7 @@ Per-service help: `pnpm cella <service> --help`.
 
 | Service | Useful options |
 |---------|----------------|
-| analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
+| analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | sync | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
 | audit | `--list` |
@@ -146,6 +146,38 @@ git push -u origin cella/sync/<stamp>
 gh pr create --base main --head cella/sync/<stamp> --fill
 ```
 
+## Analyze output
+
+`pnpm cella analyze` prints its file sections in the order they need you: what syncs on its own
+first (`behind`, `diverged`), then pinned files, drifted files, and the upstream changes the sync
+leaves out (`protected but behind upstream`). The summary and `next steps` close the run, so the
+last lines are the ones to act on. A file row is its path, linked per `fileLinkMode`, with a count
+and a short age (`3h`, `2d`, `3mo`) in columns.
+
+Large groups collapse: more than 15 behind files become one row per folder, more than 8 pinned files
+keep the ones missing 10 or more upstream lines, and five or more protected files of one kind under
+one override entry become one row (`backend/drizzle/ · 42 × snapshot.json`). `--all` lists every
+path.
+
+Analyze and sync both end with `next steps`, numbered in the order you take them: the review page,
+the command to run next, and the alignments the sync brings or that are still open.
+
+```
+next steps
+────────────────────────────────────────────────────────────
+
+  1 review   file:///Users/you/app/.git/cella-diff/analyze-review.html
+             22 diffs in 3 sections · 42 listed without a diff
+  2 sync     pnpm cella sync
+             commits on a fresh branch, a rerun opens the PR · 36 update, 2 merge
+  3 align    1 alignment arrives with this sync
+             ○ Migration notes become alignments · manual · not sync-breaking
+             after the sync: pnpm cella align
+```
+
+Without a terminal (piped, or read by an agent) each alignment row also gets its id, for
+`pnpm cella align --show <id>`.
+
 ## Alignments
 
 Upstream ships an alignment for every change that app code has to follow, in
@@ -165,13 +197,16 @@ handled yet. The sync adds the ones that arrive with it, `align --mark` removes 
 is deleted once the list is empty. No file means nothing is pending, so a new app starts without
 one.
 
-Alignments are information, never a gate. Each sync run, and `analyze`, ends with one line:
+Alignments are information, never a gate. `analyze` and each sync run list them under
+[`next steps`](#analyze-output): by title, with their kind, at most five. In `analyze` the ones in
+the sync range *arrive with this sync*; they become open once the sync lands, which is when
+`pnpm cella align` lists them. `pnpm cella align` itself ends with one line:
 
 ```
-alignments: 94 of 97 handled · 3 arrived with this sync · 3 open: pnpm cella align
+alignments: 94 of 97 handled · 3 open: pnpm cella align
 ```
 
-and the sync PR lists the open alignments with links. Handle them in the sync PR or later; they
+The sync PR lists the open alignments with links. Handle them in the sync PR or later; they
 stay listed until marked.
 
 ```bash
@@ -245,8 +280,11 @@ upstream's hunks are dropped, not merged. That is easy to miss (a pinned stylesh
 missing new upstream utilities that synced components rely on), so both commands call it out:
 
 - `analyze` lists them in a `⚠ protected but behind upstream` section (pinned files as ⨀,
-  ignored as ⨂) with the number of lines upstream changed; `--list`/`--json` include them in
-  `--scope all` and `--scope protected` (`--json` adds `upstreamChanged` and `upstreamChangedLines`).
+  ignored as ⨂) with the number of lines upstream changed, together with the ignored files only
+  upstream changed (tagged `new` or `deleted`, see below). New files come first, then the most
+  changed; generated output the fork regenerates itself (`sdk/gen`, `*.gen.*` files) is left out.
+  `--list`/`--json` include them in `--scope all` and `--scope protected` (`--json` adds
+  `upstreamChanged` and `upstreamChangedLines`).
 - `sync` prints the same list at the end of its summary, right when the drop happens.
 
 ```
@@ -259,9 +297,9 @@ missing new upstream utilities that synced components rely on), so both commands
 
 The [review page](#review-page) shows what upstream changed in each of them since the last sync.
 The check is relative to the last sync point: a drop that happened in an earlier sync only shows
-up as plain `ahead` afterwards. For that case the `↑ protected in fork` section annotates pinned
-files with `· N upstream lines absent` (lines upstream has that the fork lacks, compared at the
-tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
+up as plain `ahead` afterwards. For that case the `↑ protected in fork` section counts the
+`upstream lines absent` from each pinned file (lines upstream has that the fork lacks, compared at
+the tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
 deliberately or not: the review page shows the difference, so you can decide. Ignored files are
 not annotated.
 
@@ -272,13 +310,15 @@ syncs dropped come back too. Review the staged merge in your editor and keep wha
 
 ### Upstream changes that never sync
 
-Two more kinds of upstream change never reach the fork on their own. `analyze` prints both after
-its summary, and `sync` after its merge summary:
+Two more kinds of upstream change never reach the fork on their own. `analyze` lists the first in
+`protected but behind upstream` and prints the second after its file sections; `sync` prints both
+after its merge summary:
 
 - **Ignored paths changed upstream.** Upstream changed, added or deleted a file under an `ignored`
   entry (app-owned module folders included) and the fork left it untouched. No conflict marks it,
-  so this is where new config keys and version bumps under `shared/config` show up. Each `ignored`
-  entry gets one line with a file count, and the [review page](#review-page) shows the diffs. Files
+  so this is where new config keys and version bumps under `shared/config` show up. In `sync`
+  each `ignored` entry gets one line with a file count, and the [review page](#review-page) shows
+  the diffs. Files
   both sides changed stay in the section above, and generated output the fork regenerates itself
   (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
   files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
@@ -316,26 +356,29 @@ pnpm cella sync --keep-config   # merge although upstream changed its sync confi
 
 The terminal lists files; the review page shows their diffs, side by side and highlighted, on one
 page in your browser under the same section titles. `analyze` and `sync` write it whenever a list
-has files, and print its path last:
+has files, and list it first under [`next steps`](#analyze-output):
 
 ```
-⧈ review page with 3 diffs, opened in the browser:
-  /Users/you/app/.git/cella-diff/sync-review.html
+  1 review   file:///Users/you/app/.git/cella-diff/sync-review.html
+             3 diffs of upstream changes that did not arrive · opened in the browser
 ```
 
 | Section | `analyze` | `sync` | The diff shows |
 | --- | --- | --- | --- |
 | protected but behind upstream (sync: protected files kept the fork version) | ✓ | ✓ | what upstream changed since the last sync |
-| ignored paths changed upstream | ✓ | ✓ | what upstream changed since the last sync |
+| ignored paths changed upstream (analyze: under protected but behind upstream) | ✓ | ✓ | what upstream changed since the last sync |
 | pinned files that match the previous upstream | ✓ | ✓ | what upstream changed since the last sync |
 | protected in fork, upstream lines absent | ✓ | | the fork against upstream, both as they are now |
 | drifted from upstream | ✓ | | what the fork changed since the last sync |
 
 `sync` opens the page in your browser when it runs in a terminal: the files on it are upstream
 changes the merge did not bring in, and the committed sync branch is where you adopt them.
-`analyze` only prints the path, since you run it often and pinned files keep their absent lines.
+`analyze` only lists the page, since you run it often and pinned files keep their absent lines.
 The page lives in the git dir, so it never shows up in `git status`, and each run overwrites it. It
-holds 50 diffs at most; the rest, and files without a text diff, are listed by path.
+renders at most 50 diffs and 15,000 diff lines, and a single diff over 2,000 lines is listed
+instead (a rendered line costs about 0.6 KB of page). Sections take turns, one file each, so every
+section gets diffs before one fills the page. The rest, and files without a text diff, are listed
+by path.
 
 ## Package.json sync
 

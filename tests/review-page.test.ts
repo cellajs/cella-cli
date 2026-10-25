@@ -2,17 +2,26 @@
  * Tests for the review page.
  *
  * `reviewSections` picks the files of each terminal list with the refs their diffs run over,
- * `writeReviewPage` renders them into the git dir and lists what it cannot render, and
- * `reportReviewPage` prints the page path and opens it in the browser only for a sync on a
- * terminal. A fake `open`/`xdg-open` on PATH records the opener's arguments.
+ * `writeReviewPage` renders them into the git dir and lists what it cannot render,
+ * `reportReviewPage` writes the page and opens it in the browser only for a sync on a terminal,
+ * and `reviewStep` is the `next steps` entry for it. A fake `open`/`xdg-open` on PATH records the
+ * opener's arguments.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import process from 'node:process';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
-import { reportReviewPage, reviewSections, writeReviewPage } from '../src/services/review-page';
+import {
+  existingSyncReviewPage,
+  type ReviewPageReport,
+  reportReviewPage,
+  reviewSections,
+  reviewStep,
+  writeReviewPage,
+} from '../src/services/review-page';
 import { getEnv } from '../src/utils/env';
 import { groupIgnoredUpstreamChanges } from '../src/utils/overrides';
 import { createRepo, exec, write } from './helpers/test-env';
@@ -139,24 +148,21 @@ describe('review page', () => {
     Object.defineProperty(process.stdout, 'isTTY', { value, configurable: true });
   }
 
-  /** Run `reportReviewPage` and return what it printed. */
-  async function report(command: 'analyze' | 'sync'): Promise<string> {
-    const lines: string[] = [];
-    vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
-      lines.push(args.map(String).join(' '));
-    });
-    await reportReviewPage(repoPath, result, command);
-    vi.mocked(console.info).mockRestore();
-    return lines.join('\n');
+  /** Run `reportReviewPage`, failing the test if it prints anything: the page goes under `next steps`. */
+  async function report(command: 'analyze' | 'sync'): Promise<ReviewPageReport | undefined> {
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const page = await reportReviewPage(repoPath, result, command);
+    expect(info).not.toHaveBeenCalled();
+    info.mockRestore();
+    return page;
   }
 
   describe('reviewSections', () => {
-    it('lists the analyze sections in terminal order, each with the refs its diffs run over', () => {
+    it('lists the analyze sections, each with the refs its diffs run over, ignored upstream changes under protected', () => {
       const sections = reviewSections(result, 'analyze');
 
       expect(sections.map((s) => [s.title, s.range, s.paths])).toEqual([
-        ['protected but behind upstream', `${base}..${upstream}`, ['pinned.css']],
-        ['ignored paths changed upstream', `${base}..${upstream}`, ['own/new.ts']],
+        ['protected but behind upstream', `${base}..${upstream}`, ['pinned.css', 'own/new.ts']],
         ['pinned files that match the previous upstream', `${base}..${upstream}`, ['masking.css']],
         ['protected in fork, upstream lines absent', `HEAD..${upstream}`, ['stale.css']],
         ['drifted from upstream', `${base}..HEAD`, ['drift.bin', 'drift.ts']],
@@ -186,7 +192,7 @@ describe('review page', () => {
       });
 
       expect(page?.path).toBe(path.join(fs.realpathSync(repoPath), '.git', 'cella-diff', 'analyze-review.html'));
-      expect(page?.diffs).toBe(5);
+      expect(page).toMatchObject({ diffs: 5, listed: 1, sections: 4 });
       const text = visibleText(fs.readFileSync(page?.path ?? '', 'utf-8'));
       for (const title of ['protected but behind upstream', 'drifted from upstream']) expect(text).toContain(title);
       // Each section's diff runs over its own refs: upstream's changes, and the fork's own change.
@@ -206,6 +212,51 @@ describe('review page', () => {
       expect(html).toContain('<li><code>drift.bin</code></li>');
     });
 
+    it('lists a patch over the per-file line limit instead of rendering it', async () => {
+      const page = await writeReviewPage(
+        repoPath,
+        reviewSections(result, 'analyze'),
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 50, lines: 15_000, patchLines: 1 },
+      );
+
+      // Every text patch has more than one line, so only listings are left and nothing renders.
+      expect(page).toBeUndefined();
+    });
+
+    it('lets sections take turns, so a long section cannot fill the page before the next gets a diff', async () => {
+      const sections = [
+        { title: 'first', hint: '', range: `${base}..${upstream}`, paths: ['pinned.css', 'masking.css', 'plain.ts'] },
+        { title: 'second', hint: '', range: `${base}..HEAD`, paths: ['drift.ts'] },
+      ];
+
+      const page = await writeReviewPage(
+        repoPath,
+        sections,
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 2, lines: 15_000, patchLines: 2_000 },
+      );
+
+      expect(page).toMatchObject({ diffs: 2, listed: 2, sections: 2 });
+      const html = fs.readFileSync(page?.path ?? '', 'utf-8');
+      expect(visibleText(html)).toContain('fork-change');
+      expect(html).toContain('<li><code>masking.css</code></li>');
+      expect(html).toContain('<li><code>plain.ts</code></li>');
+    });
+
+    it('stops rendering at the page line budget and lists the rest', async () => {
+      const page = await writeReviewPage(
+        repoPath,
+        reviewSections(result, 'analyze'),
+        { command: 'analyze', range: `${base}..${upstream}` },
+        { files: 50, lines: 12, patchLines: 2_000 },
+      );
+
+      expect(page?.diffs).toBeGreaterThan(0);
+      expect(page?.diffs).toBeLessThan(5);
+      expect((page?.diffs ?? 0) + (page?.listed ?? 0)).toBe(6);
+    });
+
     it('writes nothing when no listed file has a diff', async () => {
       const sections = [{ title: 'none', hint: '', range: 'HEAD..HEAD', paths: ['drift.ts'] }];
 
@@ -214,36 +265,78 @@ describe('review page', () => {
   });
 
   describe('reportReviewPage', () => {
-    it('prints the page path after analyze without opening it', async () => {
-      const out = await report('analyze');
+    it('writes the analyze page without opening it', async () => {
+      const page = await report('analyze');
 
-      expect(out).toContain('review page with 5 diffs:');
-      expect(out).toContain(path.join('.git', 'cella-diff', 'analyze-review.html'));
+      expect(page).toMatchObject({ command: 'analyze', diffs: 5, listed: 1, sections: 4, opened: false });
+      expect(page?.path).toContain(path.join('.git', 'cella-diff', 'analyze-review.html'));
       expect(fs.existsSync(argsFile)).toBe(false);
     });
 
     it('opens the sync page in the browser on a terminal', async () => {
       setTTY(true);
 
-      const out = await report('sync');
+      const page = await report('sync');
 
-      expect(out).toContain('review page with 3 diffs, opened in the browser:');
+      expect(page).toMatchObject({ command: 'sync', diffs: 3, opened: true });
       expect(fs.readFileSync(argsFile, 'utf-8')).toContain('sync-review.html');
     });
 
     it('never opens the sync page without a terminal', async () => {
       setTTY(false);
 
-      const out = await report('sync');
-
-      expect(out).toContain('review page with 3 diffs:');
+      expect(await report('sync')).toMatchObject({ opened: false });
       expect(fs.existsSync(argsFile)).toBe(false);
     });
 
-    it('stays silent when there is nothing to review', async () => {
+    it('returns nothing when there is nothing to review', async () => {
       result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
 
-      expect(await report('analyze')).toBe('');
+      expect(await report('analyze')).toBeUndefined();
+    });
+
+    it('finds the page the merge run of a sync wrote, and drops it when a later sync has nothing to review', async () => {
+      expect(existingSyncReviewPage(repoPath)).toBeUndefined();
+
+      await report('sync');
+      expect(existingSyncReviewPage(repoPath)).toContain('sync-review.html');
+
+      result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
+      expect(await report('sync')).toBeUndefined();
+      expect(existingSyncReviewPage(repoPath)).toBeUndefined();
+    });
+  });
+
+  describe('reviewStep', () => {
+    const page = (overrides: Partial<ReviewPageReport>): ReviewPageReport => ({
+      path: '/repo/.git/cella-diff/analyze-review.html',
+      command: 'analyze',
+      diffs: 24,
+      listed: 42,
+      sections: 4,
+      opened: false,
+      ...overrides,
+    });
+    const plain = (step: { line: string; details?: string[] }) =>
+      [step.line, ...(step.details ?? [])].map((line) => stripVTControlCharacters(line));
+
+    it('prints the page as a file URL in full, with what is on it', () => {
+      expect(plain(reviewStep(page({})))).toEqual([
+        'file:///repo/.git/cella-diff/analyze-review.html',
+        '24 diffs in 4 sections · 42 listed without a diff',
+      ]);
+    });
+
+    it('says what a sync page shows and that it opened', () => {
+      const step = reviewStep(page({ command: 'sync', diffs: 7, listed: 0, opened: true }));
+
+      expect(plain(step)[1]).toBe('7 diffs of upstream changes that did not arrive · opened in the browser');
+    });
+
+    it('describes a page an earlier run wrote without counts', () => {
+      expect(plain(reviewStep('/repo/.git/cella-diff/sync-review.html'))[1]).toBe(
+        'upstream changes the sync did not bring in, from the merge run',
+      );
     });
   });
 });

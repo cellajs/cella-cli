@@ -244,7 +244,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Print the `since` table as markdown for a pull request description (stats service) */
   md?: boolean;
 
-  /** List every upstream alignment, not only the open ones (align service) */
+  /** List every file instead of collapsing large groups (analyze), or every upstream alignment (align) */
   all?: boolean;
 
   /** Print one alignment's README (align service) */
@@ -284,6 +284,8 @@ export interface CommitRangeEntry {
   hash: string;
   message: string;
   date: string;
+  /** Unix epoch seconds of the commit */
+  timestamp?: number;
 }
 
 /** Analyzed file with status and metadata */
@@ -317,7 +319,7 @@ export interface AnalyzedFile {
    * side wins whole-file, so upstream's changes to this path are dropped by the sync.
    */
   upstreamChanged?: boolean;
-  /** For `upstreamChanged` files: lines upstream changed since the merge-base (undefined for binary) */
+  /** For `upstreamChanged` and `upstreamOnly` files: lines upstream changed since the merge-base (undefined for binary) */
   upstreamChangedLines?: number;
   /**
    * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
@@ -366,6 +368,8 @@ export interface MergeResult {
   upstreamGitHubUrl?: string;
   /** Upstream commit info */
   upstreamCommit?: CommitRangeEntry;
+  /** Upstream commits since the last sync point */
+  upstreamCommitCount?: number;
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
   /**
@@ -381,9 +385,10 @@ export interface MergeResult {
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
   /**
    * Upstream alignments: how many the incoming ref holds, which ones upstream added since the
-   * sync point, and how many stay open in the fork once those are added.
+   * sync point, and the ones open in the fork after the run. A sync opens the arrivals; a dry run
+   * leaves them out of `open`.
    */
-  alignments?: { total: number; arrived: string[]; open: number };
+  alignments?: { total: number; arrived: string[]; open: string[] };
 }
 
 /** Entries of one sync config list (`pinned`, `ignored` or `packageJsonSync`) that the fork config does not mirror. */

@@ -6,6 +6,7 @@
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
+import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAlign } from '../../src/services/align';
 import { runAnalyze } from '../../src/services/analyze';
@@ -62,7 +63,7 @@ describe('alignments e2e', () => {
     expect(fileExists(env.forkPath, 'feature.ts')).toBe(true);
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
   });
 
   it('gives an app synced before the alignments only the ones upstream holds after deleting its notes', async () => {
@@ -87,7 +88,7 @@ describe('alignments e2e', () => {
 
     const result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
 
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
     expect(fileExists(env.forkPath, 'cella/migrations')).toBe(false);
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
@@ -95,7 +96,11 @@ describe('alignments e2e', () => {
 
   it('removes the copy when the sync stops at conflicts, and the rerun keeps it gone', async () => {
     const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+    const lines: string[] = [];
+    const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const printed = () => stripVTControlCharacters(lines.splice(0).join('\n'));
 
     // An older sync brought the whole folder in
     makeCommit(env.upstreamPath, {
@@ -138,6 +143,15 @@ describe('alignments e2e', () => {
       expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
       expect(git('ls-files cella/alignments')).toBe('');
       expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
+      // It ends on what to do: resolve the conflict, let a rerun commit, and the alignment that arrived
+      const stopped = printed();
+      expect(stopped).toMatch(
+        /next steps\n─+\n\n {2}1 resolve {2}1 conflict in your editor, then stage them\n {13}README\.md\n/,
+      );
+      expect(stopped).toMatch(/ {2}2 finish {3}pnpm cella sync\n/);
+      expect(stopped).toMatch(/ {2}\d align {4}1 alignment open · 1 arrived with this sync\n/);
+      expect(stopped).toContain('○ New alignment · codemod · sync-breaking · caught by compiler');
+      expect(stopped).toContain(`  id ${NEW}`);
 
       // Finishing rerun: commits the resolved merge, and the folder stays gone
       fs.writeFileSync(path.join(env.forkPath, 'README.md'), '# Fork readme\n');
@@ -146,6 +160,14 @@ describe('alignments e2e', () => {
 
       expect(git('rev-parse --abbrev-ref HEAD')).toBe(branch);
       expect(git('log -1 --format=%s')).toMatch(/^chore: sync upstream cella/);
+      // The commit stop: triage, the open alignment once, and the ship rerun
+      const committed = printed();
+      expect(committed).toMatch(/✓ committed {2}chore: sync upstream cella/);
+      expect(committed).toMatch(/ {2}\d triage {3}pnpm cella analyze\n/);
+      expect(committed).toMatch(/ {2}\d align {4}1 alignment open\n/);
+      expect(committed).toMatch(/ {2}\d ship {5}pnpm cella sync\n/);
+      expect(committed.match(/New alignment/g)).toHaveLength(1);
+      expect(committed).not.toContain('alignments:');
       expect(git('status --porcelain')).toBe('');
       expect(git('ls-tree -r --name-only HEAD -- cella/alignments')).toBe('');
       expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
@@ -162,10 +184,23 @@ describe('alignments e2e', () => {
     });
     fetchUpstream(env.forkPath);
 
-    const result = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' }));
+    const lines: string[] = [];
+    const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
+      lines.push(args.map(String).join(' '));
+    });
+    const result = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' })).finally(() => info.mockRestore());
 
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: 1 });
+    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [] });
     expect(pending(env.forkPath)).toBeNull();
+    // Arriving, not open: `pnpm cella align` lists it only once the sync lands
+    const out = stripVTControlCharacters(lines.join('\n'));
+    expect(out).toContain('○ New alignment · manual · sync-breaking · caught by compiler');
+    expect(out).toContain('after the sync: pnpm cella align');
+    // Only the alignment changed upstream: the sync still records it and moves the sync point
+    expect(out).toMatch(
+      / {2}1 sync {5}pnpm cella sync\n {13}commits on a fresh branch, a rerun opens the PR · no synced file changes\n/,
+    );
+    expect(out).toMatch(/ {2}2 align {4}1 alignment arrives with this sync\n/);
   });
 
   it('marks an alignment as handled and deletes the file once nothing is pending', async () => {

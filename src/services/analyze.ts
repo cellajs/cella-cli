@@ -3,18 +3,22 @@
  */
 
 import type { MergeResult, RuntimeConfig } from '../config/types';
+import pc from '../utils/colors';
 import {
   createSpinner,
-  type LinkOptions,
-  printAnalysisFileGroups,
-  printEngineReports,
+  type NextStep,
+  printMaskingPinWarning,
+  printNextSteps,
+  printSummary,
+  printUpstreamOverrideChanges,
   spinnerSuccess,
   writeStdout,
 } from '../utils/display';
 import { CONFIG_FILE } from '../utils/managed-files';
-import { printAlignmentsLine } from './align';
-import { runEngineWithSpinner } from './merge-engine';
-import { reportReviewPage } from './review-page';
+import { alignmentsStep } from './align';
+import { printAnalysisFileGroups } from './analyze-report';
+import { readOriginGitHubUrl, runEngineWithSpinner } from './merge-engine';
+import { reportReviewPage, reviewStep } from './review-page';
 
 const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
   all: new Set(['ahead', 'drifted', 'diverged']),
@@ -80,22 +84,57 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     return result;
   }
 
-  const linkOptions: LinkOptions = {
-    upstreamGitHubUrl: result.upstreamGitHubUrl,
-    upstreamBranch: result.upstreamBranch,
-    fileLinkMode: config.settings.fileLinkMode,
-    forkPath: config.forkPath,
-  };
+  // File sections first, ordered by how much they need you; the summary and the next steps close the output.
+  printAnalysisFileGroups(result, {
+    links: {
+      upstreamGitHubUrl: result.upstreamGitHubUrl,
+      upstreamSha: result.upstreamCommit?.hash,
+      forkGitHubUrl: await readOriginGitHubUrl(config.forkPath),
+      fileLinkMode: config.settings.fileLinkMode,
+      forkPath: config.forkPath,
+    },
+    all: config.all,
+    overrides: config.overrides,
+  });
+  printUpstreamOverrideChanges(result);
+  printMaskingPinWarning(result.files);
+  printSummary(result.summary, 'analysis summary');
 
-  // File lists first (analyze shows them for review); the summary and shared reports close the output.
-  printAnalysisFileGroups(result.files, linkOptions);
-
-  printEngineReports(result, 'analysis summary');
-  await reportReviewPage(config.forkPath, result, 'analyze');
-
-  await printAlignmentsLine(config, result);
-
-  console.info();
+  const steps: NextStep[] = [];
+  const review = await reportReviewPage(config.forkPath, result, 'analyze');
+  if (review) steps.push(reviewStep(review));
+  const sync = syncStep(result);
+  if (sync) steps.push(sync);
+  const align =
+    result.alignments && result.upstreamCommit
+      ? await alignmentsStep(config, {
+          ref: result.upstreamCommit.hash,
+          open: result.alignments.open,
+          arriving: result.alignments.arrived,
+        })
+      : undefined;
+  if (align) steps.push(align);
+  printNextSteps(steps);
 
   return result;
+}
+
+/** The `sync` step: what the sync would change, left out when upstream has nothing new. */
+function syncStep(result: MergeResult): NextStep | undefined {
+  if (!result.upstreamCommitCount) return undefined;
+  const { behind, diverged, renamed } = result.summary;
+  const changes = [
+    behind > 0 ? `${behind} update` : '',
+    diverged > 0 ? `${diverged} merge` : '',
+    renamed > 0 ? `${renamed} rename` : '',
+  ].filter(Boolean);
+  return {
+    label: 'sync',
+    line: 'pnpm cella sync',
+    details: [
+      pc.dim(
+        `commits on a fresh branch, a rerun opens the PR · ${changes.length > 0 ? changes.join(', ') : 'no synced file changes'}`,
+      ),
+    ],
+  };
 }

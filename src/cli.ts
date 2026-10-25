@@ -92,6 +92,7 @@ const serviceDefinitions: ServiceDefinition[] = [
       ['--list', 'non-interactive output for tooling (one file per line)'],
       jsonOption,
       ['--scope <scope>', 'analyze scope for --list/--json: all|risk|protected'],
+      ['--all', 'list every file instead of collapsing large groups'],
       trackOption,
       refOption,
       unpinnedOption,
