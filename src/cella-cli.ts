@@ -16,7 +16,7 @@ import { runContributions } from './services/contributions';
 import { runForks } from './services/forks';
 import { runStats } from './services/stats';
 import { runBranchStats } from './services/stats-since';
-import { runSyncCommand } from './services/sync';
+import { runUpgradeCommand } from './services/upgrade';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
 import { getEnv } from './utils/env';
@@ -47,7 +47,7 @@ function getForkPath(): string {
 
 /**
  * Pre-flight check before running a service: verifies the path is a git repository.
- * The sync service cuts its own temporary branch from the trunk and owns its own
+ * The upgrade service cuts its own temporary branch from the trunk and owns its own
  * clean/resume state, so neither the current branch nor a dirty tree blocks a run.
  */
 function preflight(forkPath: string): void {
@@ -59,7 +59,7 @@ function preflight(forkPath: string): void {
 /** What each service runs once the command line is parsed. */
 const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>> = {
   analyze: runAnalyze,
-  sync: runSyncCommand,
+  upgrade: runUpgradeCommand,
   align: runAlign,
   audit: runAudit,
   forks: runForks,

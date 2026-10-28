@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 // Public API for cella/cella.config.ts.
 
-const PACKAGE_JSON_SYNC_KEYS = [
+const PACKAGE_JSON_KEYS = [
   'dependencies',
   'devDependencies',
   'peerDependencies',
@@ -20,11 +20,11 @@ const PACKAGE_JSON_SYNC_KEYS = [
   'pnpm',
 ] as const;
 
-/** Valid package.json keys that can be synced */
-export type PackageJsonSyncKey = (typeof PACKAGE_JSON_SYNC_KEYS)[number];
+/** Valid package.json keys that can merge from upstream */
+export type PackageJsonKey = (typeof PACKAGE_JSON_KEYS)[number];
 
 /**
- * Sync settings: all configurable options for the sync CLI.
+ * Settings: all configurable options for the cella CLI.
  * Hover over each property for documentation.
  */
 export interface SyncSettings {
@@ -39,7 +39,7 @@ export interface SyncSettings {
 
   /**
    * How to track upstream cella. Defaults to 'release'.
-   * - 'release' (default): sync to a published cella release tag (`0.18.1`, with or without `v`). Stable and
+   * - 'release' (default): upgrade to a published cella release tag (`0.18.1`, with or without `v`). Stable and
    *   reviewable: each bump maps to a changelog. Uses the latest release.
    * - 'branch': follow the bleeding-edge tip of `upstreamBranch`. For cella
    *   maintainers and forks doing active development on top of unreleased changes.
@@ -47,16 +47,22 @@ export interface SyncSettings {
   upstreamTrack?: 'release' | 'branch';
 
   /**
-   * Trunk branch that `pnpm cella sync` cuts the temporary branch from and that you open the
+   * Trunk branch that `pnpm cella upgrade` cuts the temporary branch from and that you open the
    * squash-merge PR into. Defaults to 'main'. Cutting fresh from trunk each cycle keeps every
    * PR limited to that cycle's upstream delta (no accumulation) and `main` linear.
    */
   releaseBase?: string;
 
-  /** Which package.json keys to sync (default: ['dependencies', 'devDependencies']). `type` always syncs. */
-  packageJsonSync?: PackageJsonSyncKey[];
+  /** Which package.json keys merge from upstream (default: ['dependencies', 'devDependencies']). `type` always merges. */
+  packageJsonKeys?: PackageJsonKey[];
 
-  /** Automatic package.json sync after the sync service completes (default: true). Set to false to turn it off. */
+  /** Merge the `packageJsonKeys` of every package.json after the upgrade merge (default: true). */
+  mergePackageJson?: boolean;
+
+  /** @deprecated Renamed to `packageJsonKeys`. */
+  packageJsonSync?: PackageJsonKey[];
+
+  /** @deprecated Renamed to `mergePackageJson`. */
   syncWithPackages?: boolean;
 
   /**
@@ -72,7 +78,7 @@ export interface SyncSettings {
  *
  * Cella is the upstream/source-of-truth. For each fork it can:
  * - pull contributions FROM the fork's `pullBranch` (contributions service)
- * - run the normal temporary-branch sync flow inside the fork (forks service)
+ * - run the normal temporary-branch upgrade flow inside the fork (forks service)
  */
 export interface ForkConfig {
   /** Display name for the fork (also used as the contrib/<name> branch slug) */
@@ -152,7 +158,9 @@ export const cellaConfigSchema = z
         upstreamBranch: z.string().min(1).optional(),
         upstreamTrack: z.enum(['release', 'branch']).optional(),
         releaseBase: z.string().min(1).optional(),
-        packageJsonSync: z.array(z.enum(PACKAGE_JSON_SYNC_KEYS)).optional(),
+        packageJsonKeys: z.array(z.enum(PACKAGE_JSON_KEYS)).optional(),
+        mergePackageJson: z.boolean().optional(),
+        packageJsonSync: z.array(z.enum(PACKAGE_JSON_KEYS)).optional(),
         syncWithPackages: z.boolean().optional(),
         fileLinkMode: z.enum(['commit', 'file']).optional(),
       })
@@ -182,7 +190,7 @@ export const cellaConfigSchema = z
 // Internal types for the services.
 
 /** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'sync' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
+export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
 
 /** Analyze output scope for interactive and machine-readable flows */
 export type AnalyzeScope = 'all' | 'risk' | 'protected';
@@ -214,20 +222,20 @@ export interface RuntimeConfig extends CellaCliConfig {
   fork?: string;
 
   /**
-   * Override upstream tracking for this run (analyze/sync), ignoring `settings.upstreamTrack`.
+   * Override upstream tracking for this run (analyze/upgrade), ignoring `settings.upstreamTrack`.
    * 'branch' follows the upstream branch tip (bleeding edge); 'release' uses a release tag.
    */
   track?: 'release' | 'branch';
 
   /**
-   * Pin the upstream ref for this run (analyze/sync), overriding `track`: a commit sha, a release
+   * Pin the upstream ref for this run (analyze/upgrade), overriding `track`: a commit sha, a release
    * tag or an upstream branch name. Must be on the upstream branch or in an upstream release.
    */
   ref?: string;
 
   /**
-   * Merge with the fork's sync config as it stands (sync service). Without it, a new merge stops
-   * before anything changes when upstream changed its own `overrides` or `packageJsonSync` in ways
+   * Merge with the fork's CLI config as it stands (upgrade service). Without it, a new merge stops
+   * before anything changes when upstream changed its own `overrides` or `packageJsonKeys` in ways
    * the fork config does not follow.
    */
   keepConfig?: boolean;
@@ -379,7 +387,7 @@ export interface MergeResult {
   protectedConflicts?: string[];
   /** `<merge-base>..<upstream>` range of short SHAs: what upstream changed since the last sync, for the review page. */
   upstreamDiffRange?: string;
-  /** How upstream's own sync config changed since the merge-base, where the fork config does not follow. */
+  /** How upstream's own CLI config changed since the merge-base, where the fork config does not follow. */
   upstreamOverrides?: UpstreamOverridesReport;
   /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
@@ -391,7 +399,7 @@ export interface MergeResult {
   alignments?: { total: number; arrived: string[]; open: string[] };
 }
 
-/** Entries of one sync config list (`pinned`, `ignored` or `packageJsonSync`) that the fork config does not mirror. */
+/** Entries of one CLI config list (`pinned`, `ignored` or `packageJsonKeys`) that the fork config does not mirror. */
 export interface OverrideListChanges {
   /** Entries upstream added since the merge-base that the fork list lacks. */
   added: string[];
@@ -400,8 +408,8 @@ export interface OverrideListChanges {
 }
 
 /**
- * Upstream sync config changes the fork should review. The sync config is managed (never merged),
- * so new upstream `pinned`/`ignored` entries and `packageJsonSync` keys only reach the fork by
+ * Upstream CLI config changes the fork should review. The CLI config is managed (never merged),
+ * so new upstream `pinned`/`ignored` entries and `packageJsonKeys` only reach the fork by
  * hand. `unreadable` means upstream's config was missing or unparsable at one side (`base` =
  * merge-base, `incoming` = upstream ref), so nothing was compared.
  */
@@ -410,7 +418,7 @@ export type UpstreamOverridesReport =
       kind: 'changes';
       pinned: OverrideListChanges;
       ignored: OverrideListChanges;
-      packageJsonSync: OverrideListChanges;
+      packageJsonKeys: OverrideListChanges;
     }
   | { kind: 'unreadable'; side: 'base' | 'incoming' };
 

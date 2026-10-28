@@ -1,8 +1,8 @@
 /**
  * The CLI version upstream asks for.
  *
- * A sync bumps the fork's `@cellajs/cli` along with its other packages, so each sync runs on the
- * CLI from before it. A fix to analyze or sync would reach a fork one sync late, and that run
+ * An upgrade bumps the fork's `@cellajs/cli` along with its other packages, so each upgrade runs on the
+ * CLI from before it. A fix to analyze or upgrade would reach a fork one upgrade late, and that run
  * would silently miss what the fix reports. Upstream's root package.json names the CLI it was
  * built with; a run on an older CLI stops before it touches the fork.
  */
@@ -37,7 +37,7 @@ export function cliVersionMismatch(running: string, range: string): string | nul
   const current = parseComparableVersion(running);
   if (!required || !current || compareVersions(current, required) >= 0) return null;
   return [
-    `upstream needs ${CLI_PACKAGE} ${range}, this is ${running}: an older CLI misses fixes to the sync itself.`,
+    `upstream needs ${CLI_PACKAGE} ${range}, this is ${running}: an older CLI misses fixes to the upgrade itself.`,
     `  update it, commit, then rerun: pnpm add -D -w '${CLI_PACKAGE}@${range}'`,
   ].join('\n');
 }

@@ -129,7 +129,7 @@ describe('formatUpstreamStep', () => {
 
   it('says when upstream has nothing new', () => {
     expect(stripVTControlCharacters(formatUpstreamStep(upstream))).toBe(
-      'main @ b374861 · no new commits since the last sync',
+      'main @ b374861 · no new commits since the last upgrade',
     );
   });
 
@@ -142,7 +142,7 @@ describe('formatUpstreamStep', () => {
     });
 
     const [first, commit] = stripVTControlCharacters(out).split('\n');
-    expect(first).toBe('main @ b374861 · --ref · 1 new commit since the last sync at 3d56cca');
+    expect(first).toBe('main @ b374861 · --ref · 1 new commit since the last upgrade at 3d56cca');
     expect(commit).toMatch(/^b374861 {2}fix: x +#7$/);
   });
 });

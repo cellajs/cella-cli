@@ -712,20 +712,26 @@ async function cleanupEmptyParentDirs(cwd: string, relativePath: string): Promis
 
 // Sync ref tracking and merge-base recovery.
 
+/** The local ref holding the upstream commit of the last upgrade, and `<ref>-head` the fork HEAD then. */
+const LAST_UPGRADE_REF = 'refs/cella/last-upgrade';
+
+/** Where CLI 0.5 kept the same two refs; read while a fork has not upgraded under 0.6. */
+const LEGACY_LAST_UPGRADE_REF = 'refs/cella/last-sync';
+
 /**
- * Store the upstream commit hash after a successful sync.
+ * Store the upstream commit hash after a successful upgrade merge.
  * Used to recover correct merge-base when squash strategy creates single-parent commits.
  *
- * Also records the fork HEAD at store time as `refs/cella/last-sync-head`. The last-sync
+ * Also records the fork HEAD at store time as `refs/cella/last-upgrade-head`. The last-upgrade
  * ref is written while the merge is still staged (before the user commits), so it cannot be
  * trusted on its own: if the user runs `git merge --abort`, HEAD never advances and the ref
  * is left pointing at an upstream commit that was never actually integrated. Recording HEAD
  * lets `getEffectiveMergeBase` detect that an aborted/uncommitted merge produced a stale ref.
  */
 export async function storeLastSyncRef(cwd: string, upstreamHash: string): Promise<void> {
-  await git(['update-ref', 'refs/cella/last-sync', upstreamHash], cwd);
+  await git(['update-ref', LAST_UPGRADE_REF, upstreamHash], cwd);
   const head = await revParse(cwd, 'HEAD');
-  if (head) await git(['update-ref', 'refs/cella/last-sync-head', head], cwd);
+  if (head) await git(['update-ref', `${LAST_UPGRADE_REF}-head`, head], cwd);
 }
 
 /** Stage a single path (git add). Best-effort: never throws. */
@@ -733,9 +739,18 @@ export async function stagePath(cwd: string, path: string): Promise<void> {
   await git(['add', '--', path], cwd, { ignoreErrors: true });
 }
 
-/** The stored last-sync upstream ref, or null when no sync has been recorded. */
+/** The stored last-upgrade ref and its HEAD, under the 0.5 names when the 0.6 ones are absent. */
+async function readStoredSyncRefs(cwd: string): Promise<{ ref: string; head: string | null } | null> {
+  for (const name of [LAST_UPGRADE_REF, LEGACY_LAST_UPGRADE_REF]) {
+    const ref = await revParse(cwd, name);
+    if (ref) return { ref, head: await revParse(cwd, `${name}-head`) };
+  }
+  return null;
+}
+
+/** The stored last-upgrade upstream ref, or null when no upgrade has been recorded. */
 export async function getStoredSyncRef(cwd: string): Promise<string | null> {
-  return revParse(cwd, 'refs/cella/last-sync');
+  return (await readStoredSyncRefs(cwd))?.ref ?? null;
 }
 
 /**
@@ -815,7 +830,7 @@ async function isShallowRepository(cwd: string): Promise<boolean> {
  * 3-way analysis see the real commit graph.
  *
  * Throws an actionable error when the history cannot be restored (e.g. no reachable origin),
- * because sync cannot run correctly against truncated history.
+ * because an upgrade cannot run correctly against truncated history.
  */
 async function unshallowRepository(cwd: string): Promise<void> {
   try {
@@ -824,9 +839,9 @@ async function unshallowRepository(cwd: string): Promise<void> {
     const detail = error instanceof Error ? `\n\n${error.message}` : '';
     throw new Error(
       'this is a shallow clone and its full history could not be restored automatically.\n' +
-        'Sync needs the complete history to find the common ancestor with upstream. Restore it with:\n\n' +
+        'An upgrade needs the complete history to find the common ancestor with upstream. Restore it with:\n\n' +
         '  git fetch --unshallow\n\n' +
-        `then re-run sync.${detail}`,
+        `then re-run the upgrade.${detail}`,
     );
   }
 }
@@ -835,17 +850,17 @@ async function unshallowRepository(cwd: string): Promise<void> {
  * Ensure a native git merge-base exists between the fork and upstream.
  *
  * A create-cella scaffold has unrelated history with upstream, so `git merge-base` finds nothing
- * and every sync fails at the very first step. This bootstraps ancestry non-destructively:
+ * and every upgrade fails at the very first step. This bootstraps ancestry non-destructively:
  *   0. If the repo is a shallow clone, restore its full history first: the real ancestor is
  *      truncated away, so no graft can recover it; deepening the history brings it back.
  *   1. If a native merge-base already exists, do nothing (the common case).
  *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
  *      one whose commit actually exists after the upstream fetch wins: the sync-point
- *      record (`refs/cella/last-sync` ref, then committed/worktree `cella/cella.manifest.json`),
+ *      record (`refs/cella/last-upgrade` ref, then committed/worktree `cella/cella.manifest.json`),
  *      then the scaffold origin (the root commit's `Cella-Base:` trailer).
  *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native
  *      git operation (merge-base and the 3-way merge itself) sees correct ancestry, and record
- *      the base as `refs/cella/last-sync`. The replace ref is local-only and never pushed, so
+ *      the base as `refs/cella/last-upgrade`. The replace ref is local-only and never pushed, so
  *      the fork's own published history stays clean.
  *
  * Throws an actionable error when no valid base can be determined.
@@ -875,19 +890,19 @@ export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: 
   }
   if (!baseSha) {
     throw new Error(
-      `no common ancestor between the fork and '${upstreamRef}', and no sync base could be determined.\n\n` +
+      `no common ancestor between the fork and '${upstreamRef}', and no upgrade base could be determined.\n\n` +
         'This fork has unrelated history with upstream (typical for a create-cella scaffold, or after\n' +
         'upstream squashed its history) and no recorded base commit exists after fetching\n' +
-        'upstream. Seed it manually with the upstream commit the fork was created from, then re-run sync:\n\n' +
-        '  git update-ref refs/cella/last-sync <upstream-sha>\n',
+        'upstream. Seed it manually with the upstream commit the fork was created from, then re-run the upgrade:\n\n' +
+        `  git update-ref ${LAST_UPGRADE_REF} <upstream-sha>\n`,
     );
   }
 
   const root = await getRootCommit(cwd, headRef);
-  if (!root) throw new Error("could not determine the fork's root commit to bootstrap sync ancestry");
+  if (!root) throw new Error("could not determine the fork's root commit to bootstrap upgrade ancestry");
 
   await git(['replace', '-f', '--graft', root, baseSha], cwd);
-  await git(['update-ref', 'refs/cella/last-sync', baseSha], cwd);
+  await git(['update-ref', LAST_UPGRADE_REF, baseSha], cwd);
 }
 
 /** Whether `ancestor` is an ancestor of `descendant`. */
@@ -901,21 +916,20 @@ export async function isAncestor(cwd: string, ancestor: string, descendant: stri
 }
 
 /**
- * Legacy sync point for forks that last synced before the manifest was committed: the local
- * last-sync ref, discarded while HEAD still sits at the recorded sync HEAD (an aborted merge,
+ * Legacy sync point for forks that last upgraded before the manifest was committed: the local
+ * last-upgrade ref, discarded while HEAD still sits at the recorded HEAD (an aborted merge,
  * see {@link storeLastSyncRef}).
  */
 async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | null> {
-  const storedRef = await getStoredSyncRef(cwd);
-  if (!storedRef) return null;
+  const stored = await readStoredSyncRefs(cwd);
+  if (!stored) return null;
 
-  const storedHead = await revParse(cwd, 'refs/cella/last-sync-head');
-  if (storedHead) {
+  if (stored.head) {
     const currentHead = await revParse(cwd, headRef);
-    if (currentHead && currentHead === storedHead) return null;
+    if (currentHead && currentHead === stored.head) return null;
   }
 
-  return storedRef;
+  return stored.ref;
 }
 
 /**
@@ -924,7 +938,7 @@ async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | 
  * don't update git's merge-base graph).
  *
  * The manifest committed at `headRef` is the authoritative record: it lands iff the sync commit lands
- * and travels with the repo. The local last-sync ref is the fallback for forks whose last sync predates it.
+ * and travels with the repo. The local last-upgrade ref is the fallback for forks whose last upgrade predates it.
  *
  * @returns The effective base commit, whether git's base was stale, and the recorded sync point
  */
@@ -954,7 +968,7 @@ export async function getEffectiveMergeBase(
  * native git operations (merge-base resolution and the 3-way merge itself) see the recorded
  * sync point, not a stale historical ancestor.
  *
- * Squash syncs advance the recorded sync point (manifest + `refs/cella/last-sync`) without
+ * Squash syncs advance the recorded sync point (manifest + `refs/cella/last-upgrade`) without
  * advancing git's commit graph, so a plain `git merge` replays every upstream change since the
  * last true merge ancestor: hunks the fork already integrated (or deliberately resolved away)
  * re-apply as clean auto-merges or re-conflict on every sync. The graft adds `baseSha` as an

@@ -23,6 +23,7 @@ vi.mock('../src/utils/display', () => ({
   VERSION: 'test',
   printHeader: vi.fn(),
   setJsonMode: vi.fn(),
+  warningMark: '⚠',
 }));
 
 const { parseCli } = await import('../src/cli');
@@ -64,28 +65,44 @@ describe('parseCli', () => {
     expect(config.json).toBe(true);
   });
 
-  it('parses service-specific flags for sync', async () => {
-    process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
+  it('parses service-specific flags for upgrade', async () => {
+    process.argv = ['node', 'cella', 'upgrade', '--track', 'branch'];
 
     const config = await parseCli(baseConfig, '/tmp/fork');
 
-    expect(config.service).toBe('sync');
+    expect(config.service).toBe('upgrade');
     expect(config.track).toBe('branch');
   });
 
-  it('parses a pinned upstream ref for sync and analyze', async () => {
-    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c'];
+  it('runs upgrade under its 0.5 name sync, with its options, and warns about the rename', async () => {
+    process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
+    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
+
+    const config = await parseCli(
+      { ...baseConfig, settings: { ...baseConfig.settings, syncWithPackages: true } },
+      '/tmp/fork',
+    );
+
+    expect(config.service).toBe('upgrade');
+    expect(config.track).toBe('branch');
+    const out = info.mock.calls.flat().join('\n');
+    expect(out).toContain('`cella sync` is renamed to `cella upgrade`');
+    expect(out).toContain('settings.syncWithPackages is renamed to mergePackageJson');
+  });
+
+  it('parses a pinned upstream ref for upgrade and analyze', async () => {
+    process.argv = ['node', 'cella', 'upgrade', '--ref', '4f7d87c'];
     expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('4f7d87c');
 
     process.argv = ['node', 'cella', 'analyze', '--ref', 'v0.14.0'];
     expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
   });
 
-  it('parses --keep-config for sync and forks', async () => {
-    process.argv = ['node', 'cella', 'sync'];
+  it('parses --keep-config for upgrade and forks', async () => {
+    process.argv = ['node', 'cella', 'upgrade'];
     expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
 
-    process.argv = ['node', 'cella', 'sync', '--ref', '4f7d87c', '--keep-config', '--unpinned'];
+    process.argv = ['node', 'cella', 'upgrade', '--ref', '4f7d87c', '--keep-config', '--unpinned'];
     const aggressive = await parseCli(baseConfig, '/tmp/fork');
     expect(aggressive.keepConfig).toBe(true);
     expect(aggressive.unpinned).toBe(true);

@@ -8,12 +8,14 @@ import { select } from '@inquirer/prompts';
 import { Command } from 'commander';
 import type { AnalyzeScope, CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import pc from './utils/colors';
-import { isUpstreamRepo, resolveUpstream } from './utils/config';
+import { isUpstreamRepo, renamedSettingWarnings, resolveUpstream } from './utils/config';
 import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
 import { validateOverrides } from './utils/overrides';
 
 type CliServiceSelection = {
   service?: SyncService;
+  /** The former service name the command line used, from {@link ServiceDefinition.aliases}. */
+  renamedFrom?: string;
   options: CliOptionState;
 };
 
@@ -32,6 +34,8 @@ type ServiceDefinition = {
   options?: ServiceOption[];
   /** Arguments the service takes after its options, e.g. the ones `align --run` hands to the codemod. */
   operands?: ServiceOption;
+  /** Former names that still run the service, hidden from help, with a warning to use the current name. */
+  aliases?: string[];
   includeInMenu?: (context: MenuContext) => boolean;
 };
 
@@ -87,7 +91,7 @@ const forkOption: ServiceOption = ['--fork <name>', 'pre-select a fork by name (
 const serviceDefinitions: ServiceDefinition[] = [
   {
     name: 'analyze',
-    description: 'dry run to see what would change on sync',
+    description: 'dry run to see what would change on upgrade',
     options: [
       ['--list', 'non-interactive output for tooling (one file per line)'],
       jsonOption,
@@ -100,12 +104,13 @@ const serviceDefinitions: ServiceDefinition[] = [
     includeInMenu: (context) => !context.isUpstreamRepo,
   },
   {
-    name: 'sync',
-    description: 'merge upstream changes onto a fresh branch, sync package.json and open a squash-merge PR',
+    name: 'upgrade',
+    description: 'merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR',
+    aliases: ['sync'],
     options: [
       trackOption,
       refOption,
-      ['--keep-config', 'merge with your sync config as it stands when upstream changed its own'],
+      ['--keep-config', 'merge with your CLI config as it stands when upstream changed its own'],
       unpinnedOption,
     ],
     includeInMenu: (context) => !context.isUpstreamRepo,
@@ -134,10 +139,10 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'forks',
-    description: 'run normal sync inside local fork repositories',
+    description: 'run the upgrade inside local fork repositories',
     options: [
       forkOption,
-      ['--keep-config', "merge with the fork's sync config as it stands when upstream changed its own"],
+      ['--keep-config', "merge with the fork's CLI config as it stands when upstream changed its own"],
     ],
     includeInMenu: (context) => context.hasForks,
   },
@@ -187,20 +192,24 @@ function addServiceCommand(
   definition: ServiceDefinition,
   setSelection: (selection: CliServiceSelection) => void,
 ) {
-  const command = program.command(definition.name).description(definition.description);
+  for (const name of [definition.name, ...(definition.aliases ?? [])]) {
+    const renamedFrom = name === definition.name ? undefined : name;
+    const command = program.command(name, { hidden: !!renamedFrom }).description(definition.description);
 
-  for (const option of definition.options ?? []) command.option(...option);
-  if (definition.operands) command.argument(...definition.operands);
+    for (const option of definition.options ?? []) command.option(...option);
+    if (definition.operands) command.argument(...definition.operands);
 
-  // Commander hands declared arguments to the action before the options
-  command.action((...args: unknown[]) => {
-    const operands = definition.operands ? (args[0] as string[]) : [];
-    const opts = (definition.operands ? args[1] : args[0]) as Record<string, unknown>;
-    setSelection({
-      service: definition.name,
-      options: readOptions(opts, operands),
+    // Commander hands declared arguments to the action before the options
+    command.action((...args: unknown[]) => {
+      const operands = definition.operands ? (args[0] as string[]) : [];
+      const opts = (definition.operands ? args[1] : args[0]) as Record<string, unknown>;
+      setSelection({
+        service: definition.name,
+        renamedFrom,
+        options: readOptions(opts, operands),
+      });
     });
-  });
+  }
 }
 
 function buildProgram(setSelection: (selection: CliServiceSelection) => void): Command {
@@ -216,8 +225,8 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         'Examples:',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
-        '  $ cella sync --track branch',
-        '  $ cella sync --ref 4f7d87c',
+        '  $ cella upgrade --track branch',
+        '  $ cella upgrade --ref 4f7d87c',
         '  $ cella align --run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella align --mark 20261002T0614-config-switch',
         '  $ cella audit --list',
@@ -287,7 +296,13 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   // The upstream branch tip as last fetched: ignored entries are validated against it, and it is the
   // upstreamRef until the merge engine resolves the release tag when tracking releases.
   const { branchRef } = resolveUpstream(userConfig.settings);
-  const warnings = await validateOverrides(userConfig, forkPath, branchRef);
+  const warnings = [
+    ...renamedSettingWarnings(userConfig),
+    ...(await validateOverrides(userConfig, forkPath, branchRef)),
+  ];
+  if (selection.renamedFrom) {
+    warnings.unshift(`\`cella ${selection.renamedFrom}\` is renamed to \`cella ${selection.service}\``);
+  }
   for (const warning of warnings) console.info(`${warningMark} ${warning}`);
   if (warnings.length > 0) console.info();
 

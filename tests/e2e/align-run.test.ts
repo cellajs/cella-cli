@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAlign } from '../../src/services/align';
-import { runSync } from '../../src/services/sync';
+import { runSync } from '../../src/services/upgrade';
 import { commitSquash, stageAll } from '../../src/utils/git';
 import {
   buildRuntimeConfig,
@@ -42,7 +42,7 @@ const MANUAL = '20261002T0000-manual-alignment';
 const EXTRACTED = `node_modules/.cache/cella/alignments/${CODEMOD_ID}/icon-classes.ts`;
 
 const readme = (title: string, roots?: string) =>
-  `---\nsyncBreaking: true\nclientCacheBump: false\n${roots ? `roots: ${roots}\n` : ''}---\n\n# ${title}\n\nWhat the app changes.\n`;
+  `---\nbreaking: true\nclientCacheBump: false\n${roots ? `roots: ${roots}\n` : ''}---\n\n# ${title}\n\nWhat the app changes.\n`;
 
 /**
  * A codemod in the shape upstream ships: `<inventory|rewrite> <roots…>`, here turning `icon-xs`
@@ -131,7 +131,7 @@ describe('align --run e2e', () => {
     vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
-    await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+    await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
     lines.length = 0;
   });
 

@@ -85,13 +85,13 @@ type StepCallback = (label: string, detail?: string) => void;
 
 /**
  * Thrown when the upstream commit is behind the fork's last sync point: the fork already has it,
- * and merging it would stage a revert. `cella sync` ends as a no-op on it, unless the run pinned
+ * and merging it would stage a revert. `cella upgrade` ends as a no-op on it, unless the run pinned
  * the ref itself (`--ref`).
  */
 export class BehindSyncPointError extends Error {}
 
 /**
- * Thrown before a new merge starts when upstream changed its sync config in ways the fork config
+ * Thrown before a new merge starts when upstream changed its CLI config in ways the fork config
  * does not follow. Carries the report so the caller can print it.
  */
 export class UpstreamConfigChangedError extends Error {
@@ -100,7 +100,7 @@ export class UpstreamConfigChangedError extends Error {
   constructor(report: UpstreamOverridesReport) {
     super(
       [
-        'upstream changed its sync config and yours does not follow it: stopped before the merge, nothing changed.',
+        'upstream changed its CLI config and yours does not follow it: stopped before the merge, nothing changed.',
         `  add or drop the entries that fit your app in ${CONFIG_FILE}, commit, then rerun.`,
         '  to merge with your config as it stands, rerun with --keep-config.',
       ].join('\n'),
@@ -359,7 +359,7 @@ async function resolvePinnedRef(
   if (!(await isPublishedUpstream(forkPath, remoteName, branchRef, resolved.sha))) {
     throw new Error(
       `--ref '${ref}' (${resolved.sha.slice(0, 7)}) is not on ${branchRef} or in an upstream release. ` +
-        'Sync only to commits upstream has published there.',
+        'Upgrade only to commits upstream has published there.',
     );
   }
   return resolved.release ? { ref: resolved.release.ref, releaseTag: resolved.release.tag } : { ref: resolved.sha };
@@ -453,11 +453,11 @@ async function prepareUpstream(
     const hint = config.ref
       ? 'Pick a newer --ref.'
       : releaseTag
-        ? `Nothing to sync until a release past ${syncShort}; to follow the tip instead, run with --track branch.`
-        : `Nothing to sync until '${branchRef}' moves past ${syncShort}.`;
+        ? `Nothing to upgrade until a release past ${syncShort}; to follow the tip instead, run with --track branch.`
+        : `Nothing to upgrade until '${branchRef}' moves past ${syncShort}.`;
     throw new BehindSyncPointError(
-      `upstream ${upstreamLabel} (${upstreamShort}) is behind the last sync point ${syncShort}: the fork already ` +
-        `has it, and syncing it would revert the upstream changes after it.\n${hint}`,
+      `upstream ${upstreamLabel} (${upstreamShort}) is behind the last upgrade at ${syncShort}: the fork already ` +
+        `has it, and merging it would revert the upstream changes after it.\n${hint}`,
     );
   }
   const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
@@ -485,7 +485,7 @@ async function prepareUpstream(
 }
 
 /**
- * Stop a new merge when upstream changed its sync config since the sync point in ways the fork
+ * Stop a new merge when upstream changed its CLI config since the sync point in ways the fork
  * config does not follow. The merge runs on the fork's config, so a path upstream newly ignores or
  * pins would arrive as an ordinary synced file (upstream renamed an ignored folder, the fork's list
  * still names the old one). `--keep-config` skips the gate; an unreadable upstream config or a
@@ -513,8 +513,8 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 
 /**
  * Upstream changes the fork never receives, shared by both engine modes: the upstream config's
- * `overrides` entries and `packageJsonSync` keys the fork config does not follow (the config itself
- * never syncs), ignored files only upstream changed, and the range the review page diffs upstream's
+ * `overrides` entries and `packageJsonKeys` the fork config does not follow (the config itself
+ * never merges), ignored files only upstream changed, and the range the review page diffs upstream's
  * changes over. Report only, read from refs (the merge state is irrelevant); a failure here yields
  * no report and never fails the run.
  */
@@ -632,8 +632,8 @@ async function runSyncMerge(
 
   const totalResolved = analyzedFiles.filter((file) => SYNC_APPLIED_STATUSES.includes(file.status)).length;
 
-  // Record the sync point in lockstep: the local `refs/cella/last-sync` ref plus the manifest,
-  // staged so it rides in the sync commit.
+  // Record the sync point in lockstep: the local `refs/cella/last-upgrade` ref plus the manifest,
+  // staged so it rides in the upgrade commit.
   const syncManifest: SyncManifest = {
     upstream: {
       repo: upstreamGitHubUrl ? upstreamGitHubUrl.replace('https://github.com/', '') : undefined,
@@ -645,7 +645,7 @@ async function runSyncMerge(
           ? `${upstreamGitHubUrl}/releases/tag/${releaseTag}`
           : `${upstreamGitHubUrl}/commit/${upstreamCommit.hash}`
         : undefined,
-      syncedAt: new Date().toISOString(),
+      upgradedAt: new Date().toISOString(),
     },
   };
   const recordSyncPoint = async () => {
@@ -668,11 +668,11 @@ async function runSyncMerge(
   } else if (totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
     await recordSyncPoint();
-    onStep?.('synced', `${label} (staged, commit to finish)`);
+    onStep?.('upgraded', `${label} (staged, commit to finish)`);
   } else {
     // Nothing changed: clean up the merge state.
     await mergeAbort(forkPath);
-    onStep?.('up to date', 'no upstream changes to sync');
+    onStep?.('up to date', 'no upstream changes to merge');
   }
 
   return {

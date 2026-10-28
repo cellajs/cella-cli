@@ -35,10 +35,10 @@ function runGh(cwd: string, args: string[]): GhResult {
 }
 
 /**
- * List open sync PRs (head branch under `<prefix>/`, e.g. `cella/sync/`), newest first (highest PR number).
+ * List open upgrade PRs (head branch under one of `prefixes`, e.g. `cella/upgrade/`), newest first (highest PR number).
  * Returns an empty array when `gh` fails (no auth, no origin) so callers degrade to a no-op.
  */
-export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
+export function listOpenSyncPrs(cwd: string, prefixes: string[]): GhPullRequest[] {
   const { ok, output } = runGh(cwd, [
     'pr',
     'list',
@@ -58,7 +58,9 @@ export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
     return [];
   }
 
-  return parsed.filter((pr) => pr.headRefName.startsWith(`${prefix}/`)).sort((a, b) => b.number - a.number);
+  return parsed
+    .filter((pr) => prefixes.some((prefix) => pr.headRefName.startsWith(`${prefix}/`)))
+    .sort((a, b) => b.number - a.number);
 }
 
 /**

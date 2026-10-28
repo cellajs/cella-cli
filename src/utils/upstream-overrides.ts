@@ -1,22 +1,22 @@
 /**
- * Upstream override changes: the sync never merges the fork's config, so this reads upstream's
- * `overrides` lists and `packageJsonSync` keys at the merge-base and the incoming ref (ts-morph,
+ * Upstream override changes: the upgrade never merges the fork's config, so this reads upstream's
+ * `overrides` lists and `packageJsonKeys` at the merge-base and the incoming ref (ts-morph,
  * syntax only) and reports the entries the fork config does not follow. Report only.
  */
 
 import { Node, type ObjectLiteralExpression, Project, type SourceFile, SyntaxKind } from 'ts-morph';
 import type { CellaCliConfig, OverrideListChanges, UpstreamOverridesReport } from '../config/types';
-import { DEFAULT_PACKAGE_JSON_SYNC } from './config';
+import { DEFAULT_PACKAGE_JSON_KEYS } from './config';
 import { git } from './git';
 import { CONFIG_FILE } from './managed-files';
 import { isUnderAnyFolder, normalizeEntry } from './overrides';
 
-/** The lists the comparison reads from a sync config, as plain string entries. */
+/** The lists the comparison reads from a CLI config, as plain string entries. */
 interface OverrideLists {
   pinned: string[];
   ignored: string[];
-  /** `settings.packageJsonSync`, the default when the config names none; null when it cannot be read statically. */
-  packageJsonSync: string[] | null;
+  /** `settings.packageJsonKeys`, the default when the config names none; null when it cannot be read statically. */
+  packageJsonKeys: string[] | null;
 }
 
 const LIST_KEYS = ['pinned', 'ignored'] as const;
@@ -79,22 +79,24 @@ function readStringEntries(node: Node): string[] | null {
 }
 
 /**
- * `settings.packageJsonSync` of a config object: the default keys when `settings` or the list is
- * absent, null when either is present without a statically readable value.
+ * `settings.packageJsonKeys` of a config object, or its 0.5 name `packageJsonSync` at an older commit:
+ * the default keys when `settings` or the list is absent, null when either is present without a
+ * statically readable value.
  */
-function readPackageJsonSync(config: ObjectLiteralExpression, sourceFile: SourceFile): string[] | null {
+function readPackageJsonKeys(config: ObjectLiteralExpression, sourceFile: SourceFile): string[] | null {
   const settings = readProperty(config, 'settings', sourceFile);
-  if (settings === undefined) return [...DEFAULT_PACKAGE_JSON_SYNC];
+  if (settings === undefined) return [...DEFAULT_PACKAGE_JSON_KEYS];
   if (!settings || !Node.isObjectLiteralExpression(settings)) return null;
-  const keys = readProperty(settings, 'packageJsonSync', sourceFile);
-  if (keys === undefined) return [...DEFAULT_PACKAGE_JSON_SYNC];
+  const current = readProperty(settings, 'packageJsonKeys', sourceFile);
+  const keys = current === undefined ? readProperty(settings, 'packageJsonSync', sourceFile) : current;
+  if (keys === undefined) return [...DEFAULT_PACKAGE_JSON_KEYS];
   return keys ? readStringEntries(keys) : null;
 }
 
 /**
- * Extract `overrides.pinned`, `overrides.ignored` and `settings.packageJsonSync` from config source
+ * Extract `overrides.pinned`, `overrides.ignored` and `settings.packageJsonKeys` from config source
  * without evaluating it; only string literals count. Null when the config object or a present
- * `overrides`/list cannot be read statically; an unreadable `packageJsonSync` alone reads as null.
+ * `overrides`/list cannot be read statically; unreadable `packageJsonKeys` alone read as null.
  */
 export function parseOverrideLists(source: string): OverrideLists | null {
   try {
@@ -106,7 +108,7 @@ export function parseOverrideLists(source: string): OverrideLists | null {
     const lists: OverrideLists = {
       pinned: [],
       ignored: [],
-      packageJsonSync: readPackageJsonSync(config, sourceFile),
+      packageJsonKeys: readPackageJsonKeys(config, sourceFile),
     };
     const overrides = readProperty(config, 'overrides', sourceFile);
     if (overrides === undefined) return lists;
@@ -131,14 +133,14 @@ export function parseOverrideLists(source: string): OverrideLists | null {
  * - added: new upstream entries the fork list lacks (an exact entry or a parent folder covers it).
  * - removed: entries upstream dropped that the fork list still carries verbatim.
  *
- * `packageJsonSync` keys compare by name, and not at all when a side could not be read. Entries
+ * `packageJsonKeys` compare by name, and not at all when a side could not be read. Entries
  * upstream had all along are never reported, whether or not the fork has them.
  */
 export function diffOverrideLists(
   base: OverrideLists,
   incoming: OverrideLists,
   fork: OverrideLists,
-): Record<(typeof LIST_KEYS)[number] | 'packageJsonSync', OverrideListChanges> {
+): Record<(typeof LIST_KEYS)[number] | 'packageJsonKeys', OverrideListChanges> {
   const diff = (key: (typeof LIST_KEYS)[number]): OverrideListChanges => {
     const baseSet = new Set(base[key].map(normalizeEntry).filter(Boolean));
     const incomingSet = new Set(incoming[key].map(normalizeEntry).filter(Boolean));
@@ -149,18 +151,18 @@ export function diffOverrideLists(
     };
   };
   const diffKeys = (): OverrideListChanges => {
-    const [baseKeys, incomingKeys, forkKeys] = [base.packageJsonSync, incoming.packageJsonSync, fork.packageJsonSync];
+    const [baseKeys, incomingKeys, forkKeys] = [base.packageJsonKeys, incoming.packageJsonKeys, fork.packageJsonKeys];
     if (!baseKeys || !incomingKeys || !forkKeys) return { added: [], removed: [] };
     return {
       added: [...new Set(incomingKeys)].filter((key) => !baseKeys.includes(key) && !forkKeys.includes(key)),
       removed: [...new Set(baseKeys)].filter((key) => !incomingKeys.includes(key) && forkKeys.includes(key)),
     };
   };
-  return { pinned: diff('pinned'), ignored: diff('ignored'), packageJsonSync: diffKeys() };
+  return { pinned: diff('pinned'), ignored: diff('ignored'), packageJsonKeys: diffKeys() };
 }
 
 /**
- * Report how upstream's `overrides` and `packageJsonSync` changed between the merge-base and the
+ * Report how upstream's `overrides` and `packageJsonKeys` changed between the merge-base and the
  * incoming ref, limited to entries the fork config does not follow (see {@link diffOverrideLists}).
  * Undefined when there is nothing to report; `unreadable` when the config is missing or unparsable
  * at one side only.
@@ -185,7 +187,7 @@ export async function compareUpstreamOverrides(
   const fork: OverrideLists = {
     pinned: forkConfig.overrides?.pinned ?? [],
     ignored: forkConfig.overrides?.ignored ?? [],
-    packageJsonSync: forkConfig.settings.packageJsonSync ?? DEFAULT_PACKAGE_JSON_SYNC,
+    packageJsonKeys: forkConfig.settings.packageJsonKeys ?? DEFAULT_PACKAGE_JSON_KEYS,
   };
   const changes = diffOverrideLists(base, incoming, fork);
   const count = Object.values(changes).reduce((n, list) => n + list.added.length + list.removed.length, 0);

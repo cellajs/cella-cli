@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { PackageJsonSyncKey, RuntimeConfig } from '../src/config/types';
+import type { PackageJsonKey, RuntimeConfig } from '../src/config/types';
 import { runPackages } from '../src/services/packages';
 import { commitAll, createTestEnv, exec, fetchUpstream, type TestEnv, write } from './helpers/test-env';
 
@@ -61,17 +61,17 @@ describe('packages merge', () => {
   });
 
   /** Build a RuntimeConfig for the packages service */
-  function buildConfig(options?: { packageJsonSync?: PackageJsonSyncKey[] }): RuntimeConfig {
+  function buildConfig(options?: { packageJsonKeys?: PackageJsonKey[] }): RuntimeConfig {
     return {
       settings: {
         upstreamUrl: upstreamPath,
         upstreamBranch: 'main',
-        ...(options?.packageJsonSync ? { packageJsonSync: options.packageJsonSync } : {}),
+        ...(options?.packageJsonKeys ? { packageJsonKeys: options.packageJsonKeys } : {}),
       },
       overrides: { pinned: [], ignored: [] },
       forkPath,
       upstreamRef: 'cella-upstream/main',
-      service: 'sync',
+      service: 'upgrade',
       list: false,
       json: false,
       verbose: false,
@@ -199,7 +199,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = rewritten), 'rewrite scripts');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
 
     expect(readPkg(forkPath).scripts).toEqual({ build: 'tsc -b', lint: 'my-linter', test: 'vitest' });
   });
@@ -215,7 +215,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = upstreamScripts), 'add lint');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
 
     expect(Object.keys(readPkg(forkPath).scripts ?? {})).toEqual(['dev', 'build', 'test', 'test:update', 'lint']);
   });
@@ -230,7 +230,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = { build: 'tsc' }), 'drop scripts');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'scripts'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
 
     expect(readPkg(forkPath).scripts).toEqual({ build: 'tsc', 'geoip:download': 'node geoip.js' });
   });
@@ -272,7 +272,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.exports = { '.': './dist/index.js', './config': config }), 'add exports');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'exports'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'exports'] }));
 
     const exportsMap = readPkg(forkPath).exports as Record<string, unknown>;
     // Repointed subpath stays repointed, new subpath arrives with its conditions in upstream order
@@ -287,12 +287,12 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.exports = subpaths), 'add exports');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'exports'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'exports'] }));
 
     expect(readPkg(forkPath).exports).toBe('./dist/index.js');
   });
 
-  it('adds an upstream type the fork never got, after name and version, whatever packageJsonSync lists', async () => {
+  it('adds an upstream type the fork never got, after name and version, whatever packageJsonKeys lists', async () => {
     const { name, version, dependencies, devDependencies } = readPkg(upstreamPath);
     writePkg(upstreamPath, { name, version, type: 'module', dependencies, devDependencies });
     commitAll(upstreamPath, 'esm');
@@ -305,7 +305,7 @@ describe('packages merge', () => {
     fetchUpstream(forkPath);
     const info = vi.spyOn(console, 'info');
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies'] }));
 
     const resultPkg = readPkg(forkPath);
     expect(resultPkg.type).toBe('module');
@@ -353,7 +353,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.packageManager = 'pnpm@10.2.0'), 'bump pnpm');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['packageManager'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['packageManager'] }));
 
     expect(readPkg(forkPath).packageManager).toBe('pnpm@10.2.0');
     expect(readPkg(forkPath, 'backend').packageManager).toBe('pnpm@10.5.0');
@@ -367,7 +367,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.pnpm = { overrides: upstreamOverrides }), 'add pnpm overrides');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'pnpm'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] }));
 
     expect(readPkg(forkPath).pnpm).toEqual({
       overrides: { 'esbuild@<=0.24.2': '>=0.26.0', 'fork-only-pkg@<1.0.0': '>=1.0.0', 'hono@<4.12.7': '>=4.12.7' },
@@ -387,7 +387,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.pnpm = upstreamPnpm), 'add upstream patch and extension');
     fetchUpstream(forkPath);
 
-    await runPackages(buildConfig({ packageJsonSync: ['dependencies', 'devDependencies', 'pnpm'] }));
+    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] }));
 
     expect(readPkg(forkPath).pnpm).toEqual({
       patchedDependencies: { ...forkPnpm.patchedDependencies, ...upstreamPnpm.patchedDependencies },

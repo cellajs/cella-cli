@@ -1,5 +1,5 @@
 /**
- * Contributions service for sync CLI.
+ * Contributions service for the cella CLI.
  *
  * Upstream-side (cella): based on the configured `forks`, lets the user pick a
  * single fork, pulls its `pullBranch` and builds a clean local `contrib/<fork>`

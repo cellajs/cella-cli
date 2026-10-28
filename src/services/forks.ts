@@ -13,7 +13,7 @@ import { loadConfig, resolveUpstream } from '../utils/config';
 import { MENU_DIVIDER } from '../utils/display';
 import { getCommitInfo, getCurrentBranch, getStoredSyncRef, getWorkingTreeChangeCount } from '../utils/git';
 import { printNoForksHint, resolveForkBasePath, validateForkPath } from './fork-utils';
-import { runSyncCommand } from './sync';
+import { runUpgradeCommand } from './upgrade';
 
 /** Status info gathered from a fork repository */
 interface ForkStatus {
@@ -42,7 +42,7 @@ async function gatherForkStatus(forkPath: string): Promise<ForkStatus> {
 function formatForkChoice(name: string, status: ForkStatus | null): string {
   if (!status) return name;
 
-  // Sync: date and truncated commit message.
+  // Last upgrade: date and truncated commit message.
   let syncPart: string;
   if (status.lastSync) {
     const msg =
@@ -50,7 +50,7 @@ function formatForkChoice(name: string, status: ForkStatus | null): string {
     syncPart = pc.dim(`${status.lastSync.date}`);
     if (msg) syncPart += pc.dim(` '${msg}'`);
   } else {
-    syncPart = pc.dim('never synced');
+    syncPart = pc.dim('never upgraded');
   }
 
   const dirtyPart = status.dirty > 0 ? pc.yellow(`${status.dirty} uncommitted`) : '';
@@ -93,19 +93,19 @@ async function buildForkChoices(
   });
 }
 
-/** Sync a single fork by running the same service flow the fork owner would run locally. */
+/** Upgrade a single fork by running the same service flow the fork owner would run locally. */
 async function syncFork(config: RuntimeConfig, fork: ForkConfig, forkPath: string): Promise<void> {
   console.info();
-  console.info(pc.cyan(`syncing to ${fork.name}...`));
+  console.info(pc.cyan(`upgrading ${fork.name}...`));
   console.info(pc.dim(`path: ${forkPath}`));
   console.info();
 
   const forkConfig = await loadConfig(forkPath);
-  await runSyncCommand({
+  await runUpgradeCommand({
     ...forkConfig,
     forkPath,
     upstreamRef: resolveUpstream(forkConfig.settings).branchRef,
-    service: 'sync',
+    service: 'upgrade',
     list: false,
     json: false,
     verbose: false,
@@ -139,7 +139,7 @@ export async function runForks(config: RuntimeConfig): Promise<void> {
     const forkChoices = [...choices, new Separator(MENU_DIVIDER), { value: '_exit', name: pc.dim('exit') }];
 
     const selectedPath = await select<string>({
-      message: 'select fork to sync:',
+      message: 'select fork to upgrade:',
       choices: forkChoices,
       loop: false,
     });

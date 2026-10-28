@@ -3,12 +3,12 @@
  * and the PR body section.
  */
 import { describe, expect, it } from 'vitest';
-import { buildSyncPrBody } from '../src/services/sync';
+import { buildSyncPrBody } from '../src/services/upgrade';
 import { formatAlignmentsLine, isUpstreamOnly, parseAlignment } from '../src/utils/alignments';
 
 const readme = [
   '---',
-  'syncBreaking: true',
+  'breaking: true',
   'clientCacheBump: false',
   'caughtBy: nothing',
   'generate: true',
@@ -34,7 +34,7 @@ describe('parseAlignment', () => {
       id: '20260923T0902-principal-to-actor',
       title: 'Principal becomes actor',
       summary: 'The stored identity and the request-time value share one name.',
-      syncBreaking: true,
+      breaking: true,
       clientCacheBump: false,
       caughtBy: 'nothing',
       generate: true,
@@ -49,7 +49,7 @@ describe('parseAlignment', () => {
       id: '20260101T0000-x',
       title: '20260101T0000-x',
       summary: '',
-      syncBreaking: false,
+      breaking: false,
       clientCacheBump: false,
       caughtBy: null,
       generate: false,
@@ -59,6 +59,11 @@ describe('parseAlignment', () => {
     });
     const unknownCatch = readme.replace('caughtBy: nothing', 'caughtBy: review');
     expect(parseAlignment('20260101T0000-x', unknownCatch, ['README.md']).caughtBy).toBeNull();
+  });
+
+  it('reads `syncBreaking`, the field name alignments up to cella 0.27 carry at an older upstream ref', () => {
+    const older = readme.replace('breaking: true', 'syncBreaking: true');
+    expect(parseAlignment('20260101T0000-x', older, ['README.md']).breaking).toBe(true);
   });
 });
 

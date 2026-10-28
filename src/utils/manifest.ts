@@ -1,8 +1,8 @@
 /**
- * Cella sync manifest: the committed record of the last upstream sync point. `upstream.commit`
- * seeds the merge-base on a clone without `refs/cella/last-sync` (fresh clone, CI), and the rest
- * shows in each sync PR which upstream point the app moved to. The sync engine stages it with
- * every applied sync.
+ * Cella upgrade manifest: the committed record of the last upstream point the app upgraded to.
+ * `upstream.commit` seeds the merge-base on a clone without `refs/cella/last-upgrade` (fresh clone,
+ * CI), and the rest shows in each upgrade PR which upstream point the app moved to. The merge engine
+ * stages it with every applied upgrade.
  */
 
 import { mkdir, readFile, writeFile } from 'node:fs/promises';
@@ -16,7 +16,7 @@ export interface SyncManifest {
   upstream: {
     /** GitHub slug of the upstream repo, e.g. 'cellajs/cella'. */
     repo?: string;
-    /** Tracking mode at sync time. */
+    /** Tracking mode at upgrade time. */
     track?: 'release' | 'branch';
     /** Integrated upstream commit SHA: the merge-base bootstrap seed. */
     commit: string;
@@ -24,8 +24,8 @@ export interface SyncManifest {
     release?: string | null;
     /** Human-readable link to the commit or release on GitHub. */
     url?: string;
-    /** UTC timestamp of the sync (ISO 8601). */
-    syncedAt?: string;
+    /** UTC timestamp of the upgrade (ISO 8601). */
+    upgradedAt?: string;
   };
 }
 
@@ -52,7 +52,7 @@ export async function readSyncManifest(cwd: string): Promise<SyncManifest | null
 
 /**
  * Return the recorded upstream base commit SHA, or null.
- * Bootstrap seed for {@link ensureSyncBase} when no local `refs/cella/last-sync` exists.
+ * Bootstrap seed for {@link ensureSyncBase} when no local `refs/cella/last-upgrade` exists.
  */
 export async function readManifestBase(cwd: string): Promise<string | null> {
   const manifest = await readSyncManifest(cwd);
@@ -62,7 +62,7 @@ export async function readManifestBase(cwd: string): Promise<string | null> {
 /** Write the manifest as pretty JSON with a trailing newline. */
 export async function writeSyncManifest(cwd: string, manifest: SyncManifest): Promise<void> {
   const manifestPath = join(cwd, MANIFEST_FILE);
-  // Ensure the cella/ folder exists (a fresh fork may not have it yet on first sync).
+  // Ensure the cella/ folder exists (a fresh fork may not have it yet on its first upgrade).
   await mkdir(dirname(manifestPath), { recursive: true });
   await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
 }

@@ -3,7 +3,7 @@
  *
  * A create-cella scaffold has a rootless initial commit with no shared history with upstream.
  * ensureSyncBase must read the `Cella-Base:` trailer create-cella stamps on that commit, graft
- * ancestry onto the recorded upstream commit, and record it as refs/cella/last-sync; without a
+ * ancestry onto the recorded upstream commit, and record it as refs/cella/last-upgrade; without a
  * record that names a commit the fork has, it stops with the manual-seed error.
  */
 import fs from 'node:fs';
@@ -37,7 +37,7 @@ describe('ensureSyncBase scaffold trailer', () => {
 
     await ensureSyncBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
 
-    expect(exec('git rev-parse refs/cella/last-sync', forkPath)).toBe(recorded);
+    expect(exec('git rev-parse refs/cella/last-upgrade', forkPath)).toBe(recorded);
     expect(exec(`git merge-base HEAD ${UPSTREAM_REMOTE}/main`, forkPath)).toBe(recorded);
   });
 
@@ -48,10 +48,10 @@ describe('ensureSyncBase scaffold trailer', () => {
     write(forkPath, { 'cella/cella.manifest.json': JSON.stringify({ upstream: { commit: missing } }) });
     exec(`git add -A && git commit -m "Initial commit" -m "Cella-Base: ${missing}"`, forkPath);
     exec(`git remote add ${UPSTREAM_REMOTE} "${upstreamPath}" && git fetch ${UPSTREAM_REMOTE}`, forkPath);
-    write(forkPath, { '.git/refs/cella/last-sync': `${missing}\n` });
+    write(forkPath, { '.git/refs/cella/last-upgrade': `${missing}\n` });
 
     await expect(ensureSyncBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`)).rejects.toThrow(
-      'git update-ref refs/cella/last-sync <upstream-sha>',
+      'git update-ref refs/cella/last-upgrade <upstream-sha>',
     );
   });
 });

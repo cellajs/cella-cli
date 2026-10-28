@@ -1,5 +1,5 @@
 /**
- * Review page: one browser page per analyze or sync run, holding the diff of every file the run
+ * Review page: one browser page per analyze or upgrade run, holding the diff of every file the run
  * asks you to review, under the same sections the terminal prints.
  */
 
@@ -58,29 +58,29 @@ export interface ReviewSection {
 }
 
 /**
- * The review page's sections for a run, from the same lists the terminal prints. Sync shows the
+ * The review page's sections for a run, from the same lists the terminal prints. Upgrade shows the
  * upstream changes it did not bring in; analyze adds pinned files missing upstream lines and the
- * fork's own changes to files that still sync. Analyze lists ignored files only upstream changed
+ * fork's own changes to files that still merge. Analyze lists ignored files only upstream changed
  * under protected but behind upstream, as its terminal does. Empty sections are left out, and so is
- * every section when the engine could not resolve the sync range.
+ * every section when the engine could not resolve the upgrade range.
  */
-export function reviewSections(result: MergeResult, command: 'analyze' | 'sync'): ReviewSection[] {
+export function reviewSections(result: MergeResult, command: 'analyze' | 'upgrade'): ReviewSection[] {
   const [base, upstream] = result.upstreamDiffRange?.split('..') ?? [];
   if (!base || !upstream) return [];
   const sinceSync = `${base}..${upstream}`;
 
   const sections: ReviewSection[] =
-    command === 'sync'
+    command === 'upgrade'
       ? [
           {
             title: 'protected files kept the fork version',
-            hint: 'What upstream changed in these files since the last sync. The fork kept its own version, so none of it arrived: adopt what you need.',
+            hint: 'What upstream changed in these files since the last upgrade. The fork kept its own version, so none of it arrived: adopt what you need.',
             range: sinceSync,
             paths: result.protectedConflicts ?? [],
           },
           {
             title: 'ignored paths changed upstream',
-            hint: 'What upstream changed under ignored paths since the last sync. The fork left these files untouched, and ignored paths never sync.',
+            hint: 'What upstream changed under ignored paths since the last upgrade. The fork left these files untouched, and ignored paths never merge.',
             range: sinceSync,
             paths: (result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths),
           },
@@ -88,7 +88,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
       : [
           {
             title: 'protected but behind upstream',
-            hint: 'What upstream changed in these files since the last sync. They are pinned or ignored, so the sync keeps the fork version and none of it arrives: adopt what you need.',
+            hint: 'What upstream changed in these files since the last upgrade. They are pinned or ignored, so the upgrade keeps the fork version and none of it arrives: adopt what you need.',
             range: sinceSync,
             paths: findProtectedBehindUpstream(result).map((file) => file.path),
           },
@@ -96,7 +96,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
 
   sections.push({
     title: 'pinned files that match the previous upstream',
-    hint: 'What upstream changed in these files since the last sync. The fork copy still equals the previous upstream, so the pin only drops these changes: unpin to take them.',
+    hint: 'What upstream changed in these files since the last upgrade. The fork copy still equals the previous upstream, so the pin only drops these changes: unpin to take them.',
     range: sinceSync,
     paths: findMaskingPins(result.files).map((file) => file.path),
   });
@@ -105,7 +105,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
     sections.push(
       {
         title: 'protected in fork, upstream lines absent',
-        hint: "The fork's version against upstream's, both as they are now: added lines are upstream content the fork does not have, dropped by an earlier sync or removed on purpose.",
+        hint: "The fork's version against upstream's, both as they are now: added lines are upstream content the fork does not have, dropped by an earlier upgrade or removed on purpose.",
         range: `HEAD..${upstream}`,
         paths: filesWithStatus(result.files, 'ahead')
           .filter((file) => (file.upstreamLinesAbsent ?? 0) > 0)
@@ -113,7 +113,7 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'sync')
       },
       {
         title: 'drifted from upstream',
-        hint: 'What the fork changed in these files since the last sync. They are not pinned or ignored, so upstream changes still merge into them.',
+        hint: 'What the fork changed in these files since the last upgrade. They are not pinned or ignored, so upstream changes still merge into them.',
         range: `${base}..HEAD`,
         paths: filesWithStatus(result.files, 'drifted').map((file) => file.path),
       },
@@ -139,7 +139,7 @@ function countLines(patch: Buffer): number {
 export async function writeReviewPage(
   forkPath: string,
   sections: ReviewSection[],
-  meta: { command: 'analyze' | 'sync'; range: string },
+  meta: { command: 'analyze' | 'upgrade'; range: string },
   limits: ReviewPageLimits = PAGE_LIMITS,
 ): Promise<ReviewPage | undefined> {
   const [base, upstream] = meta.range.split('..');
@@ -179,7 +179,7 @@ export async function writeReviewPage(
   const shown = pageSections.filter((section) => section.files.length > 0 || section.omitted.length > 0);
   const page = await writeDiffPage(
     shown,
-    { title: `${meta.command} review`, note: `${basename(forkPath)} · last sync ${base} → upstream ${upstream}` },
+    { title: `${meta.command} review`, note: `${basename(forkPath)} · last upgrade ${base} → upstream ${upstream}` },
     forkPath,
     `${meta.command}-review`,
   );
@@ -189,20 +189,20 @@ export async function writeReviewPage(
 
 /** A written review page, and whether the run opened it in the browser. */
 export interface ReviewPageReport extends ReviewPage {
-  command: 'analyze' | 'sync';
+  command: 'analyze' | 'upgrade';
   opened: boolean;
 }
 
 /**
- * After an analyze or sync report: write the review page. Sync opens it in the browser when
+ * After an analyze or upgrade report: write the review page. Upgrade opens it in the browser when
  * stdout is a terminal, since the upstream changes it lists did not arrive. Undefined when there
- * is nothing to review; a failure is undefined too and never fails the run. A sync with nothing to
- * review removes the page an earlier sync left, so a rerun that resumes this merge never lists it.
+ * is nothing to review; a failure is undefined too and never fails the run. An upgrade with nothing to
+ * review removes the page an earlier upgrade left, so a rerun that resumes this merge never lists it.
  */
 export async function reportReviewPage(
   forkPath: string,
   result: MergeResult,
-  command: 'analyze' | 'sync',
+  command: 'analyze' | 'upgrade',
 ): Promise<ReviewPageReport | undefined> {
   const sections = reviewSections(result, command);
   let page: ReviewPage | undefined;
@@ -216,26 +216,26 @@ export async function reportReviewPage(
     spinnerSuccess();
   }
   if (!page) {
-    if (command === 'sync') removeSyncReviewPage(forkPath);
+    if (command === 'upgrade') removeSyncReviewPage(forkPath);
     return undefined;
   }
 
-  const opened = command === 'sync' && process.stdout.isTTY === true && openInBrowser(page.path);
+  const opened = command === 'upgrade' && process.stdout.isTTY === true && openInBrowser(page.path);
   return { ...page, command, opened };
 }
 
 function removeSyncReviewPage(forkPath: string): void {
   try {
-    rmSync(diffPagePath(forkPath, 'sync-review'), { force: true });
+    rmSync(diffPagePath(forkPath, 'upgrade-review'), { force: true });
   } catch {
     // Not a git repo or no git: there is no page to remove either.
   }
 }
 
-/** The sync review page the merge run of this sync wrote, when it is still there. */
+/** The upgrade review page the merge run of this upgrade wrote, when it is still there. */
 export function existingSyncReviewPage(forkPath: string): string | undefined {
   try {
-    const path = diffPagePath(forkPath, 'sync-review');
+    const path = diffPagePath(forkPath, 'upgrade-review');
     return existsSync(path) ? path : undefined;
   } catch {
     return undefined;
@@ -249,10 +249,10 @@ export function existingSyncReviewPage(forkPath: string): string | undefined {
 export function reviewStep(page: ReviewPageReport | string): NextStep {
   const path = typeof page === 'string' ? page : page.path;
   const url = pathToFileURL(path).href;
-  let detail = pc.dim('upstream changes the sync did not bring in, from the merge run');
+  let detail = pc.dim('upstream changes the upgrade did not bring in, from the merge run');
   if (typeof page !== 'string') {
     const what =
-      page.command === 'sync'
+      page.command === 'upgrade'
         ? `${plural(page.diffs, 'diff')} of upstream changes that did not arrive`
         : `${plural(page.diffs, 'diff')} in ${plural(page.sections, 'section')}`;
     const notes = [

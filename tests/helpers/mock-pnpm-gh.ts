@@ -1,5 +1,5 @@
 /**
- * `node:child_process` with `spawnSync` stubbed for full `runSyncCommand` runs: `pnpm`
+ * `node:child_process` with `spawnSync` stubbed for full `runUpgradeCommand` runs: `pnpm`
  * (install + check) succeeds without running, `gh` is reported missing.
  *
  * This module must not import `node:child_process` (not even via test-env): the `vi.mock`

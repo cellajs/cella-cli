@@ -1,9 +1,9 @@
 /**
- * Sync service for the cella CLI.
+ * Upgrade service for the cella CLI.
  *
  * Runs the merge engine directly in the fork (no worktree) so conflicts surface in the IDE, on
  * a fresh temporary branch cut from the trunk. The service is idempotent: if a run stops at
- * conflicts, resolve them and run `cella sync` again to finish the same merge.
+ * conflicts, resolve them and run `cella upgrade` again to finish the same merge.
  */
 
 import { spawnSync } from 'node:child_process';
@@ -13,9 +13,9 @@ import { alignmentUrl, listAlignmentIds, readAlignment, readPending } from '../u
 import pc from '../utils/colors';
 import {
   buildTemporarySyncBranch,
-  DEFAULT_SYNC_PREFIX,
   isTemporarySyncBranch,
   resolveReleaseBase,
+  TEMPORARY_BRANCH_PREFIXES,
 } from '../utils/config';
 import {
   COMMIT_LIST_MAX,
@@ -79,7 +79,7 @@ import { existingSyncReviewPage, type ReviewPageReport, reportReviewPage, review
 
 /** Context for the temporary branch a sync cycle runs on. */
 interface TemporarySyncBranch {
-  /** The freshly cut temporary branch, e.g. `cella/sync/20260702-1430`. */
+  /** The freshly cut temporary branch, e.g. `cella/upgrade/20260702-1430`. */
   temporaryBranch: string;
   /** The trunk the branch was cut from and PRs land into (`releaseBase`, default `main`). */
   base: string;
@@ -114,7 +114,7 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
   if (ahead > 0 && behind > 0) {
     throw new Error(
       `'${base}' has diverged from '${upstream}' (${ahead} ahead, ${behind} behind).\n` +
-        `Reconcile '${base}' with '${upstream}' first (e.g. rebase or reset it), then re-run sync.`,
+        `Reconcile '${base}' with '${upstream}' first (e.g. rebase or reset it), then re-run the upgrade.`,
     );
   }
 
@@ -138,7 +138,7 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
   return base;
 }
 
-/** Bring the trunk up to date and cut a fresh throwaway `cella/sync/<stamp>` branch from it. */
+/** Bring the trunk up to date and cut a fresh throwaway `cella/upgrade/<stamp>` branch from it. */
 async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<TemporarySyncBranch> {
   const { forkPath, settings } = config;
   const base = resolveReleaseBase(settings);
@@ -150,7 +150,7 @@ async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<Temporar
 
   const temporaryBranch = buildTemporarySyncBranch();
 
-  console.info(pc.dim(`creating temporary sync branch '${temporaryBranch}' from '${startPoint}'...`));
+  console.info(pc.dim(`creating temporary upgrade branch '${temporaryBranch}' from '${startPoint}'...`));
   console.info();
   await createBranchFrom(forkPath, temporaryBranch, startPoint);
 
@@ -200,13 +200,13 @@ export async function runSync(
     stagedBranch?: string;
   },
 ): Promise<SyncRunResult> {
-  createSpinner('starting sync...');
+  createSpinner('starting upgrade...');
 
   let result: MergeResult;
   try {
     result = await runEngineWithSpinner(config, true);
   } catch (error) {
-    // The engine threw, usually a stop before the merge: end the spinner, and when the sync config
+    // The engine threw, usually a stop before the merge: end the spinner, and when the CLI config
     // gate stopped it, show what upstream changed.
     spinnerSuccess();
     if (error instanceof UpstreamConfigChangedError) {
@@ -219,10 +219,10 @@ export async function runSync(
   if (result.success) {
     spinnerSuccess();
   } else {
-    spinnerFail('sync completed with conflicts');
+    spinnerFail('upgrade merge completed with conflicts');
   }
 
-  // Print summary (no file lists for sync) plus the shared upstream-changes reports
+  // Print summary (no file lists for an upgrade) plus the shared upstream-changes reports
   printEngineReports(result, 'merge summary');
   if (config.unpinned) {
     console.info(pc.yellow('⚠ --unpinned: every pinned entry was merged from upstream; keep only what you want.'));
@@ -233,7 +233,7 @@ export async function runSync(
   const stagedBranch =
     options?.stagedBranch && result.conflicts.length === 0 && staged ? options.stagedBranch : undefined;
   printSyncComplete(result, { stagedBranch });
-  const reviewPage = await reportReviewPage(config.forkPath, result, 'sync');
+  const reviewPage = await reportReviewPage(config.forkPath, result, 'upgrade');
 
   return { ...result, reviewPage };
 }
@@ -272,9 +272,9 @@ async function conflictSteps(config: RuntimeConfig, conflicts: string[], run?: S
     },
     {
       label: 'finish',
-      line: 'pnpm cella sync',
+      line: 'pnpm cella upgrade',
       details: [
-        pc.dim('commits the sync and stops for drift triage'),
+        pc.dim('commits the upgrade and stops for drift triage'),
         pc.dim('let the rerun commit: a manual `git commit` records a merge commit that bloats the PR'),
       ],
     },
@@ -285,10 +285,10 @@ async function conflictSteps(config: RuntimeConfig, conflicts: string[], run?: S
 }
 
 /** Conventional PR title prefix required by release-please. */
-const SYNC_PR_TITLE = 'chore: sync upstream cella';
+const UPGRADE_PR_TITLE = 'chore: upgrade cella';
 
 /**
- * Build the sync commit subject, e.g. `chore: sync upstream cella v0.2.2 (4f7d87c)`.
+ * Build the upgrade commit subject, e.g. `chore: upgrade cella to v0.2.2 (4f7d87c)`.
  *
  * The upstream version comes from the manifest's release tag when tracking releases, else from
  * upstream's root package.json at the merged commit. Falls back to the bare title (+ short sha)
@@ -296,12 +296,14 @@ const SYNC_PR_TITLE = 'chore: sync upstream cella';
  */
 async function buildSyncCommitMessage(forkPath: string, upstreamRef: string): Promise<string> {
   const shortSha = await getShortSha(forkPath, upstreamRef).catch(() => '');
-  if (!shortSha) return SYNC_PR_TITLE;
+  if (!shortSha) return UPGRADE_PR_TITLE;
 
   const manifest = await readSyncManifest(forkPath);
   const version =
     manifest?.upstream.release ?? (await readPackageVersionAtRef(forkPath, upstreamRef).catch(() => null));
-  return version ? `${SYNC_PR_TITLE} v${version.replace(/^v/, '')} (${shortSha})` : `${SYNC_PR_TITLE} ${shortSha}`;
+  return version
+    ? `${UPGRADE_PR_TITLE} to v${version.replace(/^v/, '')} (${shortSha})`
+    : `${UPGRADE_PR_TITLE} to ${shortSha}`;
 }
 
 /**
@@ -341,11 +343,15 @@ export function buildSyncPrBody(input: SyncPrBodyInput): string {
 
   const upstreamName = githubUrl ? `[${repoSlug}](${githubUrl})` : 'cella';
   const versionSuffix = version ? ` (v${version.replace(/^v/, '')})` : '';
-  const lines = [`Syncs upstream ${upstreamName} to ${commitRef(toSha)}${versionSuffix}.`];
+  const lines = [`Upgrades ${upstreamName} to ${commitRef(toSha)}${versionSuffix}.`];
 
   if (totalCount > 0 && fromSha) {
     const compare = githubUrl ? ` ([compare](${githubUrl}/compare/${short(fromSha)}...${short(toSha)}))` : '';
-    lines.push('', `**${totalCount} upstream commit${totalCount === 1 ? '' : 's'} since last sync**${compare}:`, '');
+    lines.push(
+      '',
+      `**${totalCount} upstream commit${totalCount === 1 ? '' : 's'} since the last upgrade**${compare}:`,
+      '',
+    );
     if (totalCount > commits.length) lines.push(`- …${totalCount - commits.length} earlier commit(s) not shown`);
     for (const commit of commits) {
       lines.push(`- ${commitRef(commit.hash)} ${qualifyPrRefs(commit.message, repoSlug)}`);
@@ -382,7 +388,7 @@ async function buildSyncPrBodyForBranch(forkPath: string, base: string): Promise
 
   const toSha = manifest.upstream.commit.toLowerCase();
   // The trunk's committed manifest is the previous sync point; merge-base covers forks whose
-  // last sync predates the manifest. `refs/cella/last-sync` is no help here: the merge already
+  // last sync predates the manifest. `refs/cella/last-upgrade` is no help here: the merge already
   // moved it to `toSha`.
   const fromSha =
     (await readManifestBaseAtRef(forkPath, base)) ?? (await getMergeBase(forkPath, base, toSha).catch(() => null));
@@ -422,7 +428,7 @@ async function readPrBodyAlignments(
 }
 
 /** Print the GitHub CLI command for opening the finished sync PR. */
-function printPrCreateStep(branch: string, base: string, title = SYNC_PR_TITLE): void {
+function printPrCreateStep(branch: string, base: string, title = UPGRADE_PR_TITLE): void {
   console.info(pc.dim(`  gh pr create --base ${base} --head ${branch} --title "${title}" --fill`));
 }
 
@@ -468,7 +474,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
   // from HEAD: drift-triage commits may sit on top of the sync commit (release-please only needs
   // the prefix).
   const upstreamCommit = (await readSyncManifest(forkPath))?.upstream.commit;
-  const prTitle = upstreamCommit ? await buildSyncCommitMessage(forkPath, upstreamCommit) : SYNC_PR_TITLE;
+  const prTitle = upstreamCommit ? await buildSyncCommitMessage(forkPath, upstreamCommit) : UPGRADE_PR_TITLE;
 
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {
@@ -501,10 +507,10 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
   console.info();
   if (prUrl) {
-    console.info(`${checkMark} sync pull request ${prOpened ? 'opened' : 'ready'}`);
+    console.info(`${checkMark} upgrade pull request ${prOpened ? 'opened' : 'ready'}`);
     console.info(pc.dim(`  ${prUrl} · branch pushed, ${position}`));
   } else {
-    console.info(`${checkMark} sync branch pushed`);
+    console.info(`${checkMark} upgrade branch pushed`);
     console.info(pc.dim(`  '${branch}' is on origin, ${position}`));
   }
   const steps: Array<NextStep | undefined> = [
@@ -512,7 +518,7 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
       ? {
           label: 'merge',
           line: hyperlink(pc.cyan(prUrl), prUrl),
-          details: [pc.dim(`squash-merge it into '${base}'; the next sync offers to while it is open`)],
+          details: [pc.dim(`squash-merge it into '${base}'; the next upgrade offers to while it is open`)],
         }
       : undefined,
     await syncAlignmentsStep(config),
@@ -584,7 +590,7 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
     result = await runSync(config, { stagedBranch: branch.temporaryBranch });
   } catch (error) {
     const discarded = await discardUnusedSyncBranch(forkPath, branch).catch(() => false);
-    // Tracking a release or branch the last sync went past is nothing to sync, not a failure.
+    // Tracking a release or branch the last upgrade went past is nothing to upgrade, not a failure.
     // A pinned --ref behind the sync point stays an error: the run cannot do what it was asked.
     if (discarded && error instanceof BehindSyncPointError && !config.ref) {
       return { status: 'noop', behind: error.message };
@@ -592,9 +598,9 @@ async function runSyncCycle(config: RuntimeConfig): Promise<SyncCycleOutcome> {
     throw error;
   }
 
-  if (config.settings.syncWithPackages !== false) {
-    // Run package sync even when the merge left conflicts: package.json files that are
-    // themselves conflicted are skipped and reported; all others are still synced.
+  if (config.settings.mergePackageJson !== false) {
+    // Merge package.json keys even when the merge left conflicts: package.json files that are
+    // themselves conflicted are skipped and reported; all others still merge.
     await runPackages(config, { conflictedFiles: result.conflicts });
   }
 
@@ -634,7 +640,11 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string, run?: Sync
     printStep('checks', '`pnpm install` or `pnpm check` failed', warningMark);
     printNextSteps([
       { label: 'fix', line: 'what failed above', details: [pc.dim(`the merge stays staged on '${branch}'`)] },
-      { label: 'finish', line: 'pnpm cella sync', details: [pc.dim('commits the sync and stops for drift triage')] },
+      {
+        label: 'finish',
+        line: 'pnpm cella upgrade',
+        details: [pc.dim('commits the upgrade and stops for drift triage')],
+      },
     ]);
     return;
   }
@@ -653,7 +663,7 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string, run?: Sync
       details: [pc.dim('drift triage: commit any follow-ups on this branch')],
     },
     await syncAlignmentsStep(config, run),
-    { label: 'ship', line: 'pnpm cella sync', details: [pc.dim('pushes the branch and opens the squash-merge PR')] },
+    { label: 'ship', line: 'pnpm cella upgrade', details: [pc.dim('pushes the branch and opens the squash-merge PR')] },
   ];
   printNextSteps(steps.filter((step): step is NextStep => !!step));
 }
@@ -674,7 +684,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
   const merged = mergePrSquash(forkPath, newest.number, { deleteBranch: true });
   if (!merged.ok) {
     console.info();
-    console.info(pc.yellow(`could not merge #${newest.number}: resolve it first, then re-run \`pnpm cella sync\`:`));
+    console.info(pc.yellow(`could not merge #${newest.number}: resolve it first, then re-run \`pnpm cella upgrade\`:`));
     if (merged.output) console.info(pc.dim(merged.output.replace(/^/gm, '  ')));
     console.info(pc.dim(`  ${newest.url}`));
     return 'cancel';
@@ -702,19 +712,21 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
 
   if (!ghAvailable() || !process.stdout.isTTY) return 'continue';
 
-  const open = listOpenSyncPrs(forkPath, DEFAULT_SYNC_PREFIX);
+  const open = listOpenSyncPrs(forkPath, TEMPORARY_BRANCH_PREFIXES);
   if (open.length === 0) return 'continue';
 
   const many = open.length > 1;
   console.info();
   console.info(
-    `${warningMark} ${pc.yellow(`${many ? `${open.length} earlier sync PRs are` : 'an earlier sync PR is'} still open and unmerged:`)}`,
+    `${warningMark} ${pc.yellow(`${many ? `${open.length} earlier upgrade PRs are` : 'an earlier upgrade PR is'} still open and unmerged:`)}`,
   );
   for (const pr of open) {
     console.info(pc.dim(`  #${pr.number}  ${pr.title}`));
     console.info(pc.dim(`         ${pr.url}`));
   }
-  console.info(pc.dim(`  starting a new sync now produces a PR that re-includes ${many ? 'these' : 'those'} changes.`));
+  console.info(
+    pc.dim(`  starting a new upgrade now produces a PR that re-includes ${many ? 'these' : 'those'} changes.`),
+  );
   console.info();
 
   const choice = await select<'merge' | 'continue' | 'cancel'>({
@@ -722,7 +734,7 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
     choices: [
       {
         value: 'merge',
-        name: `merge ${many ? 'them' : `#${open[0].number}`} first, then sync   ${pc.dim('(recommended)')}`,
+        name: `merge ${many ? 'them' : `#${open[0].number}`} first, then upgrade   ${pc.dim('(recommended)')}`,
       },
       { value: 'continue', name: `continue anyway   ${pc.dim('(new PR will re-include the unmerged changes)')}` },
       { value: 'cancel', name: pc.red('cancel') },
@@ -736,10 +748,10 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
 }
 
 /**
- * Run the standalone `cella sync` command. Idempotent: each run advances the sync one stage (cut
- * and merge, commit, ship) and never commits and ships in the same run.
+ * Run the standalone `cella upgrade` command. Idempotent: each run advances the upgrade one stage
+ * (cut and merge, commit, ship) and never commits and ships in the same run.
  */
-export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
+export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
   const currentBranch = await getCurrentBranch(forkPath);
   const onSyncBranch = isTemporarySyncBranch(currentBranch);
@@ -757,7 +769,7 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
       console.info();
       console.info(
         pc.yellow(
-          `sync branch '${currentBranch}' has uncommitted changes.\n` +
+          `upgrade branch '${currentBranch}' has uncommitted changes.\n` +
             'commit them first (`git commit --amend --no-edit` or a new commit).',
         ),
       );
@@ -769,7 +781,7 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
 
   // Fresh cycle, from a clean tree only.
   if (!(await isClean(forkPath))) {
-    throw new Error('working directory has uncommitted changes. please commit or stash before syncing.');
+    throw new Error('working directory has uncommitted changes. please commit or stash before upgrading.');
   }
   if ((await guardAgainstOpenSyncPr(config)) === 'cancel') return;
 
@@ -778,10 +790,10 @@ export async function runSyncCommand(config: RuntimeConfig): Promise<void> {
   if (outcome.status === 'noop') {
     console.info();
     if (outcome.behind) {
-      console.info(pc.green('nothing to sync: the last sync already went past this upstream point.'));
+      console.info(pc.green('nothing to upgrade: the last upgrade already went past this upstream point.'));
       for (const line of outcome.behind.split('\n')) console.info(pc.dim(`  ${line}`));
     } else {
-      console.info(pc.green('already up to date with upstream, nothing to sync.'));
+      console.info(pc.green('already up to date with upstream, nothing to upgrade.'));
     }
     const align = await syncAlignmentsStep(config, outcome.result);
     if (align) printNextSteps([align]);
