@@ -1,6 +1,6 @@
 /**
- * Packages service: package.json keys synced between fork and upstream, three-way against the merge-base
- * package.json (upstream as of the previous sync):
+ * Packages service: package.json keys merged from upstream into the fork, three-way against the merge-base
+ * package.json (upstream as of the previous upgrade):
  * - Add: entries that are new upstream are added
  * - Follow: an entry the fork never touched (still equal to its base value) follows upstream,
  *   whether upstream rewrote a script, changed a range, or dropped the entry
@@ -9,17 +9,17 @@
  * - Still used: a dependency or script upstream dropped stays while fork-authored code still
  *   imports it, runs its CLI or runs the script (see package-usage.ts)
  * - Supports nested `pnpm` key (overrides, patchedDependencies, packageExtensions)
- * - `type` always syncs, whatever `packageJsonSync` lists (see mergeModuleType)
+ * - `type` always merges, whatever `packageJsonKeys` lists (see mergeModuleType)
  * - A workspace package.json upstream added since the base arrives verbatim
- * Without a base (first sync, unrelated history) every upstream entry is added or bumped and
+ * Without a base (first upgrade, unrelated history) every upstream entry is added or bumped and
  * nothing is removed.
  */
 
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { PackageJsonSyncKey, RuntimeConfig } from '../config/types';
+import type { PackageJsonKey, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import { DEFAULT_PACKAGE_JSON_SYNC } from '../utils/config';
+import { DEFAULT_PACKAGE_JSON_KEYS } from '../utils/config';
 import { createSpinner, plural, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { errorMessage } from '../utils/errors';
 import { getEffectiveMergeBase, git } from '../utils/git';
@@ -73,7 +73,7 @@ interface RecordMergeOptions {
 }
 
 /** Keys whose entries are packages the code imports or whose CLIs it runs. */
-const DEPENDENCY_KEYS: readonly PackageJsonSyncKey[] = [
+const DEPENDENCY_KEYS: readonly PackageJsonKey[] = [
   'dependencies',
   'devDependencies',
   'peerDependencies',
@@ -254,7 +254,7 @@ function safeMergePnpm(
 
 /**
  * Three-way merge for `type`, which decides how Node loads the package's `.js` files, so it syncs
- * whatever `packageJsonSync` lists. Follows upstream where the fork still has the merge-base value
+ * whatever `packageJsonKeys` lists. Follows upstream where the fork still has the merge-base value
  * (an update or a removal alike) and keeps a value the fork set itself; never version-bumped.
  * A fork without `type` gets upstream's even when the base had one: `type` never synced before,
  * so a missing one is a missed upstream change, not a removal (to opt out, set "commonjs").
@@ -356,7 +356,7 @@ async function syncPackageJson(
   baseRef: string | null,
   usage: ForkUsage | null,
   relativePath: string,
-  keysToSync: PackageJsonSyncKey[],
+  keysToSync: PackageJsonKey[],
 ): Promise<{ updated: boolean; changes: string[]; kept: string[] }> {
   const { forkPath, upstreamRef } = config;
   const changes: string[] = [];
@@ -460,14 +460,14 @@ async function syncPackageJson(
  * Discovers every package.json location upstream has, then merges the configured keys three-way
  * against the merge-base (see the file header for the rules).
  *
- * When `conflictedFiles` is provided (e.g. after a sync that left conflicts),
+ * When `conflictedFiles` is provided (e.g. after an upgrade merge that left conflicts),
  * any package.json that is itself unmerged is skipped to avoid clobbering
- * conflict markers; all other package.json files are still synced.
+ * conflict markers; all other package.json files still merge.
  */
 export async function runPackages(config: RuntimeConfig, options: { conflictedFiles?: string[] } = {}): Promise<void> {
-  createSpinner('syncing package.json files...');
+  createSpinner('merging package.json files...');
 
-  const keysToSync = config.settings.packageJsonSync || DEFAULT_PACKAGE_JSON_SYNC;
+  const keysToSync = config.settings.packageJsonKeys || DEFAULT_PACKAGE_JSON_KEYS;
   const conflictedSet = new Set(options.conflictedFiles ?? []);
 
   const baseRef = await resolveMergeBase(config.forkPath, config.upstreamRef);
@@ -487,14 +487,17 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
       continue;
     }
 
-    spinnerText(`syncing ${location || 'root'}/package.json...`);
+    spinnerText(`merging ${location || 'root'}/package.json...`);
 
     const { updated, changes, kept } = await syncPackageJson(config, baseRef, usage, location, keysToSync);
     if (updated || kept.length > 0) reports.push({ path: pkgRelPath, changes, kept });
   }
 
   const changedCount = reports.filter(({ changes }) => changes.length > 0).length;
-  spinnerSuccess('package sync complete', `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`);
+  spinnerSuccess(
+    'package.json merge complete',
+    `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`,
+  );
 
   for (const { path, changes } of reports) {
     if (changes.length === 0) continue;
@@ -507,7 +510,7 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
   const them = kept.length === 1 ? 'it' : 'them';
   printWarnList(`kept ${plural(kept.length, 'entry', 'entries')} upstream dropped, the fork still uses ${them}:`, kept);
   printWarnList(
-    `skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella sync\`:`,
+    `skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella upgrade\`:`,
     skipped,
   );
 }

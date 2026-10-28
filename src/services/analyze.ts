@@ -29,7 +29,7 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
 /**
  * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
  * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing. So do
- * ignored files only upstream changed (`upstreamOnly`), and the sync config when upstream's
+ * ignored files only upstream changed (`upstreamOnly`), and the CLI config when upstream's
  * overrides changed in ways the fork config does not follow.
  */
 function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
@@ -67,10 +67,10 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       upstreamChangedLines: f.upstreamChangedLines ?? null,
       upstreamLinesAbsent: f.upstreamLinesAbsent ?? null,
       upstreamOnly: f.upstreamOnly ?? false,
-      // Only on the sync config: upstream override entries and packageJsonSync keys the fork config does not follow
+      // Only on the CLI config: upstream override entries and packageJsonKeys the fork config does not follow
       upstreamOverrides:
         overrides && f.path === CONFIG_FILE
-          ? { pinned: overrides.pinned, ignored: overrides.ignored, packageJsonSync: overrides.packageJsonSync }
+          ? { pinned: overrides.pinned, ignored: overrides.ignored, packageJsonKeys: overrides.packageJsonKeys }
           : null,
     }));
     writeStdout(JSON.stringify(out, null, 2));
@@ -119,7 +119,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   return result;
 }
 
-/** The `sync` step: what the sync would change, left out when upstream has nothing new. */
+/** The `upgrade` step: what the upgrade would change, left out when upstream has nothing new. */
 function syncStep(result: MergeResult): NextStep | undefined {
   if (!result.upstreamCommitCount) return undefined;
   const { behind, diverged, renamed } = result.summary;
@@ -129,11 +129,11 @@ function syncStep(result: MergeResult): NextStep | undefined {
     renamed > 0 ? `${renamed} rename` : '',
   ].filter(Boolean);
   return {
-    label: 'sync',
-    line: 'pnpm cella sync',
+    label: 'upgrade',
+    line: 'pnpm cella upgrade',
     details: [
       pc.dim(
-        `commits on a fresh branch, a rerun opens the PR · ${changes.length > 0 ? changes.join(', ') : 'no synced file changes'}`,
+        `commits on a fresh branch, a rerun opens the PR · ${changes.length > 0 ? changes.join(', ') : 'no file changes'}`,
       ),
     ],
   };

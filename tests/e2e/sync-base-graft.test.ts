@@ -1,7 +1,7 @@
 /**
  * E2E tests for withTemporarySyncBaseGraft.
  *
- * Squash syncs advance the recorded sync point (manifest + refs/cella/last-sync) without
+ * Squash syncs advance the recorded sync point (manifest + refs/cella/last-upgrade) without
  * advancing git's commit graph. A plain `git merge` then resolves 3-way against a stale
  * historical base and replays every upstream change since — hunks the fork already
  * integrated or deliberately resolved away re-apply as clean auto-merges (the classic

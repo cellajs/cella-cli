@@ -306,14 +306,14 @@ describe('git parsing', () => {
       exec('git merge fb --no-ff -m "upstream internal merge"', repoPath);
 
       // Sync branch from main: one normal commit, then a manual merge of the upstream branch.
-      exec('git checkout -b cella/sync/test main', repoPath);
+      exec('git checkout -b cella/upgrade/test main', repoPath);
       fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
       exec('git add -A && git commit -m "own commit"', repoPath);
       exec('git merge fa --no-ff -m "manual merge of upstream"', repoPath);
     }
 
     it('returns no merge commits for a branch of plain commits', async () => {
-      exec('git checkout -b cella/sync/plain main', repoPath);
+      exec('git checkout -b cella/upgrade/plain main', repoPath);
       fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
       exec('git add -A && git commit -m "own commit"', repoPath);
 

@@ -1,7 +1,7 @@
 /**
  * Upstream alignments, read from git.
  *
- * Upstream ships one alignment per sync-breaking change in `cella/alignments/<id>/`: a README.md
+ * Upstream ships one alignment per breaking change in `cella/alignments/<id>/`: a README.md
  * that opens with flat frontmatter, then the title and a summary paragraph, plus at most one codemod
  * (the one non-test `.ts` file). The folder is upstream-only: the sync never brings it into the
  * fork and removes a copy it finds. Alignments are read from upstream commits the sync already fetched.
@@ -45,7 +45,7 @@ export interface Alignment {
   /** The paragraph under the title. */
   summary: string;
   /** Changes upstream in a way app-specific code must follow. */
-  syncBreaking: boolean;
+  breaking: boolean;
   /** Bumped `clientCacheVersion` or shipped a lens module. */
   clientCacheBump: boolean;
   /** Null when the frontmatter names none, or a value outside {@link CaughtBy}. */
@@ -122,7 +122,8 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
     id,
     title: title || id,
     summary,
-    syncBreaking: meta.get('syncBreaking') === 'true',
+    // `syncBreaking` is the field's name in alignments up to cella 0.27
+    breaking: (meta.get('breaking') ?? meta.get('syncBreaking')) === 'true',
     clientCacheBump: meta.get('clientCacheBump') === 'true',
     caughtBy,
     generate: meta.get('generate') === 'true',

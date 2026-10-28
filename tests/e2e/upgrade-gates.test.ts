@@ -1,17 +1,17 @@
 /**
- * Tests for `cella sync` runs that stop before the merge.
+ * Tests for `cella upgrade` runs that stop before the merge.
  *
  * A fresh cycle cuts its temporary branch first and resolves upstream after. A gate that stops the
- * run there (upstream changed its sync config, upstream needs a newer CLI, upstream is behind the
+ * run there (upstream changed its CLI config, upstream needs a newer CLI, upstream is behind the
  * last sync point) drops that branch again, so the fork ends where it started and a rerun starts a
- * fresh cycle instead of shipping an empty sync branch. Full `runSyncCommand` runs, with `pnpm`
+ * fresh cycle instead of shipping an empty sync branch. Full `runUpgradeCommand` runs, with `pnpm`
  * (install + check) stubbed and `gh` reported missing.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { UpstreamConfigChangedError } from '../../src/services/merge-engine';
-import { runSyncCommand } from '../../src/services/sync';
+import { runUpgradeCommand } from '../../src/services/upgrade';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv, tagUpstream } from '../helpers/test-env';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -20,9 +20,9 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 /** Upstream sync config with the given pinned entries and package.json keys. */
-const upstreamConfig = (pinned: string[], packageJsonSync: string[]) =>
+const upstreamConfig = (pinned: string[], packageJsonKeys: string[]) =>
   `export default defineConfig({\n  settings: {\n    upstreamUrl: 'x',\n` +
-  `    packageJsonSync: [${packageJsonSync.map((key) => `'${key}'`).join(', ')}],\n  },\n` +
+  `    packageJsonKeys: [${packageJsonKeys.map((key) => `'${key}'`).join(', ')}],\n  },\n` +
   `  overrides: {\n    pinned: [${pinned.map((entry) => `'${entry}'`).join(', ')}],\n  },\n});\n`;
 
 describe('sync stops before the merge', () => {
@@ -33,7 +33,7 @@ describe('sync stops before the merge', () => {
   function expectUntouched(branch: string, head: string): void {
     expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toBe(branch);
     expect(exec('git rev-parse HEAD', env.forkPath)).toBe(head);
-    expect(exec('git branch --list "cella/sync/*"', env.forkPath)).toBe('');
+    expect(exec('git branch --list "cella/upgrade/*"', env.forkPath)).toBe('');
     expect(exec('git status --porcelain', env.forkPath)).toBe('');
     expect(fs.existsSync(path.join(env.forkPath, '.git/MERGE_HEAD'))).toBe(false);
   }
@@ -41,7 +41,7 @@ describe('sync stops before the merge', () => {
   /** Move the trunk to the committed sync branch and drop that branch, as merging its PR would. */
   function landSyncBranch(): void {
     const branch = exec('git rev-parse --abbrev-ref HEAD', env.forkPath);
-    expect(branch).toMatch(/^cella\/sync\//);
+    expect(branch).toMatch(/^cella\/upgrade\//);
     exec(`git switch -q main && git merge -q --ff-only ${branch} && git branch -q -D ${branch}`, env.forkPath);
   }
 
@@ -60,7 +60,7 @@ describe('sync stops before the merge', () => {
     env.cleanup();
   });
 
-  describe('upstream changed its sync config', () => {
+  describe('upstream changed its CLI config', () => {
     /** Both sides share upstream's config; upstream then pins a path, syncs `exports` and adds a file. */
     function setupConfigChange(): void {
       makeCommit(env.upstreamPath, {
@@ -86,8 +86,8 @@ describe('sync stops before the merge', () => {
       exec('git switch -q -c work', env.forkPath);
       const head = exec('git rev-parse HEAD', env.forkPath);
 
-      const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'] });
-      const stop = await runSyncCommand(config).catch((error: unknown) => error);
+      const config = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'] });
+      const stop = await runUpgradeCommand(config).catch((error: unknown) => error);
 
       expect(stop).toBeInstanceOf(UpstreamConfigChangedError);
       expect((stop as UpstreamConfigChangedError).report).toMatchObject({
@@ -100,50 +100,50 @@ describe('sync stops before the merge', () => {
       expectUntouched('work', head);
       expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(false);
       const out = lines.join('\n');
-      expect(out).toContain('upstream changed its sync config · 2 entries to review');
+      expect(out).toContain('upstream changed its CLI config · 2 entries to review');
       expect(out).toContain('+ pinned: backend/src/bundle-config.ts');
-      expect(out).toContain('+ packageJsonSync: exports');
-      expect(out).toMatch(/removed the unused 'cella\/sync\/[\d-]+', back on 'work'\./);
+      expect(out).toContain('+ packageJsonKeys: exports');
+      expect(out).toMatch(/removed the unused 'cella\/upgrade\/[\d-]+', back on 'work'\./);
     });
 
     it('merges with the fork config as it stands on --keep-config', async () => {
       setupConfigChange();
 
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'], keepConfig: true }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'], keepConfig: true }));
 
       // The path upstream now pins arrived as an ordinary synced file, and the run still reports the entries
-      expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toMatch(/^cella\/sync\//);
-      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: sync upstream cella/);
+      expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toMatch(/^cella\/upgrade\//);
+      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: upgrade cella to/);
       expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(true);
       expect(lines.join('\n')).toContain('+ pinned: backend/src/bundle-config.ts');
     });
 
     it('merges once the fork config follows upstream', async () => {
       setupConfigChange();
-      const config = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
-      config.settings.packageJsonSync = ['dependencies', 'devDependencies', 'exports'];
+      const config = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
+      config.settings.packageJsonKeys = ['dependencies', 'devDependencies', 'exports'];
 
-      await runSyncCommand(config);
+      await runUpgradeCommand(config);
 
-      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: sync upstream cella/);
+      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: upgrade cella to/);
       // Pinned and absent in the fork: the file stays out
       expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(false);
-      expect(lines.join('\n')).not.toContain('upstream changed its sync config');
+      expect(lines.join('\n')).not.toContain('upstream changed its CLI config');
     });
 
     it('never gates the rerun that commits an already staged merge', async () => {
       setupConfigChange();
       makeCommit(env.forkPath, { files: { 'README.md': '# Fork readme\n' }, message: 'docs: fork readme' });
-      const keep = buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'], keepConfig: true });
-      await runSyncCommand(keep);
+      const keep = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'], keepConfig: true });
+      await runUpgradeCommand(keep);
       expect(exec('git diff --name-only --diff-filter=U', env.forkPath)).toBe('README.md');
 
       // Resolve the conflict, then rerun without the flag: the merge is staged, so the run only commits it
       fs.writeFileSync(path.join(env.forkPath, 'README.md'), '# Fork readme\n');
       exec('git add README.md', env.forkPath);
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync', pinned: ['a.ts'] }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'] }));
 
-      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: sync upstream cella/);
+      expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: upgrade cella to/);
       expect(exec('git status --porcelain', env.forkPath)).toBe('');
     });
   });
@@ -154,7 +154,7 @@ describe('sync stops before the merge', () => {
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v1\n' }, message: 'feat: v1' });
       tagUpstream(env.upstreamPath, 'v0.1.0');
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v2\n' }, message: 'feat: v2' });
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync', track: 'branch' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'branch' }));
       landSyncBranch();
       lines.length = 0;
       return exec('git rev-parse HEAD', env.forkPath);
@@ -163,21 +163,21 @@ describe('sync stops before the merge', () => {
     it('ends release tracking as a no-op with a message, back on the start branch', async () => {
       const head = await syncPastLatestRelease();
 
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync', track: 'release' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
 
       expectUntouched('main', head);
       expect(fs.readFileSync(path.join(env.forkPath, 'version.ts'), 'utf8')).toBe('v2\n');
       const out = lines.join('\n');
-      expect(out).toContain('nothing to sync: the last sync already went past this upstream point.');
-      expect(out).toMatch(/upstream v0\.1\.0 \([0-9a-f]+\) is behind the last sync point/);
-      expect(out).toContain('Nothing to sync until a release past');
+      expect(out).toContain('nothing to upgrade: the last upgrade already went past this upstream point.');
+      expect(out).toMatch(/upstream v0\.1\.0 \([0-9a-f]+\) is behind the last upgrade at/);
+      expect(out).toContain('Nothing to upgrade until a release past');
     });
 
     it('returns a detached start to its commit', async () => {
       const head = await syncPastLatestRelease();
       exec('git switch -q --detach', env.forkPath);
 
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync', track: 'release' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
 
       expectUntouched('HEAD', head);
     });
@@ -185,9 +185,9 @@ describe('sync stops before the merge', () => {
     it('fails for a pinned --ref behind the sync point, and still drops the branch', async () => {
       const head = await syncPastLatestRelease();
 
-      const run = runSyncCommand(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }));
+      const run = runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
 
-      await expect(run).rejects.toThrow(/behind the last sync point[\s\S]*Pick a newer --ref/);
+      await expect(run).rejects.toThrow(/behind the last upgrade at[\s\S]*Pick a newer --ref/);
       expectUntouched('main', head);
     });
   });
@@ -199,7 +199,7 @@ describe('sync stops before the merge', () => {
     });
     const head = exec('git rev-parse HEAD', env.forkPath);
 
-    await expect(runSyncCommand(buildRuntimeConfig(env, { service: 'sync' }))).rejects.toThrow(
+    await expect(runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }))).rejects.toThrow(
       /upstream needs @cellajs\/cli \^999\.0\.0/,
     );
 

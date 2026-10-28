@@ -97,7 +97,7 @@ async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise
     throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${DEFAULT_UPSTREAM_REMOTE}'`);
 }
 
-/** The upstream commit the fork last synced to, fetched if this clone lacks it; null before any sync. */
+/** The upstream commit the fork last upgraded to, fetched if this clone lacks it; null before any upgrade. */
 async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | null> {
   const { forkPath } = config;
   const ref = (await getStoredSyncRef(forkPath)) ?? (await readManifestBaseAtRef(forkPath, 'HEAD'));
@@ -106,7 +106,7 @@ async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | nul
   return ref;
 }
 
-/** Open alignments at the fork's sync point, for a run without a merge result; null before any sync. */
+/** Open alignments at the fork's sync point, for a run without a merge result; null before any upgrade. */
 export async function readOpenAlignments(config: RuntimeConfig): Promise<AlignmentsView | null> {
   try {
     const ref = await resolveAlignmentsRef(config);
@@ -122,20 +122,20 @@ export interface AlignmentsView {
   ref: string;
   /** Open in the fork: listed by `pnpm cella align` */
   open: string[];
-  /** Arriving with a sync a dry run previews: not open until the sync lands */
+  /** Arriving with an upgrade a dry run previews: not open until the upgrade lands */
   arriving?: string[];
-  /** Arrived with the sync this run made: open, and counted as such */
+  /** Arrived with the upgrade this run made: open, and counted as such */
   arrived?: string[];
 }
 
 /** Alignment rows the `align` step lists before it points to `pnpm cella align`. */
 const STEP_ROWS_MAX = 5;
 
-/** `manual · not sync-breaking`, `codemod · sync-breaking · caught by compiler`. */
+/** `manual · not breaking`, `codemod · breaking · caught by compiler`. */
 function alignmentTags(alignment: Alignment): string {
   return [
     alignment.codemod ? 'codemod' : 'manual',
-    alignment.syncBreaking ? 'sync-breaking' : 'not sync-breaking',
+    alignment.breaking ? 'breaking' : 'not breaking',
     alignment.caughtBy ? `caught by ${alignment.caughtBy}` : null,
   ]
     .filter(Boolean)
@@ -143,7 +143,7 @@ function alignmentTags(alignment: Alignment): string {
 }
 
 /**
- * The `align` step that closes analyze and sync: the alignments arriving with the sync (in a dry
+ * The `align` step that closes analyze and upgrade: the alignments arriving with the upgrade (in a dry
  * run) and the open ones, by title with their kind, then the command. Without a terminal each row
  * also gets its id, for `pnpm cella align --show <id>`. Undefined when there are none.
  */
@@ -155,8 +155,8 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
 
   const line =
     arriving.length > 0
-      ? `${plural(arriving.length, 'alignment')} ${arriving.length === 1 ? 'arrives' : 'arrive'} with this sync${open.length > 0 ? pc.dim(` · ${open.length} open`) : ''}`
-      : `${plural(open.length, 'alignment')} open${arrived.length > 0 ? pc.dim(` · ${arrived.length} arrived with this sync`) : ''}`;
+      ? `${plural(arriving.length, 'alignment')} ${arriving.length === 1 ? 'arrives' : 'arrive'} with this upgrade${open.length > 0 ? pc.dim(` · ${open.length} open`) : ''}`
+      : `${plural(open.length, 'alignment')} open${arrived.length > 0 ? pc.dim(` · ${arrived.length} arrived with this upgrade`) : ''}`;
 
   const githubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
   const ids = [...arriving, ...open];
@@ -168,7 +168,7 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
     if (!process.stdout.isTTY) details.push(pc.dim(`  id ${id}`));
   }
   if (ids.length > STEP_ROWS_MAX) details.push(pc.dim(`+ ${ids.length - STEP_ROWS_MAX} more`));
-  details.push(`${arriving.length > 0 ? pc.dim('after the sync: ') : ''}pnpm cella align`);
+  details.push(`${arriving.length > 0 ? pc.dim('after the upgrade: ') : ''}pnpm cella align`);
   return { label: 'align', line, details };
 }
 
@@ -225,7 +225,7 @@ function grepSummary(alignment: DescribedAlignment): string | null {
 function printAlignment(index: number, alignment: DescribedAlignment): void {
   const tags = [
     alignment.codemod ? 'codemod' : 'manual',
-    alignment.syncBreaking ? 'sync-breaking' : null,
+    alignment.breaking ? 'breaking' : null,
     alignment.clientCacheBump ? 'cache-bump' : null,
     alignment.caughtBy ? `caught by: ${alignment.caughtBy}` : null,
     alignment.generate ? 'generate' : null,
@@ -278,7 +278,7 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
     pending.includes(id),
   );
 
-  if (readRef !== ref) console.info(pc.dim(`not at the sync point ${ref.slice(0, 7)}: read at ${upstreamBranch}`));
+  if (readRef !== ref) console.info(pc.dim(`not at the last upgrade ${ref.slice(0, 7)}: read at ${upstreamBranch}`));
   if (described.url) console.info(pc.dim(described.url));
   console.info(source);
   console.info();
@@ -407,7 +407,7 @@ export async function runAlign(config: RuntimeConfig): Promise<void> {
   const { forkPath } = config;
   const ref = await resolveAlignmentsRef(config);
   if (!ref) {
-    console.info(pc.dim('no sync point recorded yet: alignments start with the first `pnpm cella sync`.'));
+    console.info(pc.dim('no upgrade recorded yet: alignments start with the first `pnpm cella upgrade`.'));
     return;
   }
 
@@ -426,7 +426,7 @@ export async function runAlign(config: RuntimeConfig): Promise<void> {
         id: ids[i],
         title: `${ids[i]} (no longer upstream)`,
         summary: '',
-        syncBreaking: false,
+        breaking: false,
         clientCacheBump: false,
         caughtBy: null,
         generate: false,

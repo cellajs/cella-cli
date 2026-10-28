@@ -8,7 +8,7 @@ import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAnalyze } from '../../src/services/analyze';
 import { reviewSections } from '../../src/services/review-page';
-import { runSync } from '../../src/services/sync';
+import { runSync } from '../../src/services/upgrade';
 import { gitDiffFile } from '../../src/utils/diff';
 import {
   commitSquash,
@@ -46,7 +46,7 @@ describe('sync e2e', () => {
   });
 
   /**
-   * Commit the staged sync. With `squash`, single-parent the way the finishing `cella sync` rerun
+   * Commit the staged sync. With `squash`, single-parent the way the finishing `cella upgrade` rerun
    * does, so git's native merge-base goes stale; else as a two-parent merge commit.
    */
   async function commitMerge(message: string, { squash = false } = {}): Promise<void> {
@@ -202,7 +202,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      const config = buildRuntimeConfig(env, { service: 'sync' });
+      const config = buildRuntimeConfig(env, { service: 'upgrade' });
 
       const result = await runSync(config);
 
@@ -228,7 +228,7 @@ describe('sync e2e', () => {
 
       fetchUpstream(env.forkPath);
       const config = buildRuntimeConfig(env, {
-        service: 'sync',
+        service: 'upgrade',
         pinned: ['custom.ts'],
       });
 
@@ -252,7 +252,7 @@ describe('sync e2e', () => {
       makeCommit(env.forkPath, { files: { 'styles.css': styles('a-fork', 'c', 'e') }, message: 'feat: fork styles' });
       makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c', 'e-up') }, message: 'feat: styles 1' });
       fetchUpstream(env.forkPath);
-      await runSync(buildRuntimeConfig(env, { service: 'sync', pinned }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', pinned }));
       await commitMerge('chore: sync upstream cella', { squash: true });
       expect(readRepoFile(env.forkPath, 'styles.css')).toBe(styles('a-fork', 'c', 'e'));
 
@@ -263,7 +263,7 @@ describe('sync e2e', () => {
       expect(preview.files.find((f) => f.path === 'styles.css')).toMatchObject({ isPinned: false, status: 'diverged' });
 
       // The merge brings in line 3 and the line 5 change that the first sync dropped.
-      await runSync(buildRuntimeConfig(env, { service: 'sync', pinned, unpinned: true }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', pinned, unpinned: true }));
       expect(readRepoFile(env.forkPath, 'styles.css')).toBe(styles('a-fork', 'c-up', 'e-up'));
     });
 
@@ -276,7 +276,7 @@ describe('sync e2e', () => {
 
       fetchUpstream(env.forkPath);
       const config = buildRuntimeConfig(env, {
-        service: 'sync',
+        service: 'upgrade',
         ignored: ['docs'],
       });
 
@@ -295,7 +295,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      const config = buildRuntimeConfig(env, { service: 'sync' });
+      const config = buildRuntimeConfig(env, { service: 'upgrade' });
 
       const result = await runSync(config);
 
@@ -312,7 +312,7 @@ describe('sync e2e', () => {
 
       // Sync to get the file
       fetchUpstream(env.forkPath);
-      let config = buildRuntimeConfig(env, { service: 'sync' });
+      let config = buildRuntimeConfig(env, { service: 'upgrade' });
       await runSync(config);
 
       expect(fileExists(env.forkPath, 'temp.ts')).toBe(true);
@@ -324,7 +324,7 @@ describe('sync e2e', () => {
       deleteFileAndCommit(env.upstreamPath, 'temp.ts', 'chore: remove temp file');
 
       fetchUpstream(env.forkPath);
-      config = buildRuntimeConfig(env, { service: 'sync' });
+      config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -349,7 +349,7 @@ describe('sync e2e', () => {
       expect(deletedFile?.status).toBe('deleted');
 
       // Sync: the deletion is respected — README.md stays gone.
-      const syncConfig = buildRuntimeConfig(env, { service: 'sync' });
+      const syncConfig = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(syncConfig);
       expect(result.success).toBe(true);
       expect(fileExists(env.forkPath, 'README.md')).toBe(false);
@@ -364,7 +364,7 @@ describe('sync e2e', () => {
 
       // Sync to get the file
       fetchUpstream(env.forkPath);
-      let config = buildRuntimeConfig(env, { service: 'sync' });
+      let config = buildRuntimeConfig(env, { service: 'upgrade' });
       await runSync(config);
 
       expect(fileExists(env.forkPath, 'old-dir/moved-file.ts')).toBe(true);
@@ -380,7 +380,7 @@ describe('sync e2e', () => {
       );
 
       fetchUpstream(env.forkPath);
-      config = buildRuntimeConfig(env, { service: 'sync' });
+      config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -404,7 +404,7 @@ describe('sync e2e', () => {
 
       // Sync to get the file
       fetchUpstream(env.forkPath);
-      let config = buildRuntimeConfig(env, { service: 'sync' });
+      let config = buildRuntimeConfig(env, { service: 'upgrade' });
       await runSync(config);
 
       expect(fileExists(env.forkPath, 'src/old-name.ts')).toBe(true);
@@ -415,7 +415,7 @@ describe('sync e2e', () => {
       renameFileAndCommit(env.upstreamPath, 'src/old-name.ts', 'src/new-name.ts', 'refactor: rename file');
 
       fetchUpstream(env.forkPath);
-      config = buildRuntimeConfig(env, { service: 'sync' });
+      config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -489,7 +489,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      const config = buildRuntimeConfig(env, { service: 'sync' });
+      const config = buildRuntimeConfig(env, { service: 'upgrade' });
 
       const result = await runSync(config);
 
@@ -511,7 +511,7 @@ describe('sync e2e', () => {
 
       // Sync shared.ts into the fork and finalize so it becomes part of the merge base.
       fetchUpstream(env.forkPath);
-      await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
       await commitMerge('sync: shared');
 
       // Upstream: conflicting README edit + non-overlapping edit at the TOP of shared.ts.
@@ -542,7 +542,7 @@ describe('sync e2e', () => {
 
       let result: Awaited<ReturnType<typeof runSync>>;
       try {
-        result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+        result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
       } finally {
         spy.mockRestore();
       }
@@ -565,7 +565,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      let config = buildRuntimeConfig(env, { service: 'sync' });
+      let config = buildRuntimeConfig(env, { service: 'upgrade' });
       let result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -580,7 +580,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      config = buildRuntimeConfig(env, { service: 'sync' });
+      config = buildRuntimeConfig(env, { service: 'upgrade' });
       result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -612,7 +612,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      let config = buildRuntimeConfig(env, { service: 'sync' });
+      let config = buildRuntimeConfig(env, { service: 'upgrade' });
       let result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -638,7 +638,7 @@ describe('sync e2e', () => {
       expect(effectiveBase.storedRef).not.toBeNull();
 
       // Sync should work correctly despite squash history
-      config = buildRuntimeConfig(env, { service: 'sync' });
+      config = buildRuntimeConfig(env, { service: 'upgrade' });
       result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -665,7 +665,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      const config = buildRuntimeConfig(env, { service: 'sync', track: 'release' });
+      const config = buildRuntimeConfig(env, { service: 'upgrade', track: 'release' });
       const result = await runSync(config);
 
       expect(result.success).toBe(true);
@@ -686,7 +686,7 @@ describe('sync e2e', () => {
       });
 
       fetchUpstream(env.forkPath);
-      const config = buildRuntimeConfig(env, { service: 'sync', track: 'release' });
+      const config = buildRuntimeConfig(env, { service: 'upgrade', track: 'release' });
 
       await expect(runSync(config)).rejects.toThrow(/no upstream release tags found/);
     });
@@ -700,7 +700,7 @@ describe('sync e2e', () => {
 
       fetchUpstream(env.forkPath);
       const config = buildRuntimeConfig(env, {
-        service: 'sync',
+        service: 'upgrade',
         track: 'release',
         trackOverride: 'branch',
       });
@@ -727,7 +727,7 @@ describe('sync e2e', () => {
       expect(analysis.files.find((f) => f.path === 'pinned.ts')?.status).toBe('behind');
       expect(analysis.files.find((f) => f.path === 'later.ts')).toBeUndefined();
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release', ref }));
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'release', ref }));
 
       expect(result.success).toBe(true);
       expect(result.upstreamTag).toBeUndefined();
@@ -745,7 +745,7 @@ describe('sync e2e', () => {
       tagUpstream(env.upstreamPath, 'v0.2.0');
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }));
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
 
       expect(result.upstreamTag).toBe('v0.1.0');
       expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
@@ -761,7 +761,7 @@ describe('sync e2e', () => {
       tagUpstream(env.upstreamPath, 'archive/pre-release');
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'release' }));
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
 
       expect(result.upstreamTag).toBe('0.18.1');
       expect(fileExists(env.forkPath, 'released.ts')).toBe(true);
@@ -776,7 +776,7 @@ describe('sync e2e', () => {
       execSync('git checkout -q main', { cwd: env.upstreamPath });
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: '0.3.0' }));
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: '0.3.0' }));
 
       expect(result.upstreamTag).toBe('0.3.0');
       expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
@@ -806,7 +806,7 @@ describe('sync e2e', () => {
       makeCommit(env.upstreamPath, { files: { 'tip.ts': 'export const t = 1;\n' }, message: 'feat: tip' });
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'main' }));
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: 'main' }));
 
       expect(result.upstreamCommit?.hash).toBe(
         execSync('git rev-parse main', { cwd: env.upstreamPath }).toString().trim(),
@@ -823,7 +823,7 @@ describe('sync e2e', () => {
         message: 'feat: fork change',
       });
       fetchUpstream(env.forkPath);
-      const sync = (ref: string) => runSync(buildRuntimeConfig(env, { service: 'sync', ref }));
+      const sync = (ref: string) => runSync(buildRuntimeConfig(env, { service: 'upgrade', ref }));
 
       await expect(sync('no-such-ref')).rejects.toThrow(/--ref 'no-such-ref' does not resolve to a commit/);
       await expect(sync('feature')).rejects.toThrow(/is not on cella-upstream\/main or in an upstream release/);
@@ -838,10 +838,10 @@ describe('sync e2e', () => {
       fetchUpstream(env.forkPath);
 
       // A branch-tracking sync moves the sync point past the latest release
-      await runSync(buildRuntimeConfig(env, { service: 'sync', track: 'branch' }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'branch' }));
       await commitMerge('chore: sync upstream cella', { squash: true });
 
-      await expect(runSync(buildRuntimeConfig(env, { service: 'sync', ref: 'v0.1.0' }))).rejects.toThrow(
+      await expect(runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }))).rejects.toThrow(
         /Pick a newer --ref/,
       );
       expect(readRepoFile(env.forkPath, 'version.ts')).toBe('v2\n');
@@ -889,7 +889,7 @@ describe('sync e2e', () => {
         kind: 'changes',
         pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
         ignored: { added: [], removed: [] },
-        packageJsonSync: { added: [], removed: [] },
+        packageJsonKeys: { added: [], removed: [] },
       });
       expect(result.ignoredUpstreamChanges).toEqual([
         {
@@ -927,14 +927,14 @@ describe('sync e2e', () => {
       expect(byPath.get('cella/cella.config.ts')?.upstreamOverrides).toEqual({
         pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
         ignored: { added: [], removed: [] },
-        packageJsonSync: { added: [], removed: [] },
+        packageJsonKeys: { added: [], removed: [] },
       });
     });
 
     it('sync --keep-config merges, reports the same and leaves the fork config and ignored files alone', async () => {
       await setupBase();
       const config = buildRuntimeConfig(env, {
-        service: 'sync',
+        service: 'upgrade',
         pinned: ['a.ts'],
         ignored: ['shared/config'],
         keepConfig: true,
@@ -971,8 +971,8 @@ describe('sync e2e', () => {
       const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', ...options }));
       expect(analysis.protectedConflicts?.sort()).toEqual(dropped);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'sync', ...options }));
-      const [section] = reviewSections(result, 'sync');
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ...options }));
+      const [section] = reviewSections(result, 'upgrade');
       expect(section.paths.sort()).toEqual(dropped);
 
       // The review page's diff: upstream's side since the last sync, without the fork's own changes

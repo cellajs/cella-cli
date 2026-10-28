@@ -2,7 +2,7 @@
  * Files that cella manages outside the normal file sync categories.
  */
 
-/** Sync config path, relative to the fork repo root. Fork-owned, never synced from upstream. */
+/** CLI config path, relative to the fork repo root. Fork-owned, never synced from upstream. */
 export const CONFIG_FILE = 'cella/cella.config.ts';
 
 /** Whether a path is a package.json file. */
@@ -20,7 +20,7 @@ export function isGeneratedFile(filePath: string): boolean {
   return segments.includes('gen') || (segments.at(-1) ?? '').includes('.gen.');
 }
 
-/** Whether cella manages a path outside the normal sync categories: package.json files, the lockfile, the sync config. */
+/** Whether cella manages a path outside the normal sync categories: package.json files, the lockfile, the CLI config. */
 export function isManagedFile(filePath: string): boolean {
   return isPackageJson(filePath) || filePath === 'pnpm-lock.yaml' || filePath === CONFIG_FILE;
 }

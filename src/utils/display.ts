@@ -204,8 +204,8 @@ export function formatCheckoutStep(checkout: {
 }
 
 /**
- * The `upstream` step: the branch or release synced to and how many commits it brings since the
- * last sync, then those commits (see {@link formatUpstreamCommits}).
+ * The `upstream` step: the branch or release upgraded to and how many commits it brings since the
+ * last upgrade, then those commits (see {@link formatUpstreamCommits}).
  */
 export function formatUpstreamStep(upstream: {
   label: string;
@@ -219,8 +219,8 @@ export function formatUpstreamStep(upstream: {
   const { label, sha, baseSha, pinned, commitCount, commits, githubUrl } = upstream;
   const since =
     commitCount === 0
-      ? 'no new commits since the last sync'
-      : `${plural(commitCount, 'new commit')} since the last sync at ${baseSha}`;
+      ? 'no new commits since the last upgrade'
+      : `${plural(commitCount, 'new commit')} since the last upgrade at ${baseSha}`;
   return [
     `${label} @ ${sha}${pc.dim(`${pinned ? ' · --ref' : ''} · ${since}`)}`,
     ...formatUpstreamCommits(commitCount, commits, githubUrl),
@@ -337,7 +337,7 @@ type SummaryStatus = FileStatus | 'managed';
 
 /** Unified status display config: icon, label, color, and description for each status. */
 const statusConfig: Record<FileStatus, StatusConfig> = {
-  behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will sync' },
+  behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will update' },
   diverged: { icon: pc.magenta('⇅'), label: 'diverged', color: pc.magenta, description: 'both changed, will merge' },
   drifted: { icon: pc.yellow('!'), label: 'drifted', color: pc.yellow, description: 'fork changed (at risk)' },
   ahead: { icon: pc.blue('↑'), label: 'ahead', color: pc.blue, description: 'fork changed (protected)' },
@@ -413,9 +413,9 @@ export function findProtectedBehindUpstream(
   return [...findProtectedBehind(result.files), ...result.files.filter((file) => ignoredOnly.has(file.path))];
 }
 
-/** Hint under the protected files a sync kept the fork version of. */
+/** Hint under the protected files an upgrade kept the fork version of. */
 const PROTECTED_BEHIND_HINT =
-  'pinned/ignored files where upstream also changed since the last sync; the fork side wins on conflict, ' +
+  'pinned/ignored files where upstream also changed since the last upgrade; the fork side wins on conflict, ' +
   'so review what upstream changed and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
@@ -438,13 +438,13 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
   const counts = `${plural(updated, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
   console.info();
   if (options.stagedBranch) {
-    console.info(`${checkMark} sync merge staged on '${options.stagedBranch}'`);
+    console.info(`${checkMark} upgrade merge staged on '${options.stagedBranch}'`);
     console.info(pc.dim(`  ${counts}. committing next...`));
   } else if (conflicts > 0) {
-    console.info(`${warningMark} sync merge staged with conflicts`);
+    console.info(`${warningMark} upgrade merge staged with conflicts`);
     console.info(pc.dim(`  ${counts}`));
   } else {
-    console.info(`${checkMark} sync complete`);
+    console.info(`${checkMark} upgrade merge complete`);
     console.info(pc.dim(`  ${counts}`));
   }
 
@@ -502,13 +502,15 @@ export function printIgnoredUpstreamChanges(result: MergeResult): void {
     if (group.deleted > 0) counts.push(`${group.deleted} deleted`);
     console.info(`  ${statusConfig.ignored.icon} ${group.entry} ${pc.dim(`· ${counts.join(', ')}`)}`);
   }
-  console.info(pc.dim('  the fork left these untouched and ignored paths never sync: review and adopt what you need.'));
+  console.info(
+    pc.dim('  the fork left these untouched and ignored paths never merge: review and adopt what you need.'),
+  );
 }
 
 /**
- * Upstream sync config entries the fork config does not follow (`MergeResult.upstreamOverrides`):
- * `overrides` entries and `packageJsonSync` keys upstream added that the fork lacks, and ones
- * upstream dropped that the fork still has. The sync config is managed and never merges, so these
+ * Upstream CLI config entries the fork config does not follow (`MergeResult.upstreamOverrides`):
+ * `overrides` entries and `packageJsonKeys` upstream added that the fork lacks, and ones
+ * upstream dropped that the fork still has. The CLI config is managed and never merges, so these
  * only reach the fork by hand. Silent when there is nothing to report; one dim line when upstream's
  * config was unreadable.
  */
@@ -518,25 +520,25 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
 
   console.info();
   if (report.kind === 'unreadable') {
-    const side = report.side === 'base' ? 'the last sync point' : 'the incoming ref';
+    const side = report.side === 'base' ? 'the last upgrade' : 'the incoming ref';
     console.info(
-      pc.dim(`upstream sync config not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
+      pc.dim(`upstream CLI config not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
     );
     return;
   }
 
   const lines: string[] = [];
-  for (const list of ['pinned', 'ignored', 'packageJsonSync'] as const) {
+  for (const list of ['pinned', 'ignored', 'packageJsonKeys'] as const) {
     for (const entry of report[list].added) lines.push(`  ${pc.green('+')} ${list}: ${entry}`);
     for (const entry of report[list].removed) {
       lines.push(`  ${pc.red('−')} ${list}: ${entry}${pc.dim(' · dropped upstream, still in your config')}`);
     }
   }
   console.info(
-    `${warningMark} ${pc.yellow(`upstream changed its sync config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
+    `${warningMark} ${pc.yellow(`upstream changed its CLI config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
   );
   for (const line of lines) console.info(line);
-  console.info(pc.dim(`  ${CONFIG_FILE} never syncs: add or drop these by hand where they fit your app.`));
+  console.info(pc.dim(`  ${CONFIG_FILE} never merges: add or drop these by hand where they fit your app.`));
 }
 
 /**
@@ -545,7 +547,7 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
  * version and dropping upstream's new changes. Because the fork copy equals the old
  * upstream, this produces no merge conflict and no type error, so it slips through unseen
  * (e.g. a pinned nav-config losing new upstream entries). These are the pins worth a look.
- * Managed files (package.json, the lockfile, the sync config) are always pinned but stay out:
+ * Managed files (package.json, the lockfile, the CLI config) are always pinned but stay out:
  * the package sync reconciles their keys, so the pin masks nothing there.
  */
 export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
@@ -585,7 +587,7 @@ export function printMaskingPinWarning(files: AnalyzedFile[]): void {
 
 /**
  * Print the post-engine report block shared by analyze and sync: the summary, then the upstream
- * changes the sync never brings in (ignored paths and upstream's own sync config), and pins that
+ * changes the sync never brings in (ignored paths and upstream's own CLI config), and pins that
  * silently freeze a file at the old upstream (no conflict, no type error).
  */
 export function printEngineReports(result: MergeResult, title: string): void {

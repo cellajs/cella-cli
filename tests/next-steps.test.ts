@@ -1,6 +1,6 @@
 /**
- * Tests for `next steps`, the section analyze and sync end with: the numbered layout, and the
- * `align` step's wording for alignments arriving with a sync, arrived with one, or open.
+ * Tests for `next steps`, the section analyze and upgrade end with: the numbered layout, and the
+ * `align` step's wording for alignments arriving with an upgrade, arrived with one, or open.
  */
 import fs from 'node:fs';
 import { stripVTControlCharacters } from 'node:util';
@@ -18,7 +18,7 @@ describe('printNextSteps', () => {
     const out = captureInfo(() =>
       printNextSteps([
         { label: 'review', line: 'file:///repo/.git/cella-diff/analyze-review.html', details: ['24 diffs'] },
-        { label: 'sync', line: 'pnpm cella sync' },
+        { label: 'upgrade', line: 'pnpm cella upgrade' },
       ]),
     );
 
@@ -29,7 +29,7 @@ describe('printNextSteps', () => {
       '',
       '  1 review   file:///repo/.git/cella-diff/analyze-review.html',
       '             24 diffs',
-      '  2 sync     pnpm cella sync',
+      '  2 upgrade  pnpm cella upgrade',
     ]);
   });
 
@@ -51,7 +51,7 @@ describe('alignmentsStep', () => {
       Object.fromEntries(
         ids.map((id, i) => [
           `cella/alignments/${id}/README.md`,
-          `---\nsyncBreaking: ${i === 0}\nclientCacheBump: false\n${i === 0 ? 'caughtBy: compiler\n' : ''}---\n\n# Alignment ${i + 1}\n\nWhat changes.\n`,
+          `---\nbreaking: ${i === 0}\nclientCacheBump: false\n${i === 0 ? 'caughtBy: compiler\n' : ''}---\n\n# Alignment ${i + 1}\n\nWhat changes.\n`,
         ]),
       ),
     );
@@ -63,19 +63,19 @@ describe('alignmentsStep', () => {
 
   it('names the alignments arriving with a dry run, and runs align after the sync', async () => {
     expect(plain(await alignmentsStep(config(), { ref: 'HEAD', open: [ids[1]], arriving: [ids[0]] }))).toEqual([
-      '1 alignment arrives with this sync · 1 open',
-      '○ Alignment 1 · codemod · sync-breaking · caught by compiler',
+      '1 alignment arrives with this upgrade · 1 open',
+      '○ Alignment 1 · codemod · breaking · caught by compiler',
       `  id ${ids[0]}`,
-      '○ Alignment 2 · manual · not sync-breaking',
+      '○ Alignment 2 · manual · not breaking',
       `  id ${ids[1]}`,
-      'after the sync: pnpm cella align',
+      'after the upgrade: pnpm cella align',
     ]);
   });
 
   it('counts the ones a sync opened as open and says they arrived', async () => {
     const step = plain(await alignmentsStep(config(), { ref: 'HEAD', open: [ids[0], ids[1]], arrived: [ids[1]] }));
 
-    expect(step?.[0]).toBe('2 alignments open · 1 arrived with this sync');
+    expect(step?.[0]).toBe('2 alignments open · 1 arrived with this upgrade');
     expect(step?.at(-1)).toBe('pnpm cella align');
   });
 

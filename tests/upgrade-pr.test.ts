@@ -7,7 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildSyncPrBody } from '../src/services/sync';
+import { buildSyncPrBody } from '../src/services/upgrade';
 import { readManifestAtRef, readManifestBaseAtRef, readPackageVersionAtRef } from '../src/utils/git';
 import { createManifestRepo, exec } from './helpers/test-env';
 
@@ -28,9 +28,9 @@ describe('buildSyncPrBody', () => {
       ],
     });
 
-    expect(body).toContain('Syncs upstream [cellajs/cella](https://github.com/cellajs/cella)');
+    expect(body).toContain('Upgrades [cellajs/cella](https://github.com/cellajs/cella)');
     expect(body).toContain(`[\`${'b'.repeat(7)}\`](https://github.com/cellajs/cella/commit/${SHA_B}) (v0.2.2).`);
-    expect(body).toContain('**2 upstream commits since last sync**');
+    expect(body).toContain('**2 upstream commits since the last upgrade**');
     expect(body).toContain(`[compare](https://github.com/cellajs/cella/compare/${'a'.repeat(7)}...${'b'.repeat(7)})`);
     // Bare #843 would auto-link to the fork's own PR — must be qualified with the upstream slug.
     expect(body).toContain('fix: type in yjs Dockerfile (cellajs/cella#843)');
@@ -58,7 +58,7 @@ describe('buildSyncPrBody', () => {
       totalCount: 60,
       commits: [{ hash: SHA_B, message: 'feat: latest', date: 'today' }],
     });
-    expect(body).toContain('**60 upstream commits since last sync**');
+    expect(body).toContain('**60 upstream commits since the last upgrade**');
     expect(body).toContain('- …59 earlier commit(s) not shown');
   });
 
@@ -71,7 +71,7 @@ describe('buildSyncPrBody', () => {
       totalCount: 0,
       commits: [],
     });
-    expect(body).toContain('Syncs upstream');
+    expect(body).toContain('Upgrades');
     expect(body).not.toContain('since last sync');
   });
 
@@ -83,7 +83,7 @@ describe('buildSyncPrBody', () => {
       totalCount: 1,
       commits: [{ hash: SHA_A, message: 'fix: thing (#12)', date: 'today' }],
     });
-    expect(body).toContain('Syncs upstream cella to `bbbbbbb`.');
+    expect(body).toContain('Upgrades cella to `bbbbbbb`.');
     expect(body).toContain('- `aaaaaaa` fix: thing (#12)');
     expect(body).not.toContain('https://github.com');
   });

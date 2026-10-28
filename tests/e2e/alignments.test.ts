@@ -10,7 +10,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAlign } from '../../src/services/align';
 import { runAnalyze } from '../../src/services/analyze';
-import { runSync, runSyncCommand } from '../../src/services/sync';
+import { runSync, runUpgradeCommand } from '../../src/services/upgrade';
 import {
   buildRuntimeConfig,
   createTestEnv,
@@ -23,14 +23,14 @@ import {
   type TestEnv,
 } from '../helpers/test-env';
 
-// The full `runSyncCommand` flow runs `pnpm install` + `pnpm check` before it commits, and asks for `gh`
+// The full `runUpgradeCommand` flow runs `pnpm install` + `pnpm check` before it commits, and asks for `gh`
 vi.mock('node:child_process', async (importOriginal) => {
   const { mockPnpmAndGh } = await import('../helpers/mock-pnpm-gh');
   return mockPnpmAndGh(await importOriginal<typeof import('node:child_process')>());
 });
 
 const readme = (title: string) =>
-  `---\nsyncBreaking: true\nclientCacheBump: false\ncaughtBy: compiler\n---\n\n# ${title}\n\nWhat the app changes.\n`;
+  `---\nbreaking: true\nclientCacheBump: false\ncaughtBy: compiler\n---\n\n# ${title}\n\nWhat the app changes.\n`;
 const OLD = '20260101T0000-old-alignment';
 const NEW = '20260102T0000-new-alignment';
 
@@ -58,7 +58,7 @@ describe('alignments e2e', () => {
     });
 
     fetchUpstream(env.forkPath);
-    const result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+    const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
 
     expect(fileExists(env.forkPath, 'feature.ts')).toBe(true);
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
@@ -86,7 +86,7 @@ describe('alignments e2e', () => {
     });
     fetchUpstream(env.forkPath);
 
-    const result = await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+    const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
 
     expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
@@ -135,10 +135,10 @@ describe('alignments e2e', () => {
 
     try {
       // First run: stops at the conflict, with the folder already gone
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
 
       const branch = git('rev-parse --abbrev-ref HEAD');
-      expect(branch).toMatch(/^cella\/sync\//);
+      expect(branch).toMatch(/^cella\/upgrade\//);
       expect(git('diff --name-only --diff-filter=U')).toBe('README.md');
       expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
       expect(git('ls-files cella/alignments')).toBe('');
@@ -148,24 +148,24 @@ describe('alignments e2e', () => {
       expect(stopped).toMatch(
         /next steps\n─+\n\n {2}1 resolve {2}1 conflict in your editor, then stage them\n {13}README\.md\n/,
       );
-      expect(stopped).toMatch(/ {2}2 finish {3}pnpm cella sync\n/);
-      expect(stopped).toMatch(/ {2}\d align {4}1 alignment open · 1 arrived with this sync\n/);
-      expect(stopped).toContain('○ New alignment · codemod · sync-breaking · caught by compiler');
+      expect(stopped).toMatch(/ {2}2 finish {3}pnpm cella upgrade\n/);
+      expect(stopped).toMatch(/ {2}\d align {4}1 alignment open · 1 arrived with this upgrade\n/);
+      expect(stopped).toContain('○ New alignment · codemod · breaking · caught by compiler');
       expect(stopped).toContain(`  id ${NEW}`);
 
       // Finishing rerun: commits the resolved merge, and the folder stays gone
       fs.writeFileSync(path.join(env.forkPath, 'README.md'), '# Fork readme\n');
       git('add README.md');
-      await runSyncCommand(buildRuntimeConfig(env, { service: 'sync' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
 
       expect(git('rev-parse --abbrev-ref HEAD')).toBe(branch);
-      expect(git('log -1 --format=%s')).toMatch(/^chore: sync upstream cella/);
+      expect(git('log -1 --format=%s')).toMatch(/^chore: upgrade cella to/);
       // The commit stop: triage, the open alignment once, and the ship rerun
       const committed = printed();
-      expect(committed).toMatch(/✓ committed {2}chore: sync upstream cella/);
+      expect(committed).toMatch(/✓ committed {2}chore: upgrade cella to/);
       expect(committed).toMatch(/ {2}\d triage {3}pnpm cella analyze\n/);
       expect(committed).toMatch(/ {2}\d align {4}1 alignment open\n/);
-      expect(committed).toMatch(/ {2}\d ship {5}pnpm cella sync\n/);
+      expect(committed).toMatch(/ {2}\d ship {5}pnpm cella upgrade\n/);
       expect(committed.match(/New alignment/g)).toHaveLength(1);
       expect(committed).not.toContain('alignments:');
       expect(git('status --porcelain')).toBe('');
@@ -194,13 +194,13 @@ describe('alignments e2e', () => {
     expect(pending(env.forkPath)).toBeNull();
     // Arriving, not open: `pnpm cella align` lists it only once the sync lands
     const out = stripVTControlCharacters(lines.join('\n'));
-    expect(out).toContain('○ New alignment · manual · sync-breaking · caught by compiler');
-    expect(out).toContain('after the sync: pnpm cella align');
+    expect(out).toContain('○ New alignment · manual · breaking · caught by compiler');
+    expect(out).toContain('after the upgrade: pnpm cella align');
     // Only the alignment changed upstream: the sync still records it and moves the sync point
     expect(out).toMatch(
-      / {2}1 sync {5}pnpm cella sync\n {13}commits on a fresh branch, a rerun opens the PR · no synced file changes\n/,
+      / {2}1 upgrade {2}pnpm cella upgrade\n {13}commits on a fresh branch, a rerun opens the PR · no file changes\n/,
     );
-    expect(out).toMatch(/ {2}2 align {4}1 alignment arrives with this sync\n/);
+    expect(out).toMatch(/ {2}2 align {4}1 alignment arrives with this upgrade\n/);
   });
 
   it('marks an alignment as handled and deletes the file once nothing is pending', async () => {
@@ -209,7 +209,7 @@ describe('alignments e2e', () => {
       message: 'feat: new alignment',
     });
     fetchUpstream(env.forkPath);
-    await runSync(buildRuntimeConfig(env, { service: 'sync' }));
+    await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
 
     await runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), mark: [NEW] });
 

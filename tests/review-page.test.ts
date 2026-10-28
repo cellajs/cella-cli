@@ -149,7 +149,7 @@ describe('review page', () => {
   }
 
   /** Run `reportReviewPage`, failing the test if it prints anything: the page goes under `next steps`. */
-  async function report(command: 'analyze' | 'sync'): Promise<ReviewPageReport | undefined> {
+  async function report(command: 'analyze' | 'upgrade'): Promise<ReviewPageReport | undefined> {
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
     const page = await reportReviewPage(repoPath, result, command);
     expect(info).not.toHaveBeenCalled();
@@ -170,7 +170,7 @@ describe('review page', () => {
     });
 
     it('limits sync to the upstream changes it did not bring in, dropped files from the merge result', () => {
-      const sections = reviewSections({ ...result, protectedConflicts: ['pinned.css', 'package.json'] }, 'sync');
+      const sections = reviewSections({ ...result, protectedConflicts: ['pinned.css', 'package.json'] }, 'upgrade');
 
       expect(sections.map((s) => [s.title, s.paths])).toEqual([
         ['protected files kept the fork version', ['pinned.css', 'package.json']],
@@ -276,16 +276,16 @@ describe('review page', () => {
     it('opens the sync page in the browser on a terminal', async () => {
       setTTY(true);
 
-      const page = await report('sync');
+      const page = await report('upgrade');
 
-      expect(page).toMatchObject({ command: 'sync', diffs: 3, opened: true });
-      expect(fs.readFileSync(argsFile, 'utf-8')).toContain('sync-review.html');
+      expect(page).toMatchObject({ command: 'upgrade', diffs: 3, opened: true });
+      expect(fs.readFileSync(argsFile, 'utf-8')).toContain('upgrade-review.html');
     });
 
     it('never opens the sync page without a terminal', async () => {
       setTTY(false);
 
-      expect(await report('sync')).toMatchObject({ opened: false });
+      expect(await report('upgrade')).toMatchObject({ opened: false });
       expect(fs.existsSync(argsFile)).toBe(false);
     });
 
@@ -298,11 +298,11 @@ describe('review page', () => {
     it('finds the page the merge run of a sync wrote, and drops it when a later sync has nothing to review', async () => {
       expect(existingSyncReviewPage(repoPath)).toBeUndefined();
 
-      await report('sync');
-      expect(existingSyncReviewPage(repoPath)).toContain('sync-review.html');
+      await report('upgrade');
+      expect(existingSyncReviewPage(repoPath)).toContain('upgrade-review.html');
 
       result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
-      expect(await report('sync')).toBeUndefined();
+      expect(await report('upgrade')).toBeUndefined();
       expect(existingSyncReviewPage(repoPath)).toBeUndefined();
     });
   });
@@ -328,14 +328,14 @@ describe('review page', () => {
     });
 
     it('says what a sync page shows and that it opened', () => {
-      const step = reviewStep(page({ command: 'sync', diffs: 7, listed: 0, opened: true }));
+      const step = reviewStep(page({ command: 'upgrade', diffs: 7, listed: 0, opened: true }));
 
       expect(plain(step)[1]).toBe('7 diffs of upstream changes that did not arrive · opened in the browser');
     });
 
     it('describes a page an earlier run wrote without counts', () => {
-      expect(plain(reviewStep('/repo/.git/cella-diff/sync-review.html'))[1]).toBe(
-        'upstream changes the sync did not bring in, from the merge run',
+      expect(plain(reviewStep('/repo/.git/cella-diff/upgrade-review.html'))[1]).toBe(
+        'upstream changes the upgrade did not bring in, from the merge run',
       );
     });
   });
