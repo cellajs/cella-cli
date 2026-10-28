@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.6.0](https://github.com/cellajs/cella-cli/compare/cli-0.5.0...cli-0.6.0) (2026-10-28)
+
+
+### ⚠ BREAKING CHANGES
+
+* the public config type `PackageJsonSyncKey` is `PackageJsonKey`, and `align --json` reports `breaking` in place of `syncBreaking`.
+
+### 🎉 New features
+
+* pnpm cella sync is now pnpm cella upgrade, leaving "sync" to cella's sync engine ([#62](https://github.com/cellajs/cella-cli/issues/62)) ([cbec418](https://github.com/cellajs/cella-cli/commit/cbec4189bc4c5167f42388f66870b61630207e16))
+
 ## [0.5.0](https://github.com/cellajs/cella-cli/compare/cli-0.4.2...cli-0.5.0) (2026-10-25)
 
 
