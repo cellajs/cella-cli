@@ -4,7 +4,8 @@
  * One table and one checkbox for outdated packages and runtime pins (Node, pnpm, image tags). The
  * picked updates become file edits that the security pass (see audit-security.ts) stages, checks
  * and writes, so the workspace changes once and only with a single install. Below the table, the
- * security fixes this machine's own Node, pnpm and gh miss (see local-tools.ts).
+ * security fixes this machine's own Node, pnpm and gh miss (see local-tools.ts), and what pnpm audit
+ * reports before the prompt that the security pass waits for.
  */
 
 import { readFileSync } from 'node:fs';
@@ -27,7 +28,7 @@ import {
   runPnpmJson,
 } from '../utils/audit-utils';
 import pc from '../utils/colors';
-import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
+import { checkMark, createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
 import { type LocalToolCheck, planLocalTools, readLocalTools } from '../utils/local-tools';
 import {
@@ -39,7 +40,7 @@ import {
   type RuntimeUpdate,
   readRuntimePins,
 } from '../utils/runtimes';
-import { advisoriesFromAudit, SEVERITIES } from '../utils/security-plan';
+import { type Advisory, advisoriesFromAudit, SEVERITIES } from '../utils/security-plan';
 import { isBreakingJump } from '../utils/versions';
 import { readTopLevel } from '../utils/workspace-yaml';
 import { runSecurityPass, type WorkspaceEdits } from './audit-security';
@@ -90,8 +91,9 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
     const localTools = planLocalTools(machine, { releaseAgeMinutes, now });
+    const advisories = auditResult ? advisoriesFromAudit(auditResult) : null;
     const rows = [
-      ...packageRows(outdated as Record<string, OutdatedPackage>, auditResult ? advisoriesFromAudit(auditResult) : []),
+      ...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []),
       ...runtimes.updates.map(runtimeRow),
     ];
 
@@ -116,6 +118,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
       return;
     }
 
+    printReported(advisories);
     const selected = await promptForUpdates(rows);
     if (!selected) return;
     const { edits, bumped } = await planEdits(forkPath, rows, selected, pins.nodeImageSuffixes);
@@ -125,10 +128,12 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
   }
 }
 
+/** The most severe advisory on a package; null when it has none. */
+const worstSeverity = (advisories: Advisory[], name: string) =>
+  SEVERITIES.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
+
 /** The outdated packages as table rows, sorted by the workspaces that depend on them. */
-function packageRows(outdated: Record<string, OutdatedPackage>, advisories: ReturnType<typeof advisoriesFromAudit>) {
-  const severityOf = (name: string) =>
-    SEVERITIES.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
+function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Advisory[]) {
   const readDependentPkg = createDependentPkgReader();
 
   const rows: EnhancedPackageInfo[] = Object.entries(outdated).map(([key, pkg]) => {
@@ -157,7 +162,7 @@ function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Retu
       pinnedIn,
       repoUrl,
       releasesUrl: getReleasesUrl(repoUrl),
-      severity: severityOf(name),
+      severity: worstSeverity(advisories, name),
     };
   });
 
@@ -286,6 +291,47 @@ function printLocalTools(checks: LocalToolCheck[]): void {
       ? `${tool.note} ${pc.dim('·')} ${tool.fix}`
       : pc.dim(tool.note || 'no missing security fixes');
     console.info(`${tool.severity ? getVulnIcon(tool.severity) : ' '} ${label}  ${detail}`);
+  }
+  console.info();
+}
+
+/**
+ * What pnpm audit reports on the workspace as it stands, most severe first. A transitive package has
+ * no row in the table, and a cancelled prompt never reaches the security pass.
+ */
+function printReported(advisories: Advisory[] | null): void {
+  if (!advisories) {
+    console.info(`${warningMark} pnpm audit gave no answer: a row in the table can lack its dot`);
+    console.info();
+    return;
+  }
+  if (advisories.length === 0) {
+    console.info(`${checkMark} pnpm audit reports nothing ${pc.dim('· with the current overrides and ignores')}`);
+    console.info();
+    return;
+  }
+
+  const modules = [...new Set(advisories.map((a) => a.module))].map((name) => {
+    const own = advisories.filter((a) => a.module === name);
+    return {
+      name,
+      severity: worstSeverity(own, name) ?? own[0].severity,
+      installed: [...new Set(own.flatMap((a) => a.installed))].join(', '),
+      via: formatDependents([...new Set(own.flatMap((a) => a.via))]),
+      direct: own.some((a) => a.direct),
+    };
+  });
+  modules.sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity));
+  const nameWidth = Math.min(30, Math.max(...modules.map((m) => m.name.length)));
+  const versionWidth = Math.max(...modules.map((m) => m.installed.length));
+
+  console.info(`${pc.bold('pnpm audit')} ${pc.dim('· with the current overrides and ignores')}`);
+  for (const m of modules) {
+    const name = pc.white(middleTruncate(m.name, nameWidth).padEnd(nameWidth));
+    const source = `${m.via}${m.direct ? ' (direct)' : ''}`;
+    console.info(
+      `${getVulnIcon(m.severity)} ${name}  ${m.severity.padEnd(8)}  ${m.installed.padEnd(versionWidth)}  ${pc.dim(source)}`,
+    );
   }
   console.info();
 }
