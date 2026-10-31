@@ -414,7 +414,8 @@ previous value, and a package.json without `type` gets upstream's. Set it yourse
 
 1. **Updates.** It lists the outdated packages and runtime pins in one table and asks once which to
    update. Rows with a high or critical advisory start ticked; submitting with nothing ticked skips
-   this layer.
+   this layer. Above the prompt it prints what `pnpm audit` reports right now, including packages
+   that have no row, so a run you cancel has shown them too.
 2. **Security.** It audits the workspace as the picked updates leave it and brings three settings
    in `pnpm-workspace.yaml` in line with that audit.
 
