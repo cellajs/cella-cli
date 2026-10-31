@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1](https://github.com/cellajs/cella-cli/compare/cli-0.6.0...cli-0.6.1) (2026-10-31)
+
+
+### 🎉 New features
+
+* **audit:** print what pnpm audit reports before the update prompt ([#64](https://github.com/cellajs/cella-cli/issues/64)) ([daf4ecd](https://github.com/cellajs/cella-cli/commit/daf4ecd587a8be6a933553aecf0cff959328eb66))
+
 ## [0.6.0](https://github.com/cellajs/cella-cli/compare/cli-0.5.0...cli-0.6.0) (2026-10-28)
 
 
