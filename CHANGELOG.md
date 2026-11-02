@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.2](https://github.com/cellajs/cella-cli/compare/cli-0.6.1...cli-0.6.2) (2026-11-02)
+
+
+### 🐞 Bug fixes
+
+* no identical-pin warning for files the template pins itself ([#66](https://github.com/cellajs/cella-cli/issues/66)) ([87bb688](https://github.com/cellajs/cella-cli/commit/87bb6883d4bc298db5aaa6a51e4b3d569f7e3bb7))
+
 ## [0.6.1](https://github.com/cellajs/cella-cli/compare/cli-0.6.0...cli-0.6.1) (2026-10-31)
 
 
