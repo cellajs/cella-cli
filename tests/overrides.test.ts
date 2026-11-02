@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CellaCliConfig } from '../src/config/types';
-import { isManagedFile } from '../src/utils/managed-files';
+import { CONFIG_FILE, isManagedFile } from '../src/utils/managed-files';
 import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from '../src/utils/overrides';
 import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from './helpers/test-env';
 
@@ -187,6 +187,15 @@ describe('overrides', () => {
         "pin does nothing, 'json' is ignored: json/x.json",
         "pin is identical to upstream, it only drops upstream's next change: kept/",
       ]);
+      // A pin upstream's own config lists is the template's file for the app to fill in
+      makeCommit(env.upstreamPath, {
+        files: { [CONFIG_FILE]: "export default { overrides: { pinned: ['kept/'], ignored: [] } };\n" },
+        message: 'chore: upstream pins kept',
+      });
+      fetchUpstream(env.forkPath);
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).not.toContainEqual(
+        expect.stringContaining('pin is identical'),
+      );
       // Before the first fetch only the fork-side checks run
       expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toEqual([
         "pin does nothing, 'json' is ignored: json/x.json",

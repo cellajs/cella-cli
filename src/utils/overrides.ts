@@ -7,8 +7,9 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { isUpstreamOnly } from './alignments';
-import { fileExistsAtRef, listChangedSinceRef, revParse } from './git';
-import { isGeneratedFile, isManagedFile } from './managed-files';
+import { fileExistsAtRef, git, listChangedSinceRef, revParse } from './git';
+import { CONFIG_FILE, isGeneratedFile, isManagedFile } from './managed-files';
+import { parseOverrideLists } from './upstream-overrides';
 
 /** Normalize an override entry: trimmed, no leading `./`, no trailing slash. */
 export function normalizeEntry(entry: string): string {
@@ -106,8 +107,12 @@ export async function validateOverrides(
 
   if (upstream && pinsUpstreamHas.length > 0) {
     const differs = await listChangedSinceRef(forkPath, upstream, pinsUpstreamHas.map(normalizeEntry));
+    // A pin upstream's own config lists is a file the template leaves to the app: identical until the app fills it in.
+    const upstreamSource = await git(['show', `${upstream}:${CONFIG_FILE}`], forkPath, { ignoreErrors: true });
+    const upstreamPins = (upstreamSource && parseOverrideLists(upstreamSource)?.pinned.map(normalizeEntry)) || [];
     for (const entry of pinsUpstreamHas) {
       if (differs.some((changed) => isUnderAnyFolder(changed, [entry]))) continue;
+      if (upstreamPins.includes(normalizeEntry(entry))) continue;
       warnings.push(`pin is identical to upstream, it only drops upstream's next change: ${entry}`);
     }
   }
