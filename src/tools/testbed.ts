@@ -21,10 +21,31 @@ const STOP_TIMEOUT_MS = 10_000;
 const DATABASE = 'testbed';
 const DATABASE_SERVICE = 'db_testbed';
 
+/**
+ * What a testbed's database holds: the app's own seed (`pnpm seed`), or the curated `json/showcase.json` its marketing
+ * screenshots show (`pnpm seed showcase`). A start that asks for the other one seeds a new database, and every showcase
+ * start does.
+ */
+export type TestbedData = 'seed' | 'showcase';
+
+const showcasePath = (forkPath: string) => join(forkPath, 'json/showcase.json');
+
+/** Whether the app keeps a showcase for its screenshots. */
+export const hasShowcase = (forkPath: string) => existsSync(showcasePath(forkPath));
+
+/** The user the showcase seed creates as its admin, and the one a command signs in as. */
+function showcaseAdmin(forkPath: string): string {
+  const { admin } = JSON.parse(readFileSync(showcasePath(forkPath), 'utf8'));
+  if (typeof admin?.email !== 'string') throw new Error('json/showcase.json names no admin email');
+  return admin.email;
+}
+
 export interface TestbedOptions {
   job: 'start' | 'stop';
   /** Start from an empty database. */
   fresh: boolean;
+  /** Hold the showcase, for a screenshot review loop. */
+  showcase: boolean;
   /** What to run against the testbed: the words after `--`. */
   command: string[];
 }
@@ -39,6 +60,7 @@ export interface TestbedHandle {
   env: NodeJS.ProcessEnv;
   /** The database's container, for `docker exec`. */
   container: string;
+  data: TestbedData;
 }
 
 interface Testbed extends TestbedHandle {
@@ -56,6 +78,8 @@ interface Lock {
   pid: number;
   forkPath: string;
   frontendUrl: string;
+  /** Absent in a lock an older version wrote: those held the seed. */
+  data?: TestbedData;
 }
 
 const shiftPort = (url: string) => {
@@ -64,7 +88,7 @@ const shiftPort = (url: string) => {
   return next.toString().replace(/\/$/, '');
 };
 
-async function resolveTestbed(forkPath: string): Promise<Testbed> {
+async function resolveTestbed(forkPath: string, data: TestbedData = 'seed'): Promise<Testbed> {
   const [facts, databases] = await Promise.all([loadAppFacts(forkPath), loadLocalDatabases(forkPath)]);
   const databasePort = databases.port(DATABASE);
   if (!Number.isInteger(databasePort)) {
@@ -85,6 +109,7 @@ async function resolveTestbed(forkPath: string): Promise<Testbed> {
       // The seed creates the admin that backend/.env names, and a command signs in as that user
       ...(fileEnv.ADMIN_EMAIL ? { ADMIN_EMAIL: fileEnv.ADMIN_EMAIL } : {}),
       ...getEnvSnapshot(),
+      ...(data === 'showcase' ? { ADMIN_EMAIL: showcaseAdmin(forkPath) } : {}),
       ...composeEnv,
       NODE_ENV: 'development',
       DATABASE_URL: databases.url(DATABASE, 'runtime_role'),
@@ -98,6 +123,7 @@ async function resolveTestbed(forkPath: string): Promise<Testbed> {
       (internalPort === undefined ? [port] : [port, internalPort]).map((value) => value + PORT_SHIFT),
     ),
     container: `${composeEnv.PROJECT_SLUG}_${DATABASE_SERVICE}`,
+    data,
     yjs: facts.services.yjs?.enabled ?? false,
     stateDir: toolDir(forkPath, 'testbed', 'repository'),
   };
@@ -105,6 +131,18 @@ async function resolveTestbed(forkPath: string): Promise<Testbed> {
 
 const lockPath = (testbed: Testbed) => join(testbed.stateDir, 'lock.json');
 const logPath = (testbed: Testbed) => join(testbed.stateDir, 'testbed.log');
+const dataPath = (testbed: Testbed) => join(testbed.stateDir, 'data.json');
+
+/** What the kept database was seeded with: the seed when no start recorded it, as before the showcase. */
+function heldData(testbed: Testbed): TestbedData {
+  try {
+    return JSON.parse(readFileSync(dataPath(testbed), 'utf8')).data === 'showcase' ? 'showcase' : 'seed';
+  } catch {
+    return 'seed';
+  }
+}
+
+const describeData = (data: TestbedData) => (data === 'showcase' ? 'the showcase' : 'the seed data');
 
 function isAlive(pid: number): boolean {
   try {
@@ -212,7 +250,12 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
   // Written before the database starts, so a second start during the seed finds it
   writeFileSync(
     lockPath(testbed),
-    JSON.stringify({ pid: process.pid, forkPath: testbed.forkPath, frontendUrl: testbed.frontendUrl } satisfies Lock),
+    JSON.stringify({
+      pid: process.pid,
+      forkPath: testbed.forkPath,
+      frontendUrl: testbed.frontendUrl,
+      data: testbed.data,
+    } satisfies Lock),
   );
   const log = openSync(logPath(testbed), 'w');
   let stack: ChildProcess | undefined;
@@ -241,7 +284,8 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
   const forget = onShutdown(stop);
 
   try {
-    if (fresh) removeDatabase(testbed);
+    // The showcase's times are relative to its seed, so it never starts from a kept database, which would show them aged
+    if (fresh || testbed.data === 'showcase' || heldData(testbed) !== testbed.data) removeDatabase(testbed);
     const spinner = createSpinner(`starting the database on port ${testbed.databasePort}`);
     if (!compose(testbed, ['up', '-d', '--wait', DATABASE_SERVICE])) {
       throw new Error('the testbed database did not start: is Docker running?');
@@ -249,15 +293,22 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
 
     // A new volume gets the schema and the seed data; a kept one gets the migrations added since
     const seeded = isSeeded(testbed);
-    spinner.text = seeded ? 'migrating the database' : 'migrating and seeding the database (first start only)';
-    const prepare = seeded ? ['--filter', 'backend', 'migrate'] : ['seed'];
+    spinner.text = seeded
+      ? 'migrating the database'
+      : `migrating the database and seeding ${describeData(testbed.data)}`;
+    const seed = testbed.data === 'showcase' ? ['seed', 'showcase'] : ['seed'];
+    const prepare = seeded ? ['--filter', 'backend', 'migrate'] : seed;
     const prepared = spawnSync('pnpm', prepare, {
       cwd: testbed.forkPath,
       env: testbed.env,
       stdio: ['ignore', log, log],
     });
     if (prepared.status !== 0) throw new Error(`\`pnpm ${prepare.join(' ')}\` failed:\n${logTail(testbed)}`);
-    printStep('database', `${seeded ? 'migrated' : 'seeded'}, port ${testbed.databasePort}`);
+    writeFileSync(dataPath(testbed), JSON.stringify({ data: testbed.data }));
+    printStep(
+      'database',
+      `${seeded ? 'migrated' : `seeded with ${describeData(testbed.data)}`}, port ${testbed.databasePort}`,
+    );
 
     // `pnpm offline` starts no Yjs relay; with one the editors show their usual sync status
     const relay = testbed.yjs ? 'pnpm --filter yjs-worker dev & ' : '';
@@ -345,13 +396,18 @@ function ownLock(testbed: Testbed): Lock | undefined {
 export async function withTestbed<T>(
   forkPath: string,
   use: (testbed: TestbedHandle) => Promise<T>,
-  { fresh = false, destructive = false } = {},
+  { fresh = false, destructive = false, data = 'seed' as TestbedData } = {},
 ): Promise<T> {
-  const testbed = await resolveTestbed(forkPath);
+  const testbed = await resolveTestbed(forkPath, data);
   const lock = ownLock(testbed);
   if (lock && destructive) {
     throw new Error(
       `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm cella testbed stop\`)`,
+    );
+  }
+  if (lock && (lock.data ?? 'seed') !== data) {
+    throw new Error(
+      `a testbed with ${describeData(lock.data ?? 'seed')} runs at ${lock.frontendUrl}: this command needs ${describeData(data)}, so stop that one first (\`pnpm cella testbed stop\`)`,
     );
   }
   if (lock) {
@@ -372,11 +428,13 @@ export async function withTestbed<T>(
 
 async function runTestbed(forkPath: string, options: TestbedOptions): Promise<number> {
   if (options.job === 'stop') return stopTestbed(await resolveTestbed(forkPath));
+  if (options.showcase && !hasShowcase(forkPath)) throw new Error('this app keeps no json/showcase.json');
+  const data: TestbedData = options.showcase ? 'showcase' : 'seed';
   if (options.command.length > 0) {
-    return withTestbed(forkPath, (testbed) => runCommand(forkPath, testbed.env, options.command), options);
+    return withTestbed(forkPath, (testbed) => runCommand(forkPath, testbed.env, options.command), { ...options, data });
   }
 
-  const testbed = await resolveTestbed(forkPath);
+  const testbed = await resolveTestbed(forkPath, data);
   const lock = ownLock(testbed);
   if (lock) {
     throw new Error(
@@ -405,7 +463,10 @@ export const testbedCommand: ToolCommand<TestbedOptions> = {
     ['start', 'start it and hold it until ctrl-c'],
     ['stop', 'stop the testbed that runs, or one left behind'],
   ],
-  options: [['--fresh', 'start from an empty database: migrate and seed it again']],
+  options: [
+    ['--fresh', 'start from an empty database: migrate and seed it again'],
+    ['--showcase', 'hold the showcase of json/showcase.json, which the screenshots shoot, for a review loop'],
+  ],
   passthrough: [
     'command',
     "after `--`: run it against the testbed (this checkout's running one, else one started for it and stopped after)",
@@ -413,7 +474,7 @@ export const testbedCommand: ToolCommand<TestbedOptions> = {
   parse: ({ job = 'start', opts, passthrough }) => {
     if (job !== 'start' && job !== 'stop') throw new Error(`unknown job '${job}'. expected one of: start, stop`);
     if (job === 'stop' && passthrough.length > 0) throw new Error('stop takes no command');
-    return { job, fresh: opts.fresh === true, command: passthrough };
+    return { job, fresh: opts.fresh === true, showcase: opts.showcase === true, command: passthrough };
   },
   run: runTestbed,
 };
