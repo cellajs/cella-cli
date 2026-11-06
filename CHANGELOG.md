@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.6](https://github.com/cellajs/cella-cli/compare/cli-0.6.5...cli-0.6.6) (2026-11-06)
+
+
+### 🎉 New features
+
+* the tools find translations in shared/locales, and a protected file upstream moves keeps the app's copy ([#74](https://github.com/cellajs/cella-cli/issues/74)) ([ce9d005](https://github.com/cellajs/cella-cli/commit/ce9d00548c866f928f193e404688499350a1f4d1))
+
 ## [0.6.5](https://github.com/cellajs/cella-cli/compare/cli-0.6.4...cli-0.6.5) (2026-11-06)
 
 
