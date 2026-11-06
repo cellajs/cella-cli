@@ -1,7 +1,7 @@
 # @cellajs/cli
 
 The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed to run tools
-against, the style check, and upgrades from upstream cella that keep your customizations.
+against, load tests, the style check, and upgrades from upstream cella that keep your customizations.
 
 ## Usage
 
@@ -9,6 +9,7 @@ From your monorepo root, run `pnpm cella` for the interactive menu, or call a co
 
 ```bash
 pnpm cella testbed
+pnpm cella bench
 pnpm cella analyze
 pnpm cella upgrade
 pnpm cella audit
@@ -21,6 +22,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 | Develop | Description |
 |---------|-------------|
 | `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
+| `bench` | Load-test the running app with its scenarios and check what the stack did with the load (see [Bench](#bench)) |
 
 | Security | Description |
 |----------|-------------|
@@ -52,6 +54,7 @@ Per-command help: `pnpm cella <command> --help`.
 | Command | Useful options |
 |---------|----------------|
 | testbed | `stop`, `--fresh`, `-- <command>` |
+| bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed`, `--if-ready` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -84,6 +87,31 @@ One testbed runs per app on a machine, since every checkout of the app shares it
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
+
+## Bench
+
+`pnpm cella bench` load-tests the app with the scenarios in `backend/bench/scenarios/`. New virtual users arrive on
+schedule whether or not earlier ones are done, a live line every five seconds shows what the last interval did, and
+the summary ends in checks: the responses the stack rejected, failed users, latency thresholds, the scenario's own
+counters, and the app's checks of what the stack recorded. A passing full run is saved as the scenario's baseline and
+the next run compares with it.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella bench` | Pick a scenario from a list, then run it |
+| `pnpm cella bench <scenario>` | Run one scenario |
+| `pnpm cella bench --all` | Run every scenario in turn, one line each, with a cooldown between them and a table at the end |
+| `pnpm cella bench --short` | A smoke run: one user per role, no thresholds and no baseline |
+| `pnpm cella bench --isolated` | Run on a [testbed](#testbed), the one this checkout holds or one started for the run |
+
+A run measures the stack this checkout runs with `pnpm dev`, and one run at a time holds it. `--skip-seed` keeps the
+bench data of the last run, `--if-ready` does nothing when the stack is down or busy. Baselines, logs and locks live
+in `cella-bench/` in the git directory every worktree shares, so `git status` never shows them.
+
+The app's side is `backend/bench/run.ts`, run with the backend's `tsx` so it imports backend modules: it calls
+`runBench` from `@cellajs/cli/bench` with the app's preflight, seed and checks around each scenario. A scenario is a
+module that default-exports `defineScenario({...})` from the same import; counter and histogram names are typed, so a
+misspelled one fails the typecheck.
 
 ## Style
 
@@ -134,12 +162,14 @@ manifest, it also asks a branch that changes an app-owned path template code rea
 | `alignment` | an alignment folder off its shape; in the template, a changed app-owned path with no alignment or waiver | `cella/alignments/`; the branch against `origin/main` |
 | `path-argument` | a path argument that matches no file | the paths `pnpm cella style` takes |
 
-## Other repo tools
+`@cellajs/cli/style` also exports the class-string helpers the template's skill scripts read with, behind
+`openRepository(<repo root>)`.
 
-A rule change reaches apps with a CLI release. To try one on an app first, run `pnpm build` here and put this checkout
-in place of the app's package: `rm -rf <app>/node_modules/@cellajs/cli && ln -s "$PWD" <app>/node_modules/@cellajs/cli`.
-An install in the app puts the published package back. `@cellajs/cli/style` also exports the class-string helpers the
-template's skill scripts read with, behind `openRepository(<repo root>)`.
+## Trying a change in an app
+
+A change to a tool reaches apps with a CLI release. To try one on an app first, run `pnpm build` here and put this
+checkout in place of the app's package: `rm -rf <app>/node_modules/@cellajs/cli && ln -s "$PWD" <app>/node_modules/@cellajs/cli`.
+An install in the app puts the published package back, so link again after every `pnpm install`.
 
 ## Configuration
 

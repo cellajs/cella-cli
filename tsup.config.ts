@@ -2,7 +2,12 @@ import { resolve } from 'node:path';
 import { defineConfig } from 'tsup';
 
 export default defineConfig({
-  entry: { index: 'src/cella-cli.ts', config: 'config.ts', style: 'style.ts' },
+  entry: {
+    index: 'src/cella-cli.ts',
+    config: 'config.ts',
+    bench: 'src/tools/bench/index.ts',
+    style: 'style.ts',
+  },
   outDir: 'dist',
   clean: true,
   minify: false,

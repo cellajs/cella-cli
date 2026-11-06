@@ -259,9 +259,11 @@ function addToolCommand(
   setSelection: (selection: ToolSelection) => void,
 ) {
   const jobs = tool.jobs.map(([name]) => name);
-  const command = program.command(tool.name).description(tool.description).helpGroup(groupHeadings[tool.group]);
-  if (tool.operands) command.argument(`[${tool.operands[0]}...]`, tool.operands[1]);
-  else command.argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
+  const command = program
+    .command(tool.name)
+    .description(tool.description)
+    .helpGroup(groupHeadings[tool.group])
+    .argument(...(tool.operands ?? ['[job]', `${jobs.join('|')} (default: ${jobs[0]})`]));
   if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
   for (const option of tool.options ?? []) command.option(...option);
 
@@ -301,6 +303,7 @@ function buildProgram(
         'Examples:',
         '  $ cella testbed',
         '  $ cella testbed -- pnpm a11y --states sign-in',
+        '  $ cella bench get-me --short --isolated',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',

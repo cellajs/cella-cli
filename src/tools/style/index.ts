@@ -96,7 +96,7 @@ export const styleCommand: ToolCommand<StyleOptions> = {
   group: 'gate',
   description: 'the style check: terminology, docs, comments and frontend code; exits 1 on any finding',
   jobs: [],
-  operands: ['paths', 'limit the files the in-file rules read to these repo-relative paths'],
+  operands: ['[paths...]', 'limit the files the in-file rules read to these repo-relative paths'],
   parse: ({ operands }) => ({ paths: operands }),
   run: runStyle,
 };
