@@ -1,5 +1,7 @@
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { execFileSync } from 'node:child_process';
+import { existsSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { setEnv } from './env';
@@ -61,4 +63,37 @@ export async function loadLocalDatabases(forkPath: string): Promise<LocalDatabas
     url: (database, role) => localDatabaseUrl(database, role),
     composeEnv: () => composeEnv(),
   };
+}
+
+/**
+ * A package as the app's `workspace` installed it, so a tool drives the app's own Playwright, TypeScript or Tailwind and
+ * the CLI ships none. The package's ESM entry when it has one, else its CommonJS exports.
+ * @throws when the workspace does not have the package installed
+ */
+export async function importFromWorkspace<T>(forkPath: string, workspace: string, name: string): Promise<T> {
+  const require = createRequire(join(forkPath, workspace, 'package.json'));
+  let manifestPath: string | undefined;
+  try {
+    manifestPath = require.resolve(`${name}/package.json`);
+  } catch {
+    // A package whose exports leave out package.json resolves by its main entry below
+  }
+  const root = manifestPath ? JSON.parse(readFileSync(manifestPath, 'utf8')).exports?.['.'] : undefined;
+  const esm = typeof root?.import === 'string' ? root.import : root?.import?.default;
+  if (manifestPath && typeof esm === 'string') return import(pathToFileURL(join(dirname(manifestPath), esm)).href);
+  try {
+    return require(name);
+  } catch {
+    throw new Error(`${name} is not installed in ${workspace}: run \`pnpm --filter ${workspace} add -D ${name}\``);
+  }
+}
+
+/**
+ * Where a tool keeps its results and state: `<git dir>/cella-<tool>/` of this checkout, or of the git directory every
+ * worktree shares. Inside the git directory nothing shows in `git status`.
+ */
+export function toolDir(forkPath: string, tool: string, scope: 'checkout' | 'repository' = 'checkout'): string {
+  const flag = scope === 'checkout' ? '--absolute-git-dir' : '--git-common-dir';
+  const gitDir = execFileSync('git', ['rev-parse', flag], { cwd: forkPath, encoding: 'utf8' }).trim();
+  return join(resolve(forkPath, gitDir), `cella-${tool}`);
 }

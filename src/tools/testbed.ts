@@ -1,11 +1,11 @@
-import { type ChildProcess, execFileSync, spawn, spawnSync } from 'node:child_process';
+import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants } from 'node:os';
-import { join, resolve } from 'node:path';
+import { join } from 'node:path';
 import process from 'node:process';
 import { parseEnv } from 'node:util';
 import type { ToolCommand } from '../config/types';
-import { loadAppFacts, loadLocalDatabases } from '../utils/app-facts';
+import { loadAppFacts, loadLocalDatabases, toolDir } from '../utils/app-facts';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
 import { getEnvSnapshot } from '../utils/env';
@@ -29,15 +29,19 @@ export interface TestbedOptions {
   command: string[];
 }
 
-/** Where a testbed answers, and what points a command at it. */
-interface Testbed {
-  forkPath: string;
+/** A testbed a tool runs against: where it answers, and the env that points a process at it. */
+export interface TestbedHandle {
   frontendUrl: string;
   backendUrl: string;
-  databasePort: number;
   /** `DEV_PORT_OFFSET` of the testbed's servers. */
   portOffset: number;
+  /** Ports, database URLs and the seeded admin, over this process's own env. */
   env: NodeJS.ProcessEnv;
+}
+
+interface Testbed extends TestbedHandle {
+  forkPath: string;
+  databasePort: number;
   /** Every port its servers listen on. */
   ports: number[];
   container: string;
@@ -69,10 +73,6 @@ async function resolveTestbed(forkPath: string): Promise<Testbed> {
   const envFile = join(forkPath, 'backend/.env');
   const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile, 'utf8')) : {};
   const portOffset = facts.devPortOffset + PORT_SHIFT;
-  const gitCommonDir = execFileSync('git', ['rev-parse', '--git-common-dir'], {
-    cwd: forkPath,
-    encoding: 'utf8',
-  }).trim();
 
   return {
     forkPath,
@@ -98,7 +98,7 @@ async function resolveTestbed(forkPath: string): Promise<Testbed> {
     ),
     container: `${composeEnv.PROJECT_SLUG}_${DATABASE_SERVICE}`,
     yjs: facts.services.yjs?.enabled ?? false,
-    stateDir: join(resolve(forkPath, gitCommonDir), 'cella-testbed'),
+    stateDir: toolDir(forkPath, 'testbed', 'repository'),
   };
 }
 
@@ -291,10 +291,10 @@ async function startTestbed(testbed: Testbed, fresh: boolean): Promise<Started> 
   };
 }
 
-/** Runs `command` against the testbed in the foreground; resolves to its exit code. */
-function runCommand(testbed: Testbed, command: string[]): Promise<number> {
+/** Runs `command` in the app's root with `env`, in the foreground; resolves to its exit code. */
+export function runCommand(forkPath: string, env: NodeJS.ProcessEnv, command: string[]): Promise<number> {
   const [program, ...args] = command;
-  const child = spawn(program, args, { cwd: testbed.forkPath, env: testbed.env, stdio: 'inherit' });
+  const child = spawn(program, args, { cwd: forkPath, env, stdio: 'inherit' });
   return new Promise((done) => {
     child.once('error', (error) => {
       spinnerFail(`${program}: ${error.message}`);
@@ -324,36 +324,56 @@ async function stopTestbed(testbed: Testbed): Promise<number> {
   return 0;
 }
 
-async function runTestbed(forkPath: string, options: TestbedOptions): Promise<number> {
-  const testbed = await resolveTestbed(forkPath);
-  if (options.job === 'stop') return stopTestbed(testbed);
-
+/** The lock of a running testbed this checkout may use; refuses one another checkout holds. */
+function ownLock(testbed: Testbed): Lock | undefined {
   const lock = readLock(testbed);
-  if (lock && lock.forkPath !== forkPath) {
+  if (lock && lock.forkPath !== testbed.forkPath) {
     throw new Error(`a testbed of ${lock.forkPath} uses the database: \`pnpm cella testbed stop\` ends it`);
   }
-  if (lock && options.command.length === 0) {
-    throw new Error(
-      `a testbed already runs at ${lock.frontendUrl}: \`pnpm cella testbed -- <command>\` runs against it`,
-    );
-  }
-  // A command runs against a testbed this checkout holds, once it answers, or against one started for it
+  return lock;
+}
+
+/**
+ * Runs `use` against a testbed: the one this checkout holds, once it answers, else one started for it and stopped after,
+ * ctrl-c included.
+ */
+export async function withTestbed<T>(
+  forkPath: string,
+  use: (testbed: TestbedHandle) => Promise<T>,
+  { fresh = false } = {},
+): Promise<T> {
+  const testbed = await resolveTestbed(forkPath);
+  const lock = ownLock(testbed);
   if (lock) {
     await untilAnswering(
       testbed,
       () => isAlive(lock.pid),
       () => 'the testbed stopped while starting',
     );
-    return runCommand(testbed, options.command);
+    return use(testbed);
   }
-
-  const started = await startTestbed(testbed, options.fresh);
-  if (options.command.length > 0) {
-    const code = await runCommand(testbed, options.command);
+  const started = await startTestbed(testbed, fresh);
+  try {
+    return await use(testbed);
+  } finally {
     await started.stop();
-    return code;
+  }
+}
+
+async function runTestbed(forkPath: string, options: TestbedOptions): Promise<number> {
+  if (options.job === 'stop') return stopTestbed(await resolveTestbed(forkPath));
+  if (options.command.length > 0) {
+    return withTestbed(forkPath, (testbed) => runCommand(forkPath, testbed.env, options.command), options);
   }
 
+  const testbed = await resolveTestbed(forkPath);
+  const lock = ownLock(testbed);
+  if (lock) {
+    throw new Error(
+      `a testbed already runs at ${lock.frontendUrl}: \`pnpm cella testbed -- <command>\` runs against it`,
+    );
+  }
+  const started = await startTestbed(testbed, options.fresh);
   console.info();
   console.info(`  ${pc.bold(testbed.frontendUrl)}`);
   console.info(`  ${pc.dim('run a command against it:')} pnpm cella testbed -- <command>`);
