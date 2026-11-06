@@ -307,6 +307,8 @@ function buildProgram(
         '  $ cella a11y --states sign-in,home',
         '  $ cella a11y decide --file decisions.json',
         '  $ cella screenshots settings',
+        '  $ cella i18n unused --json',
+        '  $ cella i18n rename c:old_key c:new_key',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',

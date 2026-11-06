@@ -1,6 +1,7 @@
 import type { ToolCommand } from '../config/types';
 import { a11yCommand } from './a11y';
 import { benchCommand } from './bench/command';
+import { i18nCommand } from './i18n';
 import { screenshotsCommand } from './screenshots';
 import { styleCommand } from './style';
 import { testbedCommand } from './testbed';
@@ -11,5 +12,6 @@ export const toolCommands: ToolCommand[] = [
   benchCommand,
   a11yCommand,
   screenshotsCommand,
+  i18nCommand,
   styleCommand,
 ];

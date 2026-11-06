@@ -207,7 +207,10 @@ export interface ToolCommand<Options = unknown> {
   description: string;
   /** The jobs its first operand names, the default first; the menu asks for one. Empty: the command has one job. */
   jobs: [name: string, description: string][];
-  /** The words it takes after the job, in commander's notation such as `[scenario]` or `[paths...]`; none when unset. */
+  /**
+   * The words it takes after the job, in commander's notation such as `[scenario]` or `[paths...]`; none when unset.
+   * A command takes these or a passthrough, never both.
+   */
   operands?: CommandOption;
   options?: CommandOption[];
   /** What the words after `--` are for, in `--help`. */
