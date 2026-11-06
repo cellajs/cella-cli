@@ -35,8 +35,6 @@ export interface AppChecks {
 export interface Bench<State = undefined> {
   /** Base URL that relative request paths join; one run at a time holds it. */
   target: string;
-  /** One look at the stack for `--if-ready`: why a run would measure nothing, or null. */
-  unready?: () => Promise<string | null>;
   /** Waits for the stack to answer; throws what is missing. */
   preflight?: () => Promise<void>;
   /** Writes the data the scenarios read, unless `--skip-seed`. */
@@ -96,13 +94,6 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
   const scenarios: [name: string, scenario: Scenario][] = [];
   for (const name of names) scenarios.push([name, await loadScenario(request.scenariosDir, name)]);
 
-  const skip = (reason: string) => {
-    console.info(pc.dim(`skipped: ${reason}.`));
-    return 0;
-  };
-  const unready = request.ifReady ? await bench.unready?.() : null;
-  if (unready) return skip(unready);
-
   if (bench.preflight) {
     createSpinner(`checking the stack at ${bench.target}`);
     await bench.preflight();
@@ -114,7 +105,6 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
   if ('holder' in claimed) {
     const { pid, scenario, startedAt } = claimed.holder;
     const message = `another bench run holds ${bench.target}: pid ${pid} runs ${scenario} since ${new Date(startedAt).toLocaleTimeString('en-GB')}`;
-    if (request.ifReady) return skip(message);
     throw new Error(message);
   }
   const { lock } = claimed;

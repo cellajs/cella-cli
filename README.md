@@ -59,7 +59,7 @@ Per-command help: `pnpm cella <command> --help`.
 | Command | Useful options |
 |---------|----------------|
 | testbed | `stop`, `--fresh`, `-- <command>` |
-| bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed`, `--if-ready` |
+| bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed` |
 | a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
 | screenshots | `<ids...>`, `--out <dir>`, `--email <address>` |
 | i18n | `unused`, `rename <ns:old> <ns:new>`, `--json` |
@@ -125,7 +125,7 @@ the next run compares with it.
 | `pnpm cella bench --isolated` | Run on a [testbed](#testbed), the one this checkout holds or one started for the run |
 
 A run measures the stack this checkout runs with `pnpm dev`, and one run at a time holds it. `--skip-seed` keeps the
-bench data of the last run, `--if-ready` does nothing when the stack is down or busy. Baselines, logs and locks live
+bench data of the last run. Baselines, logs and locks live
 in `cella-bench/` in the git directory every worktree shares, so `git status` never shows them.
 
 The app's side is `backend/bench/run.ts`, run with the backend's `tsx` so it imports backend modules: it calls

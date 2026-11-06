@@ -20,7 +20,6 @@ export interface BenchOptions {
   all: boolean;
   short: boolean;
   skipSeed: boolean;
-  ifReady: boolean;
   /** Run on a testbed: this checkout's running one, else one started for the run and stopped after. */
   isolated: boolean;
 }
@@ -43,7 +42,6 @@ async function runBench(forkPath: string, options: BenchOptions): Promise<number
     all: options.all,
     short: options.short,
     skipSeed: options.skipSeed,
-    ifReady: options.ifReady,
     scenariosDir,
     dataDir: toolDir(forkPath, 'bench', 'repository'),
   };
@@ -63,7 +61,6 @@ export const benchCommand: ToolCommand<BenchOptions> = {
     ['--short', 'smoke run: one VU per role, no thresholds, no baselines'],
     ['--isolated', 'run on a testbed, not on the stack `pnpm dev` runs'],
     ['--skip-seed', 'keep the bench data the last run seeded'],
-    ['--if-ready', 'do nothing when the stack is not running or another run holds it'],
   ],
   parse: ({ operands, opts }) => {
     const [scenario, ...extra] = operands;
@@ -74,7 +71,6 @@ export const benchCommand: ToolCommand<BenchOptions> = {
       all: opts.all === true,
       short: opts.short === true,
       skipSeed: opts.skipSeed === true,
-      ifReady: opts.ifReady === true,
       isolated: opts.isolated === true,
     };
   },
