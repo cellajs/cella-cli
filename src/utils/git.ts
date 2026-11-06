@@ -664,6 +664,20 @@ export async function gitMv(cwd: string, oldPath: string, newPath: string): Prom
   await git(['mv', '-f', oldPath, newPath], cwd);
 }
 
+/**
+ * Moves the copy of `from` that `ref` holds to `to`, staged in the index and written to the worktree, and removes
+ * `from`. Any merge stages at `to` give way to it; the blob is copied by id, so binary files stay intact.
+ */
+export async function moveFromRef(cwd: string, ref: string, from: string, to: string): Promise<void> {
+  const [mode, , blob] = (await git(['ls-tree', ref, '--', from], cwd)).split(/\s+/);
+  if (!blob) throw new Error(`${ref} holds no ${from}`);
+  await gitRm(cwd, [to], { cached: true });
+  await git(['update-index', '--add', '--cacheinfo', `${mode},${blob},${to}`], cwd);
+  await mkdir(dirname(join(cwd, to)), { recursive: true });
+  await git(['checkout-index', '-f', '--', to], cwd);
+  await removeFileFully(cwd, from);
+}
+
 export async function fileExistsInWorktree(cwd: string, filePath: string): Promise<boolean> {
   return existsSync(join(cwd, filePath));
 }
