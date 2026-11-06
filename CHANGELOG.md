@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.5](https://github.com/cellajs/cella-cli/compare/cli-0.6.4...cli-0.6.5) (2026-11-06)
+
+
+### 🎉 New features
+
+* screenshots shoot the app's showcase, on a testbed no other tool shares ([#72](https://github.com/cellajs/cella-cli/issues/72)) ([ea42d4e](https://github.com/cellajs/cella-cli/commit/ea42d4ed54b32fbbcac9721eba86fdcd8d196a23))
+
 ## [0.6.4](https://github.com/cellajs/cella-cli/compare/cli-0.6.3...cli-0.6.4) (2026-11-06)
 
 
