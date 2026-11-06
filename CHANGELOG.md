@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.4](https://github.com/cellajs/cella-cli/compare/cli-0.6.3...cli-0.6.4) (2026-11-06)
+
+
+### 🐞 Bug fixes
+
+* the release smoke test reads the command usage, and the hero phone's code colors pass the text-color rule ([#70](https://github.com/cellajs/cella-cli/issues/70)) ([e44af56](https://github.com/cellajs/cella-cli/commit/e44af560bb1e9ee34dcf8b12e1de972152bb222e))
+
 ## [0.6.3](https://github.com/cellajs/cella-cli/compare/cli-0.6.2...cli-0.6.3) (2026-11-06)
 
 
