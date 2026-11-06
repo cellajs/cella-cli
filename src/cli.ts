@@ -183,12 +183,13 @@ function getMenuContext(userConfig: CellaCliConfig, forkPath: string): MenuConte
   };
 }
 
-const groupOrder: CommandGroup[] = ['develop', 'security', 'upstream'];
+const groupOrder: CommandGroup[] = ['develop', 'security', 'upstream', 'gate'];
 
 const groupHeadings: Record<CommandGroup, string> = {
   develop: 'Develop commands:',
   security: 'Security commands:',
   upstream: 'Upstream commands:',
+  gate: 'Gate commands:',
 };
 
 const serviceGroup = (definition: ServiceDefinition): CommandGroup => definition.group ?? 'upstream';
@@ -197,7 +198,7 @@ function buildMenuChoices(context: MenuContext) {
   // Pad labels to align descriptions (longest label is 'contributions').
   const label = (name: string) => name.padEnd(14);
   const entries: { name: string; group: CommandGroup; description: string }[] = [
-    ...toolCommands,
+    ...toolCommands.filter((tool) => tool.group !== 'gate'),
     ...serviceDefinitions
       .filter((service) => service.includeInMenu?.(context) ?? true)
       .map((service) => ({ name: service.name, group: serviceGroup(service), description: service.description })),
@@ -258,11 +259,9 @@ function addToolCommand(
   setSelection: (selection: ToolSelection) => void,
 ) {
   const jobs = tool.jobs.map(([name]) => name);
-  const command = program
-    .command(tool.name)
-    .description(tool.description)
-    .helpGroup(groupHeadings[tool.group])
-    .argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
+  const command = program.command(tool.name).description(tool.description).helpGroup(groupHeadings[tool.group]);
+  if (tool.operands) command.argument(`[${tool.operands[0]}...]`, tool.operands[1]);
+  else command.argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
   if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
   for (const option of tool.options ?? []) command.option(...option);
 
@@ -274,9 +273,14 @@ function addToolCommand(
     const opts = args[tool.passthrough ? 2 : 1] as Record<string, unknown>;
     // Commander puts the words after `--` among the operands; the job is what comes before them
     const passthrough = wordsAfterDash(argv, tool.name);
-    const [job, ...extra] = operands.slice(0, operands.length - passthrough.length);
+    const words = operands.slice(0, operands.length - passthrough.length);
+    if (tool.operands) {
+      setSelection({ tool, options: tool.parse({ operands: words, opts, passthrough }) });
+      return;
+    }
+    const [job, ...extra] = words;
     if (extra.length > 0) throw new Error(`unexpected argument '${extra[0]}'. a command to run goes after --`);
-    setSelection({ tool, options: tool.parse({ job, opts, passthrough }) });
+    setSelection({ tool, options: tool.parse({ job, operands: [], opts, passthrough }) });
   });
 }
 
@@ -306,6 +310,7 @@ function buildProgram(
         '  $ cella audit --list',
         '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',
+        '  $ cella style frontend/src',
       ].join('\n'),
     );
 
@@ -383,7 +388,7 @@ async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): P
           })
         : undefined;
     console.info();
-    return { tool, options: tool.parse({ job, opts: {}, passthrough: [] }) };
+    return { tool, options: tool.parse({ job, operands: [], opts: {}, passthrough: [] }) };
   }
 
   console.info();

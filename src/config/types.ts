@@ -192,8 +192,8 @@ export const cellaConfigSchema = z
 /** Sync services available in the CLI */
 export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
 
-/** Where a command shows in the menu and in `--help`. */
-export type CommandGroup = 'develop' | 'security' | 'upstream';
+/** Where a command shows in the menu and in `--help`; a gate shows in `--help` only, since scripts and CI run it. */
+export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
 
 export type CommandOption = [flags: string, description: string];
 
@@ -205,12 +205,14 @@ export interface ToolCommand<Options = unknown> {
   name: string;
   group: Exclude<CommandGroup, 'upstream'>;
   description: string;
-  /** The jobs its first operand names, the default first; the menu asks for one. */
+  /** The jobs its first operand names, the default first; the menu asks for one. Empty when it takes `operands`. */
   jobs: [name: string, description: string][];
+  /** What its operands are, in `--help`, for a command without jobs. */
+  operands?: CommandOption;
   options?: CommandOption[];
   /** What the words after `--` are for, in `--help`. */
   passthrough?: CommandOption;
-  parse(input: { job?: string; opts: Record<string, unknown>; passthrough: string[] }): Options;
+  parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
   run(forkPath: string, options: Options): Promise<number>;
 }
 
