@@ -205,9 +205,9 @@ export interface ToolCommand<Options = unknown> {
   name: string;
   group: Exclude<CommandGroup, 'upstream'>;
   description: string;
-  /** The jobs its first operand names, the default first; the menu asks for one. Empty when it takes `operands`. */
+  /** The jobs its first operand names, the default first; the menu asks for one. Empty: the command has one job. */
   jobs: [name: string, description: string][];
-  /** Its operands in commander's notation, such as `[scenario]` or `[paths...]`, for a command without jobs. */
+  /** The words it takes after the job, in commander's notation such as `[scenario]` or `[paths...]`; none when unset. */
   operands?: CommandOption;
   options?: CommandOption[];
   /** What the words after `--` are for, in `--help`. */

@@ -29,6 +29,18 @@
       "types": "./dist/style.d.ts",
       "import": "./dist/style.js"
     },
+    "./drive": {
+      "types": "./dist/drive.d.ts",
+      "import": "./dist/drive.js"
+    },
+    "./a11y": {
+      "types": "./dist/a11y.d.ts",
+      "import": "./dist/a11y.js"
+    },
+    "./screenshots": {
+      "types": "./dist/screenshots.d.ts",
+      "import": "./dist/screenshots.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -61,6 +73,7 @@
     "@inquirer/core": "^12.0.3",
     "@inquirer/prompts": "^8.7.2",
     "@pierre/diffs": "^1.5.1",
+    "axe-core": "^4.14.0",
     "commander": "^15.0.0",
     "ts-morph": "^28.0.0",
     "yaml": "^2.9.1",
@@ -74,6 +87,7 @@
     "@tailwindcss/node": "^4.3.3",
     "@types/node": "26.6.3",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "playwright": "^1.64.1",
     "rimraf": "^6.1.3",
     "tailwindcss": "^4.3.3",
     "tsup": "^8.5.1",

@@ -1,7 +1,8 @@
 # @cellajs/cli
 
-The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed to run tools
-against, load tests, the style check, and upgrades from upstream cella that keep your customizations.
+The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed and the tools that
+run on it (load tests, an accessibility audit, the marketing screenshots), the style check, and upgrades from upstream
+cella that keep your customizations.
 
 ## Usage
 
@@ -10,6 +11,7 @@ From your monorepo root, run `pnpm cella` for the interactive menu, or call a co
 ```bash
 pnpm cella testbed
 pnpm cella bench
+pnpm cella a11y
 pnpm cella analyze
 pnpm cella upgrade
 pnpm cella audit
@@ -23,6 +25,8 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 |---------|-------------|
 | `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
 | `bench` | Load-test the running app with its scenarios and check what the stack did with the load (see [Bench](#bench)) |
+| `a11y` | Audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger (see [a11y](#a11y)) |
+| `screenshots` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
 
 | Security | Description |
 |----------|-------------|
@@ -55,6 +59,8 @@ Per-command help: `pnpm cella <command> --help`.
 |---------|----------------|
 | testbed | `stop`, `--fresh`, `-- <command>` |
 | bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed`, `--if-ready` |
+| a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
+| screenshots | `<ids...>`, `--out <dir>`, `--email <address>` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -88,6 +94,18 @@ another worktree too, says which checkout holds it. The servers write to `testbe
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
 
+## Tools and their adapters
+
+A tool's engine ships in this package, and what is app-specific sits in the app's `cella/` folder as an adapter: a base
+`cella/<tool>.ts` that comes with each upgrade and describes the template's UI, plus an optional `cella/<tool>.app.ts`
+that no upgrade touches, holding only what the app adds, removes (`remove`, by id) or replaces (an entry with a base
+id). Without the second file the base runs alone. Both are checked at load, so an adapter that does not fit the
+installed CLI fails in seconds, naming the key. They import the app's SDK and run under the app's own `tsx`.
+
+Heavy runtimes come from the app: Playwright from `frontend`, with its Chromium installed once through
+`pnpm --filter frontend exec playwright install chromium`. Results stay in the git directory, `.git/cella-<tool>/` in
+the main checkout and the worktree's own in a linked one, so they never show in `git status`.
+
 ## Bench
 
 `pnpm cella bench` load-tests the app with the scenarios in `backend/bench/scenarios/`. New virtual users arrive on
@@ -112,6 +130,78 @@ The app's side is `backend/bench/run.ts`, run with the backend's `tsx` so it imp
 `runBench` from `@cellajs/cli/bench` with the app's preflight, seed and checks around each scenario. A scenario is a
 module that default-exports `defineScenario({...})` from the same import; counter and histogram names are typed, so a
 misspelled one fails the typecheck.
+
+## a11y
+
+`pnpm cella a11y` audits the app against WCAG 2.2 Level A and AA and fills the conformance ledger,
+`cella/a11y-ledger.json`. On a testbed it opens every page and state of the scope once, scans it with axe, runs browser
+checks that axe cannot do, and reviews the code for the rest. Each of the 55 criteria gets its evidence and, where the
+evidence is complete, a decision. What needs a person goes on a checklist, and a person's decision survives the next
+run. The audit takes three to four minutes on top of the testbed's start.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella a11y` | Run the full audit: axe, browser probes and code checks |
+| `pnpm cella a11y --states sign-in,org-members` | Audit some states only; writes `ledger-partial.json` in the results folder, never the ledger |
+| `pnpm cella a11y --workers 2` | States audited at the same time (default 4); lower it on a busy machine |
+| `pnpm cella a11y report` | Render the ledger as a draft VPAT and a checklist for the manual pass |
+| `pnpm cella a11y report --publish` | Put the report where the app serves it and print what the statement needs; refuses a draft |
+| `pnpm cella a11y report --publish --draft` | The same while rows still need a person: the statement calls the results provisional |
+| `pnpm cella a11y decide --file decisions.json` | Record a reviewer's decisions (an agent's or a person's) with their evidence |
+
+The audit signs in as the seeded admin (`ADMIN_EMAIL` of `backend/.env`) with a minted session and signs it out when it
+ends. A visit that fails (a page that redirects, a check that cannot run) is reported, the command exits with an error,
+and the run writes `ledger-partial.json`: an incomplete run never replaces the ledger. The failed visit leaves
+`failure-<mode>.png` and `failure-<mode>.json` in the state's folder under `review/`: what the page showed, its
+console errors and the steps that ran on it before.
+
+**How a run works.** Each state gets one visit in light mode, which runs every check on that one page, and a second in
+dark mode, which measures contrast only. A check is a function of an open page that returns findings, and all findings
+turn into evidence in one place after every visit.
+
+**What it writes.** The ledger, committed: one row per criterion with its status, the remarks for the report, the
+evidence and the checks still open. It carries the product's name (the root package name), and a ledger of another
+product is never read, so a new app starts its own with its first full run. In the results folder: raw findings for
+fixing (`axe.json`, with every failing element), the draft VPAT and the manual checklist, and a review packet per state.
+
+**How a row is decided.** Each criterion names its checks: axe, a browser probe, a code check or a manual one. Any
+failure makes the row Partially Supports. A row becomes Supports or Not Applicable only when all its checks ran and none
+of them is manual. Everything else stays open until a reviewer decides it. Contrast is measured in both color modes,
+with increased contrast turned on, which the report states: axe decides most text, and what it cannot decide (over a
+gradient, an image or a pseudo-element) is measured from the pixels, as is the edge of form controls.
+
+**Reviewers.** Every full run leaves a packet per state under `review/`: a screenshot, the accessibility tree, facts
+about the page and the Tab order. A reviewer judges the open criteria from those and records each decision with
+`decide`. An agent's decision is stored as `decidedBy: "agent"` and marked in the draft report, provisional until a
+person confirms it (`--by human`). A decision survives later runs; if the audit later finds a failure on a row a
+reviewer called Supports, the row goes back to Partially Supports, and the checklist lists decided rows whose evidence
+names a file changed since. `report --publish` refuses while rows are open or decided by an agent only, unless
+`--draft` publishes them as provisional. The cella template's `a11y-review` skill is the procedure around this loop.
+
+**The scope.** `cella/a11y.ts` lists the template's pages and states, following steps 2 and 3 of W3C's WCAG-EM: every
+page type, plus overlays such as dialogs, sheets and menus. A `{name}` in a path is filled by the resolver of that name,
+which reads the API as the audit user. A state that exists only at one width carries its own browser settings, and
+`forms` marks the states whose form the form probes submit. `cella/a11y.app.ts` adds the app's own.
+
+A short script can open one state of the scope, signed in, to check a fix: `openState('<id>', { context })` from
+`@cellajs/cli/a11y`, run from the app's root through `pnpm cella testbed -- node <script>`.
+
+## Screenshots
+
+`pnpm cella screenshots` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
+files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella screenshots settings`),
+`--out <dir>` writes a trial run elsewhere. On the testbed it also turns MFA on for the shot user and a share of their
+members, so the pages show both states; nobody can sign in with those factors. WebP is written lossless by the system
+`cwebp` encoder, checked before the testbed starts. `cella/screenshots.ts` lists the template's shots and devices, and
+`cella/screenshots.app.ts` the app's own. The cella template's `screenshots` skill is the rubric for judging them.
+
+## Drive library
+
+`@cellajs/cli/drive` is the browser layer the tools share, for an app's own scripts and skill drivers:
+`loadPlaywright()` (the app's frontend copy), `mintSession(email)` and `signOut(session)` (a session for any seeded
+user, through the backend's mint script), `newContext(browser, { session, uiStore })`, `settle(page)` and
+`openPage(context, url)`. A script run through `pnpm cella testbed -- node <script>` mints its sessions on the testbed's
+database and gets its URLs.
 
 ## Style
 

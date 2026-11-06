@@ -169,4 +169,19 @@ describe('parseToolCommand', () => {
     expect(() => parse('testbed', 'restart')).toThrow(/unknown job 'restart'/);
     expect(parse('analyze')).toBeUndefined();
   });
+
+  it('takes shot ids as operands, and refuses an a11y flag given to another job', () => {
+    const parse = (...args: string[]) => parseToolCommand(['node', 'cella', ...args])?.options;
+
+    expect(parse('screenshots', 'settings', 'org-page', '--out', '/tmp/shots')).toEqual({
+      ids: ['settings', 'org-page'],
+      out: '/tmp/shots',
+      email: undefined,
+    });
+    expect(parse('a11y', '--states', 'sign-in,home')).toEqual({
+      job: 'audit',
+      audit: { states: ['sign-in', 'home'], workers: 4, email: undefined },
+    });
+    expect(() => parse('a11y', 'report', '--states', 'home')).toThrow(/--states goes with `a11y audit`/);
+  });
 });
