@@ -1,6 +1,6 @@
 import type { ToolCommand } from '../../config/types';
 import { requireChromium } from '../drive';
-import { withTestbed } from '../testbed';
+import { hasShowcase, withTestbed } from '../testbed';
 import { loadShotList, requireEncoder, type ShootOptions, shoot } from './shoot';
 
 async function runScreenshots(forkPath: string, options: ShootOptions): Promise<number> {
@@ -12,7 +12,9 @@ async function runScreenshots(forkPath: string, options: ShootOptions): Promise<
   }
   requireEncoder(list.format);
   await requireChromium(forkPath);
-  return withTestbed(forkPath, (testbed) => shoot(forkPath, list, testbed, options));
+  // An app with a showcase shoots its curated data, on a database no other tool writes to
+  const data = hasShowcase(forkPath) ? 'showcase' : 'seed';
+  return withTestbed(forkPath, (testbed) => shoot(forkPath, list, testbed, options), { data });
 }
 
 export const screenshotsCommand: ToolCommand<ShootOptions> = {
@@ -23,7 +25,7 @@ export const screenshotsCommand: ToolCommand<ShootOptions> = {
   operands: ['[ids...]', 'the shots to take (default: all)'],
   options: [
     ['--out <dir>', 'write into this folder, a trial run that leaves the working tree alone'],
-    ['--email <address>', 'the shot user (default ADMIN_EMAIL in backend/.env)'],
+    ['--email <address>', 'the shot user (default the showcase admin, else ADMIN_EMAIL in backend/.env)'],
   ],
   parse: ({ operands, opts }) => ({
     ids: operands,

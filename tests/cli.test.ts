@@ -158,13 +158,15 @@ describe('parseToolCommand', () => {
   it('takes the job before -- and hands the words after it to testbed as the command to run', () => {
     const parse = (...args: string[]) => parseToolCommand(['node', 'cella', ...args])?.options;
 
-    expect(parse('testbed')).toEqual({ job: 'start', fresh: false, command: [] });
-    expect(parse('testbed', 'stop')).toEqual({ job: 'stop', fresh: false, command: [] });
+    expect(parse('testbed')).toEqual({ job: 'start', fresh: false, showcase: false, command: [] });
+    expect(parse('testbed', 'stop')).toEqual({ job: 'stop', fresh: false, showcase: false, command: [] });
     expect(parse('testbed', '--fresh', '--', 'pnpm', 'a11y', '--states', 'stop')).toEqual({
       job: 'start',
       fresh: true,
+      showcase: false,
       command: ['pnpm', 'a11y', '--states', 'stop'],
     });
+    expect(parse('testbed', '--showcase')).toEqual({ job: 'start', fresh: false, showcase: true, command: [] });
     expect(() => parse('testbed', 'pnpm', 'a11y')).toThrow(/unexpected argument 'a11y'/);
     expect(() => parse('testbed', 'restart')).toThrow(/unknown job 'restart'/);
     expect(parse('analyze')).toBeUndefined();

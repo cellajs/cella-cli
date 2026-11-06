@@ -59,7 +59,7 @@ Per-command help: `pnpm cella <command> --help`.
 
 | Command | Useful options |
 |---------|----------------|
-| testbed | `stop`, `--fresh`, `-- <command>` |
+| testbed | `stop`, `--fresh`, `--showcase`, `-- <command>` |
 | bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed` |
 | a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
 | screenshots | `<ids...>`, `--out <dir>`, `--email <address>` |
@@ -91,12 +91,18 @@ database container.
 | `pnpm cella testbed` | Start a testbed and hold it |
 | `pnpm cella testbed -- <command>` | Run a command against it: the one this checkout holds, or one started for the command and stopped after. The command gets the testbed's ports (`DEV_PORT_OFFSET`) and database URLs in its environment |
 | `pnpm cella testbed --fresh` | Start from an empty database, seeded again |
+| `pnpm cella testbed --showcase` | Start one on the app's showcase and hold it, for a screenshot review loop |
 | `pnpm cella testbed stop` | Stop the running testbed, or the servers one left behind after a crash |
 
 One testbed runs per app on a machine, since every checkout of the app shares its database: a second start, from
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
+
+The database holds either the app's seed or its showcase: the curated `json/showcase.json` that the screenshots shoot,
+seeded by `pnpm seed showcase`. A start that asks for the other one seeds a new database, and so does every showcase
+start, since the showcase's times are relative to its seed. A running testbed serves only commands that want what it
+holds.
 
 ## Tools and their adapters
 
@@ -194,8 +200,10 @@ A short script can open one state of the scope, signed in, to check a fix: `open
 
 `pnpm cella screenshots` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
 files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella screenshots settings`),
-`--out <dir>` writes a trial run elsewhere. On the testbed it also turns MFA on for the shot user and a share of their
-members, so the pages show both states; nobody can sign in with those factors. WebP is written lossless by the system
+`--out <dir>` writes a trial run elsewhere. An app with a `json/showcase.json` is shot on a testbed seeded with that
+showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed, and the command turns
+MFA on for the shot user and a share of their members through the backend's `showcase:mfa` script where the app has it.
+Nobody can sign in with those factors. WebP is written lossless by the system
 `cwebp` encoder, checked before the testbed starts. `cella/screenshots.ts` lists the template's shots and devices, and
 `cella/screenshots.app.ts` the app's own. The cella template's `screenshots` skill is the rubric for judging them.
 
