@@ -1,7 +1,7 @@
 # @cellajs/cli
 
 The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed to run tools
-against, and upgrades from upstream cella that keep your customizations.
+against, the style check, and upgrades from upstream cella that keep your customizations.
 
 ## Usage
 
@@ -16,7 +16,7 @@ pnpm cella audit
 
 ## Commands
 
-Develop and security commands run without `cella.config.ts`; upstream commands read it first.
+Develop, security and gate commands run without `cella.config.ts`; upstream commands read it first.
 
 | Develop | Description |
 |---------|-------------|
@@ -37,6 +37,10 @@ Develop and security commands run without `cella.config.ts`; upstream commands r
 
 \* `forks` and `contributions` only appear when you have `forks` configured in `cella.config.ts`. 
 
+| Gate | Description |
+|------|-------------|
+| `style` | The style check: terminology, docs, comments and frontend code; exits 1 on any finding (see [Style](#style)). Scripts and CI run it, so the menu leaves it out |
+
 ## CLI options
 
 ```bash
@@ -55,6 +59,7 @@ Per-command help: `pnpm cella <command> --help`.
 | forks | `--fork <name>`, `--keep-config` |
 | contributions | `--fork <name>`, `--json` |
 | stats | `--since <ref>`, `--md`, `-V, --verbose` |
+| style | `[paths...]` |
 
 | Global flag | Description |
 |-------------|-------------|
@@ -79,6 +84,62 @@ One testbed runs per app on a machine, since every checkout of the app shares it
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
+
+## Style
+
+`pnpm cella style` is the style check an app runs as a gate: `pnpm lint:fix` and `pnpm check` call it, and CI runs it
+on every PR. It reads every file git lists, untracked ones it does not ignore included, prints each finding as
+`file:line:column [rule] "term": message` and exits 1 on any. Paths limit the files the in-file rules read:
+`pnpm cella style frontend/src`. It parses with the TypeScript of the app's root package and compiles classes with the
+frontend's Tailwind, so the CLI ships neither.
+
+An app lists its exceptions in `shared/config/vocabulary-allowlist.ts`, typed from `@cellajs/cli/style`:
+
+| Key | What it exempts |
+|-----|-----------------|
+| `files`, `prefixes` | Paths that may carry the CLI's source-control term, such as a generated icon name list |
+| `proseExclude` | Path prefixes the comment and doc rules skip, such as reference code the app keeps but does not maintain |
+| `markerClasses` | Class names kept as hooks with no Tailwind utility or stylesheet rule behind them, each with its reason |
+
+The `alignment` rule reads only what the template has. It checks the shape of every folder in `cella/alignments/`,
+which `cella align` reads and an app never has. In a repo with `cella/alignments/_TEMPLATE.md` and no upgrade
+manifest, it also asks a branch that changes an app-owned path template code reads from for an alignment, or for an
+`Alignment: none, <reason>` line in a commit message.
+
+| Rule | Fails on | Where |
+| --- | --- | --- |
+| `em-dash` | an em dash | source and config files, strings, JSON values and `.env*` files included; Markdown and MDX prose |
+| `contrast-phrase` | `instead`, `rather than`, `as opposed to` | comments |
+| `change-history` | `previously`, `formerly`, `used to`, `originally` | comments |
+| `review-conversation` | `maybe`, `perhaps`, `we should`, `we could`, `we might`, `was considered` | comments |
+| `concrete-language` | `invariant` | comments, Markdown and MDX prose |
+| `load-bearing`, `authoritative` | the word the rule is named after | comments, Markdown and MDX prose, outside `infra/` and `cella/alignments/` |
+| `detached-long-comment` | a comment of more than three prose lines outside a statement and not directly above a declaration; a licence header passes | source and config files |
+| `code-in-link` | inline code in a link label | Markdown and MDX |
+| `source-control-term` | the CLI's source-control term | file paths and text, outside the sync markers and the allowlisted files |
+| `product-name` | `cella_*`, `Cella*`, `_cella-*`, `cellajs.com` | `backend/src`, `shared/src` and `frontend/src`, outside tests, marketing and content |
+| `component-declaration` | a component declared as an arrow function, or a helper such as `memo` wrapping an unnamed render function | frontend `.tsx` sources |
+| `store-selector` | a zustand store called without a selector | frontend sources |
+| `route-context-selector` | `useRouteContext()` without `select` | frontend sources |
+| `button-press-cancel` | `active:translate-y-0` on a `Button`, which leaves the press nudge in place | frontend sources |
+| `form-no-validate` | a form react-hook-form validates without `noValidate` | frontend sources |
+| `reorder-grip` | a lucide grip icon in a file that imports no `ReorderHandle` or `reorderColumn` | frontend sources outside drag previews and the editor's side menu |
+| `memo-dependency-unread` | a `useMemo` or `useCallback` dependency its callback never reads | frontend sources |
+| `product-cache-write` | a query-cache call that clears the refetch mark where synced product rows live; the keepers in `~/query/basic/cache-mutations` replace it | `frontend/src/query/`, product modules and range-fetch registrars |
+| `tailwind-class` | a class that compiles to no CSS and that nothing selects, a variant on a plain CSS class, a stylesheet Tailwind cannot load | `frontend/src` scripts outside tests, and the Tailwind entry stylesheet |
+| `text-color` | a text token with an opacity modifier outside `disabled:`, a palette gray | frontend sources; palette grays pass in the docs module and the JSON viewer theme |
+| `token-contrast` | a token pair below its WCAG ratio, a theme without `--background` or `--edge-raised` | `frontend/src/styling/tailwind.css` |
+| `stamp-clock` | `new Date().toISOString()` | `backend/src`, outside tests, mock builders and the two stamp helpers |
+| `stamp-pair` | an object that writes `updatedAt` with `updatedBy`, or `deletedAt` with `deletedBy`, from a moment written by hand | `backend/src`, outside tests, mock builders and the two stamp helpers |
+| `alignment` | an alignment folder off its shape; in the template, a changed app-owned path with no alignment or waiver | `cella/alignments/`; the branch against `origin/main` |
+| `path-argument` | a path argument that matches no file | the paths `pnpm cella style` takes |
+
+## Other repo tools
+
+A rule change reaches apps with a CLI release. To try one on an app first, run `pnpm build` here and put this checkout
+in place of the app's package: `rm -rf <app>/node_modules/@cellajs/cli && ln -s "$PWD" <app>/node_modules/@cellajs/cli`.
+An install in the app puts the published package back. `@cellajs/cli/style` also exports the class-string helpers the
+template's skill scripts read with, behind `openRepository(<repo root>)`.
 
 ## Configuration
 

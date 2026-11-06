@@ -97,9 +97,11 @@ async function main(): Promise<void> {
 
     const tool = parseToolCommand(process.argv);
     if (tool) {
-      printHeader();
+      // A gate prints its verdict alone: CI logs and agents read it
+      const gate = tool.tool.group === 'gate';
+      if (!gate) printHeader();
       await runTool(tool, forkPath);
-      console.info();
+      if (!gate) console.info();
       return;
     }
 
