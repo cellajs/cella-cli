@@ -1,16 +1,28 @@
 /**
- * Command-line parsing: the service definitions, commander wiring, and the
- * interactive service menu, resolved into a RuntimeConfig.
+ * Command-line parsing: the command definitions, commander wiring, and the
+ * interactive menu, resolved into a RuntimeConfig or a tool command to run.
  */
 
 import process from 'node:process';
 import { select } from '@inquirer/prompts';
 import { Command } from 'commander';
-import type { AnalyzeScope, CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
+import type {
+  AnalyzeScope,
+  CellaCliConfig,
+  CommandGroup,
+  CommandOption,
+  RuntimeConfig,
+  SyncService,
+  ToolCommand,
+} from './config/types';
+import { toolCommands } from './tools';
 import pc from './utils/colors';
 import { isUpstreamRepo, renamedSettingWarnings, resolveUpstream } from './utils/config';
 import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
 import { validateOverrides } from './utils/overrides';
+
+/** A tool command and the options it parsed for itself. */
+export type ToolSelection = { tool: ToolCommand; options: unknown };
 
 type CliServiceSelection = {
   service?: SyncService;
@@ -26,14 +38,14 @@ type MenuContext = {
   isUpstreamRepo: boolean;
 };
 
-type ServiceOption = [flags: string, description: string];
-
 type ServiceDefinition = {
   name: SyncService;
+  /** Upstream unless set. */
+  group?: CommandGroup;
   description: string;
-  options?: ServiceOption[];
+  options?: CommandOption[];
   /** Arguments the service takes after its options, e.g. the ones `align --run` hands to the codemod. */
-  operands?: ServiceOption;
+  operands?: CommandOption;
   /** Former names that still run the service, hidden from help, with a warning to use the current name. */
   aliases?: string[];
   includeInMenu?: (context: MenuContext) => boolean;
@@ -79,14 +91,14 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
 }
 
 // Option literals shared verbatim by more than one service.
-const jsonOption: ServiceOption = ['--json', 'machine-readable output for tooling/agents'];
-const trackOption: ServiceOption = ['--track <mode>', 'override upstream tracking for this run: release|branch'];
-const refOption: ServiceOption = ['--ref <ref>', 'pin the upstream commit for this run: sha, release tag or branch'];
-const unpinnedOption: ServiceOption = [
+const jsonOption: CommandOption = ['--json', 'machine-readable output for tooling/agents'];
+const trackOption: CommandOption = ['--track <mode>', 'override upstream tracking for this run: release|branch'];
+const refOption: CommandOption = ['--ref <ref>', 'pin the upstream commit for this run: sha, release tag or branch'];
+const unpinnedOption: CommandOption = [
   '--unpinned',
   'lift every pinned entry for this run (managed files stay pinned) and merge from the full upstream history',
 ];
-const forkOption: ServiceOption = ['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'];
+const forkOption: CommandOption = ['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'];
 
 const serviceDefinitions: ServiceDefinition[] = [
   {
@@ -134,6 +146,7 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
   {
     name: 'audit',
+    group: 'security',
     description: 'update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit',
     options: [['--list', 'report only: no prompts, and nothing is written']],
   },
@@ -170,20 +183,38 @@ function getMenuContext(userConfig: CellaCliConfig, forkPath: string): MenuConte
   };
 }
 
-function buildServiceChoices(context: MenuContext) {
-  // Pad service labels to align descriptions (longest label is 'contributions').
+const groupOrder: CommandGroup[] = ['develop', 'security', 'upstream', 'gate'];
+
+const groupHeadings: Record<CommandGroup, string> = {
+  develop: 'Develop commands:',
+  security: 'Security commands:',
+  upstream: 'Upstream commands:',
+  gate: 'Gate commands:',
+};
+
+const serviceGroup = (definition: ServiceDefinition): CommandGroup => definition.group ?? 'upstream';
+
+function buildMenuChoices(context: MenuContext) {
+  // Pad labels to align descriptions (longest label is 'contributions').
   const label = (name: string) => name.padEnd(14);
-  const baseChoices = serviceDefinitions
-    .filter((service) => service.includeInMenu?.(context) ?? true)
-    .map((service) => ({
-      value: service.name,
-      name: `${label(service.name)}${pc.dim(service.description)}`,
-    }));
+  const entries: { name: string; group: CommandGroup; description: string }[] = [
+    ...serviceDefinitions
+      .filter((service) => service.includeInMenu?.(context) ?? true)
+      .map((service) => ({ name: service.name, group: serviceGroup(service), description: service.description })),
+    ...toolCommands.filter((tool) => tool.group !== 'gate'),
+  ];
 
   return [
-    ...baseChoices,
+    ...groupOrder.flatMap((group) => {
+      const inGroup = entries.filter((entry) => entry.group === group);
+      if (inGroup.length === 0) return [];
+      return [
+        { type: 'separator' as const, separator: pc.dim(group) },
+        ...inGroup.map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
+      ];
+    }),
     { type: 'separator' as const, separator: MENU_DIVIDER },
-    { value: 'exit' as const, name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
+    { value: 'exit', name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
   ];
 }
 
@@ -194,7 +225,10 @@ function addServiceCommand(
 ) {
   for (const name of [definition.name, ...(definition.aliases ?? [])]) {
     const renamedFrom = name === definition.name ? undefined : name;
-    const command = program.command(name, { hidden: !!renamedFrom }).description(definition.description);
+    const command = program
+      .command(name, { hidden: !!renamedFrom })
+      .description(definition.description)
+      .helpGroup(groupHeadings[serviceGroup(definition)]);
 
     for (const option of definition.options ?? []) command.option(...option);
     if (definition.operands) command.argument(...definition.operands);
@@ -212,10 +246,54 @@ function addServiceCommand(
   }
 }
 
-function buildProgram(setSelection: (selection: CliServiceSelection) => void): Command {
+/** The words of `argv` after the `--` that follows the command name. */
+function wordsAfterDash(argv: string[], commandName: string): string[] {
+  const dash = argv.indexOf('--', argv.indexOf(commandName));
+  return dash === -1 ? [] : argv.slice(dash + 1);
+}
+
+function addToolCommand(
+  program: Command,
+  tool: ToolCommand,
+  argv: string[],
+  setSelection: (selection: ToolSelection) => void,
+) {
+  const jobs = tool.jobs.map(([name]) => name);
+  const command = program.command(tool.name).description(tool.description).helpGroup(groupHeadings[tool.group]);
+  if (jobs.length > 0) command.argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
+  // Commander takes one variadic argument, the last: the command's own words, else the words after `--`
+  if (tool.operands) command.argument(...tool.operands);
+  else if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
+  for (const option of tool.options ?? []) command.option(...option);
+
+  command.action((...args: unknown[]) => {
+    const declared = command.registeredArguments.length;
+    const words = args
+      .slice(0, declared)
+      .flat()
+      .filter((word) => typeof word === 'string');
+    const opts = args[declared] as Record<string, unknown>;
+    // Commander puts the words after `--` among the operands; the job and operands are what comes before them
+    const passthrough = wordsAfterDash(argv, tool.name);
+    const before = words.slice(0, words.length - passthrough.length);
+    const job = jobs.length > 0 ? before[0] : undefined;
+    const operands = jobs.length > 0 ? before.slice(1) : before;
+    if (!tool.operands && operands.length > 0) {
+      const hint = tool.passthrough ? '. a command to run goes after --' : '';
+      throw new Error(`unexpected argument '${operands[0]}'${hint}`);
+    }
+    setSelection({ tool, options: tool.parse({ job, operands, opts, passthrough }) });
+  });
+}
+
+function buildProgram(
+  argv: string[],
+  setSelection: (selection: CliServiceSelection) => void,
+  setToolSelection: (selection: ToolSelection) => void,
+): Command {
   const program = new Command('cella')
     .version(VERSION, '-v, --version', 'output the current version')
-    .usage('[service] [options]')
+    .usage('[command] [options]')
     .helpOption('-h, --help', 'display help for a command')
     .showHelpAfterError()
     .addHelpText(
@@ -223,6 +301,14 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
       [
         '',
         'Examples:',
+        '  $ cella testbed',
+        '  $ cella testbed -- node cella/skills/verify/smoke-driver.mjs',
+        '  $ cella bench get-me --short --isolated',
+        '  $ cella a11y --states sign-in,home',
+        '  $ cella a11y decide --file decisions.json',
+        '  $ cella screenshots settings',
+        '  $ cella i18n unused --json',
+        '  $ cella i18n rename c:old_key c:new_key',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',
@@ -232,11 +318,18 @@ function buildProgram(setSelection: (selection: CliServiceSelection) => void): C
         '  $ cella audit --list',
         '  $ cella stats --since origin/main --md',
         '  $ cella contributions --fork raak --json',
+        '  $ cella style frontend/src',
       ].join('\n'),
     );
 
-  for (const definition of serviceDefinitions) {
-    addServiceCommand(program, definition, setSelection);
+  // Commander lists the help groups in the order their first command was added
+  for (const group of groupOrder) {
+    for (const definition of serviceDefinitions.filter((service) => serviceGroup(service) === group)) {
+      addServiceCommand(program, definition, setSelection);
+    }
+    for (const tool of toolCommands.filter((command) => command.group === group)) {
+      addToolCommand(program, tool, argv, setToolSelection);
+    }
   }
 
   return program;
@@ -248,18 +341,38 @@ function parseCommandLine(argv: string[]): CliServiceSelection {
   }
 
   let selection: CliServiceSelection = { options: readOptions({}) };
-  const program = buildProgram((nextSelection) => {
-    selection = nextSelection;
-  });
+  const program = buildProgram(
+    argv,
+    (nextSelection) => {
+      selection = nextSelection;
+    },
+    () => {},
+  );
 
   program.parse(argv);
   return selection;
 }
 
-async function promptForService(userConfig: CellaCliConfig, forkPath: string): Promise<SyncService> {
-  const selected = await select<SyncService | 'exit'>({
-    message: 'choose a service:',
-    choices: buildServiceChoices(getMenuContext(userConfig, forkPath)),
+/** The tool command `argv` names, parsed; undefined when it names none. Tool commands load no upgrade config. */
+export function parseToolCommand(argv: string[]): ToolSelection | undefined {
+  if (!toolCommands.some((tool) => tool.name === argv[2])) return undefined;
+
+  let selection: ToolSelection | undefined;
+  const program = buildProgram(
+    argv,
+    () => {},
+    (nextSelection) => {
+      selection = nextSelection;
+    },
+  );
+  program.parse(argv);
+  return selection;
+}
+
+async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): Promise<SyncService | ToolSelection> {
+  const selected = await select<string>({
+    message: 'choose a command:',
+    choices: buildMenuChoices(getMenuContext(userConfig, forkPath)),
     loop: false,
   });
 
@@ -269,8 +382,27 @@ async function promptForService(userConfig: CellaCliConfig, forkPath: string): P
     process.exit(0);
   }
 
+  const tool = toolCommands.find((command) => command.name === selected);
+  if (tool) {
+    const job =
+      tool.jobs.length > 1
+        ? await select<string>({
+            message: `${tool.name}:`,
+            choices: tool.jobs.map(([name, description]) => ({
+              value: name,
+              name: `${name.padEnd(14)}${pc.dim(description)}`,
+            })),
+            loop: false,
+          })
+        : undefined;
+    console.info();
+    return { tool, options: tool.parse({ job, operands: [], opts: {}, passthrough: [] }) };
+  }
+
   console.info();
-  return selected;
+  const service = serviceDefinitions.find((definition) => definition.name === selected);
+  if (!service) throw new Error(`unknown command '${selected}'`);
+  return service.name;
 }
 
 function buildRuntimeConfig(
@@ -282,7 +414,8 @@ function buildRuntimeConfig(
   return { ...userConfig, forkPath, upstreamRef, service: selection.service ?? 'analyze', ...selection.options };
 }
 
-export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig> {
+/** The upstream command to run with its config, or the tool command picked from the menu. */
+export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig | ToolSelection> {
   const selection = parseCommandLine(process.argv);
 
   // In machine-output modes (--json, --list, --md), reserve stdout for the payload/rows/table
@@ -307,7 +440,9 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   if (warnings.length > 0) console.info();
 
   if (!selection.service) {
-    selection.service = await promptForService(userConfig, forkPath);
+    const picked = await promptForCommand(userConfig, forkPath);
+    if (typeof picked !== 'string') return picked;
+    selection.service = picked;
   }
 
   return buildRuntimeConfig(userConfig, forkPath, selection, branchRef);

@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["es2024"],
+    "lib": ["es2024", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "ignoreDeprecations": "6.0",
@@ -25,5 +25,5 @@
       "#/*": ["./src/*"]
     }
   },
-  "include": ["src", "tests", "index.ts", "index.js", "config.ts", "tsup.config.ts"]
+  "include": ["src", "tests", "index.ts", "index.js", "config.ts", "style.ts", "tsup.config.ts"]
 }

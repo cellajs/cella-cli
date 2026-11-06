@@ -100,6 +100,8 @@ export function printHeader(): void {
 
 /** Start a progress spinner; suppressed in test environments and JSON mode. */
 export function createSpinner(text: string): Spinner {
+  // One line holds one spinner: a new one replaces the one still running
+  stopSpinner();
   const enabled = !jsonMode && !getEnv('VITEST') && getEnv('NODE_ENV') !== 'test' && !!process.stdout.isTTY;
   const frames = ['-', '\\', '|', '/'];
   let frame = 0;

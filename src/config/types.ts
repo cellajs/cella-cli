@@ -192,6 +192,33 @@ export const cellaConfigSchema = z
 /** Sync services available in the CLI */
 export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
 
+/** Where a command shows in the menu and in `--help`; a gate shows in `--help` only, since scripts and CI run it. */
+export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
+
+export type CommandOption = [flags: string, description: string];
+
+/**
+ * A command that runs without the upgrade config: no `cella.config.ts`, no override validation. It declares its own
+ * options, parses them into its own shape and returns its exit code.
+ */
+export interface ToolCommand<Options = unknown> {
+  name: string;
+  group: Exclude<CommandGroup, 'upstream'>;
+  description: string;
+  /** The jobs its first operand names, the default first; the menu asks for one. Empty: the command has one job. */
+  jobs: [name: string, description: string][];
+  /**
+   * The words it takes after the job, in commander's notation such as `[scenario]` or `[paths...]`; none when unset.
+   * A command takes these or a passthrough, never both.
+   */
+  operands?: CommandOption;
+  options?: CommandOption[];
+  /** What the words after `--` are for, in `--help`. */
+  passthrough?: CommandOption;
+  parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
+  run(forkPath: string, options: Options): Promise<number>;
+}
+
 /** Analyze output scope for interactive and machine-readable flows */
 export type AnalyzeScope = 'all' | 'risk' | 'protected';
 

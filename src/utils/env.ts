@@ -19,3 +19,9 @@ export function getEnvSnapshot(): NodeJS.ProcessEnv {
   // biome-ignore lint/style/noProcessEnv: This module centralizes intentional CLI environment access.
   return { ...process.env };
 }
+
+/** Set a variable for this process and the children it spawns from here on. */
+export function setEnv(name: string, value: string): void {
+  // biome-ignore lint/style/noProcessEnv: This module centralizes intentional CLI environment access.
+  process.env[name] = value;
+}

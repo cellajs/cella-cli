@@ -1,42 +1,70 @@
 # @cellajs/cli
 
-Upgrade your app with upstream [cella template](https://github.com/cellajs/cella) changes while preserving your
-customizations.
+The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed and the tools that
+run on it (load tests, an accessibility audit, the marketing screenshots), the style check, and upgrades from upstream
+cella that keep your customizations.
 
 ## Usage
 
-From your monorepo root, run `pnpm cella` for the interactive menu, or call a service directly:
+From your monorepo root, run `pnpm cella` for the interactive menu, or call a command directly:
 
 ```bash
+pnpm cella testbed
+pnpm cella bench
+pnpm cella a11y
 pnpm cella analyze
 pnpm cella upgrade
 pnpm cella audit
 ```
 
-## Services
+## Commands
 
-| Service | Description |
+Develop, security and gate commands run without `cella.config.ts`; upstream commands read it first.
+
+| Develop | Description |
 |---------|-------------|
+| `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
+| `bench` | Load-test the running app with its scenarios and check what the stack did with the load (see [Bench](#bench)) |
+| `a11y` | Audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger (see [a11y](#a11y)) |
+| `screenshots` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
+| `i18n` | Translation status, unused keys and renames across the locale files and the code (see [Translations](#translations)) |
+
+| Security | Description |
+|----------|-------------|
+| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
+| `pentest` | Scan a throwaway testbed of the app: a cross-tenant access probe, then Nuclei and ZAP (see [Pentest](#pentest)) |
+
+| Upstream | Description |
+|----------|-------------|
 | `analyze` | Dry run to see what would change on upgrade. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-upgrade` and a graft for the upgrade base |
 | `upgrade` | Merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR into `main` |
 | `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run the upgrade inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
 
 \* `forks` and `contributions` only appear when you have `forks` configured in `cella.config.ts`. 
 
+| Gate | Description |
+|------|-------------|
+| `style` | The style check: terminology, docs, comments and frontend code; exits 1 on any finding (see [Style](#style)). Scripts and CI run it, so the menu leaves it out |
+
 ## CLI options
 
 ```bash
-pnpm cella [service] [options]
+pnpm cella [command] [options]
 ```
 
-Per-service help: `pnpm cella <service> --help`.
+Per-command help: `pnpm cella <command> --help`.
 
-| Service | Useful options |
+| Command | Useful options |
 |---------|----------------|
+| testbed | `stop`, `--fresh`, `-- <command>` |
+| bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed` |
+| a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
+| screenshots | `<ids...>`, `--out <dir>`, `--email <address>` |
+| i18n | `unused`, `rename <ns:old> <ns:new>`, `--json` |
+| pentest | `report`, `--only <probe,nuclei,zap>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -44,11 +72,245 @@ Per-service help: `pnpm cella <service> --help`.
 | forks | `--fork <name>`, `--keep-config` |
 | contributions | `--fork <name>`, `--json` |
 | stats | `--since <ref>`, `--md`, `-V, --verbose` |
+| style | `[paths...]` |
 
 | Global flag | Description |
 |-------------|-------------|
 | `-v, --version` | Output the current version |
 | `-h, --help` | Display help for a command |
+
+## Testbed
+
+`pnpm cella testbed` starts a copy of the app on a database of its own and on ports beside the ones `pnpm dev` uses:
+the backend, the workers, the relay and a built frontend. A new database is seeded once and kept, and every start
+migrates it, so a branch with migrations works too. The testbed holds until ctrl-c, which stops its servers and its
+database container.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella testbed` | Start a testbed and hold it |
+| `pnpm cella testbed -- <command>` | Run a command against it: the one this checkout holds, or one started for the command and stopped after. The command gets the testbed's ports (`DEV_PORT_OFFSET`) and database URLs in its environment |
+| `pnpm cella testbed --fresh` | Start from an empty database, seeded again |
+| `pnpm cella testbed stop` | Stop the running testbed, or the servers one left behind after a crash |
+
+One testbed runs per app on a machine, since every checkout of the app shares its database: a second start, from
+another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
+start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
+`db_testbed` service.
+
+## Tools and their adapters
+
+A tool's engine ships in this package, and what is app-specific sits in the app's `cella/` folder as an adapter: a base
+`cella/<tool>.ts` that comes with each upgrade and describes the template's UI, plus an optional `cella/<tool>.app.ts`
+that no upgrade touches, holding only what the app adds, removes (`remove`, by id) or replaces (an entry with a base
+id). Without the second file the base runs alone. Both are checked at load, so an adapter that does not fit the
+installed CLI fails in seconds, naming the key. They import the app's SDK and run under the app's own `tsx`.
+
+Heavy runtimes come from the app: Playwright from `frontend`, with its Chromium installed once through
+`pnpm --filter frontend exec playwright install chromium`. Results stay in the git directory, `.git/cella-<tool>/` in
+the main checkout and the worktree's own in a linked one, so they never show in `git status`.
+
+## Bench
+
+`pnpm cella bench` load-tests the app with the scenarios in `backend/bench/scenarios/`. New virtual users arrive on
+schedule whether or not earlier ones are done, a live line every five seconds shows what the last interval did, and
+the summary ends in checks: the responses the stack rejected, failed users, latency thresholds, the scenario's own
+counters, and the app's checks of what the stack recorded. A passing full run is saved as the scenario's baseline and
+the next run compares with it.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella bench` | Pick a scenario from a list, then run it |
+| `pnpm cella bench <scenario>` | Run one scenario |
+| `pnpm cella bench --all` | Run every scenario in turn, one line each, with a cooldown between them and a table at the end |
+| `pnpm cella bench --short` | A smoke run: one user per role, no thresholds and no baseline |
+| `pnpm cella bench --isolated` | Run on a [testbed](#testbed), the one this checkout holds or one started for the run |
+
+A run measures the stack this checkout runs with `pnpm dev`, and one run at a time holds it. `--skip-seed` keeps the
+bench data of the last run. Baselines, logs and locks live
+in `cella-bench/` in the git directory every worktree shares, so `git status` never shows them.
+
+The app's side is `backend/bench/run.ts`, run with the backend's `tsx` so it imports backend modules: it calls
+`runBench` from `@cellajs/cli/bench` with the app's preflight, seed and checks around each scenario. A scenario is a
+module that default-exports `defineScenario({...})` from the same import; counter and histogram names are typed, so a
+misspelled one fails the typecheck.
+
+## a11y
+
+`pnpm cella a11y` audits the app against WCAG 2.2 Level A and AA and fills the conformance ledger,
+`cella/a11y-ledger.json`. On a testbed it opens every page and state of the scope once, scans it with axe, runs browser
+checks that axe cannot do, and reviews the code for the rest. Each of the 55 criteria gets its evidence and, where the
+evidence is complete, a decision. What needs a person goes on a checklist, and a person's decision survives the next
+run. The audit takes three to four minutes on top of the testbed's start.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella a11y` | Run the full audit: axe, browser probes and code checks |
+| `pnpm cella a11y --states sign-in,org-members` | Audit some states only; writes `ledger-partial.json` in the results folder, never the ledger |
+| `pnpm cella a11y --workers 2` | States audited at the same time (default 4); lower it on a busy machine |
+| `pnpm cella a11y report` | Render the ledger as a draft VPAT and a checklist for the manual pass |
+| `pnpm cella a11y report --publish` | Put the report where the app serves it and print what the statement needs; refuses a draft |
+| `pnpm cella a11y report --publish --draft` | The same while rows still need a person: the statement calls the results provisional |
+| `pnpm cella a11y decide --file decisions.json` | Record a reviewer's decisions (an agent's or a person's) with their evidence |
+
+The audit signs in as the seeded admin (`ADMIN_EMAIL` of `backend/.env`) with a minted session and signs it out when it
+ends. A visit that fails (a page that redirects, a check that cannot run) is reported, the command exits with an error,
+and the run writes `ledger-partial.json`: an incomplete run never replaces the ledger. The failed visit leaves
+`failure-<mode>.png` and `failure-<mode>.json` in the state's folder under `review/`: what the page showed, its
+console errors and the steps that ran on it before.
+
+**How a run works.** Each state gets one visit in light mode, which runs every check on that one page, and a second in
+dark mode, which measures contrast only. A check is a function of an open page that returns findings, and all findings
+turn into evidence in one place after every visit.
+
+**What it writes.** The ledger, committed: one row per criterion with its status, the remarks for the report, the
+evidence and the checks still open. It carries the product's name (the root package name), and a ledger of another
+product is never read, so a new app starts its own with its first full run. In the results folder: raw findings for
+fixing (`axe.json`, with every failing element), the draft VPAT and the manual checklist, and a review packet per state.
+
+**How a row is decided.** Each criterion names its checks: axe, a browser probe, a code check or a manual one. Any
+failure makes the row Partially Supports. A row becomes Supports or Not Applicable only when all its checks ran and none
+of them is manual. Everything else stays open until a reviewer decides it. Contrast is measured in both color modes,
+with increased contrast turned on, which the report states: axe decides most text, and what it cannot decide (over a
+gradient, an image or a pseudo-element) is measured from the pixels, as is the edge of form controls.
+
+**Reviewers.** Every full run leaves a packet per state under `review/`: a screenshot, the accessibility tree, facts
+about the page and the Tab order. A reviewer judges the open criteria from those and records each decision with
+`decide`. An agent's decision is stored as `decidedBy: "agent"` and marked in the draft report, provisional until a
+person confirms it (`--by human`). A decision survives later runs; if the audit later finds a failure on a row a
+reviewer called Supports, the row goes back to Partially Supports, and the checklist lists decided rows whose evidence
+names a file changed since. `report --publish` refuses while rows are open or decided by an agent only, unless
+`--draft` publishes them as provisional. The cella template's `a11y-review` skill is the procedure around this loop.
+
+**The scope.** `cella/a11y.ts` lists the template's pages and states, following steps 2 and 3 of W3C's WCAG-EM: every
+page type, plus overlays such as dialogs, sheets and menus. A `{name}` in a path is filled by the resolver of that name,
+which reads the API as the audit user. A state that exists only at one width carries its own browser settings, and
+`forms` marks the states whose form the form probes submit. `cella/a11y.app.ts` adds the app's own.
+
+A short script can open one state of the scope, signed in, to check a fix: `openState('<id>', { context })` from
+`@cellajs/cli/a11y`, run from the app's root through `pnpm cella testbed -- node <script>`.
+
+## Screenshots
+
+`pnpm cella screenshots` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
+files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella screenshots settings`),
+`--out <dir>` writes a trial run elsewhere. On the testbed it also turns MFA on for the shot user and a share of their
+members, so the pages show both states; nobody can sign in with those factors. WebP is written lossless by the system
+`cwebp` encoder, checked before the testbed starts. `cella/screenshots.ts` lists the template's shots and devices, and
+`cella/screenshots.app.ts` the app's own. The cella template's `screenshots` skill is the rubric for judging them.
+
+## Drive library
+
+`@cellajs/cli/drive` is the browser layer the tools share, for an app's own scripts and skill drivers:
+`loadPlaywright()` (the app's frontend copy), `mintSession(email)` and `signOut(session)` (a session for any seeded
+user, through the backend's mint script), `newContext(browser, { session, uiStore })`, `settle(page)` and
+`openPage(context, url)`. A script run through `pnpm cella testbed -- node <script>` mints its sessions on the testbed's
+database and gets its URLs.
+
+## Translations
+
+`pnpm cella i18n` reads `locales/<language>/<file>.json` the way the app loads them: `locales/namespaces.json` names the
+runtime namespaces that merge several files (`c` is `common.json` with `app.json` over it), and every other file is a
+namespace of its own. English holds every key, and each other language is measured against it.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella i18n` | Per namespace and language: missing keys, keys English lacks, translations equal to English, interpolations and tags that differ from English, plural forms a language lacks or never uses, and the keys a later file of a namespace overrides. Exits 1 on a key English lacks or a mismatch; a missing translation falls back to English and only counts |
+| `pnpm cella i18n unused` | The keys no code names, in this app and in the `forks` of `cella.config.ts` that exist on this machine, so a template key only an app uses stays |
+| `pnpm cella i18n rename <ns:old> <ns:new>` | Renames a key and its plural forms in every language and every `'ns:old'` literal in the code, then sorts the changed locale files with the app's own Biome. A key moves to another namespace too, unless that namespace merges several files |
+
+The code is read with the app's own TypeScript (the root `typescript` package), so a key built from a value whose
+type is a union of literals, such as `` t(`c:${role}`) ``, counts as a use of each key it can build. A template whose
+values are open, such as an index, is reported by its pattern (`about:why.title_*`) as unverified, and the keys it
+may build are never listed as unused. A rename lists those templates and every key without its namespace passed to
+`t()`, since no literal rewrite reaches them. `--json` prints any job's full report.
+
+## Pentest
+
+`pnpm cella pentest` is a security check to run before a release, against a copy of your own app on this machine and
+nothing else. It starts a testbed on a new database, signs in as seeded users, runs three checks and removes the
+database after, since the scans write rows and run into the rate limits. It refuses to start while a testbed runs.
+
+| Check | What it does |
+|-------|--------------|
+| `probe` | Calls every read route scoped to a tenant, an organization or a user with the ids of an organization, once as its admin and once as an outsider with no membership in its tenant. Any answer to the outsider other than 403 or 404 is a finding |
+| `nuclei` | Nuclei's templates for misconfigurations and exposures against the testbed's origin, signed in |
+| `zap` | ZAP's API scan from the app's OpenAPI spec: passive rules, then an active scan capped at a few minutes, signed in |
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella pentest` | Run all three checks |
+| `pnpm cella pentest --only probe` | Run only the checks named, comma-separated |
+| `pnpm cella pentest report` | Print the last run's findings; `--json` prints the report as JSON |
+
+A run fails (exit code 1) on a finding of high or critical severity, and every read the probe lets through to the
+outsider is one. The scanners run as Docker images pinned by digest, pulled on first use, on the host network so
+they reach the testbed by its own origin. Results stay in `.git/cella-pentest/`, out of the repository, because the
+scanners' output can hold the sessions, which the run signs out at the end.
+
+The app describes itself in `cella/pentest.ts`, synced from the template: the query that picks the seeded users, the
+operations a scan must skip because they end its session or delete what it needs, the guards that mark a route as
+scoped, and what fills each route's ids. `cella/pentest.app.ts` (optional, the app's own) adds the app's own skips and ids
+or overrides the rest. A route whose ids nothing fills is listed as not probed, so the report says what the probe did
+not reach.
+
+## Style
+
+`pnpm cella style` is the style check an app runs as a gate: `pnpm lint:fix` and `pnpm check` call it, and CI runs it
+on every PR. It reads every file git lists, untracked ones it does not ignore included, prints each finding as
+`file:line:column [rule] "term": message` and exits 1 on any. Paths limit the files the in-file rules read:
+`pnpm cella style frontend/src`. It parses with the TypeScript of the app's root package and compiles classes with the
+frontend's Tailwind, so the CLI ships neither.
+
+An app lists its exceptions in `shared/config/vocabulary-allowlist.ts`, typed from `@cellajs/cli/style`:
+
+| Key | What it exempts |
+|-----|-----------------|
+| `files`, `prefixes` | Paths that may carry the CLI's source-control term, such as a generated icon name list |
+| `proseExclude` | Path prefixes the comment and doc rules skip, such as reference code the app keeps but does not maintain |
+| `markerClasses` | Class names kept as hooks with no Tailwind utility or stylesheet rule behind them, each with its reason |
+
+The `alignment` rule reads only what the template has. It checks the shape of every folder in `cella/alignments/`,
+which `cella align` reads and an app never has. In a repo with `cella/alignments/_TEMPLATE.md` and no upgrade
+manifest, it also asks a branch that changes an app-owned path template code reads from for an alignment, or for an
+`Alignment: none, <reason>` line in a commit message.
+
+| Rule | Fails on | Where |
+| --- | --- | --- |
+| `em-dash` | an em dash | source and config files, strings, JSON values and `.env*` files included; Markdown and MDX prose |
+| `contrast-phrase` | `instead`, `rather than`, `as opposed to` | comments |
+| `change-history` | `previously`, `formerly`, `used to`, `originally` | comments |
+| `review-conversation` | `maybe`, `perhaps`, `we should`, `we could`, `we might`, `was considered` | comments |
+| `concrete-language` | `invariant` | comments, Markdown and MDX prose |
+| `load-bearing`, `authoritative` | the word the rule is named after | comments, Markdown and MDX prose, outside `infra/` and `cella/alignments/` |
+| `detached-long-comment` | a comment of more than three prose lines outside a statement and not directly above a declaration; a licence header passes | source and config files |
+| `code-in-link` | inline code in a link label | Markdown and MDX |
+| `source-control-term` | the CLI's source-control term | file paths and text, outside the sync markers and the allowlisted files |
+| `product-name` | `cella_*`, `Cella*`, `_cella-*`, `cellajs.com` | `backend/src`, `shared/src` and `frontend/src`, outside tests, marketing and content |
+| `component-declaration` | a component declared as an arrow function, or a helper such as `memo` wrapping an unnamed render function | frontend `.tsx` sources |
+| `store-selector` | a zustand store called without a selector | frontend sources |
+| `route-context-selector` | `useRouteContext()` without `select` | frontend sources |
+| `button-press-cancel` | `active:translate-y-0` on a `Button`, which leaves the press nudge in place | frontend sources |
+| `form-no-validate` | a form react-hook-form validates without `noValidate` | frontend sources |
+| `reorder-grip` | a lucide grip icon in a file that imports no `ReorderHandle` or `reorderColumn` | frontend sources outside drag previews and the editor's side menu |
+| `memo-dependency-unread` | a `useMemo` or `useCallback` dependency its callback never reads | frontend sources |
+| `product-cache-write` | a query-cache call that clears the refetch mark where synced product rows live; the keepers in `~/query/basic/cache-mutations` replace it | `frontend/src/query/`, product modules and range-fetch registrars |
+| `tailwind-class` | a class that compiles to no CSS and that nothing selects, a variant on a plain CSS class, a stylesheet Tailwind cannot load | `frontend/src` scripts outside tests, and the Tailwind entry stylesheet |
+| `text-color` | a text token with an opacity modifier outside `disabled:`, a palette gray | frontend sources; palette grays pass in the docs module and the JSON viewer theme |
+| `token-contrast` | a token pair below its WCAG ratio, a theme without `--background` or `--edge-raised` | `frontend/src/styling/tailwind.css` |
+| `stamp-clock` | `new Date().toISOString()` | `backend/src`, outside tests, mock builders and the two stamp helpers |
+| `stamp-pair` | an object that writes `updatedAt` with `updatedBy`, or `deletedAt` with `deletedBy`, from a moment written by hand | `backend/src`, outside tests, mock builders and the two stamp helpers |
+| `alignment` | an alignment folder off its shape; in the template, a changed app-owned path with no alignment or waiver | `cella/alignments/`; the branch against `origin/main` |
+| `path-argument` | a path argument that matches no file | the paths `pnpm cella style` takes |
+
+`@cellajs/cli/style` also exports the class-string helpers the template's skill scripts read with, behind
+`openRepository(<repo root>)`.
+
+## Trying a change in an app
+
+A change to a tool reaches apps with a CLI release. To try one on an app first, run `pnpm build` here and put this
+checkout in place of the app's package: `rm -rf <app>/node_modules/@cellajs/cli && ln -s "$PWD" <app>/node_modules/@cellajs/cli`.
+An install in the app puts the published package back, so link again after every `pnpm install`.
 
 ## Configuration
 

@@ -30,12 +30,12 @@ export const UPSTREAM_ONLY_DIRS = [ALIGNMENTS_DIR, 'cella/migrations'];
 export const PENDING_FILE = 'cella/cella.alignments.json';
 
 /** An alignment folder name: `<YYYYMMDDThhmm>-<slug>`, UTC minute precision, so ids sort chronologically. */
-const ALIGNMENT_ID = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const ALIGNMENT_ID = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** What catches app code the change leaves behind: the typecheck, the tests the app inherits, or nothing. */
 export type CaughtBy = 'compiler' | 'tests' | 'nothing';
 
-const CAUGHT_BY: CaughtBy[] = ['compiler', 'tests', 'nothing'];
+export const CAUGHT_BY: CaughtBy[] = ['compiler', 'tests', 'nothing'];
 
 /** One alignment, as read at an upstream ref. */
 export interface Alignment {
@@ -72,12 +72,12 @@ export interface AlignmentSource {
 }
 
 /** Whether a file in an alignment folder is a codemod script: a `.ts` file that is not a test. */
-function isCodemodFile(name: string): boolean {
+export function isCodemodFile(name: string): boolean {
   return name.endsWith('.ts') && !name.endsWith('.test.ts');
 }
 
 /** A comma-separated frontmatter value as a list, empty items dropped. */
-function splitList(value: string | undefined): string[] {
+export function splitList(value: string | undefined): string[] {
   return (value ?? '')
     .split(',')
     .map((item) => item.trim())
@@ -90,7 +90,7 @@ export function isUpstreamOnly(filePath: string): boolean {
 }
 
 /** The lines after the frontmatter, without HTML comment lines (a comment opens at the start of a line). */
-function bodyLines(lines: string[]): string[] {
+export function bodyLines(lines: string[]): string[] {
   let inComment = false;
   return lines.filter((line) => {
     if (!inComment && !line.trimStart().startsWith('<!--')) return true;
