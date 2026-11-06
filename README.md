@@ -250,7 +250,7 @@ scanners' output can hold the sessions, which the run signs out at the end.
 
 The app describes itself in `cella/pentest.ts`, synced from the template: the query that picks the seeded users, the
 operations a scan must skip because they end its session or delete what it needs, the guards that mark a route as
-scoped, and what fills each route's ids. `cella/pentest.app.ts` (pinned, optional) adds the app's own skips and ids
+scoped, and what fills each route's ids. `cella/pentest.app.ts` (optional, the app's own) adds the app's own skips and ids
 or overrides the rest. A route whose ids nothing fills is listed as not probed, so the report says what the probe did
 not reach.
 
