@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import { parseEnv } from 'node:util';
 import type { ToolCommand } from '../config/types';
-import { loadAppFacts, loadLocalDatabases, toolDir } from '../utils/app-facts';
+import { loadAppFacts, loadLocalDatabases, movedPath, toolDir } from '../utils/app-facts';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
 import { getEnvSnapshot } from '../utils/env';
@@ -22,13 +22,16 @@ const DATABASE = 'testbed';
 const DATABASE_SERVICE = 'db_testbed';
 
 /**
- * What a testbed's database holds: the app's own seed (`pnpm seed`), or the curated `json/showcase.json` its marketing
+ * What a testbed's database holds: the app's own seed (`pnpm seed`), or the curated `showcase.json` its marketing
  * screenshots show (`pnpm seed showcase`). A start that asks for the other one seeds a new database, and every showcase
  * start does.
  */
 export type TestbedData = 'seed' | 'showcase';
 
-const showcasePath = (forkPath: string) => join(forkPath, 'json/showcase.json');
+/** The app's showcase, relative to its root. */
+const showcaseFile = (forkPath: string) =>
+  movedPath(forkPath, 'backend/scripts/seeds/showcase.json', 'json/showcase.json');
+const showcasePath = (forkPath: string) => join(forkPath, showcaseFile(forkPath));
 
 /** Whether the app keeps a showcase for its screenshots. */
 export const hasShowcase = (forkPath: string) => existsSync(showcasePath(forkPath));
@@ -36,7 +39,7 @@ export const hasShowcase = (forkPath: string) => existsSync(showcasePath(forkPat
 /** The user the showcase seed creates as its admin, and the one a command signs in as. */
 function showcaseAdmin(forkPath: string): string {
   const { admin } = JSON.parse(readFileSync(showcasePath(forkPath), 'utf8'));
-  if (typeof admin?.email !== 'string') throw new Error('json/showcase.json names no admin email');
+  if (typeof admin?.email !== 'string') throw new Error(`${showcaseFile(forkPath)} names no admin email`);
   return admin.email;
 }
 
@@ -428,7 +431,7 @@ export async function withTestbed<T>(
 
 async function runTestbed(forkPath: string, options: TestbedOptions): Promise<number> {
   if (options.job === 'stop') return stopTestbed(await resolveTestbed(forkPath));
-  if (options.showcase && !hasShowcase(forkPath)) throw new Error('this app keeps no json/showcase.json');
+  if (options.showcase && !hasShowcase(forkPath)) throw new Error(`this app keeps no ${showcaseFile(forkPath)}`);
   const data: TestbedData = options.showcase ? 'showcase' : 'seed';
   if (options.command.length > 0) {
     return withTestbed(forkPath, (testbed) => runCommand(forkPath, testbed.env, options.command), { ...options, data });
@@ -465,7 +468,7 @@ export const testbedCommand: ToolCommand<TestbedOptions> = {
   ],
   options: [
     ['--fresh', 'start from an empty database: migrate and seed it again'],
-    ['--showcase', 'hold the showcase of json/showcase.json, which the screenshots shoot, for a review loop'],
+    ['--showcase', 'hold the showcase seed, which the screenshots shoot, for a review loop'],
   ],
   passthrough: [
     'command',

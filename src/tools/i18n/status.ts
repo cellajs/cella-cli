@@ -1,14 +1,6 @@
 import pc from '../../utils/colors';
 import { checkMark, warningMark, writeStdout } from '../../utils/display';
-import {
-  LOCALES_DIR,
-  type Locales,
-  namespaceTexts,
-  pluralForm,
-  readLocales,
-  SOURCE_LANGUAGE,
-  textsOf,
-} from './locales';
+import { type Locales, namespaceTexts, pluralForm, readLocales, SOURCE_LANGUAGE, textsOf } from './locales';
 import {
   compare,
   englishFor,
@@ -156,11 +148,11 @@ function printList(title: string, items: string[]): void {
 const describe = ({ key, missing, extra }: Mismatch | PluralGap) =>
   [key, ...missing.map((name) => `-${name}`), ...extra.map((name) => `+${name}`)].join(' ');
 
-function printStatus(report: StatusReport): void {
+function printStatus(report: StatusReport, dir: string): void {
   const label = ({ name, files }: NamespaceStatus) =>
     files.length > 1 || files[0] !== name ? `${name} (${files.join(' + ')})` : name;
   console.info(
-    `${pc.bold(`${LOCALES_DIR}/`)} ${pc.dim(`${report.languages.join(', ')} · namespaces ${report.namespaces.map(label).join(', ')}`)}`,
+    `${pc.bold(`${dir}/`)} ${pc.dim(`${report.languages.join(', ')} · namespaces ${report.namespaces.map(label).join(', ')}`)}`,
   );
   console.info();
   console.info(pc.dim(row(columns.map(([title]) => title))));
@@ -238,8 +230,9 @@ function printStatus(report: StatusReport): void {
 
 /** `cella i18n`: per runtime namespace and language, what is missing, orphaned or mismatched. Exit 1 on a mismatch. */
 export function runStatus(forkPath: string, json: boolean): number {
-  const report = buildStatus(readLocales(forkPath));
+  const locales = readLocales(forkPath);
+  const report = buildStatus(locales);
   if (json) writeStdout(JSON.stringify(report, null, 2));
-  else printStatus(report);
+  else printStatus(report, locales.dir);
   return defectCount(report) === 0 ? 0 : 1;
 }

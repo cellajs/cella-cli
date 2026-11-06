@@ -395,6 +395,28 @@ describe('sync e2e', () => {
       expect(renamedFile?.renamedFrom).toBe('old-dir/moved-file.ts');
     });
 
+    it.each([
+      ['the new path', 'new-dir/texts.json'],
+      ['the old path', 'old-dir/texts.json'],
+    ])('moves the fork copy of an ignored file upstream moves, the config naming %s', async (_, entry) => {
+      makeCommit(env.upstreamPath, {
+        files: { 'old-dir/texts.json': '{ "a": "template" }\n' },
+        message: 'chore: texts',
+      });
+      fetchUpstream(env.forkPath);
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await commitMerge('sync: merge upstream');
+      makeCommit(env.forkPath, { files: { 'old-dir/texts.json': '{ "a": "app" }\n' }, message: 'feat: app texts' });
+
+      renameFileAndCommit(env.upstreamPath, 'old-dir/texts.json', 'new-dir/texts.json', 'refactor: move texts');
+      fetchUpstream(env.forkPath);
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ignored: [entry] }));
+
+      expect(result.success).toBe(true);
+      expect(fileExists(env.forkPath, 'old-dir/texts.json')).toBe(false);
+      expect(readRepoFile(env.forkPath, 'new-dir/texts.json')).toBe('{ "a": "app" }\n');
+    });
+
     it('handles file renames with squashed (single-parent) history', async () => {
       // Add a file to upstream
       makeCommit(env.upstreamPath, {

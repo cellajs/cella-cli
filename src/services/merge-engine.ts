@@ -65,6 +65,7 @@ import {
   listCommitsBetween,
   merge,
   mergeAbort,
+  moveFromRef,
   removeFileFromWorktree,
   removeFileFully,
   resolveLatestReleaseTag,
@@ -162,12 +163,15 @@ async function applyDirectMerge(
   );
 
   // Protected files go back to the fork side right after the merge: restored where the fork has
-  // them, removed where it does not, so a fork deletion stands.
+  // them, removed where it does not, so a fork deletion stands. One upstream moved goes to its new
+  // path as the fork has it at the old one.
   const batchRestorePaths: string[] = [];
   const batchRemovePaths: string[] = [];
+  const movedProtected: { from: string; to: string }[] = [];
   for (const file of analyzedFiles) {
     if (file.status === 'identical' || file.status === 'ahead') continue;
-    if (file.isIgnored || (file.isPinned && !file.renamedFrom)) {
+    if (file.status === 'pinned' && file.renamedFrom) movedProtected.push({ from: file.renamedFrom, to: file.path });
+    else if (file.isIgnored || file.isPinned) {
       (file.existsInFork ? batchRestorePaths : batchRemovePaths).push(file.path);
     }
   }
@@ -188,6 +192,10 @@ async function applyDirectMerge(
     for (const filePath of batchRemovePaths) {
       await removeFileFromWorktree(forkPath, filePath);
     }
+  }
+  for (const { from, to } of movedProtected) {
+    onProgress?.(`→ ${from} → ${to}: keeping your copy (moved in upstream)`);
+    await moveFromRef(forkPath, 'HEAD', from, to);
   }
 
   // The remaining files, one by one; protected ones went with the batch above.

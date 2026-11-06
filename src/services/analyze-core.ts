@@ -128,9 +128,10 @@ export async function analyzeRefs(
       const oldPathPinned = predicates.isPinned(oldPath);
 
       let upstreamChanged: boolean | undefined;
-      if (fileIsPinned || oldPathPinned || predicates.isIgnored(oldPath)) {
-        // Protected: local's version is kept at the new path.
+      if (fileIsPinned || fileIsIgnored || oldPathPinned || predicates.isIgnored(oldPath)) {
+        // Protected: local's version is kept at the new path, where the merge engine moves it from the old one.
         status = 'pinned';
+        if (oldPathInFork) renamedFrom = oldPath;
         // Local edited the old file and incoming changed its content beyond the rename.
         if (forkModifiedOld && upstreamHash !== baseOldHash) {
           upstreamChanged = true;

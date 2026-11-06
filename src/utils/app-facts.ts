@@ -36,6 +36,10 @@ export async function importFromApp(forkPath: string, file: string): Promise<Rec
   return import(pathToFileURL(path).href);
 }
 
+/** An app path a template alignment moved: `current`, or `legacy` in an app that has only the old one. */
+export const movedPath = (forkPath: string, current: string, legacy: string): string =>
+  !existsSync(join(forkPath, current)) && existsSync(join(forkPath, legacy)) ? legacy : current;
+
 /**
  * The app's config in development mode, from its own `shared` package. In a linked worktree the import claims that
  * worktree's port slot, as `pnpm dev` would.

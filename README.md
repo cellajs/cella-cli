@@ -99,7 +99,7 @@ another worktree too, says which checkout holds it. The servers write to `testbe
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
 
-The database holds either the app's seed or its showcase: the curated `json/showcase.json` that the screenshots shoot,
+The database holds either the app's seed or its showcase: the curated `backend/scripts/seeds/showcase.json` that the screenshots shoot,
 seeded by `pnpm seed showcase`. A start that asks for the other one seeds a new database, and so does every showcase
 start, since the showcase's times are relative to its seed. A running testbed serves only commands that want what it
 holds.
@@ -200,7 +200,7 @@ A short script can open one state of the scope, signed in, to check a fix: `open
 
 `pnpm cella screenshots` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
 files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella screenshots settings`),
-`--out <dir>` writes a trial run elsewhere. An app with a `json/showcase.json` is shot on a testbed seeded with that
+`--out <dir>` writes a trial run elsewhere. An app with a `backend/scripts/seeds/showcase.json` is shot on a testbed seeded with that
 showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed, and the command turns
 MFA on for the shot user and a share of their members through the backend's `showcase:mfa` script where the app has it.
 Nobody can sign in with those factors. WebP is written lossless by the system
@@ -217,7 +217,7 @@ database and gets its URLs.
 
 ## Translations
 
-`pnpm cella i18n` reads `locales/<language>/<file>.json` the way the app loads them: `locales/namespaces.json` names the
+`pnpm cella i18n` reads `shared/locales/<language>/<file>.json` the way the app loads them: `namespaces.json` there names the
 runtime namespaces that merge several files (`c` is `common.json` with `app.json` over it), and every other file is a
 namespace of its own. English holds every key, and each other language is measured against it.
 

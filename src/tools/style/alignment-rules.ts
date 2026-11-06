@@ -107,6 +107,8 @@ const alignmentExempt = [
   'locales/',
   'sdk/gen',
   'shared/config',
+  'shared/json/',
+  'shared/locales/',
 ];
 
 /** The `ignored` and `pinned` entries of the CLI config, read from its source text. */
