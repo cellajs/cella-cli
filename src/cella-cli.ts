@@ -1,13 +1,13 @@
 #!/usr/bin/env tsx
 /**
- * Cella CLI main entry point: resolves the fork path, loads the config,
- * parses the command line and routes to the selected service.
+ * Cella CLI main entry point: resolves the fork path, runs a tool command without the
+ * upgrade config, or loads the config and routes to the selected upstream service.
  */
 
 import { existsSync, statSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import process from 'node:process';
-import { parseCli } from './cli';
+import { parseCli, parseToolCommand, type ToolSelection } from './cli';
 import type { CellaCliConfig, RuntimeConfig, SyncService } from './config/types';
 import { runAlign } from './services/align';
 import { runAnalyze } from './services/analyze';
@@ -19,8 +19,10 @@ import { runBranchStats } from './services/stats-since';
 import { runUpgradeCommand } from './services/upgrade';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
+import { printHeader } from './utils/display';
 import { getEnv } from './utils/env';
 import { errorMessage } from './utils/errors';
+import { installSignalHandlers } from './utils/signals';
 
 /**
  * The fork path: the CELLA_FORK_PATH environment variable when set, else the current
@@ -78,7 +80,13 @@ function isHelpOrVersionRequest(): boolean {
   );
 }
 
+async function runTool({ tool, options }: ToolSelection, forkPath: string): Promise<void> {
+  preflight(forkPath);
+  process.exitCode = await tool.run(forkPath, options);
+}
+
 async function main(): Promise<void> {
+  installSignalHandlers();
   try {
     const forkPath = getForkPath();
 
@@ -87,9 +95,22 @@ async function main(): Promise<void> {
       return;
     }
 
+    const tool = parseToolCommand(process.argv);
+    if (tool) {
+      printHeader();
+      await runTool(tool, forkPath);
+      console.info();
+      return;
+    }
+
     const userConfig = await loadConfig(forkPath);
 
     const config = await parseCli(userConfig, forkPath);
+    if ('tool' in config) {
+      await runTool(config, forkPath);
+      console.info();
+      return;
+    }
 
     // Services that operate on other fork paths skip the local-repo preflight.
     if (!['audit', 'forks', 'contributions', 'stats'].includes(config.service)) {

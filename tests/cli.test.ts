@@ -26,7 +26,14 @@ vi.mock('../src/utils/display', () => ({
   warningMark: '⚠',
 }));
 
-const { parseCli } = await import('../src/cli');
+const { parseCli, parseToolCommand } = await import('../src/cli');
+
+/** parseCli for a command line that names an upstream command. */
+async function parseUpstream(config: CellaCliConfig, forkPath: string) {
+  const parsed = await parseCli(config, forkPath);
+  if ('tool' in parsed) throw new Error(`parsed the tool command ${parsed.tool.name}`);
+  return parsed;
+}
 
 const baseConfig: CellaCliConfig = {
   settings: {
@@ -49,7 +56,7 @@ describe('parseCli', () => {
     process.argv = ['node', 'cella'];
     selectMock.mockResolvedValue('analyze');
 
-    const config = await parseCli(baseConfig, '/tmp/fork');
+    const config = await parseUpstream(baseConfig, '/tmp/fork');
 
     expect(selectMock).toHaveBeenCalledOnce();
     expect(config.service).toBe('analyze');
@@ -58,7 +65,7 @@ describe('parseCli', () => {
   it('parses a subcommand with additional options', async () => {
     process.argv = ['node', 'cella', 'contributions', '--fork', 'raak', '--json'];
 
-    const config = await parseCli(baseConfig, '/tmp/fork');
+    const config = await parseUpstream(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('contributions');
     expect(config.fork).toBe('raak');
@@ -68,7 +75,7 @@ describe('parseCli', () => {
   it('parses service-specific flags for upgrade', async () => {
     process.argv = ['node', 'cella', 'upgrade', '--track', 'branch'];
 
-    const config = await parseCli(baseConfig, '/tmp/fork');
+    const config = await parseUpstream(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('upgrade');
     expect(config.track).toBe('branch');
@@ -78,7 +85,7 @@ describe('parseCli', () => {
     process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
     const info = vi.spyOn(console, 'info').mockImplementation(() => {});
 
-    const config = await parseCli(
+    const config = await parseUpstream(
       { ...baseConfig, settings: { ...baseConfig.settings, syncWithPackages: true } },
       '/tmp/fork',
     );
@@ -92,46 +99,46 @@ describe('parseCli', () => {
 
   it('parses a pinned upstream ref for upgrade and analyze', async () => {
     process.argv = ['node', 'cella', 'upgrade', '--ref', '4f7d87c'];
-    expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('4f7d87c');
+    expect((await parseUpstream(baseConfig, '/tmp/fork')).ref).toBe('4f7d87c');
 
     process.argv = ['node', 'cella', 'analyze', '--ref', 'v0.14.0'];
-    expect((await parseCli(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
+    expect((await parseUpstream(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
   });
 
   it('parses --keep-config for upgrade and forks', async () => {
     process.argv = ['node', 'cella', 'upgrade'];
-    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
+    expect((await parseUpstream(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
 
     process.argv = ['node', 'cella', 'upgrade', '--ref', '4f7d87c', '--keep-config', '--unpinned'];
-    const aggressive = await parseCli(baseConfig, '/tmp/fork');
+    const aggressive = await parseUpstream(baseConfig, '/tmp/fork');
     expect(aggressive.keepConfig).toBe(true);
     expect(aggressive.unpinned).toBe(true);
 
     process.argv = ['node', 'cella', 'forks', '--fork', 'raak', '--keep-config'];
-    expect((await parseCli(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
+    expect((await parseUpstream(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
   });
 
   it('hands the arguments after -- to the codemod of align --run as given, and none without --', async () => {
     const id = '20261001T2116-tailwind-class-conventions';
     process.argv = ['node', 'cella', 'align', '--run', id, '--', 'rewrite', 'frontend/src', '--module', '~/app x'];
 
-    const config = await parseCli(baseConfig, '/tmp/fork');
+    const config = await parseUpstream(baseConfig, '/tmp/fork');
 
     expect(config.service).toBe('align');
     expect(config.run).toBe(id);
     expect(config.runArgs).toEqual(['rewrite', 'frontend/src', '--module', '~/app x']);
 
     process.argv = ['node', 'cella', 'align', '--run', id];
-    expect((await parseCli(baseConfig, '/tmp/fork')).runArgs).toEqual([]);
+    expect((await parseUpstream(baseConfig, '/tmp/fork')).runArgs).toEqual([]);
   });
 
   it('parses the branch mode of stats', async () => {
     process.argv = ['node', 'cella', 'stats', '--since', 'origin/main', '--md'];
-    const branch = await parseCli(baseConfig, '/tmp/fork');
+    const branch = await parseUpstream(baseConfig, '/tmp/fork');
     expect(branch).toMatchObject({ service: 'stats', since: 'origin/main', md: true });
 
     process.argv = ['node', 'cella', 'stats'];
-    const snapshot = await parseCli(baseConfig, '/tmp/fork');
+    const snapshot = await parseUpstream(baseConfig, '/tmp/fork');
     expect(snapshot.since).toBeUndefined();
     expect(snapshot.md).toBe(false);
   });
@@ -141,8 +148,25 @@ describe('parseCli', () => {
     await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow(/unexpected argument 'rewrite'.*--run <id>/);
 
     process.argv = ['node', 'cella', 'align', '--mark', '20261002T0614-config-switch'];
-    const config = await parseCli(baseConfig, '/tmp/fork');
+    const config = await parseUpstream(baseConfig, '/tmp/fork');
     expect(config.mark).toEqual(['20261002T0614-config-switch']);
     expect(config.runArgs).toBeUndefined();
+  });
+});
+
+describe('parseToolCommand', () => {
+  it('takes the job before -- and hands the words after it to testbed as the command to run', () => {
+    const parse = (...args: string[]) => parseToolCommand(['node', 'cella', ...args])?.options;
+
+    expect(parse('testbed')).toEqual({ job: 'start', fresh: false, command: [] });
+    expect(parse('testbed', 'stop')).toEqual({ job: 'stop', fresh: false, command: [] });
+    expect(parse('testbed', '--fresh', '--', 'pnpm', 'a11y', '--states', 'stop')).toEqual({
+      job: 'start',
+      fresh: true,
+      command: ['pnpm', 'a11y', '--states', 'stop'],
+    });
+    expect(() => parse('testbed', 'pnpm', 'a11y')).toThrow(/unexpected argument 'a11y'/);
+    expect(() => parse('testbed', 'restart')).toThrow(/unknown job 'restart'/);
+    expect(parse('analyze')).toBeUndefined();
   });
 });

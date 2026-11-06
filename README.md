@@ -1,26 +1,36 @@
 # @cellajs/cli
 
-Upgrade your app with upstream [cella template](https://github.com/cellajs/cella) changes while preserving your
-customizations.
+The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed to run tools
+against, and upgrades from upstream cella that keep your customizations.
 
 ## Usage
 
-From your monorepo root, run `pnpm cella` for the interactive menu, or call a service directly:
+From your monorepo root, run `pnpm cella` for the interactive menu, or call a command directly:
 
 ```bash
+pnpm cella testbed
 pnpm cella analyze
 pnpm cella upgrade
 pnpm cella audit
 ```
 
-## Services
+## Commands
 
-| Service | Description |
+Develop and security commands run without `cella.config.ts`; upstream commands read it first.
+
+| Develop | Description |
 |---------|-------------|
+| `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
+
+| Security | Description |
+|----------|-------------|
+| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
+
+| Upstream | Description |
+|----------|-------------|
 | `analyze` | Dry run to see what would change on upgrade. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-upgrade` and a graft for the upgrade base |
 | `upgrade` | Merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR into `main` |
 | `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
-| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `forks` * | Run the upgrade inside local fork repositories |
 | `contributions` * | Pull and adopt changes from local forks |
@@ -30,13 +40,14 @@ pnpm cella audit
 ## CLI options
 
 ```bash
-pnpm cella [service] [options]
+pnpm cella [command] [options]
 ```
 
-Per-service help: `pnpm cella <service> --help`.
+Per-command help: `pnpm cella <command> --help`.
 
-| Service | Useful options |
+| Command | Useful options |
 |---------|----------------|
+| testbed | `stop`, `--fresh`, `-- <command>` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -49,6 +60,25 @@ Per-service help: `pnpm cella <service> --help`.
 |-------------|-------------|
 | `-v, --version` | Output the current version |
 | `-h, --help` | Display help for a command |
+
+## Testbed
+
+`pnpm cella testbed` starts a copy of the app on a database of its own and on ports beside the ones `pnpm dev` uses:
+the backend, the workers, the relay and a built frontend. A new database is seeded once and kept, and every start
+migrates it, so a branch with migrations works too. The testbed holds until ctrl-c, which stops its servers and its
+database container.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella testbed` | Start a testbed and hold it |
+| `pnpm cella testbed -- <command>` | Run a command against it: the one this checkout holds, or one started for the command and stopped after. The command gets the testbed's ports (`DEV_PORT_OFFSET`) and database URLs in its environment |
+| `pnpm cella testbed --fresh` | Start from an empty database, seeded again |
+| `pnpm cella testbed stop` | Stop the running testbed, or the servers one left behind after a crash |
+
+One testbed runs per app on a machine, since every checkout of the app shares its database: a second start, from
+another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
+start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
+`db_testbed` service.
 
 ## Configuration
 
