@@ -205,12 +205,14 @@ export interface ToolCommand<Options = unknown> {
   name: string;
   group: Exclude<CommandGroup, 'upstream'>;
   description: string;
-  /** The jobs its first operand names, the default first; the menu asks for one. */
+  /** The jobs its first operand names, the default first; the menu asks for one. None: the command has one job. */
   jobs: [name: string, description: string][];
+  /** The words it takes after the job, such as the ids of what to run; none when unset. */
+  operands?: CommandOption;
   options?: CommandOption[];
   /** What the words after `--` are for, in `--help`. */
   passthrough?: CommandOption;
-  parse(input: { job?: string; opts: Record<string, unknown>; passthrough: string[] }): Options;
+  parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
   run(forkPath: string, options: Options): Promise<number>;
 }
 

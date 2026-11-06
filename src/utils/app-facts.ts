@@ -28,7 +28,7 @@ export interface LocalDatabases {
 }
 
 /** Node strips the types of a file outside node_modules, so the app's own TS loads without a build or tsx. */
-async function importFromApp(forkPath: string, file: string): Promise<Record<string, unknown>> {
+export async function importFromApp(forkPath: string, file: string): Promise<Record<string, unknown>> {
   const path = join(forkPath, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
   return import(pathToFileURL(path).href);

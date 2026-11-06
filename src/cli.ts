@@ -258,25 +258,30 @@ function addToolCommand(
   setSelection: (selection: ToolSelection) => void,
 ) {
   const jobs = tool.jobs.map(([name]) => name);
-  const command = program
-    .command(tool.name)
-    .description(tool.description)
-    .helpGroup(groupHeadings[tool.group])
-    .argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
-  if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
+  const command = program.command(tool.name).description(tool.description).helpGroup(groupHeadings[tool.group]);
+  if (jobs.length > 0) command.argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
+  // Commander takes one variadic argument, the last
+  const rest = tool.operands ?? tool.passthrough;
+  if (rest) command.argument(`[${rest[0]}...]`, rest[1]);
   for (const option of tool.options ?? []) command.option(...option);
 
   command.action((...args: unknown[]) => {
-    const operands = args
-      .slice(0, tool.passthrough ? 2 : 1)
+    const declared = command.registeredArguments.length;
+    const words = args
+      .slice(0, declared)
       .flat()
       .filter((word) => typeof word === 'string');
-    const opts = args[tool.passthrough ? 2 : 1] as Record<string, unknown>;
-    // Commander puts the words after `--` among the operands; the job is what comes before them
+    const opts = args[declared] as Record<string, unknown>;
+    // Commander puts the words after `--` among the operands; the job and operands are what comes before them
     const passthrough = wordsAfterDash(argv, tool.name);
-    const [job, ...extra] = operands.slice(0, operands.length - passthrough.length);
-    if (extra.length > 0) throw new Error(`unexpected argument '${extra[0]}'. a command to run goes after --`);
-    setSelection({ tool, options: tool.parse({ job, opts, passthrough }) });
+    const before = words.slice(0, words.length - passthrough.length);
+    const job = jobs.length > 0 ? before[0] : undefined;
+    const operands = jobs.length > 0 ? before.slice(1) : before;
+    if (!tool.operands && operands.length > 0) {
+      const hint = tool.passthrough ? '. a command to run goes after --' : '';
+      throw new Error(`unexpected argument '${operands[0]}'${hint}`);
+    }
+    setSelection({ tool, options: tool.parse({ job, operands, opts, passthrough }) });
   });
 }
 
@@ -296,7 +301,10 @@ function buildProgram(
         '',
         'Examples:',
         '  $ cella testbed',
-        '  $ cella testbed -- pnpm a11y --states sign-in',
+        '  $ cella testbed -- node cella/skills/verify/smoke-driver.mjs',
+        '  $ cella a11y --states sign-in,home',
+        '  $ cella a11y decide --file decisions.json',
+        '  $ cella screenshots settings',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',
@@ -383,7 +391,7 @@ async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): P
           })
         : undefined;
     console.info();
-    return { tool, options: tool.parse({ job, opts: {}, passthrough: [] }) };
+    return { tool, options: tool.parse({ job, operands: [], opts: {}, passthrough: [] }) };
   }
 
   console.info();
