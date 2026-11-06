@@ -21,6 +21,7 @@ Develop and security commands run without `cella.config.ts`; upstream commands r
 | Develop | Description |
 |---------|-------------|
 | `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
+| `i18n` | Translation status, unused keys and renames across the locale files and the code (see [Translations](#translations)) |
 
 | Security | Description |
 |----------|-------------|
@@ -48,6 +49,7 @@ Per-command help: `pnpm cella <command> --help`.
 | Command | Useful options |
 |---------|----------------|
 | testbed | `stop`, `--fresh`, `-- <command>` |
+| i18n | `unused`, `rename <ns:old> <ns:new>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -79,6 +81,24 @@ One testbed runs per app on a machine, since every checkout of the app shares it
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
+
+## Translations
+
+`pnpm cella i18n` reads `locales/<language>/<file>.json` the way the app loads them: `locales/namespaces.json` names the
+runtime namespaces that merge several files (`c` is `common.json` with `app.json` over it), and every other file is a
+namespace of its own. English holds every key, and each other language is measured against it.
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella i18n` | Per namespace and language: missing keys, keys English lacks, translations equal to English, interpolations and tags that differ from English, plural forms a language lacks or never uses, and the keys a later file of a namespace overrides. Exits 1 on a key English lacks or a mismatch; a missing translation falls back to English and only counts |
+| `pnpm cella i18n unused` | The keys no code names, in this app and in the `forks` of `cella.config.ts` that exist on this machine, so a template key only an app uses stays |
+| `pnpm cella i18n rename <ns:old> <ns:new>` | Renames a key and its plural forms in every language and every `'ns:old'` literal in the code, then sorts the changed locale files with the app's own Biome. A key moves to another namespace too, unless that namespace merges several files |
+
+The code is read with the app's own TypeScript (the root `typescript` package), so a key built from a value whose
+type is a union of literals, such as `` t(`c:${role}`) ``, counts as a use of each key it can build. A template whose
+values are open, such as an index, is reported by its pattern (`about:why.title_*`) as unverified, and the keys it
+may build are never listed as unused. A rename lists those templates and every key without its namespace passed to
+`t()`, since no literal rewrite reaches them. `--json` prints any job's full report.
 
 ## Configuration
 

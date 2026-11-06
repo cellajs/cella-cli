@@ -263,20 +263,23 @@ function addToolCommand(
     .description(tool.description)
     .helpGroup(groupHeadings[tool.group])
     .argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
-  if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
+  const words = tool.operands ?? tool.passthrough;
+  if (words) command.argument(`[${words[0]}...]`, words[1]);
   for (const option of tool.options ?? []) command.option(...option);
 
   command.action((...args: unknown[]) => {
     const operands = args
-      .slice(0, tool.passthrough ? 2 : 1)
+      .slice(0, words ? 2 : 1)
       .flat()
       .filter((word) => typeof word === 'string');
-    const opts = args[tool.passthrough ? 2 : 1] as Record<string, unknown>;
+    const opts = args[words ? 2 : 1] as Record<string, unknown>;
     // Commander puts the words after `--` among the operands; the job is what comes before them
     const passthrough = wordsAfterDash(argv, tool.name);
     const [job, ...extra] = operands.slice(0, operands.length - passthrough.length);
-    if (extra.length > 0) throw new Error(`unexpected argument '${extra[0]}'. a command to run goes after --`);
-    setSelection({ tool, options: tool.parse({ job, opts, passthrough }) });
+    if (extra.length > 0 && !tool.operands) {
+      throw new Error(`unexpected argument '${extra[0]}'. a command to run goes after --`);
+    }
+    setSelection({ tool, options: tool.parse({ job, operands: extra, opts, passthrough }) });
   });
 }
 
@@ -297,6 +300,8 @@ function buildProgram(
         'Examples:',
         '  $ cella testbed',
         '  $ cella testbed -- pnpm a11y --states sign-in',
+        '  $ cella i18n unused --json',
+        '  $ cella i18n rename c:old_key c:new_key',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',
@@ -383,7 +388,7 @@ async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): P
           })
         : undefined;
     console.info();
-    return { tool, options: tool.parse({ job, opts: {}, passthrough: [] }) };
+    return { tool, options: tool.parse({ job, operands: [], opts: {}, passthrough: [] }) };
   }
 
   console.info();

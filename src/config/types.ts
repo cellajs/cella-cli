@@ -208,9 +208,11 @@ export interface ToolCommand<Options = unknown> {
   /** The jobs its first operand names, the default first; the menu asks for one. */
   jobs: [name: string, description: string][];
   options?: CommandOption[];
+  /** What the words after the job are for, in `--help`. A command takes these or a passthrough, never both. */
+  operands?: CommandOption;
   /** What the words after `--` are for, in `--help`. */
   passthrough?: CommandOption;
-  parse(input: { job?: string; opts: Record<string, unknown>; passthrough: string[] }): Options;
+  parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
   run(forkPath: string, options: Options): Promise<number>;
 }
 
