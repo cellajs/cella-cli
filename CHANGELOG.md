@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.3](https://github.com/cellajs/cella-cli/compare/cli-0.6.2...cli-0.6.3) (2026-11-06)
+
+
+### 🎉 New features
+
+* testbed, bench, a11y, screenshots, i18n, style and pentest commands in the CLI ([#68](https://github.com/cellajs/cella-cli/issues/68)) ([34fa183](https://github.com/cellajs/cella-cli/commit/34fa18381a095d234d391f4f17abaab21bab9bce))
+
 ## [0.6.2](https://github.com/cellajs/cella-cli/compare/cli-0.6.1...cli-0.6.2) (2026-11-02)
 
 
