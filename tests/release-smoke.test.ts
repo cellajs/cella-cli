@@ -38,6 +38,6 @@ describe('release package', () => {
       encoding: 'utf8',
     });
 
-    expect(output).toContain('Usage: cella [service] [options]');
+    expect(output).toContain('Usage: cella [command] [options]');
   });
 });
