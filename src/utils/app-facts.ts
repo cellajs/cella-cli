@@ -1,4 +1,4 @@
-import { execFileSync } from 'node:child_process';
+import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
@@ -28,9 +28,11 @@ export interface LocalDatabases {
 }
 
 /** Node strips the types of a file outside node_modules, so the app's own TS loads without a build or tsx. */
-async function importFromApp(forkPath: string, file: string): Promise<Record<string, unknown>> {
+export async function importFromApp(forkPath: string, file: string): Promise<Record<string, unknown>> {
   const path = join(forkPath, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
+  // The app's config reads the mode once, at its first import, and the dev port offset applies in development mode only
+  setEnv('NODE_ENV', 'development');
   return import(pathToFileURL(path).href);
 }
 
@@ -39,8 +41,6 @@ async function importFromApp(forkPath: string, file: string): Promise<Record<str
  * worktree's port slot, as `pnpm dev` would.
  */
 export async function loadAppFacts(forkPath: string): Promise<AppFacts> {
-  // The dev port offset applies in development mode only
-  setEnv('NODE_ENV', 'development');
   const parsed = appConfigSchema.safeParse((await importFromApp(forkPath, 'shared/index.ts')).appConfig);
   if (!parsed.success)
     throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
@@ -86,6 +86,23 @@ export async function importFromWorkspace<T>(forkPath: string, workspace: string
   } catch {
     throw new Error(`${name} is not installed in ${workspace}: run \`pnpm --filter ${workspace} add -D ${name}\``);
   }
+}
+
+/**
+ * A Docker image as a tool runs it, pinned by digest (`name[:tag]@sha256:…`) so every run scans with the same code.
+ * Pulls it on first use; the pull shows Docker's own progress.
+ * @throws when the reference has no digest, Docker does not answer, or the pull fails
+ */
+export function resolveImage(reference: string): string {
+  if (!/@sha256:[0-9a-f]{64}$/.test(reference)) throw new Error(`${reference} is not pinned by digest`);
+  if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
+    throw new Error('Docker does not answer: start Docker (or OrbStack) first');
+  }
+  if (spawnSync('docker', ['image', 'inspect', reference], { stdio: 'ignore' }).status === 0) return reference;
+  if (spawnSync('docker', ['pull', reference], { stdio: ['ignore', 'inherit', 'inherit'] }).status !== 0) {
+    throw new Error(`could not pull ${reference}`);
+  }
+  return reference;
 }
 
 /**

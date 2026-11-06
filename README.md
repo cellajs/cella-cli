@@ -24,6 +24,7 @@ Develop and security commands run without `cella.config.ts`; upstream commands r
 
 | Security | Description |
 |----------|-------------|
+| `pentest` | Scan a throwaway testbed of the app: a cross-tenant access probe, then Nuclei and ZAP (see [Pentest](#pentest)) |
 | `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
 
 | Upstream | Description |
@@ -48,6 +49,7 @@ Per-command help: `pnpm cella <command> --help`.
 | Command | Useful options |
 |---------|----------------|
 | testbed | `stop`, `--fresh`, `-- <command>` |
+| pentest | `report`, `--only <probe,nuclei,zap>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
@@ -79,6 +81,35 @@ One testbed runs per app on a machine, since every checkout of the app shares it
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
 start that fails prints the end of that log. The testbed needs Docker and an app whose `backend/compose.yaml` has the
 `db_testbed` service.
+
+## Pentest
+
+`pnpm cella pentest` is a security check to run before a release, against a copy of your own app on this machine and
+nothing else. It starts a testbed on a new database, signs in as seeded users, runs three checks and removes the
+database after, since the scans write rows and run into the rate limits. It refuses to start while a testbed runs.
+
+| Check | What it does |
+|-------|--------------|
+| `probe` | Calls every read route scoped to a tenant, an organization or a user with the ids of an organization, once as its admin and once as an outsider with no membership in its tenant. Any answer to the outsider other than 403 or 404 is a finding |
+| `nuclei` | Nuclei's templates for misconfigurations and exposures against the testbed's origin, signed in |
+| `zap` | ZAP's API scan from the app's OpenAPI spec: passive rules, then an active scan capped at a few minutes, signed in |
+
+| Command | What it does |
+|---------|--------------|
+| `pnpm cella pentest` | Run all three checks |
+| `pnpm cella pentest --only probe` | Run only the checks named, comma-separated |
+| `pnpm cella pentest report` | Print the last run's findings; `--json` prints the report as JSON |
+
+A run fails (exit code 1) on a finding of high or critical severity, and every read the probe lets through to the
+outsider is one. The scanners run as Docker images pinned by digest, pulled on first use, on the host network so
+they reach the testbed by its own origin. Results stay in `.git/cella-pentest/`, out of the repository, because the
+scanners' output can hold the sessions, which the run signs out at the end.
+
+The app describes itself in `cella/pentest.ts`, synced from the template: the query that picks the seeded users, the
+operations a scan must skip because they end its session or delete what it needs, the guards that mark a route as
+scoped, and what fills each route's ids. `cella/pentest.app.ts` (pinned, optional) adds the app's own skips and ids
+or overrides the rest. A route whose ids nothing fills is listed as not probed, so the report says what the probe did
+not reach.
 
 ## Configuration
 

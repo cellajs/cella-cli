@@ -21,6 +21,10 @@
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
     },
+    "./pentest": {
+      "types": "./dist/pentest.d.ts",
+      "import": "./dist/pentest.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
