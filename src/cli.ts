@@ -262,7 +262,7 @@ function addToolCommand(
     .command(tool.name)
     .description(tool.description)
     .helpGroup(groupHeadings[tool.group])
-    .argument('[job]', `${jobs.join('|')} (default: ${jobs[0]})`);
+    .argument(...(tool.operand ?? ['[job]', `${jobs.join('|')} (default: ${jobs[0]})`]));
   if (tool.passthrough) command.argument(`[${tool.passthrough[0]}...]`, tool.passthrough[1]);
   for (const option of tool.options ?? []) command.option(...option);
 
@@ -297,6 +297,7 @@ function buildProgram(
         'Examples:',
         '  $ cella testbed',
         '  $ cella testbed -- pnpm a11y --states sign-in',
+        '  $ cella bench get-me --short --isolated',
         '  $ cella analyze',
         '  $ cella analyze --json --scope risk',
         '  $ cella upgrade --track branch',
