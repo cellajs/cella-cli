@@ -43,6 +43,7 @@ const codeFile = /\.(?:[cm]?[jt]sx?)$/;
 const skipped = (path: string) =>
   path.endsWith('.d.ts') ||
   path.startsWith('locales/') ||
+  path.startsWith('shared/locales/') ||
   path.startsWith('cella/alignments/') ||
   path.split('/').some((segment) => segment === 'node_modules' || segment === 'gen' || segment.includes('.gen.'));
 /** A larger file is a bundle or a fixture. */

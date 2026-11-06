@@ -1,8 +1,9 @@
 import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { movedPath } from '../../utils/app-facts';
 
-/** Where an app keeps its translations: `locales/<language>/<file>.json`. */
-export const LOCALES_DIR = 'locales';
+/** Where an app keeps its translations, `<dir>/<language>/<file>.json`: `shared/locales`, or `locales` in an older app. */
+export const localesDir = (forkPath: string): string => movedPath(forkPath, 'shared/locales', 'locales');
 /** Runtime namespaces that merge several files, later files winning: `{ "c": ["common", "app"] }`. */
 const MANIFEST = 'namespaces.json';
 /** English holds every key; every other language is measured against it. */
@@ -24,6 +25,8 @@ export interface LocaleFile {
 }
 
 export interface Locales {
+  /** The folder the files come from, relative to the app root. */
+  dir: string;
   /** The source language first, the others sorted. */
   languages: string[];
   /** Each runtime namespace and the files it reads, in merge order. */
@@ -73,12 +76,13 @@ const readJsonObject = (path: string): Record<string, unknown> => {
 };
 
 /**
- * Every locale file of the app, and its runtime namespaces from `locales/namespaces.json`.
- * @throws when the app has no `locales/en/` or no manifest, or a locale file is not flat
+ * Every locale file of the app, and its runtime namespaces from `namespaces.json` in the locales folder.
+ * @throws when the app has no `en/` or no manifest in that folder, or a locale file is not flat
  */
 export function readLocales(forkPath: string): Locales {
-  const dir = join(forkPath, LOCALES_DIR);
-  if (!existsSync(join(dir, SOURCE_LANGUAGE))) throw new Error(`no ${LOCALES_DIR}/${SOURCE_LANGUAGE}/ in ${forkPath}`);
+  const localesPath = localesDir(forkPath);
+  const dir = join(forkPath, localesPath);
+  if (!existsSync(join(dir, SOURCE_LANGUAGE))) throw new Error(`no ${localesPath}/${SOURCE_LANGUAGE}/ in ${forkPath}`);
 
   const languages = readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
@@ -88,7 +92,7 @@ export function readLocales(forkPath: string): Locales {
   const files = new Map<string, LocaleFile>();
   for (const language of languages) {
     for (const name of readdirSync(join(dir, language)).filter((name) => name.endsWith('.json'))) {
-      const path = `${LOCALES_DIR}/${language}/${name}`;
+      const path = `${localesPath}/${language}/${name}`;
       const parsed = parseLocaleFile(path, readFileSync(join(forkPath, path), 'utf8'));
       if (typeof parsed === 'string') throw new Error(`${path}: ${parsed}; pnpm lint:fix writes one entry per line`);
       files.set(`${language}/${name.slice(0, -'.json'.length)}`, parsed);
@@ -96,12 +100,12 @@ export function readLocales(forkPath: string): Locales {
   }
 
   const manifestPath = join(dir, MANIFEST);
-  if (!existsSync(manifestPath)) throw new Error(`no ${LOCALES_DIR}/${MANIFEST}: upgrade the app from cella first`);
+  if (!existsSync(manifestPath)) throw new Error(`no ${localesPath}/${MANIFEST}: upgrade the app from cella first`);
   const merged = readJsonObject(manifestPath);
   const namespaces = new Map<string, string[]>();
   for (const [namespace, sources] of Object.entries(merged)) {
     if (!Array.isArray(sources) || !sources.every((source) => typeof source === 'string')) {
-      throw new Error(`${LOCALES_DIR}/${MANIFEST}: ${namespace} must list file names`);
+      throw new Error(`${localesPath}/${MANIFEST}: ${namespace} must list file names`);
     }
     namespaces.set(namespace, sources);
   }
@@ -111,7 +115,7 @@ export function readLocales(forkPath: string): Locales {
   );
   for (const file of ownFiles.sort()) namespaces.set(file, [file]);
 
-  return { languages, namespaces, files };
+  return { dir: localesPath, languages, namespaces, files };
 }
 
 /** A runtime namespace's texts in one language, merged as the app loads them. */

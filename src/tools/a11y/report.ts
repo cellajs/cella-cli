@@ -179,7 +179,7 @@ This report describes the product as tested on the report date. Accessibility ca
 `;
 
   /** Files a reviewer's evidence names that changed after the day of the decision: the decision may describe old code. */
-  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', 'locales'], {
+  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', 'shared/locales', 'locales'], {
     cwd: forkPath,
     encoding: 'utf8',
   }).stdout.split('\n');
