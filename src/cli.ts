@@ -198,10 +198,10 @@ function buildMenuChoices(context: MenuContext) {
   // Pad labels to align descriptions (longest label is 'contributions').
   const label = (name: string) => name.padEnd(14);
   const entries: { name: string; group: CommandGroup; description: string }[] = [
-    ...toolCommands.filter((tool) => tool.group !== 'gate'),
     ...serviceDefinitions
       .filter((service) => service.includeInMenu?.(context) ?? true)
       .map((service) => ({ name: service.name, group: serviceGroup(service), description: service.description })),
+    ...toolCommands.filter((tool) => tool.group !== 'gate'),
   ];
 
   return [
@@ -324,11 +324,11 @@ function buildProgram(
 
   // Commander lists the help groups in the order their first command was added
   for (const group of groupOrder) {
-    for (const tool of toolCommands.filter((command) => command.group === group)) {
-      addToolCommand(program, tool, argv, setToolSelection);
-    }
     for (const definition of serviceDefinitions.filter((service) => serviceGroup(service) === group)) {
       addServiceCommand(program, definition, setSelection);
+    }
+    for (const tool of toolCommands.filter((command) => command.group === group)) {
+      addToolCommand(program, tool, argv, setToolSelection);
     }
   }
 

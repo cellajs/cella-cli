@@ -37,6 +37,8 @@ export interface TestbedHandle {
   portOffset: number;
   /** Ports, database URLs and the seeded admin, over this process's own env. */
   env: NodeJS.ProcessEnv;
+  /** The database's container, for `docker exec`. */
+  container: string;
 }
 
 interface Testbed extends TestbedHandle {
@@ -44,7 +46,6 @@ interface Testbed extends TestbedHandle {
   databasePort: number;
   /** Every port its servers listen on. */
   ports: number[];
-  container: string;
   yjs: boolean;
   /** `<git common dir>/cella-testbed/`: the lock and the servers' log. One per repository, as the database is. */
   stateDir: string;
@@ -200,8 +201,8 @@ interface Started {
   exited: Promise<void>;
 }
 
-/** Starts the database and the servers, and resolves once both answer. */
-async function startTestbed(testbed: Testbed, fresh: boolean): Promise<Started> {
+/** Starts the database and the servers, and resolves once both answer; `drop` removes the database on stop. */
+async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Promise<Started> {
   if (await reachable(testbed.frontendUrl)) {
     throw new Error(
       `something already answers at ${testbed.frontendUrl}: \`pnpm cella testbed stop\` ends a testbed left behind`,
@@ -229,11 +230,13 @@ async function startTestbed(testbed: Testbed, fresh: boolean): Promise<Started> 
         killGroup(pid, 'SIGKILL');
       }
     }
-    compose(testbed, ['stop', DATABASE_SERVICE]);
+    if (drop) removeDatabase(testbed);
+    else compose(testbed, ['stop', DATABASE_SERVICE]);
     rmSync(lockPath(testbed), { force: true });
     closeSync(log);
     spinner.stop();
-    printStep('stopped', pc.dim(`database container ${testbed.container} kept for the next start`));
+    const database = drop ? 'removed, the next start seeds a new one' : 'kept for the next start';
+    printStep('stopped', pc.dim(`database container ${testbed.container} ${database}`));
   };
   const forget = onShutdown(stop);
 
@@ -335,15 +338,22 @@ function ownLock(testbed: Testbed): Lock | undefined {
 
 /**
  * Runs `use` against a testbed: the one this checkout holds, once it answers, else one started for it and stopped after,
- * ctrl-c included.
+ * ctrl-c included. A `destructive` command writes and deletes rows, so it gets a testbed of its own on a new database,
+ * removed after the run.
+ * @throws for a destructive command while any testbed runs
  */
 export async function withTestbed<T>(
   forkPath: string,
   use: (testbed: TestbedHandle) => Promise<T>,
-  { fresh = false } = {},
+  { fresh = false, destructive = false } = {},
 ): Promise<T> {
   const testbed = await resolveTestbed(forkPath);
   const lock = ownLock(testbed);
+  if (lock && destructive) {
+    throw new Error(
+      `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm cella testbed stop\`)`,
+    );
+  }
   if (lock) {
     await untilAnswering(
       testbed,
@@ -352,7 +362,7 @@ export async function withTestbed<T>(
     );
     return use(testbed);
   }
-  const started = await startTestbed(testbed, fresh);
+  const started = await startTestbed(testbed, fresh || destructive, destructive);
   try {
     return await use(testbed);
   } finally {

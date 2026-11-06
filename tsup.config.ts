@@ -10,6 +10,7 @@ export default defineConfig({
     drive: 'src/tools/drive.ts',
     a11y: 'src/tools/a11y/exports.ts',
     screenshots: 'src/tools/screenshots/exports.ts',
+    pentest: 'src/tools/pentest/adapter.ts',
   },
   outDir: 'dist',
   clean: true,

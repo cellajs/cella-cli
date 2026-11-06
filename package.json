@@ -41,6 +41,10 @@
       "types": "./dist/screenshots.d.ts",
       "import": "./dist/screenshots.js"
     },
+    "./pentest": {
+      "types": "./dist/pentest.d.ts",
+      "import": "./dist/pentest.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
