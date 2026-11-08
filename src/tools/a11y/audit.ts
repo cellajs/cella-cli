@@ -31,7 +31,7 @@ const seconds = (since: number) => `${((Date.now() - since) / 1000).toFixed(1)}s
 export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHandle, options: AuditOptions) {
   const startedAt = Date.now();
   const email = options.email ?? testbed.env.ADMIN_EMAIL;
-  if (!email) throw new Error('no audit user: pass --email, or set ADMIN_EMAIL in backend/.env');
+  if (!email) throw new Error('no audit user: pass --email, or set ADMIN_EMAIL in .env');
 
   // A build is as old as its last `vite build`: say so, since a stale one audits old code without a sign
   const builtAt = statSync(join(run.forkPath, 'frontend/dist/index.html'), { throwIfNoEntry: false })?.mtime;
