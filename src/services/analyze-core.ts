@@ -6,7 +6,14 @@
  */
 
 import type { AnalyzedFile, FileStatus } from '../config/types';
-import { type FileChangeInfo, getDiffStat, getFileChangeInfo, getFileChanges, getFileHashesAtRef } from '../utils/git';
+import {
+  type FileChange,
+  type FileChangeInfo,
+  getDiffStat,
+  getFileChangeInfo,
+  getFileChanges,
+  getFileHashesAtRef,
+} from '../utils/git';
 import { isGeneratedFile, isManagedFile } from '../utils/managed-files';
 
 /** Predicates that steer classification (direction-specific). */
@@ -20,6 +27,115 @@ export interface AnalyzePredicates {
 /** Whether an ignored path can carry `upstreamOnly`: not managed and not generated output. */
 function isReportableIgnored(filePath: string): boolean {
   return !isManagedFile(filePath) && !isGeneratedFile(filePath);
+}
+
+/** The tree facts `repairIncomingRenames` pairs against. */
+export interface RenameRepairContext {
+  /** Paths at the merge-base. */
+  basePaths: ReadonlySet<string>;
+  /** Paths at the incoming tip. */
+  incomingPaths: ReadonlySet<string>;
+  /** Paths at the local tip. */
+  localPaths: ReadonlySet<string>;
+  /** True for a path whose local copy the merge carries whole (ignored or pinned). */
+  isProtected: (path: string) => boolean;
+}
+
+const basenameOf = (path: string) => path.slice(path.lastIndexOf('/') + 1);
+const dirnameOf = (path: string) => (path.includes('/') ? path.slice(0, path.lastIndexOf('/')) : '');
+
+/** Directory moves the same-named rename pairs agree on: source directory to the target directory most of its pairs name. */
+function directoryMoves(changes: Map<string, FileChange>): Map<string, string> {
+  const votes = new Map<string, Map<string, number>>();
+  for (const [newPath, change] of changes) {
+    if (change.status !== 'R' || !change.oldPath || basenameOf(change.oldPath) !== basenameOf(newPath)) continue;
+    const from = dirnameOf(change.oldPath);
+    const counts = votes.get(from) ?? new Map<string, number>();
+    counts.set(dirnameOf(newPath), (counts.get(dirnameOf(newPath)) ?? 0) + 1);
+    votes.set(from, counts);
+  }
+  const moves = new Map<string, string>();
+  for (const [from, counts] of votes) {
+    const ranked = [...counts.entries()].sort((a, b) => b[1] - a[1]);
+    if (ranked.length === 1 || ranked[0][1] > ranked[1][1]) moves.set(from, ranked[0][0]);
+  }
+  return moves;
+}
+
+const joinDir = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
+
+/**
+ * Repairs incoming rename pairs in place so a moved file is carried by its path, not by git's
+ * content pairing. Same or similar copies in a moved folder pair crosswise at `-M90%`
+ * (`nl/app.json` to `nl/about.json`), which would land a protected file's local content at the
+ * wrong path; a copy whose content pairs nowhere arrives as delete plus add, which would drop the
+ * local copy for incoming's. A pair whose basename changes is re-aimed at the same-named path new
+ * in incoming, in the directory its own files moved to, else in the one git's pairing points at;
+ * crossed pairs swap in one pass, and any collision keeps git's pairing whole. A protected local
+ * path incoming deleted is then paired with the same-named path added where its directory went.
+ */
+export function repairIncomingRenames(changes: Map<string, FileChange>, context: RenameRepairContext): void {
+  const dirMoves = directoryMoves(changes);
+  const snapshot = new Map(changes);
+
+  const crossed: { from: string; oldPath: string; change: FileChange }[] = [];
+  const keptTargets = new Set<string>();
+  const renameSources = new Set<string>();
+  for (const [newPath, change] of changes) {
+    if (change.status !== 'R' || !change.oldPath) continue;
+    renameSources.add(change.oldPath);
+    if (basenameOf(change.oldPath) === basenameOf(newPath)) keptTargets.add(newPath);
+    else crossed.push({ from: newPath, oldPath: change.oldPath, change });
+  }
+
+  // Desired target per crossed pair; its current key when no same-named path is new in incoming.
+  const desired = new Map<string, string>();
+  for (const pair of crossed) {
+    const name = basenameOf(pair.oldPath);
+    const mappedDir = dirMoves.get(dirnameOf(pair.oldPath));
+    const candidates = [
+      ...(mappedDir === undefined ? [] : [joinDir(mappedDir, name)]),
+      joinDir(dirnameOf(pair.from), name),
+    ];
+    const target = candidates.find(
+      (path) => context.incomingPaths.has(path) && !context.basePaths.has(path) && !keptTargets.has(path),
+    );
+    desired.set(pair.from, target ?? pair.from);
+  }
+
+  const targets = [...desired.values()];
+  if (new Set(targets).size === targets.length) {
+    const targetSet = new Set(targets);
+    for (const pair of crossed) {
+      const target = desired.get(pair.from) as string;
+      if (target === pair.from) continue;
+      changes.set(target, {
+        status: 'R',
+        oldPath: pair.oldPath,
+        baseHash: pair.change.baseHash,
+        targetHash: snapshot.get(target)?.targetHash ?? null,
+      });
+    }
+    // A key every repaired pair left is an added file.
+    for (const pair of crossed) {
+      if (desired.get(pair.from) === pair.from || targetSet.has(pair.from)) continue;
+      changes.set(pair.from, { status: 'A', baseHash: null, targetHash: snapshot.get(pair.from)?.targetHash ?? null });
+    }
+  }
+
+  for (const oldPath of context.localPaths) {
+    if (context.incomingPaths.has(oldPath) || !context.basePaths.has(oldPath)) continue;
+    if (renameSources.has(oldPath) || !context.isProtected(oldPath)) continue;
+    const mappedDir = dirMoves.get(dirnameOf(oldPath));
+    if (mappedDir === undefined) continue;
+    const target = joinDir(mappedDir, basenameOf(oldPath));
+    if (!context.incomingPaths.has(target) || context.basePaths.has(target) || changes.get(target)?.status !== 'A')
+      continue;
+
+    changes.set(target, { status: 'R', oldPath, baseHash: null, targetHash: changes.get(target)?.targetHash ?? null });
+    changes.delete(oldPath);
+    renameSources.add(oldPath);
+  }
 }
 
 type ProgressCallback = (message: string) => void;
@@ -44,6 +160,14 @@ export async function analyzeRefs(
   // Changes between base and each tip; rename detection runs at -M90%.
   const upstreamChanges = await getFileChanges(repoPath, mergeBaseRef, incomingRef);
   const forkChanges = await getFileChanges(repoPath, mergeBaseRef, localRef);
+
+  // Content pairing can cross same-named copies or miss one; a protected move must follow the path.
+  repairIncomingRenames(upstreamChanges, {
+    basePaths: new Set(baseHashes.keys()),
+    incomingPaths: new Set(upstreamHashes.keys()),
+    localPaths: new Set(forkHashes.keys()),
+    isProtected: (path) => predicates.isIgnored(path) || predicates.isPinned(path),
+  });
 
   // oldPath -> newPath for renames in incoming.
   const upstreamRenames = new Map<string, string>();
@@ -167,11 +291,12 @@ export async function analyzeRefs(
     if (fileIsIgnored) {
       status = 'ignored';
     } else if (!inFork && inUpstream) {
-      // Missing locally: a pinned path, or one at base that incoming left untouched, is a local
-      // deletion that stays deleted (re-adding it would resurface it every sync). A path new in
-      // incoming, or one incoming modified after the local side deleted it, comes from incoming.
+      // Missing locally: a pinned path at base, or one at base that incoming left untouched, is a
+      // local deletion that stays deleted (re-adding it would resurface it every sync). A path new
+      // in incoming, a pinned one included (pinned before its first arrival, as an alignment can
+      // ask), or one incoming modified after the local side deleted it, comes from incoming.
       const locallyDeleted = baseHash !== null && upstreamHash === baseHash;
-      status = fileIsPinned || locallyDeleted ? 'deleted' : 'behind';
+      status = (fileIsPinned && baseHash !== null) || locallyDeleted ? 'deleted' : 'behind';
     } else if (inFork && !inUpstream) {
       if (baseHash !== null) {
         // In base, deleted by incoming: sync the deletion unless pinned.

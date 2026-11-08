@@ -126,8 +126,8 @@ describe('sync stops before the merge', () => {
       await runUpgradeCommand(config);
 
       expect(exec('git log -1 --format=%s', env.forkPath)).toMatch(/^chore: upgrade cella to/);
-      // Pinned and absent in the fork: the file stays out
-      expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(false);
+      // Pinned before it exists, as an alignment can ask: upstream's copy arrives as the fork's first one
+      expect(fs.existsSync(path.join(env.forkPath, 'backend/src/bundle-config.ts'))).toBe(true);
       expect(lines.join('\n')).not.toContain('upstream changed its CLI config');
     });
 

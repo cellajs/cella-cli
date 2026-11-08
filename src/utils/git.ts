@@ -546,7 +546,7 @@ export async function getMergeBase(cwd: string, ref1: string, ref2: string): Pro
 type FileChangeStatus = 'A' | 'D' | 'M' | 'T' | 'R';
 
 /** File change info from git diff-tree */
-interface FileChange {
+export interface FileChange {
   status: FileChangeStatus;
   baseHash: string | null;
   targetHash: string | null;

@@ -31,6 +31,15 @@ export async function readUpstreamCliRange(repoPath: string, ref: string): Promi
  * The error message when `running` is older than the lowest version `range` admits, else null.
  * A range with no lower bound (`<1.0.0`, `workspace:*`, `link:…`, `a || b`) never blocks.
  */
+/**
+ * The follow-up line for a fork that delays fresh releases (`minimumReleaseAge`): the exact
+ * `minimumReleaseAgeExclude` entry that lets the asked-for version install before it ages.
+ */
+export function releaseAgeExcludeHint(range: string): string {
+  const version = range.match(/\d+\S*/)?.[0] ?? range;
+  return `  pnpm delays fresh releases (minimumReleaseAge): if the install is refused, add '${CLI_PACKAGE}@${version}' to minimumReleaseAgeExclude in pnpm-workspace.yaml.`;
+}
+
 export function cliVersionMismatch(running: string, range: string): string | null {
   if (/^\s*(<|>(?!=))/.test(range)) return null;
   const required = parseComparableVersion(range);

@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cliVersionMismatch, readUpstreamCliRange } from '../src/utils/cli-version';
+import { cliVersionMismatch, readUpstreamCliRange, releaseAgeExcludeHint } from '../src/utils/cli-version';
 import { createRepo, exec } from './helpers/test-env';
 
 describe('cliVersionMismatch', () => {
@@ -38,6 +38,14 @@ describe('cliVersionMismatch', () => {
     ]) {
       expect(cliVersionMismatch('0.1.0', range)).toBeNull();
     }
+  });
+});
+
+describe('releaseAgeExcludeHint', () => {
+  it('names the exact exclude entry for the version the range asks for', () => {
+    expect(releaseAgeExcludeHint('^0.6.6')).toContain(`'@cellajs/cli@0.6.6'`);
+    expect(releaseAgeExcludeHint('^0.6.6')).toContain('minimumReleaseAgeExclude');
+    expect(releaseAgeExcludeHint('1.0.0-beta.1')).toContain(`'@cellajs/cli@1.0.0-beta.1'`);
   });
 });
 

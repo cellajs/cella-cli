@@ -535,6 +535,9 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
     for (const entry of report[list].removed) {
       lines.push(`  ${pc.red('−')} ${list}: ${entry}${pc.dim(' · dropped upstream, still in your config')}`);
     }
+    for (const { from, to } of report[list].moved ?? []) {
+      lines.push(pc.dim(`  ~ ${list}: ${from} → ${to} · renamed upstream, your config never had it`));
+    }
   }
   console.info(
     `${warningMark} ${pc.yellow(`upstream changed its CLI config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,

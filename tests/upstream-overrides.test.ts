@@ -12,7 +12,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import type { CellaCliConfig, MergeResult, PackageJsonKey } from '../src/config/types';
 import { printUpstreamOverrideChanges } from '../src/utils/display';
-import { compareUpstreamOverrides, diffOverrideLists, parseOverrideLists } from '../src/utils/upstream-overrides';
+import {
+  compareUpstreamOverrides,
+  diffOverrideLists,
+  hasBlockingOverrideChanges,
+  parseOverrideLists,
+} from '../src/utils/upstream-overrides';
 import { captureInfo, createRepo, exec, write } from './helpers/test-env';
 
 /** The keys a config without `packageJsonKeys` syncs. */
@@ -148,6 +153,26 @@ describe('diffOverrideLists', () => {
     expect(result.pinned.removed).toEqual([]);
     // the default keys are in both upstream refs, the fork syncs none of them
     expect(result.packageJsonKeys).toEqual(NONE);
+  });
+
+  it('reports an upstream rename the fork never carried as moved, which blocks nothing', () => {
+    // Upstream renamed its own pin json/text-blocks.json; the fork never had it under either path.
+    const before = { pinned: ['a.ts', 'json/text-blocks.json'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
+    const after = { pinned: ['a.ts', 'shared/json/text-blocks.json'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
+    const fork = { pinned: ['a.ts'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
+
+    const changes = diffOverrideLists(before, after, fork);
+    expect(changes.pinned).toEqual({
+      added: [],
+      removed: [],
+      moved: [{ from: 'json/text-blocks.json', to: 'shared/json/text-blocks.json' }],
+    });
+    expect(hasBlockingOverrideChanges({ kind: 'changes', ...changes })).toBe(false);
+
+    // The fork carrying the old path keeps the entry blocking: its config names a path that is gone.
+    const carrying = diffOverrideLists(before, after, { ...fork, pinned: ['a.ts', 'json/text-blocks.json'] });
+    expect(carrying.pinned).toEqual({ added: ['shared/json/text-blocks.json'], removed: ['json/text-blocks.json'] });
+    expect(hasBlockingOverrideChanges({ kind: 'changes', ...carrying })).toBe(true);
   });
 
   it('reports packageJsonKeys keys upstream added that the fork lacks and dropped that the fork still lists', () => {
