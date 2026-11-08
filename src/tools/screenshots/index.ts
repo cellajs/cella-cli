@@ -25,7 +25,7 @@ export const screenshotsCommand: ToolCommand<ShootOptions> = {
   operands: ['[ids...]', 'the shots to take (default: all)'],
   options: [
     ['--out <dir>', 'write into this folder, a trial run that leaves the working tree alone'],
-    ['--email <address>', 'the shot user (default the showcase admin, else ADMIN_EMAIL in backend/.env)'],
+    ['--email <address>', 'the shot user (default the showcase admin, else ADMIN_EMAIL in .env)'],
   ],
   parse: ({ operands, opts }) => ({
     ids: operands,

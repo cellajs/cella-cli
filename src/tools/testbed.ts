@@ -98,8 +98,9 @@ async function resolveTestbed(forkPath: string, data: TestbedData = 'seed'): Pro
     throw new Error('shared/src/local-database.ts names no testbed database: upgrade the app from cella first');
   }
   const composeEnv = databases.composeEnv();
-  const envFile = join(forkPath, 'backend/.env');
-  const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile, 'utf8')) : {};
+  // The env file sits at the repo root; an app not yet past that template change keeps it in backend/.
+  const envFile = [join(forkPath, '.env'), join(forkPath, 'backend/.env')].find((path) => existsSync(path));
+  const fileEnv = envFile ? parseEnv(readFileSync(envFile, 'utf8')) : {};
   const portOffset = facts.devPortOffset + PORT_SHIFT;
 
   return {
@@ -109,7 +110,7 @@ async function resolveTestbed(forkPath: string, data: TestbedData = 'seed'): Pro
     databasePort,
     portOffset,
     env: {
-      // The seed creates the admin that backend/.env names, and a command signs in as that user
+      // The seed creates the admin that the env file names, and a command signs in as that user
       ...(fileEnv.ADMIN_EMAIL ? { ADMIN_EMAIL: fileEnv.ADMIN_EMAIL } : {}),
       ...getEnvSnapshot(),
       ...(data === 'showcase' ? { ADMIN_EMAIL: showcaseAdmin(forkPath) } : {}),

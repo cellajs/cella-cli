@@ -80,7 +80,7 @@ export const a11yCommand: ToolCommand<A11yOptions> = {
   options: [
     ['--states <ids>', 'audit: these states only, comma separated; writes ledger-partial.json, never the ledger'],
     ['--workers <n>', 'audit: states audited at the same time (default 4)'],
-    ['--email <address>', 'audit: the audit user (default ADMIN_EMAIL in backend/.env)'],
+    ['--email <address>', 'audit: the audit user (default ADMIN_EMAIL in .env)'],
     ['--publish', 'report: put the PDF where the app serves it and print what the statement needs'],
     ['--draft', 'report: publish while rows still need a person; the statement calls the results provisional'],
     ['--file <path>', 'decide: a JSON list of decisions'],

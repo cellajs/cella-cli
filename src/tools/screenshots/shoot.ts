@@ -97,7 +97,7 @@ const hasMfaScript = (forkPath: string) =>
  */
 export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHandle, options: ShootOptions) {
   const email = options.email ?? testbed.env.ADMIN_EMAIL;
-  if (!email) throw new Error('no shot user: pass --email, or set ADMIN_EMAIL in backend/.env');
+  if (!email) throw new Error('no shot user: pass --email, or set ADMIN_EMAIL in .env');
   const todo = options.ids.length > 0 ? list.shots.filter((shot) => options.ids.includes(shot.id)) : list.shots;
 
   const user = mintSession(email, { forkPath, env: testbed.env });

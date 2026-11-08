@@ -159,7 +159,7 @@ run. The audit takes three to four minutes on top of the testbed's start.
 | `pnpm cella a11y report --publish --draft` | The same while rows still need a person: the statement calls the results provisional |
 | `pnpm cella a11y decide --file decisions.json` | Record a reviewer's decisions (an agent's or a person's) with their evidence |
 
-The audit signs in as the seeded admin (`ADMIN_EMAIL` of `backend/.env`) with a minted session and signs it out when it
+The audit signs in as the seeded admin (`ADMIN_EMAIL` of `.env`) with a minted session and signs it out when it
 ends. A visit that fails (a page that redirects, a check that cannot run) is reported, the command exits with an error,
 and the run writes `ledger-partial.json`: an incomplete run never replaces the ledger. The failed visit leaves
 `failure-<mode>.png` and `failure-<mode>.json` in the state's folder under `review/`: what the page showed, its
