@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.7.0](https://github.com/cellajs/cella-cli/compare/cli-0.6.7...cli-0.7.0) (2026-11-08)
+
+
+### ⚠ BREAKING CHANGES
+
+* drop the forks service, and the screenshots and contributions commands become shoot and adopt ([#79](https://github.com/cellajs/cella-cli/issues/79))
+
+### 🔧 Small improvements
+
+* drop the forks service, and the screenshots and contributions commands become shoot and adopt ([#79](https://github.com/cellajs/cella-cli/issues/79)) ([70fb060](https://github.com/cellajs/cella-cli/commit/70fb060d854672a9d9cbc34b0ec432a714462aaf))
+
 ## [0.6.7](https://github.com/cellajs/cella-cli/compare/cli-0.6.6...cli-0.6.7) (2026-11-08)
 
 
