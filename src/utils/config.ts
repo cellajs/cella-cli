@@ -1,7 +1,5 @@
 /**
  * Config loading utilities for the cella CLI.
- *
- * Shared between main entry point and forks service.
  */
 
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
@@ -130,7 +128,7 @@ export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
 
   // Auto-derive fork-owned module folders (modules declaring `owner: 'app'`) and merge
   // them into ignored. This keeps app modules as fork territory: upstream never
-  // adds/modifies/deletes them during sync, and the contributions service never offers
+  // adds/modifies/deletes them during sync, and the adopt service never offers
   // them back upstream. Derived entries always exist (they come from real files), so
   // config validation never warns about them.
   const appModuleFolders = resolveAppModuleFolders(realForkPath);

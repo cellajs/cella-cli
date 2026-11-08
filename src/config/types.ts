@@ -76,9 +76,7 @@ export interface SyncSettings {
 /**
  * Configuration for a downstream fork repository that cella interacts with.
  *
- * Cella is the upstream/source-of-truth. For each fork it can:
- * - pull contributions FROM the fork's `pullBranch` (contributions service)
- * - run the normal temporary-branch upgrade flow inside the fork (forks service)
+ * Cella is the upstream/source-of-truth: the adopt service pulls contributions FROM the fork's `pullBranch`.
  */
 export interface ForkConfig {
   /** Display name for the fork (also used as the contrib/<name> branch slug) */
@@ -87,13 +85,13 @@ export interface ForkConfig {
   localPath: string;
   /**
    * Git remote URL of the fork (e.g. 'git@github.com:org/fork.git').
-   * When set, the contributions service fetches the fork's `pullBranch` from this
+   * When set, the adopt service fetches the fork's `pullBranch` from this
    * remote (the authoritative committed ref), so the comparison does not depend on
    * the local checkout being up to date. The local clone is still used to read the
    * fork's owned-folder territory when available.
    */
   remoteUrl?: string;
-  /** Fork branch that cella pulls contributions from (contributions service) */
+  /** Fork branch that cella pulls contributions from (adopt service) */
   pullBranch: string;
 }
 
@@ -127,7 +125,7 @@ export interface CellaCliConfig {
 
   /**
    * Downstream fork repositories that cella interacts with (for upstream template repos).
-   * When configured, the 'forks' and 'contributions' services appear in the CLI menu.
+   * When configured, the 'adopt' service appears in the CLI menu.
    */
   forks?: ForkConfig[];
 }
@@ -190,9 +188,9 @@ export const cellaConfigSchema = z
 // Internal types for the services.
 
 /** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'forks' | 'contributions' | 'stats';
+export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt' | 'stats';
 
-/** Where a command shows in the menu and in `--help`; a gate shows in `--help` only, since scripts and CI run it. */
+/** A command's `--help` heading and menu place; a gate shows in `--help` only, since scripts and CI run it. */
 export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
 
 export type CommandOption = [flags: string, description: string];

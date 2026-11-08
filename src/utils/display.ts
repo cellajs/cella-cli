@@ -185,7 +185,7 @@ function styleSubject(subject: string): string {
 /**
  * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
  * its remote when it is ahead or behind. The path shows when it is not the current directory, as
- * when `forks` syncs another repo.
+ * with `CELLA_FORK_PATH`.
  */
 export function formatCheckoutStep(checkout: {
   forkPath: string;

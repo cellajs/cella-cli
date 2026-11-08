@@ -1,7 +1,7 @@
 /**
  * Direction-agnostic ref analyzer: compares a "local" ref against an "incoming" ref from a shared
  * merge-base and classifies every changed file, with git plumbing on refs only, never the working
- * tree. Sync runs it with local = fork HEAD and incoming = upstream, contributions with local =
+ * tree. Sync runs it with local = fork HEAD and incoming = upstream, adopt with local =
  * cella branch and incoming = fork branch; `existsInFork`/`existsInUpstream` map to local/incoming.
  */
 

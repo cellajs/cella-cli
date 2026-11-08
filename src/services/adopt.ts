@@ -1,5 +1,5 @@
 /**
- * Contributions service for the cella CLI.
+ * Adopt service for the cella CLI.
  *
  * Upstream-side (cella): based on the configured `forks`, lets the user pick a
  * single fork, pulls its `pullBranch` and builds a clean local `contrib/<fork>`
@@ -261,13 +261,13 @@ async function forkRefMeta(cellaPath: string, forkRef: string): Promise<{ sha: s
 }
 
 /**
- * Run the contributions service.
+ * Run the adopt service.
  *
  * Based on the configured `forks`, lets the user select one fork, pulls its
  * `pullBranch`, builds a clean local `contrib/<fork>` branch, then presents
  * an interactive TUI to review and adopt individual files.
  */
-export async function runContributions(config: RuntimeConfig): Promise<void> {
+export async function runAdopt(config: RuntimeConfig): Promise<void> {
   const forks = config.forks ?? [];
 
   if (forks.length === 0) {

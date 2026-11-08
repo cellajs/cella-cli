@@ -98,7 +98,6 @@ const unpinnedOption: CommandOption = [
   '--unpinned',
   'lift every pinned entry for this run (managed files stay pinned) and merge from the full upstream history',
 ];
-const forkOption: CommandOption = ['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'];
 
 const serviceDefinitions: ServiceDefinition[] = [
   {
@@ -151,18 +150,9 @@ const serviceDefinitions: ServiceDefinition[] = [
     options: [['--list', 'report only: no prompts, and nothing is written']],
   },
   {
-    name: 'forks',
-    description: 'run the upgrade inside local fork repositories',
-    options: [
-      forkOption,
-      ['--keep-config', "merge with the fork's CLI config as it stands when upstream changed its own"],
-    ],
-    includeInMenu: (context) => context.hasForks,
-  },
-  {
-    name: 'contributions',
+    name: 'adopt',
     description: 'pull and adopt changes from local forks',
-    options: [forkOption, jsonOption],
+    options: [['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'], jsonOption],
     includeInMenu: (context) => context.hasForks,
   },
   {
@@ -195,24 +185,19 @@ const groupHeadings: Record<CommandGroup, string> = {
 const serviceGroup = (definition: ServiceDefinition): CommandGroup => definition.group ?? 'upstream';
 
 function buildMenuChoices(context: MenuContext) {
-  // Pad labels to align descriptions (longest label is 'contributions').
-  const label = (name: string) => name.padEnd(14);
   const entries: { name: string; group: CommandGroup; description: string }[] = [
     ...serviceDefinitions
       .filter((service) => service.includeInMenu?.(context) ?? true)
       .map((service) => ({ name: service.name, group: serviceGroup(service), description: service.description })),
     ...toolCommands.filter((tool) => tool.group !== 'gate'),
   ];
+  const width = Math.max(...entries.map((entry) => entry.name.length)) + 3;
+  const label = (name: string) => name.padEnd(width);
 
   return [
-    ...groupOrder.flatMap((group) => {
-      const inGroup = entries.filter((entry) => entry.group === group);
-      if (inGroup.length === 0) return [];
-      return [
-        { type: 'separator' as const, separator: pc.dim(group) },
-        ...inGroup.map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
-      ];
-    }),
+    ...groupOrder
+      .flatMap((group) => entries.filter((entry) => entry.group === group))
+      .map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
     { type: 'separator' as const, separator: MENU_DIVIDER },
     { value: 'exit', name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
   ];
@@ -306,7 +291,7 @@ function buildProgram(
         '  $ cella bench get-me --short --isolated',
         '  $ cella a11y --states sign-in,home',
         '  $ cella a11y decide --file decisions.json',
-        '  $ cella screenshots settings',
+        '  $ cella shoot settings',
         '  $ cella i18n unused --json',
         '  $ cella i18n rename c:old_key c:new_key',
         '  $ cella analyze',
@@ -317,7 +302,7 @@ function buildProgram(
         '  $ cella align --mark 20261002T0614-config-switch',
         '  $ cella audit --list',
         '  $ cella stats --since origin/main --md',
-        '  $ cella contributions --fork raak --json',
+        '  $ cella adopt --fork raak --json',
         '  $ cella style frontend/src',
       ].join('\n'),
     );

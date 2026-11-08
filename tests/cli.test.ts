@@ -63,11 +63,11 @@ describe('parseCli', () => {
   });
 
   it('parses a subcommand with additional options', async () => {
-    process.argv = ['node', 'cella', 'contributions', '--fork', 'raak', '--json'];
+    process.argv = ['node', 'cella', 'adopt', '--fork', 'raak', '--json'];
 
     const config = await parseUpstream(baseConfig, '/tmp/fork');
 
-    expect(config.service).toBe('contributions');
+    expect(config.service).toBe('adopt');
     expect(config.fork).toBe('raak');
     expect(config.json).toBe(true);
   });
@@ -105,7 +105,7 @@ describe('parseCli', () => {
     expect((await parseUpstream(baseConfig, '/tmp/fork')).ref).toBe('v0.14.0');
   });
 
-  it('parses --keep-config for upgrade and forks', async () => {
+  it('parses --keep-config for upgrade', async () => {
     process.argv = ['node', 'cella', 'upgrade'];
     expect((await parseUpstream(baseConfig, '/tmp/fork')).keepConfig).toBe(false);
 
@@ -113,9 +113,6 @@ describe('parseCli', () => {
     const aggressive = await parseUpstream(baseConfig, '/tmp/fork');
     expect(aggressive.keepConfig).toBe(true);
     expect(aggressive.unpinned).toBe(true);
-
-    process.argv = ['node', 'cella', 'forks', '--fork', 'raak', '--keep-config'];
-    expect((await parseUpstream(baseConfig, '/tmp/fork')).keepConfig).toBe(true);
   });
 
   it('hands the arguments after -- to the codemod of align --run as given, and none without --', async () => {
@@ -175,7 +172,7 @@ describe('parseToolCommand', () => {
   it('takes shot ids as operands, and refuses an a11y flag given to another job', () => {
     const parse = (...args: string[]) => parseToolCommand(['node', 'cella', ...args])?.options;
 
-    expect(parse('screenshots', 'settings', 'org-page', '--out', '/tmp/shots')).toEqual({
+    expect(parse('shoot', 'settings', 'org-page', '--out', '/tmp/shots')).toEqual({
       ids: ['settings', 'org-page'],
       out: '/tmp/shots',
       email: undefined,
