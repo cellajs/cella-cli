@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.6.7](https://github.com/cellajs/cella-cli/compare/cli-0.6.6...cli-0.6.7) (2026-11-08)
+
+
+### 🐞 Bug fixes
+
+* a moved protected file travels by its own path, a pin arrives before its file exists, and stops explain more ([#76](https://github.com/cellajs/cella-cli/issues/76)) ([55ec284](https://github.com/cellajs/cella-cli/commit/55ec284174abef749e78c80405b07b9d18a1981e))
+* read an app's env file at the repo root, falling back to backend/ ([#78](https://github.com/cellajs/cella-cli/issues/78)) ([de0c5f3](https://github.com/cellajs/cella-cli/commit/de0c5f3aeaf117193c0db9811650dfe6ca4a6f85))
+
 ## [0.6.6](https://github.com/cellajs/cella-cli/compare/cli-0.6.5...cli-0.6.6) (2026-11-06)
 
 
