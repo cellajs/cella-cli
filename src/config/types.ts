@@ -432,6 +432,8 @@ export interface OverrideListChanges {
   added: string[];
   /** Entries upstream removed since the merge-base that the fork list still carries. */
   removed: string[];
+  /** Entries upstream renamed that the fork never carried under either path: informational, never a stop. */
+  moved?: { from: string; to: string }[];
 }
 
 /**

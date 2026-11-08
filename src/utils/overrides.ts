@@ -77,12 +77,14 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 }
 
 /**
- * Warnings for override entries that cannot work: globs, pins missing from the fork, and ignored
- * entries neither the fork nor upstream has (a fork may ignore a path to keep it from arriving).
- * Also pins that do nothing: inside an ignored path (app modules included), gone from upstream
- * (the path is the app's own), or identical to upstream (it only drops upstream's next change).
- * Upstream is read at `upstreamRef` as last fetched; while it does not resolve, every ignored
- * entry missing from the fork warns and the upstream checks on pins are skipped.
+ * Warnings for override entries that cannot work: globs, pins and ignored entries neither the fork
+ * nor upstream has (a fork may ignore a path to keep it from arriving; an entry upstream holds
+ * arrives with the merge, a pinned one as the fork's first copy). A missing generated path never
+ * warns: it appears with its build step. Also pins that do nothing: inside an ignored path (app
+ * modules included), gone from upstream (the path is the app's own), or identical to upstream (it
+ * only drops upstream's next change). Upstream is read at `upstreamRef` as last fetched; while it
+ * does not resolve, every entry missing from the fork warns and the upstream checks on pins are
+ * skipped.
  */
 export async function validateOverrides(
   config: CellaCliConfig,
@@ -98,8 +100,10 @@ export async function validateOverrides(
     const path = normalizeEntry(entry);
     const ignoredEntry = ignored.find((folder) => isUnderAnyFolder(path, [folder]));
     if (/[*?]/.test(entry)) warnings.push(`pin uses glob (not supported, use a path or folder): ${entry}`);
-    else if (!existsSync(join(forkPath, path))) warnings.push(`pin not found: ${entry}`);
-    else if (ignoredEntry) warnings.push(`pin does nothing, '${normalizeEntry(ignoredEntry)}' is ignored: ${entry}`);
+    else if (!existsSync(join(forkPath, path))) {
+      // Upstream holds it: the merge brings it as the fork's first copy, nothing to warn about.
+      if (!upstream || !(await fileExistsAtRef(forkPath, upstream, path))) warnings.push(`pin not found: ${entry}`);
+    } else if (ignoredEntry) warnings.push(`pin does nothing, '${normalizeEntry(ignoredEntry)}' is ignored: ${entry}`);
     else if (!upstream) continue;
     else if (await fileExistsAtRef(forkPath, upstream, path)) pinsUpstreamHas.push(entry);
     else warnings.push(`pin does nothing, upstream no longer has it: ${entry}`);
@@ -123,6 +127,8 @@ export async function validateOverrides(
       warnings.push(`ignored entry uses glob (not supported, use a path or folder): ${entry}`);
     } else if (!existsSync(join(forkPath, path))) {
       if (upstreamRef && (await fileExistsAtRef(forkPath, upstreamRef, path))) continue;
+      // Generated output appears with its build step, so its absence proves nothing.
+      if (isGeneratedFile(path)) continue;
       warnings.push(`ignored entry not found: ${entry}`);
     }
   }

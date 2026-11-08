@@ -52,9 +52,24 @@ function readSearchable(filePath: string): string {
   }
 }
 
+const codeFilePattern = /\.(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)$/;
+const proseFilePattern = /\.(?:md|mdx|markdown)$/i;
+
+/**
+ * Code with its block comments and full-line `//` comments dropped: a mention there is prose, not
+ * use. A trailing `//` after code stays, which at worst keeps an entry.
+ */
+function stripComments(text: string): string {
+  return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+}
+
 function fileSource(forkPath: string, path: string): ForkSource {
   let text: string | undefined;
-  return { path, label: path, text: () => (text ??= readSearchable(join(forkPath, path))) };
+  const read = () => {
+    const content = readSearchable(join(forkPath, path));
+    return codeFilePattern.test(path) ? stripComments(content) : content;
+  };
+  return { path, label: path, text: () => (text ??= read()) };
 }
 
 async function readScriptsAtRef(forkPath: string, ref: string, path: string): Promise<Record<string, string>> {
@@ -135,7 +150,8 @@ export async function loadForkUsage(forkPath: string, upstreamRef: string, baseR
 
   for (const path of diff.split('\0').filter(Boolean)) {
     if (isPackageJson(path)) sources.push(...(await scriptSources(forkPath, upstreamRef, baseRef, path)));
-    else if (!isManagedFile(path)) sources.push(fileSource(forkPath, path));
+    // Markdown only mentions a package or script; a mention is not use.
+    else if (!isManagedFile(path) && !proseFilePattern.test(path)) sources.push(fileSource(forkPath, path));
   }
 
   const findIn = (scoped: ForkSource[], patterns: RegExp[]) =>

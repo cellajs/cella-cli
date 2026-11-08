@@ -25,7 +25,8 @@ import {
   UPSTREAM_ONLY_DIRS,
   writePending,
 } from '../utils/alignments';
-import { cliVersionMismatch, readUpstreamCliRange } from '../utils/cli-version';
+import { readReleaseAgeMinutes } from '../utils/audit-utils';
+import { cliVersionMismatch, readUpstreamCliRange, releaseAgeExcludeHint } from '../utils/cli-version';
 import pc from '../utils/colors';
 import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../utils/config';
 import {
@@ -77,7 +78,7 @@ import {
 import { CONFIG_FILE, isManagedFile } from '../utils/managed-files';
 import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from '../utils/manifest';
 import { groupIgnoredUpstreamChanges, isIgnored, isPinned } from '../utils/overrides';
-import { compareUpstreamOverrides } from '../utils/upstream-overrides';
+import { compareUpstreamOverrides, hasBlockingOverrideChanges } from '../utils/upstream-overrides';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './analyze-core';
 
 type ProgressCallback = (message: string, detail?: string) => void;
@@ -127,6 +128,15 @@ function isProtectedFile(file: AnalyzedFile): boolean {
   return file.isIgnored || file.isPinned;
 }
 
+/**
+ * A pinned path the fork lacks that is new in upstream (`behind`, not a local deletion): upstream's
+ * copy arrives once as the fork's first one, as when an alignment pins a path before the merge
+ * that creates it. Protection applies from the next sync on.
+ */
+function isPinnedFirstArrival(file: AnalyzedFile): boolean {
+  return file.isPinned && !file.isIgnored && !file.existsInFork && file.existsInUpstream && file.status === 'behind';
+}
+
 /** Build analyzer predicates for the sync direction (local = fork, incoming = upstream). */
 function syncPredicates(config: RuntimeConfig): AnalyzePredicates {
   return {
@@ -169,7 +179,7 @@ async function applyDirectMerge(
   const batchRemovePaths: string[] = [];
   const movedProtected: { from: string; to: string }[] = [];
   for (const file of analyzedFiles) {
-    if (file.status === 'identical' || file.status === 'ahead') continue;
+    if (file.status === 'identical' || file.status === 'ahead' || isPinnedFirstArrival(file)) continue;
     if (file.status === 'pinned' && file.renamedFrom) movedProtected.push({ from: file.renamedFrom, to: file.path });
     else if (file.isIgnored || file.isPinned) {
       (file.existsInFork ? batchRestorePaths : batchRemovePaths).push(file.path);
@@ -201,7 +211,8 @@ async function applyDirectMerge(
   // The remaining files, one by one; protected ones went with the batch above.
   for (const file of analyzedFiles) {
     const { path: filePath, status, existsInFork } = file;
-    if (status === 'identical' || status === 'ahead' || isProtectedFile(file)) continue;
+    if (status === 'identical' || status === 'ahead' || (isProtectedFile(file) && !isPinnedFirstArrival(file)))
+      continue;
 
     if (status === 'diverged') {
       // git's merge result stands for diverged files.
@@ -211,7 +222,9 @@ async function applyDirectMerge(
 
     if (status === 'behind') {
       if (!existsInFork) {
-        onProgress?.(`→ ${filePath}: adding from upstream (new file)`);
+        onProgress?.(
+          `→ ${filePath}: adding from upstream (${isPinnedFirstArrival(file) ? "pinned, upstream's copy is your first" : 'new file'})`,
+        );
         await checkoutFromRef(forkPath, upstreamRef, [filePath]);
       } else if (!file.existsInUpstream) {
         // Upstream deleted the file: removed from the fork, including leftovers after a squash merge.
@@ -435,7 +448,10 @@ async function prepareUpstream(
   // Stop before anything merges when upstream was built with a newer CLI than this one.
   const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
   const cliMismatch = cliRange ? cliVersionMismatch(VERSION, cliRange) : null;
-  if (cliMismatch) throw new Error(cliMismatch);
+  if (cliMismatch && cliRange) {
+    const delayed = (await readReleaseAgeMinutes(forkPath)) > 0;
+    throw new Error(delayed ? `${cliMismatch}\n${releaseAgeExcludeHint(cliRange)}` : cliMismatch);
+  }
 
   // Bootstrap sync ancestry for forks with unrelated history (create-cella scaffold or an
   // upstream history squash). No-op once a native merge-base exists. Runs after fetch so the
@@ -504,7 +520,8 @@ async function assertSyncConfigFollowed(config: RuntimeConfig, ctx: UpstreamCont
   const report = await compareUpstreamOverrides(config.forkPath, ctx.mergeBase, ctx.upstreamRef, config).catch(
     () => undefined,
   );
-  if (report?.kind === 'changes') throw new UpstreamConfigChangedError(report);
+  // A report of moved entries alone prints with the merge result and stops nothing.
+  if (report && hasBlockingOverrideChanges(report)) throw new UpstreamConfigChangedError(report);
 }
 
 /** MergeResult fields shared by both engine modes. */

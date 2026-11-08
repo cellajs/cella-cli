@@ -159,14 +159,24 @@ describe('overrides', () => {
       expect(await validateOverrides(buildConfig({ ignored }), env.forkPath)).toEqual(missing);
     });
 
-    it('keeps warning about pins missing from the fork and about globs', async () => {
-      const config = buildConfig({ pinned: ['json/ledger.json', 'src/*.ts'], ignored: ['docs/*'] });
+    it('warns about a pin only when the path is in neither the fork nor upstream, and about globs', async () => {
+      const config = buildConfig({ pinned: ['json/ledger.json', 'never/was.json', 'src/*.ts'], ignored: ['docs/*'] });
+      // json/ledger.json is upstream's: the merge brings it as the fork's first copy, so no warning.
       const warnings = await validateOverrides(config, env.forkPath, 'cella-upstream/main');
       expect(warnings).toEqual([
-        expect.stringMatching(/^pin not found: json\/ledger\.json$/),
+        expect.stringMatching(/^pin not found: never\/was\.json$/),
         expect.stringMatching(/^pin uses glob .*: src\/\*\.ts$/),
         expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
       ]);
+      // Without a resolved upstream only the fork-side check runs, so both missing pins warn.
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toContainEqual(
+        'pin not found: json/ledger.json',
+      );
+    });
+
+    it('never warns about a missing generated path: it appears with its build step', async () => {
+      const config = buildConfig({ ignored: ['shared/locales/resources.gen.d.ts', 'frontend/gen'] });
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([]);
     });
 
     it('warns about pins that do nothing: ignored, gone from upstream, or identical to upstream', async () => {

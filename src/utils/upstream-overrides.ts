@@ -141,13 +141,30 @@ export function diffOverrideLists(
   incoming: OverrideLists,
   fork: OverrideLists,
 ): Record<(typeof LIST_KEYS)[number] | 'packageJsonKeys', OverrideListChanges> {
+  const basenameOf = (entry: string) => entry.slice(entry.lastIndexOf('/') + 1);
   const diff = (key: (typeof LIST_KEYS)[number]): OverrideListChanges => {
     const baseSet = new Set(base[key].map(normalizeEntry).filter(Boolean));
     const incomingSet = new Set(incoming[key].map(normalizeEntry).filter(Boolean));
     const forkEntries = fork[key].map(normalizeEntry).filter(Boolean);
+    const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry) && !isUnderAnyFolder(entry, forkEntries));
+
+    // A new entry that renames a base entry the fork never carried asks nothing of the fork.
+    const renameSources = [...baseSet].filter(
+      (entry) => !incomingSet.has(entry) && !forkEntries.includes(entry) && !isUnderAnyFolder(entry, forkEntries),
+    );
+    const moved: { from: string; to: string }[] = [];
+    const added = newEntries.filter((entry) => {
+      const sourceAt = renameSources.findIndex((source) => basenameOf(source) === basenameOf(entry));
+      if (sourceAt === -1) return true;
+      moved.push({ from: renameSources[sourceAt], to: entry });
+      renameSources.splice(sourceAt, 1);
+      return false;
+    });
+
     return {
-      added: [...incomingSet].filter((entry) => !baseSet.has(entry) && !isUnderAnyFolder(entry, forkEntries)),
+      added,
       removed: [...baseSet].filter((entry) => !incomingSet.has(entry) && forkEntries.includes(entry)),
+      ...(moved.length > 0 ? { moved } : {}),
     };
   };
   const diffKeys = (): OverrideListChanges => {
@@ -190,6 +207,16 @@ export async function compareUpstreamOverrides(
     packageJsonKeys: forkConfig.settings.packageJsonKeys ?? DEFAULT_PACKAGE_JSON_KEYS,
   };
   const changes = diffOverrideLists(base, incoming, fork);
-  const count = Object.values(changes).reduce((n, list) => n + list.added.length + list.removed.length, 0);
+  const count = Object.values(changes).reduce(
+    (n, list) => n + list.added.length + list.removed.length + (list.moved?.length ?? 0),
+    0,
+  );
   return count > 0 ? { kind: 'changes', ...changes } : undefined;
+}
+
+/** Whether the report holds entries the fork must follow by hand; `moved` entries alone never block a merge. */
+export function hasBlockingOverrideChanges(report: UpstreamOverridesReport): boolean {
+  if (report.kind !== 'changes') return false;
+  const lists = [report.pinned, report.ignored, report.packageJsonKeys];
+  return lists.some((list) => list.added.length > 0 || list.removed.length > 0);
 }
