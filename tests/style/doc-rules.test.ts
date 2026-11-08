@@ -58,4 +58,32 @@ describe('docFindings', () => {
     expect(found('cella/alignments/x/README.md', 'This lands load-bearing code.')).toEqual([]);
     expect(found('infra/README.md', `A ${dash} here.`)).toHaveLength(1);
   });
+
+  it('finds a prose paragraph over 80 words, hard-wrapped lines included, never a list, a table, code or an exempt folder', () => {
+    const words = (count: number) => Array.from({ length: count }, (_, index) => `w${index}`).join(' ');
+    const source = [
+      '# T',
+      '',
+      words(81),
+      '',
+      `- ${words(81)}`,
+      '',
+      `| ${words(81)} |`,
+      '',
+      '```',
+      words(81),
+      '```',
+      '',
+      words(41),
+      words(40),
+    ];
+
+    expect(found('guide.md', source.join('\n'))).toEqual([
+      { line: 3, column: 1, rule: 'long-paragraph', term: '81 words' },
+      { line: 13, column: 1, rule: 'long-paragraph', term: '81 words' },
+    ]);
+    expect(found('guide.md', `${words(79)} \`code counts nothing\` [label](target)`)).toEqual([]);
+    expect(found('cella/skills/x/SKILL.md', words(81))).toEqual([]);
+    expect(found('cella/alignments/x/README.md', words(81))).toEqual([]);
+  });
 });
