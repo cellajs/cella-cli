@@ -26,7 +26,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 | `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
 | `bench` | Load-test the running app with its scenarios and check what the stack did with the load (see [Bench](#bench)) |
 | `a11y` | Audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger (see [a11y](#a11y)) |
-| `screenshots` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
+| `shoot` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
 | `i18n` | Translation status, unused keys and renames across the locale files and the code (see [Translations](#translations)) |
 
 | Security | Description |
@@ -40,10 +40,9 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 | `upgrade` | Merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR into `main` |
 | `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
 | `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
-| `forks` * | Run the upgrade inside local fork repositories |
-| `contributions` * | Pull and adopt changes from local forks |
+| `adopt` * | Pull and adopt changes from local forks (see [Adopt](#adopt-from-forks)) |
 
-\* `forks` and `contributions` only appear when you have `forks` configured in `cella.config.ts`. 
+\* `adopt` only appears when you have `forks` configured in `cella.config.ts`.
 
 | Gate | Description |
 |------|-------------|
@@ -62,15 +61,14 @@ Per-command help: `pnpm cella <command> --help`.
 | testbed | `stop`, `--fresh`, `--showcase`, `-- <command>` |
 | bench | `[scenario]`, `--all`, `--short`, `--isolated`, `--skip-seed` |
 | a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
-| screenshots | `<ids...>`, `--out <dir>`, `--email <address>` |
+| shoot | `<ids...>`, `--out <dir>`, `--email <address>` |
 | i18n | `unused`, `rename <ns:old> <ns:new>`, `--json` |
 | pentest | `report`, `--only <probe,nuclei,zap>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
 | audit | `--list` |
-| forks | `--fork <name>`, `--keep-config` |
-| contributions | `--fork <name>`, `--json` |
+| adopt | `--fork <name>`, `--json` |
 | stats | `--since <ref>`, `--md`, `-V, --verbose` |
 | style | `[paths...]` |
 
@@ -198,8 +196,8 @@ A short script can open one state of the scope, signed in, to check a fix: `open
 
 ## Screenshots
 
-`pnpm cella screenshots` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
-files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella screenshots settings`),
+`pnpm cella shoot` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
+files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella shoot settings`),
 `--out <dir>` writes a trial run elsewhere. An app with a `backend/scripts/seeds/showcase.json` is shot on a testbed seeded with that
 showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed, and the command turns
 MFA on for the shot user and a share of their members through the backend's `showcase:mfa` script where the app has it.
@@ -762,7 +760,7 @@ version an advisory claims. Most outcomes need no answer from you:
 
 `--list` prints the same report without prompts and writes nothing.
 
-## Contributions (pull from forks)
+## Adopt from forks
 
 Upstream can pull modifications from local forks and selectively adopt them.
 
@@ -776,7 +774,7 @@ forks: [
 
 ### Pulling contributions
 
-Run `pnpm cella contributions` (or pick **contributions** from the menu). Select a fork; cella
+Run `pnpm cella adopt` (or pick **adopt** from the menu). Select a fork; cella
 fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only that fork's
 contributed files. Press `d` on a file to open its diff in your browser. Accepted files are
 checked out from the contrib branch and staged for review.

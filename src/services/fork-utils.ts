@@ -1,5 +1,5 @@
 /**
- * Shared helpers for the fork-aware services (`forks` and `contributions`).
+ * Shared helpers for the commands that read the configured forks (`adopt` and `i18n unused`).
  */
 
 import { existsSync } from 'node:fs';
@@ -7,7 +7,6 @@ import { dirname, resolve } from 'node:path';
 import type { ForkConfig } from '../config/types';
 import pc from '../utils/colors';
 import { git } from '../utils/git';
-import { CONFIG_FILE } from '../utils/managed-files';
 
 /**
  * Base directory that relative fork `localPath` values resolve against: the main checkout (the
@@ -27,12 +26,8 @@ export interface ValidatedFork {
   error?: string;
 }
 
-/**
- * Validate a fork's local path resolves safely and points at a git repository.
- *
- * @param requireConfig when true, the fork must also contain a `cella/cella.config.ts`.
- */
-export function validateForkPath(fork: ForkConfig, basePath: string, requireConfig = false): ValidatedFork {
+/** Validate a fork's local path resolves safely and points at a git repository. */
+export function validateForkPath(fork: ForkConfig, basePath: string): ValidatedFork {
   const resolvedPath = resolve(basePath, fork.localPath);
 
   // Validate resolved path doesn't escape the parent directory via traversal (CWE-22)
@@ -41,9 +36,6 @@ export function validateForkPath(fork: ForkConfig, basePath: string, requireConf
   }
   if (!existsSync(resolvedPath)) return { fork, resolvedPath, valid: false, error: 'path does not exist' };
   if (!existsSync(`${resolvedPath}/.git`)) return { fork, resolvedPath, valid: false, error: 'not a git repository' };
-  if (requireConfig && !existsSync(`${resolvedPath}/${CONFIG_FILE}`)) {
-    return { fork, resolvedPath, valid: false, error: `missing ${CONFIG_FILE}` };
-  }
 
   return { fork, resolvedPath, valid: true };
 }

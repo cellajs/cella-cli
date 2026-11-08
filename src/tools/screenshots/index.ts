@@ -3,7 +3,7 @@ import { requireChromium } from '../drive';
 import { hasShowcase, withTestbed } from '../testbed';
 import { loadShotList, requireEncoder, type ShootOptions, shoot } from './shoot';
 
-async function runScreenshots(forkPath: string, options: ShootOptions): Promise<number> {
+async function runShoot(forkPath: string, options: ShootOptions): Promise<number> {
   // Before the testbed starts: an adapter that does not fit, an unknown id or a missing encoder fails in seconds
   const list = await loadShotList(forkPath);
   const unknown = options.ids.filter((id) => !list.shots.some((shot) => shot.id === id));
@@ -17,8 +17,8 @@ async function runScreenshots(forkPath: string, options: ShootOptions): Promise<
   return withTestbed(forkPath, (testbed) => shoot(forkPath, list, testbed, options), { data });
 }
 
-export const screenshotsCommand: ToolCommand<ShootOptions> = {
-  name: 'screenshots',
+export const shootCommand: ToolCommand<ShootOptions> = {
+  name: 'shoot',
   group: 'develop',
   description: 'shoot the marketing screenshots on a testbed, a light and a dark file each',
   jobs: [],
@@ -32,5 +32,5 @@ export const screenshotsCommand: ToolCommand<ShootOptions> = {
     out: typeof opts.out === 'string' ? opts.out : undefined,
     email: typeof opts.email === 'string' ? opts.email : undefined,
   }),
-  run: runScreenshots,
+  run: runShoot,
 };

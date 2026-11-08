@@ -1,6 +1,6 @@
 /**
  * Diff helpers: a single-file `git diff`, and diffs rendered as a self-contained HTML page that
- * opens in the default browser. Used by the contributions service and the review page.
+ * opens in the default browser. Used by the adopt service and the review page.
  */
 
 import { execFileSync } from 'node:child_process';
