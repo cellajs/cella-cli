@@ -86,4 +86,21 @@ describe('docFindings', () => {
     expect(found('cella/skills/x/SKILL.md', words(81))).toEqual([]);
     expect(found('cella/alignments/x/README.md', words(81))).toEqual([]);
   });
+
+  it('finds a ", so" tail outside "so that", and never in alignments or migration notes', () => {
+    const long =
+      'The row is cached in the browser for the whole session and shared by every open tab, so a reload is cheap.';
+    expect(found('guide.md', `${long} Built so that it fits.`).map(({ rule }) => rule)).toEqual(['consequence-tail']);
+    expect(found('cella/alignments/x/README.md', long)).toEqual([]);
+    expect(found('cella/migrations/x/README.md', long)).toEqual([]);
+  });
+
+  it('lets a ", so" pair of at most 15 words pass, and reports a longer sentence', () => {
+    const short = 'It never fails, so a switch never blocks on it.';
+    const long =
+      'The frontend content security policy forbids eval in every mode, so the probe is a reported violation on every page load.';
+    expect(found('guide.md', `${short} ${long}`).map(({ rule, column }) => ({ rule, column }))).toEqual([
+      { rule: 'consequence-tail', column: short.length + 1 + long.indexOf(', so ') + 1 },
+    ]);
+  });
 });

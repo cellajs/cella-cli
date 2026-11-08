@@ -13,6 +13,10 @@ export interface ProseRule {
   text?: boolean;
   /** Repo-relative paths the rule skips. */
   exclude?: RegExp;
+  /** Reported only on lines the branch added or changed since its merge base with `origin/main`, uncommitted edits included. */
+  changedLines?: boolean;
+  /** A match inside a sentence of at most this many words passes: a short pair states one idea. */
+  maxSentenceWords?: number;
 }
 
 /** Agent-associated wording, skipped in infra/ and in alignments, which address app maintainers. */
@@ -72,7 +76,31 @@ export const proseRules: ProseRule[] = [
     ...agentWording,
     message: 'say who decides or which value counts: the backend decides, the stored row, the exact count',
   },
+  {
+    name: 'consequence-tail',
+    pattern: /, so (?!that\b)/,
+    message:
+      'make the reason and its consequence two sentences, the one the reader needs first going first, or drop the half that restates the code or the mechanism',
+    docs: true,
+    changedLines: true,
+    maxSentenceWords: 15,
+    exclude: /^(?:cella\/alignments\/|cella\/migrations\/|backend\/drizzle\/)/,
+  },
 ];
+
+/** The rules reported only on changed lines, by name. */
+export const changedLineRules = new Set(proseRules.filter((rule) => rule.changedLines).map((rule) => rule.name));
+
+/** Words in the sentence around `index`: from the previous sentence end or line start to the next sentence end or line end. */
+function sentenceWords(text: string, index: number): number {
+  const before = text.slice(0, index);
+  const ends = [...before.matchAll(/[.!?;:](?=\s)/g)];
+  const start = Math.max(before.lastIndexOf('\n'), ends.length > 0 ? (ends[ends.length - 1].index ?? -1) : -1);
+  const rest = text.slice(index);
+  const end = rest.search(/[.!?](?:\s|$)|\n/);
+  const sentence = text.slice(start + 1, index + (end === -1 ? rest.length : end));
+  return sentence.split(/\s+/).filter(Boolean).length;
+}
 
 /** A finding for every match of `rule` in `text`; `locate` maps an index in `text` to its line and column in `file`. */
 export function ruleFindings(
@@ -83,7 +111,10 @@ export function ruleFindings(
 ): Finding[] {
   if (rule.exclude?.test(file) || !rule.pattern.test(text)) return [];
   const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);
-  return [...text.matchAll(pattern)].map((match) => ({
+  const matches = [...text.matchAll(pattern)].filter(
+    (match) => rule.maxSentenceWords === undefined || sentenceWords(text, match.index) > rule.maxSentenceWords,
+  );
+  return matches.map((match) => ({
     file,
     ...locate(match.index),
     rule: rule.name,
