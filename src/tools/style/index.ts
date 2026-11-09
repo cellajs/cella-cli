@@ -3,9 +3,11 @@ import { join } from 'node:path';
 import type { ToolCommand } from '../../config/types';
 import { git } from '../../utils/git';
 import { alignmentFindings, type BranchChanges, owedAlignmentFindings } from './alignment-rules';
+import { changedLinesFromDiff, onChangedLines } from './changed-lines';
 import { commentFindings } from './comment-rules';
 import { docFindings } from './doc-rules';
 import { frontendFindings, frontendStores } from './frontend-rules';
+import { changedLineRules } from './prose-rules';
 import { type Finding, formatFinding, isRequested, openRepository, repoFiles, repoRoot } from './repo';
 import { stampFindings } from './stamp-rules';
 import { tailwindContext, tailwindFindings } from './tailwind-class-rules';
@@ -32,6 +34,18 @@ async function branchChanges(): Promise<BranchChanges> {
     };
   } catch {
     return { changed: [], added: [], messages: '' };
+  }
+}
+
+/** The `+` lines of the branch's diff since its merge base with `origin/main`, working tree included, and the untracked files; null without that ref. */
+async function changedLines(): Promise<{ changed: Map<string, Set<number>> | null; untracked: Set<string> }> {
+  const run = (...args: string[]) => git(args, repoRoot);
+  try {
+    const base = await run('merge-base', 'HEAD', 'origin/main');
+    const untracked = new Set((await run('ls-files', '-o', '--exclude-standard')).split('\n').filter(Boolean));
+    return { changed: changedLinesFromDiff(await run('diff', '--unified=0', '--no-color', base)), untracked };
+  } catch {
+    return { changed: null, untracked: new Set() };
   }
 }
 
@@ -78,6 +92,10 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
     ];
     findings.push(...inFile.sort((a, b) => (a.line ?? 0) - (b.line ?? 0) || (a.column ?? 0) - (b.column ?? 0)));
   }
+  const ratchet = await changedLines();
+  const kept = onChangedLines(findings, changedLineRules, ratchet.changed, ratchet.untracked);
+  findings.length = 0;
+  findings.push(...kept);
 
   if (findings.length > 0) {
     console.error(
