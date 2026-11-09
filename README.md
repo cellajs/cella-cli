@@ -9,7 +9,7 @@ cella that keep your customizations.
 From your monorepo root, run `pnpm cella` for the interactive menu, or call a command directly:
 
 ```bash
-pnpm cella testbed
+pnpm testbed
 pnpm cella bench
 pnpm cella a11y
 pnpm cella analyze
@@ -23,7 +23,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 
 | Develop | Description |
 |---------|-------------|
-| `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev` (see [Testbed](#testbed)) |
+| `testbed` | A throwaway copy of the app on its own seeded database and ports, beside `pnpm dev`. `pnpm testbed` runs it, so the menu leaves it out (see [Testbed](#testbed)) |
 | `bench` | Load-test the running app with its scenarios and check what the stack did with the load (see [Bench](#bench)) |
 | `a11y` | Audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger (see [a11y](#a11y)) |
 | `shoot` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
@@ -79,18 +79,18 @@ Per-command help: `pnpm cella <command> --help`.
 
 ## Testbed
 
-`pnpm cella testbed` starts a copy of the app on a database of its own and on ports beside the ones `pnpm dev` uses:
+`pnpm testbed` starts a copy of the app on a database of its own and on ports beside the ones `pnpm dev` uses:
 the backend, the workers, the relay and a built frontend. A new database is seeded once and kept, and every start
 migrates it, so a branch with migrations works too. The testbed holds until ctrl-c, which stops its servers and its
 database container.
 
 | Command | What it does |
 |---------|--------------|
-| `pnpm cella testbed` | Start a testbed and hold it |
-| `pnpm cella testbed -- <command>` | Run a command against it: the one this checkout holds, or one started for the command and stopped after. The command gets the testbed's ports (`DEV_PORT_OFFSET`) and database URLs in its environment |
-| `pnpm cella testbed --fresh` | Start from an empty database, seeded again |
-| `pnpm cella testbed --showcase` | Start one on the app's showcase and hold it, for a screenshot review loop |
-| `pnpm cella testbed stop` | Stop the running testbed, or the servers one left behind after a crash |
+| `pnpm testbed` | Start a testbed and hold it |
+| `pnpm testbed -- <command>` | Run a command against it: the one this checkout holds, or one started for the command and stopped after. The command gets the testbed's ports (`DEV_PORT_OFFSET`) and database URLs in its environment |
+| `pnpm testbed --fresh` | Start from an empty database, seeded again |
+| `pnpm testbed --showcase` | Start one on the app's showcase and hold it, for a screenshot review loop |
+| `pnpm testbed stop` | Stop the running testbed, or the servers one left behind after a crash |
 
 One testbed runs per app on a machine, since every checkout of the app shares its database: a second start, from
 another worktree too, says which checkout holds it. The servers write to `testbed.log` in `.git/cella-testbed/`; a
@@ -192,7 +192,7 @@ which reads the API as the audit user. A state that exists only at one width car
 `forms` marks the states whose form the form probes submit. `cella/a11y.app.ts` adds the app's own.
 
 A short script can open one state of the scope, signed in, to check a fix: `openState('<id>', { context })` from
-`@cellajs/cli/a11y`, run from the app's root through `pnpm cella testbed -- node <script>`.
+`@cellajs/cli/a11y`, run from the app's root through `pnpm testbed -- node <script>`.
 
 ## Screenshots
 
@@ -210,7 +210,7 @@ Nobody can sign in with those factors. WebP is written lossless by the system
 `@cellajs/cli/drive` is the browser layer the tools share, for an app's own scripts and skill drivers:
 `loadPlaywright()` (the app's frontend copy), `mintSession(email)` and `signOut(session)` (a session for any seeded
 user, through the backend's mint script), `newContext(browser, { session, uiStore })`, `settle(page)` and
-`openPage(context, url)`. A script run through `pnpm cella testbed -- node <script>` mints its sessions on the testbed's
+`openPage(context, url)`. A script run through `pnpm testbed -- node <script>` mints its sessions on the testbed's
 database and gets its URLs.
 
 ## Translations

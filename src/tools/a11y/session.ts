@@ -109,14 +109,14 @@ interface OpenStateOptions {
 
 /**
  * Opens a state of the app's audit scope by id, signed in: the start of a short script that checks a fix in the
- * running app. Run the script from the app's root through `pnpm cella testbed -- node <script>`; `close` ends it.
+ * running app. Run the script from the app's root through `pnpm testbed -- node <script>`; `close` ends it.
  * @throws when the scope has no state of that id, or no email is given and `ADMIN_EMAIL` is unset
  */
 export async function openState(
   id: string,
   { mode = 'light', context: overrides, email = getEnv('ADMIN_EMAIL') }: OpenStateOptions = {},
 ): Promise<{ page: Page; context: BrowserContext; close: () => Promise<void> }> {
-  if (!email) throw new Error('no email: pass one, or run through `pnpm cella testbed --`, which sets ADMIN_EMAIL');
+  if (!email) throw new Error('no email: pass one, or run through `pnpm testbed --`, which sets ADMIN_EMAIL');
   const forkPath = process.cwd();
   const scope = await loadScope(forkPath);
   const state = scope.states.find((candidate) => candidate.id === id);

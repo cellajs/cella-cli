@@ -247,7 +247,7 @@ interface Started {
 async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Promise<Started> {
   if (await reachable(testbed.frontendUrl)) {
     throw new Error(
-      `something already answers at ${testbed.frontendUrl}: \`pnpm cella testbed stop\` ends a testbed left behind`,
+      `something already answers at ${testbed.frontendUrl}: \`pnpm testbed stop\` ends a testbed left behind`,
     );
   }
   mkdirSync(testbed.stateDir, { recursive: true });
@@ -386,7 +386,7 @@ async function stopTestbed(testbed: Testbed): Promise<number> {
 function ownLock(testbed: Testbed): Lock | undefined {
   const lock = readLock(testbed);
   if (lock && lock.forkPath !== testbed.forkPath) {
-    throw new Error(`a testbed of ${lock.forkPath} uses the database: \`pnpm cella testbed stop\` ends it`);
+    throw new Error(`a testbed of ${lock.forkPath} uses the database: \`pnpm testbed stop\` ends it`);
   }
   return lock;
 }
@@ -406,12 +406,12 @@ export async function withTestbed<T>(
   const lock = ownLock(testbed);
   if (lock && destructive) {
     throw new Error(
-      `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm cella testbed stop\`)`,
+      `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm testbed stop\`)`,
     );
   }
   if (lock && (lock.data ?? 'seed') !== data) {
     throw new Error(
-      `a testbed with ${describeData(lock.data ?? 'seed')} runs at ${lock.frontendUrl}: this command needs ${describeData(data)}, so stop that one first (\`pnpm cella testbed stop\`)`,
+      `a testbed with ${describeData(lock.data ?? 'seed')} runs at ${lock.frontendUrl}: this command needs ${describeData(data)}, so stop that one first (\`pnpm testbed stop\`)`,
     );
   }
   if (lock) {
@@ -441,14 +441,12 @@ async function runTestbed(forkPath: string, options: TestbedOptions): Promise<nu
   const testbed = await resolveTestbed(forkPath, data);
   const lock = ownLock(testbed);
   if (lock) {
-    throw new Error(
-      `a testbed already runs at ${lock.frontendUrl}: \`pnpm cella testbed -- <command>\` runs against it`,
-    );
+    throw new Error(`a testbed already runs at ${lock.frontendUrl}: \`pnpm testbed -- <command>\` runs against it`);
   }
   const started = await startTestbed(testbed, options.fresh);
   console.info();
   console.info(`  ${pc.bold(testbed.frontendUrl)}`);
-  console.info(`  ${pc.dim('run a command against it:')} pnpm cella testbed -- <command>`);
+  console.info(`  ${pc.dim('run a command against it:')} pnpm testbed -- <command>`);
   console.info(`  ${pc.dim('servers log:')} ${logPath(testbed)}`);
   console.info(`  ${pc.dim('ctrl-c stops it')}`);
   console.info();
@@ -462,6 +460,7 @@ async function runTestbed(forkPath: string, options: TestbedOptions): Promise<nu
 export const testbedCommand: ToolCommand<TestbedOptions> = {
   name: 'testbed',
   group: 'develop',
+  notInMenu: true,
   description: 'a throwaway copy of the app on its own seeded database and ports, beside pnpm dev',
   jobs: [
     ['start', 'start it and hold it until ctrl-c'],
