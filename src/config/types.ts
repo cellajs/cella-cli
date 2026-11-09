@@ -202,6 +202,8 @@ export type CommandOption = [flags: string, description: string];
 export interface ToolCommand<Options = unknown> {
   name: string;
   group: Exclude<CommandGroup, 'upstream'>;
+  /** Left out of the menu: the app runs it through a root script of its own, `pnpm <name>`. */
+  notInMenu?: true;
   description: string;
   /** The jobs its first operand names, the default first; the menu asks for one. Empty: the command has one job. */
   jobs: [name: string, description: string][];

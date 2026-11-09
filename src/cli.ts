@@ -189,7 +189,7 @@ function buildMenuChoices(context: MenuContext) {
     ...serviceDefinitions
       .filter((service) => service.includeInMenu?.(context) ?? true)
       .map((service) => ({ name: service.name, group: serviceGroup(service), description: service.description })),
-    ...toolCommands.filter((tool) => tool.group !== 'gate'),
+    ...toolCommands.filter((tool) => tool.group !== 'gate' && !tool.notInMenu),
   ];
   const width = Math.max(...entries.map((entry) => entry.name.length)) + 3;
   const label = (name: string) => name.padEnd(width);
@@ -358,6 +358,8 @@ async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): P
   const selected = await select<string>({
     message: 'choose a command:',
     choices: buildMenuChoices(getMenuContext(userConfig, forkPath)),
+    // The page grows with the terminal, less the three rows of the question and key hints; seven is Inquirer's default
+    pageSize: Math.max(7, (process.stdout.rows || 24) - 3),
     loop: false,
   });
 
