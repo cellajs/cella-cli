@@ -1,5 +1,13 @@
 # Changelog
 
+## [0.7.1](https://github.com/cellajs/cella-cli/compare/cli-0.7.0...cli-0.7.1) (2026-11-09)
+
+
+### 🎉 New features
+
+* **style:** long paragraphs, and ", so" tails on changed lines, are findings ([#81](https://github.com/cellajs/cella-cli/issues/81)) ([eaa73e1](https://github.com/cellajs/cella-cli/commit/eaa73e1c2f8bbaff0f82ff87eb59795f17cecd96))
+* the menu fits the terminal, and testbed leaves it for pnpm testbed ([#83](https://github.com/cellajs/cella-cli/issues/83)) ([bc21910](https://github.com/cellajs/cella-cli/commit/bc21910aa598e3359a53d5e512979b530f5a7561))
+
 ## [0.7.0](https://github.com/cellajs/cella-cli/compare/cli-0.6.7...cli-0.7.0) (2026-11-08)
 
 
