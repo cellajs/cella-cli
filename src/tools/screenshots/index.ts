@@ -10,7 +10,7 @@ async function runShoot(forkPath: string, options: ShootOptions): Promise<number
   if (unknown.length > 0) {
     throw new Error(`no shot ${unknown.join(', ')}: this app shoots ${list.shots.map((shot) => shot.id).join(', ')}`);
   }
-  requireEncoder(list.format);
+  requireEncoder(list);
   await requireChromium(forkPath);
   // An app with a showcase shoots its curated data, on a database no other tool writes to
   const data = hasShowcase(forkPath) ? 'showcase' : 'seed';
@@ -20,7 +20,7 @@ async function runShoot(forkPath: string, options: ShootOptions): Promise<number
 export const shootCommand: ToolCommand<ShootOptions> = {
   name: 'shoot',
   group: 'develop',
-  description: 'shoot the marketing screenshots on a testbed, a light and a dark file each',
+  description: 'shoot the marketing screenshots on a testbed',
   jobs: [],
   operands: ['[ids...]', 'the shots to take (default: all)'],
   options: [
