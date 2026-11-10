@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.2](https://github.com/cellajs/cella-cli/compare/cli-0.7.1...cli-0.7.2) (2026-11-10)
+
+
+### 🎉 New features
+
+* **shoot:** a shot can take one color mode and a format of its own, jpg included ([#84](https://github.com/cellajs/cella-cli/issues/84)) ([50545c3](https://github.com/cellajs/cella-cli/commit/50545c3aca9e1fabebf38c4cf031c7a372b6a094))
+
 ## [0.7.1](https://github.com/cellajs/cella-cli/compare/cli-0.7.0...cli-0.7.1) (2026-11-09)
 
 
