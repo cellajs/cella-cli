@@ -19,7 +19,10 @@ export interface Suppress {
   hints?: string[];
 }
 
-/** One screenshot, written in both color modes as `<out>.<format>` and `<out>-dark.<format>`. */
+/** WebP is written lossless by the system `cwebp` encoder, JPEG by the browser at quality 92. */
+export type Format = 'webp' | 'png' | 'jpg';
+
+/** One screenshot, written in both color modes as `<out>.<format>` and `<out>-dark.<format>`, or in its `mode` alone. */
 export interface Shot {
   id: string;
   /** A key of `devices`. */
@@ -30,12 +33,16 @@ export interface Shot {
   out: string;
   /** Brings the page into the state the shot wants, after the route has rendered and settled. */
   open?: Opener;
+  /** One color mode, written as `<out>.<format>`: for a file the app serves in one mode, such as its link preview. */
+  mode?: 'light' | 'dark';
+  /** Default the list's `format`. */
+  format?: Format;
 }
 
 /** `cella/screenshots.ts`: the template's shots, synced with the UI they show. */
 export interface ScreenshotsBase {
-  /** The file type of every shot. WebP is written lossless by the system `cwebp` encoder. */
-  format: 'webp' | 'png';
+  /** The file type of every shot without a `format` of its own. */
+  format: Format;
   devices: Record<string, Device>;
   suppress?: Suppress;
   /** Brings the shot user into the state the pages expect, before the first shot. */
@@ -61,7 +68,7 @@ export interface ScreenshotsApp {
   add?: Shot[];
 }
 
-const formatSchema = z.enum(['webp', 'png']);
+const formatSchema = z.enum(['webp', 'png', 'jpg']);
 
 const deviceSchema = z.strictObject({
   width: z.number().int().positive(),
@@ -80,6 +87,8 @@ const shotSchema = z.strictObject({
   path: z.string().startsWith('/').or(z.string().startsWith('{')),
   out: z.string().min(1),
   open: fn<Opener>().optional(),
+  mode: z.enum(['light', 'dark']).optional(),
+  format: formatSchema.optional(),
 }) satisfies z.ZodType<Shot>;
 
 export const baseSchema = z.strictObject({

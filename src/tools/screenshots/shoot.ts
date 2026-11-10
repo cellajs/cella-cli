@@ -9,11 +9,11 @@ import { onShutdown } from '../../utils/signals';
 import { applyDelta, fillPath, loadAdapter, type Placeholders, type Prepare, signedIn } from '../adapters';
 import { type Browser, loadPlaywright, mintSession, newContext, openPage, type Page, settle, signOut } from '../drive';
 import type { TestbedHandle } from '../testbed';
-import { appSchema, baseSchema, type Device, type ScreenshotsBase, type Shot } from './define';
+import { appSchema, baseSchema, type Device, type Format, type Shot } from './define';
 
 /** The shot list with the app's delta applied. */
 export interface ShotList {
-  format: ScreenshotsBase['format'];
+  format: Format;
   devices: Record<string, Device>;
   suppress: { alerts: string[]; hints: string[] };
   prepare: Prepare[];
@@ -34,6 +34,10 @@ export interface ShootOptions {
 const INTRO_MS = 3200;
 // The first signed-in page compiles most of the app on demand when the frontend is a dev server
 const PAGE_MS = 120_000;
+// A 1200x630 link preview weighs about 90 KB at 92, a quarter of its PNG
+const JPEG_QUALITY = 92;
+// A shot whose `out` lies here is a file the frontend serves, at the path that follows
+const PUBLIC_DIR = 'frontend/public/';
 
 export async function loadShotList(forkPath: string): Promise<ShotList> {
   // The adapters read the app config, which takes the development ports and URLs in development mode only
@@ -58,8 +62,9 @@ export async function loadShotList(forkPath: string): Promise<ShotList> {
 }
 
 /** Asked before the testbed starts: a missing encoder is known in a second, not after the last shot. */
-export function requireEncoder(format: ShotList['format']): void {
-  if (format === 'webp' && spawnSync('cwebp', ['-version']).status !== 0) {
+export function requireEncoder(list: ShotList): void {
+  const webp = list.shots.some((shot) => (shot.format ?? list.format) === 'webp');
+  if (webp && spawnSync('cwebp', ['-version']).status !== 0) {
     throw new Error(
       "format 'webp' needs the cwebp encoder on the PATH: `brew install webp` or `apt install webp`, or set format to 'png'",
     );
@@ -92,7 +97,8 @@ const hasMfaScript = (forkPath: string) =>
   Boolean(JSON.parse(readFileSync(join(forkPath, 'backend/package.json'), 'utf8')).scripts?.['showcase:mfa']);
 
 /**
- * Shoots the list on a testbed, a light and a dark shot each, and prints every file with its pixel and file size.
+ * Shoots the list on a testbed, a light and a dark shot each unless a shot names one mode, and prints every file with
+ * its pixel and file size.
  * Resolves to the exit code: 1 when a shot failed.
  */
 export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHandle, options: ShootOptions) {
@@ -112,17 +118,20 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
   const written: Written[] = [];
   const failures: { id: string; mode: string; error: string }[] = [];
 
+  // The testbed serves the frontend it built at its start, so a shot that shows another shot's file gets this run's copy
+  const fresh = new Map<string, string>();
+
   /**
-   * Writes a screenshot in the list's format. WebP is lossless, so the pixels are the screenshot's own, at the encoder's
-   * slowest and smallest setting: a third of the PNG for a page of flat color and text.
+   * Writes a screenshot the browser encoded as PNG or JPEG. WebP is lossless, so the pixels are the screenshot's own, at
+   * the encoder's slowest and smallest setting: a third of the PNG for a page of flat color and text.
    */
-  const writeShot = (png: Buffer, path: string) => {
-    if (list.format === 'png') {
-      writeFileSync(path, png);
+  const writeShot = (image: Buffer, path: string, format: Format) => {
+    if (format !== 'webp') {
+      writeFileSync(path, image);
       return;
     }
     const source = join(scratch, 'shot.png');
-    writeFileSync(source, png);
+    writeFileSync(source, image);
     const encoded = spawnSync('cwebp', ['-quiet', '-lossless', '-z', '9', source, '-o', path], { encoding: 'utf8' });
     if (encoded.status !== 0) throw new Error(`cwebp could not write ${path}: ${encoded.stderr.trim()}`);
   };
@@ -152,7 +161,10 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
     // group inherits it. A pair is the same recipe run twice, which is what keeps the light and dark shot in register.
     for (const deviceName of [...new Set(todo.map((shot) => shot.device))]) {
       const device = list.devices[deviceName];
+      const group = todo.filter((shot) => shot.device === deviceName);
       for (const mode of ['light', 'dark'] as const) {
+        const shots = group.filter((shot) => !shot.mode || shot.mode === mode);
+        if (shots.length === 0) continue;
         const context = await newContext(browser, {
           viewport: { width: device.width, height: device.height },
           deviceScaleFactor: device.scale,
@@ -167,10 +179,22 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
             state: { mode, publicAlertsSeen: list.suppress.alerts, hintsSeen: list.suppress.hints },
           },
         });
+        const origin = new URL(user.frontendUrl).origin;
+        await context.route(
+          (url) => url.origin === origin && fresh.has(url.pathname),
+          (route) => route.fulfill({ path: fresh.get(new URL(route.request().url()).pathname) }),
+        );
 
-        for (const shot of todo.filter((entry) => entry.device === deviceName)) {
+        for (const shot of shots) {
           const target = options.out ? join(resolve(options.out), basename(shot.out)) : join(forkPath, shot.out);
-          const path = `${target}${mode === 'dark' ? '-dark' : ''}.${list.format}`;
+          const format = shot.format ?? list.format;
+          const suffix = mode === 'dark' && !shot.mode ? '-dark' : '';
+          const path = `${target}${suffix}.${format}`;
+          const served = shot.out.startsWith(PUBLIC_DIR)
+            ? `/${shot.out.slice(PUBLIC_DIR.length)}${suffix}.${format}`
+            : null;
+          const encoding =
+            format === 'jpg' ? { type: 'jpeg' as const, quality: JPEG_QUALITY } : { type: 'png' as const };
           let page: Page | undefined;
           try {
             const route = fillPath(shot.path, values, 'the screenshots adapter');
@@ -188,7 +212,14 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
             await spinnersGone(page, 1500);
 
             mkdirSync(dirname(path), { recursive: true });
-            writeShot(await page.screenshot({ animations: 'disabled', caret: 'hide', scale: 'device' }), path);
+            const image = await page.screenshot({
+              animations: 'disabled',
+              caret: 'hide',
+              scale: 'device',
+              ...encoding,
+            });
+            writeShot(image, path, format);
+            if (served) fresh.set(served, path);
             const pixels = `${device.width * device.scale}x${device.height * device.scale}`;
             written.push({ id: shot.id, mode, path, bytes: statSync(path).size, pixels });
           } catch (error) {
@@ -218,9 +249,7 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
   }
   for (const failure of failures) console.info(`  ${warningMark} ${failure.id} ${failure.mode}: ${failure.error}`);
   console.info();
-  printStep(
-    'written',
-    `${written.length} of ${todo.length * 2}; look at every one against the screenshots skill's rubric`,
-  );
+  const expected = todo.reduce((sum, shot) => sum + (shot.mode ? 1 : 2), 0);
+  printStep('written', `${written.length} of ${expected}; look at every one against the screenshots skill's rubric`);
   return failures.length > 0 ? 1 : 0;
 }

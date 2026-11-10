@@ -197,12 +197,14 @@ A short script can open one state of the scope, signed in, to check a fix: `open
 ## Screenshots
 
 `pnpm cella shoot` shoots the app's marketing screenshots on a testbed, a light and a dark file each, over the
-files the app ships, and prints each file's pixel and byte size. Ids pick some shots (`pnpm cella shoot settings`),
+files the app ships, and prints each file's pixel and byte size. A shot with a `mode` is written in that mode alone and
+without the `-dark` suffix, for a file the app serves in one mode, such as its link preview image. Ids pick some shots (`pnpm cella shoot settings`),
 `--out <dir>` writes a trial run elsewhere. An app with a `backend/scripts/seeds/showcase.json` is shot on a testbed seeded with that
 showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed, and the command turns
 MFA on for the shot user and a share of their members through the backend's `showcase:mfa` script where the app has it.
-Nobody can sign in with those factors. WebP is written lossless by the system
-`cwebp` encoder, checked before the testbed starts. `cella/screenshots.ts` lists the template's shots and devices, and
+Nobody can sign in with those factors. A shot's `format` overrides the list's: WebP is written lossless by the system
+`cwebp` encoder, checked before the testbed starts, and JPEG at quality 92 by the browser. A page that shows an earlier
+shot's file, such as a composition of screenshots, gets the copy this run wrote. `cella/screenshots.ts` lists the template's shots and devices, and
 `cella/screenshots.app.ts` the app's own. The cella template's `screenshots` skill is the rubric for judging them.
 
 ## Drive library
