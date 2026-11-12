@@ -336,8 +336,8 @@ upstream has the path. Upstream is read at `settings.upstreamBranch` as last fet
 first fetch, every `ignored` entry missing from your app warns.
 
 Every run also warns about a `pinned` entry that does nothing: one inside an `ignored` path (app
-modules included), one upstream no longer has (the file is your app's own now), and one identical
-to upstream, which only drops upstream's next change to it.
+modules included), one upstream no longer has or never had (the file is your app's own), and one
+identical to upstream, which only drops upstream's next change to it.
 
 ## Upstream tracking
 
