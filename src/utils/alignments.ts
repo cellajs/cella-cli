@@ -52,7 +52,7 @@ export interface Alignment {
   caughtBy: CaughtBy | null;
   /** The change needs `pnpm generate`. */
   generate: boolean;
-  /** Identifiers, wire fields or config keys app code may still use, matched as whole words. */
+  /** Identifiers, wire fields or config keys app code may still use, matched as {@link grepAlignmentTerms} says. */
   grep: string[];
   /** Default scan roots for the codemod. */
   roots: string[];
@@ -197,24 +197,40 @@ export async function readAlignmentSource(cwd: string, ref: string, id: string):
 }
 
 /**
- * Lines in the working tree where any of `terms` occurs as a whole word, limited to the files
- * `inFiles` accepts. Terms match as fixed strings; an empty list yields no hits.
+ * Lines in the working tree where any of `terms` occurs, limited to the files `inFiles` accepts,
+ * sorted by file and line. Terms match as fixed strings. A term that starts and ends with a letter
+ * or digit matches as a whole word. Any other term, such as `.results` or the prefix `onboarding_`,
+ * matches anywhere, because git's `-w` would also demand a non-word character beside that edge.
+ * An empty list yields no hits.
  */
 export async function grepAlignmentTerms(
   cwd: string,
   terms: string[],
   inFiles: (path: string) => boolean,
 ): Promise<Array<{ file: string; line: number }>> {
-  if (terms.length === 0) return [];
-  const out = await git(['grep', '-n', '-I', '-w', '-F', '-z', ...terms.flatMap((term) => ['-e', term]), '--'], cwd, {
-    ignoreErrors: true,
-  });
+  const isWord = (term: string) => /^[a-z0-9]/i.test(term) && /[a-z0-9]$/i.test(term);
+  const grep = async (flags: string[], matching: string[]) =>
+    matching.length === 0
+      ? ''
+      : git(['grep', '-n', '-I', ...flags, '-F', '-z', ...matching.flatMap((term) => ['-e', term]), '--'], cwd, {
+          ignoreErrors: true,
+        });
+  const outputs = await Promise.all([
+    grep(['-w'], terms.filter(isWord)),
+    grep(
+      [],
+      terms.filter((t) => !isWord(t)),
+    ),
+  ]);
+  const hits = new Map<string, { file: string; line: number }>();
   // With -z each match is `<path>\0<line>\0<text>`, one match per output line
-  return out
+  for (const [file, line] of outputs
+    .join('\n')
     .split('\n')
-    .map((match) => match.split('\0'))
-    .filter(([file, line]) => file && line && inFiles(file))
-    .map(([file, line]) => ({ file, line: Number(line) }));
+    .map((match) => match.split('\0'))) {
+    if (file && line && inFiles(file)) hits.set(`${file}\0${line}`, { file, line: Number(line) });
+  }
+  return [...hits.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
 /** The fork's pending alignment ids. A missing file is an empty list. */

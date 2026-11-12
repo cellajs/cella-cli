@@ -461,8 +461,9 @@ already fetched.
 
 The frontmatter says what the change asks of the app: `breaking`, `clientCacheBump`,
 `caughtBy` (`compiler`, `tests` or `nothing`: what catches app code the change leaves behind),
-`generate` (the change needs `pnpm generate`), `grep` (words app code may still use) and, beside a
-codemod, its `roots`.
+`generate` (the change needs `pnpm generate`), `grep` (terms app code may still use) and, beside a
+codemod, its `roots`. A `grep` term that starts and ends with a letter or digit matches as
+a whole word; any other term, such as `.results`, matches anywhere in a line.
 
 The app keeps one small record, `cella/cella.alignments.json`, listing the alignments it has not
 handled yet. The upgrade adds the ones that arrive with it, `align --mark` removes them, and the file
@@ -492,7 +493,7 @@ pnpm cella align --mark <id> [...]  # record alignments as handled
 
 Next to its README, each alignment shows what git can tell about it: the upstream commit and PR
 that added it, the other alignments of that commit, the files of that commit the app pins, ignores
-or changed, and the lines of app code that hold one of its `grep` words. Only files that differ
+or changed, and the lines of app code that hold one of its `grep` terms. Only files that differ
 from the upstream commit of the last upgrade count, so a template file the app never touched is
 never a hit. Two or more open alignments with `generate` get one line: work their code steps first, then
 generate once. `--show` reads an alignment the last upgrade does not have yet from the fetched
