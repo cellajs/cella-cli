@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.3](https://github.com/cellajs/cella-cli/compare/cli-0.7.2...cli-0.7.3) (2026-11-12)
+
+
+### 🐞 Bug fixes
+
+* seven upgrade, align, style and i18n frictions apps hit after upgrading ([#86](https://github.com/cellajs/cella-cli/issues/86)) ([932d0b0](https://github.com/cellajs/cella-cli/commit/932d0b00c226ca6d878ec97fa09304a7ad0a4ddf))
+
 ## [0.7.2](https://github.com/cellajs/cella-cli/compare/cli-0.7.1...cli-0.7.2) (2026-11-10)
 
 
