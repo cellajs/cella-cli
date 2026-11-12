@@ -332,6 +332,25 @@ describe('sync e2e', () => {
       expect(fileExists(env.forkPath, 'temp.ts')).toBe(false);
     });
 
+    // raak lost a fork-marked file this way: the deletion applied over its own edit, with no conflict
+    it('keeps a file the app changed as a conflict when upstream deletes it', async () => {
+      makeCommit(env.upstreamPath, { files: { 'temp.ts': '// Temporary file\n' }, message: 'chore: add temp file' });
+      fetchUpstream(env.forkPath);
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await commitMerge('sync: merge upstream');
+
+      makeCommit(env.forkPath, { files: { 'temp.ts': '// fork: kept by the app\n' }, message: 'feat: own temp' });
+      deleteFileAndCommit(env.upstreamPath, 'temp.ts', 'chore: remove temp file');
+      fetchUpstream(env.forkPath);
+
+      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' }));
+      expect(analysis.files.find((file) => file.path === 'temp.ts')?.status).toBe('diverged');
+
+      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+      expect(result.conflicts).toContain('temp.ts');
+      expect(readRepoFile(env.forkPath, 'temp.ts')).toBe('// fork: kept by the app\n');
+    });
+
     it('keeps fork-deleted files deleted when upstream leaves them unchanged', async () => {
       // README.md exists in the shared base. The fork deliberately removes it.
       deleteFileAndCommit(env.forkPath, 'README.md', 'chore: remove readme in fork');

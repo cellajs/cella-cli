@@ -299,8 +299,9 @@ export async function analyzeRefs(
       status = (fileIsPinned && baseHash !== null) || locallyDeleted ? 'deleted' : 'behind';
     } else if (inFork && !inUpstream) {
       if (baseHash !== null) {
-        // In base, deleted by incoming: sync the deletion unless pinned.
-        status = fileIsPinned ? 'ahead' : 'behind';
+        // In base, deleted by incoming: the deletion syncs unless the file is pinned, or the local
+        // side changed it, which keeps git's modify/delete conflict for the review.
+        status = fileIsPinned ? 'ahead' : forkHash !== baseHash ? 'diverged' : 'behind';
       } else {
         // Local file (never existed in merge-base). If its exact content exists at a
         // different path in incoming, it is likely the source of a rename we couldn't
