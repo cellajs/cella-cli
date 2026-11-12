@@ -1,7 +1,9 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { ToolCommand } from '../../config/types';
+import { DEFAULT_UPSTREAM_REMOTE } from '../../utils/config';
 import { git } from '../../utils/git';
+import { readManifestBase } from '../../utils/manifest';
 import { alignmentFindings, type BranchChanges, owedAlignmentFindings } from './alignment-rules';
 import { changedLinesFromDiff, onChangedLines } from './changed-lines';
 import { commentFindings } from './comment-rules';
@@ -37,13 +39,30 @@ async function branchChanges(): Promise<BranchChanges> {
   }
 }
 
-/** The `+` lines of the branch's diff since its merge base with `origin/main`, working tree included, and the untracked files; null without that ref. */
-async function changedLines(): Promise<{ changed: Map<string, Set<number>> | null; untracked: Set<string> }> {
+/**
+ * The `+` lines of the branch's diff since its merge base with `origin/main`, working tree included, and the untracked
+ * files; null without that ref. In an app (it has the upgrade's upstream remote), a line of `files` identical to a line
+ * of upstream's copy at the manifest's upstream commit is upstream's, so an upgrade's own lines do not count.
+ */
+async function changedLines(
+  files: Set<string>,
+): Promise<{ changed: Map<string, Set<number>> | null; untracked: Set<string> }> {
   const run = (...args: string[]) => git(args, repoRoot);
   try {
     const base = await run('merge-base', 'HEAD', 'origin/main');
     const untracked = new Set((await run('ls-files', '-o', '--exclude-standard')).split('\n').filter(Boolean));
-    return { changed: changedLinesFromDiff(await run('diff', '--unified=0', '--no-color', base)), untracked };
+    const changed = changedLinesFromDiff(await run('diff', '--unified=0', '--no-color', base));
+    const isApp = await git(['remote', 'get-url', DEFAULT_UPSTREAM_REMOTE], repoRoot, { ignoreErrors: true });
+    const upstream = isApp ? await readManifestBase(repoRoot) : null;
+    for (const file of upstream ? files : []) {
+      const lines = changed.get(file);
+      const theirs = await git(['show', `${upstream}:${file}`], repoRoot, { ignoreErrors: true });
+      if (!lines || !theirs) continue;
+      const upstreamLines = new Set(theirs.split('\n'));
+      const ours = readFileSync(join(repoRoot, file), 'utf8').split('\n');
+      for (const line of lines) if (upstreamLines.has(ours[line - 1])) lines.delete(line);
+    }
+    return { changed, untracked };
   } catch {
     return { changed: null, untracked: new Set() };
   }
@@ -92,7 +111,9 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
     ];
     findings.push(...inFile.sort((a, b) => (a.line ?? 0) - (b.line ?? 0) || (a.column ?? 0) - (b.column ?? 0)));
   }
-  const ratchet = await changedLines();
+  const ratchet = await changedLines(
+    new Set(findings.filter((finding) => changedLineRules.has(finding.rule)).map((finding) => finding.file)),
+  );
   const kept = onChangedLines(findings, changedLineRules, ratchet.changed, ratchet.untracked);
   findings.length = 0;
   findings.push(...kept);

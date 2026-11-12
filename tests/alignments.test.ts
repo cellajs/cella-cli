@@ -1,10 +1,14 @@
 /**
- * Unit tests for upstream alignments: README parsing, the info line, the upstream-only paths
- * and the PR body section.
+ * Unit tests for upstream alignments: README parsing, the grep hits, the info line, the
+ * upstream-only paths and the PR body section.
  */
+import { execFileSync } from 'node:child_process';
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { buildSyncPrBody } from '../src/services/upgrade';
-import { formatAlignmentsLine, isUpstreamOnly, parseAlignment } from '../src/utils/alignments';
+import { formatAlignmentsLine, grepAlignmentTerms, isUpstreamOnly, parseAlignment } from '../src/utils/alignments';
 
 const readme = [
   '---',
@@ -64,6 +68,34 @@ describe('parseAlignment', () => {
   it('reads `syncBreaking`, the field name alignments up to cella 0.27 carry at an older upstream ref', () => {
     const older = readme.replace('breaking: true', 'syncBreaking: true');
     expect(parseAlignment('20260101T0000-x', older, ['README.md']).breaking).toBe(true);
+  });
+});
+
+describe('grepAlignmentTerms', () => {
+  // Under git's -w these terms matched only beside another non-word character, so `data.results` was missed
+  it('finds a term with a non-word edge inside a longer word', async () => {
+    const repo = mkdtempSync(join(tmpdir(), 'alignment-grep-'));
+    try {
+      execFileSync('git', ['init', '-q'], { cwd: repo });
+      writeFileSync(
+        join(repo, 'a.ts'),
+        [
+          'const rows = data.results;',
+          'if (user.onboarding_completed) {}',
+          'const principalIds = [];',
+          'principalId',
+        ].join('\n'),
+      );
+      execFileSync('git', ['add', '.'], { cwd: repo });
+      const hits = await grepAlignmentTerms(repo, ['.results', 'onboarding_', 'principalId'], () => true);
+      expect(hits).toEqual([
+        { file: 'a.ts', line: 1 },
+        { file: 'a.ts', line: 2 },
+        { file: 'a.ts', line: 4 },
+      ]);
+    } finally {
+      rmSync(repo, { recursive: true, force: true });
+    }
   });
 });
 

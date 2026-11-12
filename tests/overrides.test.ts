@@ -189,11 +189,17 @@ describe('overrides', () => {
         message: 'feat: own files',
       });
       makeCommit(env.upstreamPath, { files: { 'changed/file.ts': 'export {};\n' }, message: 'feat: changed' });
+      deleteFileAndCommit(env.upstreamPath, 'README.md', 'chore: drop readme');
       fetchUpstream(env.forkPath);
-      const config = buildConfig({ pinned: ['kept/', 'own/file.ts', 'changed', 'json/x.json'], ignored: ['json'] });
+      const config = buildConfig({
+        pinned: ['kept/', 'own/file.ts', 'README.md', 'changed', 'json/x.json'],
+        ignored: ['json'],
+      });
 
+      // The warning said "no longer has it" for a path upstream never had
       expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([
-        'pin does nothing, upstream no longer has it: own/file.ts',
+        'pin does nothing, upstream has no such file: own/file.ts',
+        'pin does nothing, upstream no longer has it: README.md',
         "pin does nothing, 'json' is ignored: json/x.json",
         "pin is identical to upstream, it only drops upstream's next change: kept/",
       ]);

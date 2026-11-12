@@ -138,7 +138,11 @@ async function resolveCycleStart(forkPath: string, base: string, currentBranch: 
   return base;
 }
 
-/** Bring the trunk up to date and cut a fresh throwaway `cella/upgrade/<stamp>` branch from it. */
+/**
+ * Bring the trunk up to date and cut a fresh throwaway `cella/upgrade/<stamp>` branch from it, or
+ * from HEAD when HEAD builds on the trunk: preflight commits, such as a CLI bump or the renames an
+ * alignment asks for, then ride in the upgrade PR from any branch.
+ */
 async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<TemporarySyncBranch> {
   const { forkPath, settings } = config;
   const base = resolveReleaseBase(settings);
@@ -146,7 +150,12 @@ async function setupTemporarySyncBranch(config: RuntimeConfig): Promise<Temporar
   const startCommit = (await getCommitInfo(forkPath, 'HEAD')).hash;
 
   console.info(pc.dim(`updating '${base}'...`));
-  const startPoint = await resolveCycleStart(forkPath, base, startBranch);
+  let startPoint = await resolveCycleStart(forkPath, base, startBranch);
+  const added = await countCommitsBetween(forkPath, startPoint, 'HEAD');
+  if (added > 0 && (await isAncestor(forkPath, startPoint, 'HEAD'))) {
+    console.info(pc.dim(`cutting from HEAD, which adds ${plural(added, 'commit')} to '${startPoint}'.`));
+    startPoint = 'HEAD';
+  }
 
   const temporaryBranch = buildTemporarySyncBranch();
 
@@ -528,11 +537,12 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
 /**
  * Run `pnpm install` then `pnpm check` before committing the merge, so the lockfile and generated
- * files the merge left stale land in the same commit. Returns false if a step fails (the merge is
- * left in progress to retry).
+ * files the merge left stale land in the same commit. The install passes `--no-frozen-lockfile`:
+ * the merged `package.json` leaves the lockfile stale, and pnpm freezes it under `CI`. Returns
+ * false if a step fails (the merge is left in progress to retry).
  */
 function finalizeWorkspace(forkPath: string): boolean {
-  for (const args of [['install'], ['check']]) {
+  for (const args of [['install', '--no-frozen-lockfile'], ['check']]) {
     console.info(pc.dim(`running pnpm ${args.join(' ')}...`));
     const result = spawnSync('pnpm', args, { cwd: forkPath, stdio: 'inherit' });
     if (result.status !== 0) return false;

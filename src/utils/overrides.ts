@@ -7,7 +7,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
 import { isUpstreamOnly } from './alignments';
-import { fileExistsAtRef, git, listChangedSinceRef, revParse } from './git';
+import { fileExistsAtRef, getEffectiveMergeBase, git, listChangedSinceRef, revParse } from './git';
 import { CONFIG_FILE, isGeneratedFile, isManagedFile } from './managed-files';
 import { parseOverrideLists } from './upstream-overrides';
 
@@ -81,10 +81,10 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
  * nor upstream has (a fork may ignore a path to keep it from arriving; an entry upstream holds
  * arrives with the merge, a pinned one as the fork's first copy). A missing generated path never
  * warns: it appears with its build step. Also pins that do nothing: inside an ignored path (app
- * modules included), gone from upstream (the path is the app's own), or identical to upstream (it
- * only drops upstream's next change). Upstream is read at `upstreamRef` as last fetched; while it
- * does not resolve, every entry missing from the fork warns and the upstream checks on pins are
- * skipped.
+ * modules included), absent from upstream (the path is the app's own; the merge base tells a file
+ * upstream deleted from one it never had), or identical to upstream (it only drops upstream's next
+ * change). Upstream is read at `upstreamRef` as last fetched; while it does not resolve, every
+ * entry missing from the fork warns and the upstream checks on pins are skipped.
  */
 export async function validateOverrides(
   config: CellaCliConfig,
@@ -95,6 +95,7 @@ export async function validateOverrides(
   const ignored = config.overrides?.ignored ?? [];
   const upstream = upstreamRef && (await revParse(forkPath, upstreamRef)) ? upstreamRef : undefined;
   const pinsUpstreamHas: string[] = [];
+  let mergeBase: string | undefined;
 
   for (const entry of config.overrides?.pinned ?? []) {
     const path = normalizeEntry(entry);
@@ -106,7 +107,11 @@ export async function validateOverrides(
     } else if (ignoredEntry) warnings.push(`pin does nothing, '${normalizeEntry(ignoredEntry)}' is ignored: ${entry}`);
     else if (!upstream) continue;
     else if (await fileExistsAtRef(forkPath, upstream, path)) pinsUpstreamHas.push(entry);
-    else warnings.push(`pin does nothing, upstream no longer has it: ${entry}`);
+    else {
+      mergeBase ??= (await getEffectiveMergeBase(forkPath, 'HEAD', upstream)).base;
+      const gone = await fileExistsAtRef(forkPath, mergeBase, path);
+      warnings.push(`pin does nothing, ${gone ? 'upstream no longer has it' : 'upstream has no such file'}: ${entry}`);
+    }
   }
 
   if (upstream && pinsUpstreamHas.length > 0) {

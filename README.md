@@ -294,7 +294,7 @@ manifest, it also asks a branch that changes an app-owned path template code rea
 | `detached-long-comment` | a comment of more than three prose lines outside a statement and not directly above a declaration; a licence header passes | source and config files |
 | `code-in-link` | inline code in a link label | Markdown and MDX |
 | `long-paragraph` | a prose paragraph of more than 80 words, inline code and link targets uncounted | Markdown and MDX, outside `cella/alignments/` and `cella/skills/` |
-| `consequence-tail` | `, so` joining a reason and its consequence | comments, Markdown and MDX prose, on the lines the branch changed since its merge base with `origin/main`; alignments and migration notes exempt |
+| `consequence-tail` | `, so` joining a reason and its consequence | comments, Markdown and MDX prose, on the lines the branch changed since its merge base with `origin/main`, in an app outside the lines upstream's copy of the file holds; alignments and migration notes exempt |
 | `source-control-term` | the CLI's source-control term | file paths and text, outside the sync markers and the allowlisted files |
 | `product-name` | `cella_*`, `Cella*`, `_cella-*`, `cellajs.com` | `backend/src`, `shared/src` and `frontend/src`, outside tests, marketing and content |
 | `component-declaration` | a component declared as an arrow function, or a helper such as `memo` wrapping an unnamed render function | frontend `.tsx` sources |
@@ -336,8 +336,8 @@ upstream has the path. Upstream is read at `settings.upstreamBranch` as last fet
 first fetch, every `ignored` entry missing from your app warns.
 
 Every run also warns about a `pinned` entry that does nothing: one inside an `ignored` path (app
-modules included), one upstream no longer has (the file is your app's own now), and one identical
-to upstream, which only drops upstream's next change to it.
+modules included), one upstream no longer has or never had (the file is your app's own), and one
+identical to upstream, which only drops upstream's next change to it.
 
 ## Upstream tracking
 
@@ -398,7 +398,9 @@ upstream changed its own CLI config in ways yours does not follow (see
 never switches to `main`. It compares `main` with `origin/main` by ref and cuts the upgrade branch
 from `main`; when `main` is behind and checked out elsewhere, it cuts from `origin/main` instead
 and leaves `main` as it is. After shipping, the worktree detaches at `main` instead of switching
-to it.
+to it. When HEAD builds on that start point, as a branch holding a CLI bump or the renames an
+alignment asks for does, the upgrade branch is cut from HEAD, and those commits ride in the
+upgrade PR.
 
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: upgrade cella to <sha>`). This keeps the PR
@@ -461,8 +463,9 @@ already fetched.
 
 The frontmatter says what the change asks of the app: `breaking`, `clientCacheBump`,
 `caughtBy` (`compiler`, `tests` or `nothing`: what catches app code the change leaves behind),
-`generate` (the change needs `pnpm generate`), `grep` (words app code may still use) and, beside a
-codemod, its `roots`.
+`generate` (the change needs `pnpm generate`), `grep` (terms app code may still use) and, beside a
+codemod, its `roots`. A `grep` term that starts and ends with a letter or digit matches as
+a whole word; any other term, such as `.results`, matches anywhere in a line.
 
 The app keeps one small record, `cella/cella.alignments.json`, listing the alignments it has not
 handled yet. The upgrade adds the ones that arrive with it, `align --mark` removes them, and the file
@@ -492,7 +495,7 @@ pnpm cella align --mark <id> [...]  # record alignments as handled
 
 Next to its README, each alignment shows what git can tell about it: the upstream commit and PR
 that added it, the other alignments of that commit, the files of that commit the app pins, ignores
-or changed, and the lines of app code that hold one of its `grep` words. Only files that differ
+or changed, and the lines of app code that hold one of its `grep` terms. Only files that differ
 from the upstream commit of the last upgrade count, so a template file the app never touched is
 never a hit. Two or more open alignments with `generate` get one line: work their code steps first, then
 generate once. `--show` reads an alignment the last upgrade does not have yet from the fetched
