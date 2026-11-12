@@ -398,7 +398,9 @@ upstream changed its own CLI config in ways yours does not follow (see
 never switches to `main`. It compares `main` with `origin/main` by ref and cuts the upgrade branch
 from `main`; when `main` is behind and checked out elsewhere, it cuts from `origin/main` instead
 and leaves `main` as it is. After shipping, the worktree detaches at `main` instead of switching
-to it.
+to it. When HEAD builds on that start point, as a branch holding a CLI bump or the renames an
+alignment asks for does, the upgrade branch is cut from HEAD, and those commits ride in the
+upgrade PR.
 
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: upgrade cella to <sha>`). This keeps the PR
