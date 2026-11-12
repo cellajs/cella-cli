@@ -528,11 +528,12 @@ async function shipSyncBranch(config: RuntimeConfig, branch: string): Promise<vo
 
 /**
  * Run `pnpm install` then `pnpm check` before committing the merge, so the lockfile and generated
- * files the merge left stale land in the same commit. Returns false if a step fails (the merge is
- * left in progress to retry).
+ * files the merge left stale land in the same commit. The install passes `--no-frozen-lockfile`:
+ * the merged `package.json` leaves the lockfile stale, and pnpm freezes it under `CI`. Returns
+ * false if a step fails (the merge is left in progress to retry).
  */
 function finalizeWorkspace(forkPath: string): boolean {
-  for (const args of [['install'], ['check']]) {
+  for (const args of [['install', '--no-frozen-lockfile'], ['check']]) {
     console.info(pc.dim(`running pnpm ${args.join(' ')}...`));
     const result = spawnSync('pnpm', args, { cwd: forkPath, stdio: 'inherit' });
     if (result.status !== 0) return false;
