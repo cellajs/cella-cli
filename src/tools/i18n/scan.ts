@@ -10,6 +10,8 @@ export interface Site {
   line: number;
   /** What `t()` or `i18nKey` reads as the key. */
   keyArgument?: boolean;
+  /** The key of a `t()` call whose options carry a `context`, so i18next also reads `<key>_<context>`. */
+  context?: boolean;
 }
 
 /**
@@ -97,6 +99,20 @@ function isKeyArgument(ts: typeof TS, node: TS.Node): boolean {
     ts.isJsxExpression(node.parent) &&
     ts.isJsxAttribute(node.parent.parent) &&
     node.parent.parent.name.getText() === 'i18nKey'
+  );
+}
+
+/** Whether a node is the key of a `t()` call whose options object has a `context` property. */
+function readsContext(ts: typeof TS, node: TS.Node): boolean {
+  if (!isKeyArgument(ts, node)) return false;
+  const call = (ts.isArrayLiteralExpression(node.parent) ? node.parent : node).parent;
+  const options = ts.isCallExpression(call) ? call.arguments[1] : undefined;
+  return (
+    !!options &&
+    ts.isObjectLiteralExpression(options) &&
+    options.properties.some(
+      ({ name }) => !!name && (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === 'context',
+    )
   );
 }
 
@@ -209,15 +225,16 @@ export function scanCode(
 
     const visit = (node: TS.Node): void => {
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-        if (prefix.test(node.text)) add(scan.literals, node.text, { file, line: lineOf(node) });
-        else if (keys.has(node.text))
-          add(scan.bare, node.text, { file, line: lineOf(node), keyArgument: isKeyArgument(ts, node) });
+        const site = () => ({ file, line: lineOf(node), context: readsContext(ts, node) || undefined });
+        if (prefix.test(node.text)) add(scan.literals, node.text, site());
+        else if (keys.has(node.text)) add(scan.bare, node.text, { ...site(), keyArgument: isKeyArgument(ts, node) });
       } else if (ts.isTemplateExpression(node)) {
         const match = prefix.exec(node.head.text);
         if (match || isKeyArgument(ts, node)) {
           const source = node.getText(sourceFile).slice(1, -1);
           const pattern = `${node.head.text}${node.templateSpans.map((span) => `*${span.literal.text}`).join('')}`;
-          const site: DynamicSite = { file, line: lineOf(node), namespace: match?.[1], source, pattern };
+          const context = readsContext(ts, node) || undefined;
+          const site: DynamicSite = { file, line: lineOf(node), namespace: match?.[1], source, pattern, context };
           scan.dynamic.push(site);
           pending.set(file, [...(pending.get(file) ?? []), { site, start: node.getStart(sourceFile) }]);
         }

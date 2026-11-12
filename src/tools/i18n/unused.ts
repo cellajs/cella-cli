@@ -99,13 +99,18 @@ function classify(defined: Map<string, Site>, scans: CodeScan[]): Map<string, Ke
     }
     return entry;
   };
-  const markExact = (key: string, repo: string) => {
-    for (const form of withPluralForms(key)) {
-      if (!defined.has(form)) continue;
+  // A key read with a `context` also reads `<key>_<context>` and its plural forms: every defined `<key>_` key
+  const formsOf = (key: string, context = false) =>
+    context
+      ? [...defined.keys()].filter((form) => form === key || form.startsWith(`${key}_`))
+      : withPluralForms(key).filter((form) => defined.has(form));
+  const markExact = (key: string, repo: string, context?: boolean) => {
+    for (const form of formsOf(key, context)) {
       const entry = use(form);
       if (!entry.repos.includes(repo)) entry.repos.push(repo);
     }
   };
+  const withContext = (sites: Site[]) => sites.some((site) => site.context);
   // A key without its namespace, from a bare literal or a template that names none, may be in any namespace
   const bareKeys = new Map<string, string[]>();
   for (const key of defined.keys()) {
@@ -114,16 +119,18 @@ function classify(defined: Map<string, Site>, scans: CodeScan[]): Map<string, Ke
   }
 
   for (const scan of scans) {
-    for (const key of scan.literals.keys()) markExact(key, scan.repo);
-    for (const value of scan.bare.keys()) {
+    for (const [key, sites] of scan.literals) markExact(key, scan.repo, withContext(sites));
+    for (const [value, sites] of scan.bare) {
       for (const key of bareKeys.get(value) ?? []) {
-        for (const form of withPluralForms(key)) if (defined.has(form)) use(form).bare = true;
+        for (const form of formsOf(key, withContext(sites))) use(form).bare = true;
       }
     }
     for (const site of scan.dynamic) {
       if (site.keys) {
         for (const key of site.keys) {
-          for (const full of site.namespace ? [key] : (bareKeys.get(key) ?? [])) markExact(full, scan.repo);
+          for (const full of site.namespace ? [key] : (bareKeys.get(key) ?? [])) {
+            markExact(full, scan.repo, site.context);
+          }
         }
       } else if (!isOpenPattern(site.pattern)) {
         const test = patternTest(site.pattern);
