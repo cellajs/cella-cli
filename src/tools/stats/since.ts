@@ -1,15 +1,14 @@
 /**
- * Branch mode of the stats service (`cella stats --since <ref>`).
+ * Branch mode of `cella stats --since <ref>`.
  *
  * Counts what the current branch changed since it left a ref, by kind of file, so a pull request
  * can say where its lines went: source, tests, generated output, docs.
  */
 
-import type { RuntimeConfig } from '../config/types';
-import pc from '../utils/colors';
-import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../utils/display';
-import { git, revParse } from '../utils/git';
-import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions, type WorkspacePackage } from './stats';
+import pc from '../../utils/colors';
+import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../../utils/display';
+import { git, revParse } from '../../utils/git';
+import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions } from './snapshot';
 
 /** Kind of a changed file. `source` is code and styles that are none of the other kinds. */
 export type ChangeKind = 'source' | 'test' | 'stories' | 'generated' | 'json' | 'docs' | 'other';
@@ -43,7 +42,7 @@ export interface BranchStats {
   kinds: Record<ChangeKind, KindChange>;
   /** Changed source lines by what they hold; null when git could not produce the patch */
   sourceContent: Record<LineContent, LineChange> | null;
-  /** Changed source lines per workspace package */
+  /** Changed source lines per workspace package; empty in a repository that declares none */
   sourceByPackage: Record<string, KindChange>;
   files: FileChange[];
   /** Files with uncommitted changes, which are not counted */
@@ -182,7 +181,7 @@ export async function collectBranchStats(forkPath: string, since: string): Promi
     other: emptyKind(),
   };
   const total = emptyKind();
-  const packages: WorkspacePackage[] = await getWorkspacePackages(forkPath).catch(() => []);
+  const packages = await getWorkspacePackages(forkPath);
   const byPackage = new Map<string, KindChange>();
 
   const add = (target: KindChange, file: FileChange) => {
@@ -194,7 +193,7 @@ export async function collectBranchStats(forkPath: string, since: string): Promi
   for (const file of files) {
     add(total, file);
     add(kinds[file.kind], file);
-    if (file.kind !== 'source') continue;
+    if (file.kind !== 'source' || packages.length === 0) continue;
 
     const pkg = matchPackage(file.path, packages);
     const entry = byPackage.get(pkg) ?? emptyKind();
@@ -330,10 +329,14 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
   console.info();
 }
 
-/** Run the stats service in branch mode. */
-export async function runBranchStats(config: RuntimeConfig, since: string): Promise<void> {
+/** Count what the branch changed since `since` and print it: tables, or the markdown with `md`. */
+export async function runBranchStats(
+  forkPath: string,
+  since: string,
+  { md, verbose }: { md: boolean; verbose: boolean },
+): Promise<void> {
   createSpinner('counting changed lines...');
-  const stats = await collectBranchStats(config.forkPath, since);
+  const stats = await collectBranchStats(forkPath, since);
   spinnerSuccess(`Counted what ${stats.head} changed since ${stats.since} (${stats.mergeBase})`);
 
   if (stats.total.files === 0) {
@@ -341,11 +344,11 @@ export async function runBranchStats(config: RuntimeConfig, since: string): Prom
     return;
   }
 
-  if (config.md) {
+  if (md) {
     writeStdout(formatMarkdown(stats));
     if (stats.uncommitted > 0) console.info(pc.dim(`${stats.uncommitted} uncommitted file(s) are not counted`));
     return;
   }
 
-  printBranchStats(stats, config.verbose);
+  printBranchStats(stats, verbose);
 }

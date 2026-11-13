@@ -236,7 +236,6 @@ export function buildRuntimeConfig(
     unpinned,
     list: false,
     json: false,
-    verbose: false,
   };
 }
 

@@ -1,5 +1,5 @@
 /**
- * Stats service for cella CLI.
+ * Whole-repository mode of `cella stats`.
  *
  * Counts files in the codebase using `git ls-files` (fast, respects .gitignore).
  * Categorizes by type and workspace package.
@@ -7,12 +7,11 @@
 
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
-import type { RuntimeConfig } from '../config/types';
-import pc from '../utils/colors';
-import { printCoverageSummary } from '../utils/coverage-utils';
-import { createSpinner, DIVIDER, spinnerSuccess } from '../utils/display';
-import { git } from '../utils/git';
-import { readTopLevel } from '../utils/workspace-yaml';
+import pc from '../../utils/colors';
+import { printCoverageSummary } from '../../utils/coverage-utils';
+import { createSpinner, DIVIDER, spinnerSuccess } from '../../utils/display';
+import { git } from '../../utils/git';
+import { readTopLevel } from '../../utils/workspace-yaml';
 
 /** Extensions Biome can check (source code, config, styles) */
 export const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
@@ -43,9 +42,9 @@ export interface WorkspacePackage {
   prefix: string;
 }
 
-/** Workspace package names and path prefixes from pnpm-workspace.yaml. */
+/** Workspace package names and path prefixes from pnpm-workspace.yaml; none without that file. */
 export async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
-  const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8');
+  const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8').catch(() => '');
   const patterns = readTopLevel(content, 'packages');
 
   return (Array.isArray(patterns) ? patterns.map(String) : []).map((pattern) => {
@@ -226,14 +225,12 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
 }
 
-export async function runStats(config: RuntimeConfig): Promise<void> {
-  const { forkPath } = config;
-
+export async function runStats(forkPath: string, verbose: boolean): Promise<void> {
   createSpinner('counting files...');
   const stats = await collectStats(forkPath);
   spinnerSuccess('counted raw lines of code');
 
-  printStats(stats, config.verbose);
+  printStats(stats, verbose);
   console.info();
   printCoverageSummary(forkPath);
 }

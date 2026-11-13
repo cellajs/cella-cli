@@ -16,7 +16,7 @@ import {
   countLineContent,
   formatMarkdown,
   parseNumstat,
-} from '../src/services/stats-since';
+} from '../src/tools/stats/since';
 
 function exec(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();

@@ -74,7 +74,6 @@ describe('packages merge', () => {
       service: 'upgrade',
       list: false,
       json: false,
-      verbose: false,
     };
   }
 

@@ -28,6 +28,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 | `a11y` | Audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger (see [a11y](#a11y)) |
 | `shoot` | Shoot the app's marketing screenshots on a testbed (see [Screenshots](#screenshots)) |
 | `i18n` | Translation status, unused keys and renames across the locale files and the code (see [Translations](#translations)) |
+| `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file (see [Stats of a branch](#stats-of-a-branch)) |
 
 | Security | Description |
 |----------|-------------|
@@ -39,7 +40,6 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 | `analyze` | Dry run to see what would change on upgrade. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-upgrade` and a graft for the upgrade base |
 | `upgrade` | Merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR into `main` |
 | `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
-| `stats` | Count files by category and workspace package; with `--since <ref>`, count what the current branch changed, by kind of file |
 | `adopt` * | Pull and adopt changes from local forks (see [Adopt](#adopt-from-forks)) |
 
 \* `adopt` only appears when you have `forks` configured in `cella.config.ts`.
@@ -63,13 +63,13 @@ Per-command help: `pnpm cella <command> --help`.
 | a11y | `report`, `decide`, `--states <ids>`, `--workers <n>`, `--email <address>`, `--publish`, `--draft`, `--file <path>` |
 | shoot | `<ids...>`, `--out <dir>`, `--email <address>` |
 | i18n | `unused`, `rename <ns:old> <ns:new>`, `--json` |
+| stats | `--since <ref>`, `--md`, `-V, --verbose` |
 | pentest | `report`, `--only <probe,nuclei,zap>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
 | align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
 | audit | `--list` |
 | adopt | `--fork <name>`, `--json` |
-| stats | `--since <ref>`, `--md`, `-V, --verbose` |
 | style | `[paths...]` |
 
 | Global flag | Description |
@@ -790,7 +790,8 @@ checked out from the contrib branch and staged for review.
 
 `pnpm cella stats` counts the whole repository. With `--since <ref>` it counts what the current
 branch changed since it left that ref, by kind of file, which is what a pull request into the ref
-shows. Only committed work counts.
+shows. Only committed work counts. It reads git alone, so it runs in any repository: one that is no
+app runs the published CLI with `pnpm dlx @cellajs/cli stats`.
 
 ```bash
 pnpm cella stats --since origin/main        # tables in the terminal, -V lists every file

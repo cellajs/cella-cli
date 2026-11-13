@@ -13,8 +13,6 @@ import { runAdopt } from './services/adopt';
 import { runAlign } from './services/align';
 import { runAnalyze } from './services/analyze';
 import { runAudit } from './services/audit';
-import { runStats } from './services/stats';
-import { runBranchStats } from './services/stats-since';
 import { runUpgradeCommand } from './services/upgrade';
 import pc from './utils/colors';
 import { loadConfig } from './utils/config';
@@ -64,11 +62,6 @@ const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>>
   align: runAlign,
   audit: runAudit,
   adopt: runAdopt,
-  stats: async (config) => {
-    if (config.md && !config.since) throw new Error('--md goes with --since <ref>');
-    if (!config.since) return runStats(config);
-    return runBranchStats(config, config.since);
-  },
 };
 
 function isHelpOrVersionRequest(): boolean {
@@ -113,7 +106,7 @@ async function main(): Promise<void> {
     }
 
     // Services that operate on other fork paths skip the local-repo preflight.
-    if (!['audit', 'adopt', 'stats'].includes(config.service)) {
+    if (!['audit', 'adopt'].includes(config.service)) {
       preflight(forkPath);
     }
 
