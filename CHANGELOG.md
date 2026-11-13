@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.4](https://github.com/cellajs/cella-cli/compare/cli-0.7.3...cli-0.7.4) (2026-11-13)
+
+
+### 🎉 New features
+
+* **stats:** stats runs in any git repository, and an agents file asks for a Size section ([#89](https://github.com/cellajs/cella-cli/issues/89)) ([6661f6e](https://github.com/cellajs/cella-cli/commit/6661f6e4b39a5d035e5a4c5548bdedaaeb527579))
+
 ## [0.7.3](https://github.com/cellajs/cella-cli/compare/cli-0.7.2...cli-0.7.3) (2026-11-12)
 
 
