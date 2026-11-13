@@ -4,6 +4,7 @@ import { benchCommand } from './bench/command';
 import { i18nCommand } from './i18n';
 import { pentestCommand } from './pentest';
 import { shootCommand } from './screenshots';
+import { statsCommand } from './stats';
 import { styleCommand } from './style';
 import { testbedCommand } from './testbed';
 
@@ -14,6 +15,7 @@ export const toolCommands: ToolCommand[] = [
   a11yCommand,
   shootCommand,
   i18nCommand,
+  statsCommand,
   pentestCommand,
   styleCommand,
 ];

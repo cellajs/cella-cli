@@ -70,7 +70,6 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
   }
 
   return {
-    verbose: flag(opts.verbose),
     list: flag(opts.list),
     json: flag(opts.json),
     scope: normalizedScope,
@@ -79,8 +78,6 @@ function readOptions(opts: Record<string, unknown>, operands: string[] = []): Cl
     ref: str(opts.ref) || undefined,
     keepConfig: flag(opts.keepConfig),
     unpinned: flag(opts.unpinned),
-    since: str(opts.since) || undefined,
-    md: flag(opts.md),
     all: flag(opts.all),
     show: str(opts.show),
     extract: str(opts.extract),
@@ -154,15 +151,6 @@ const serviceDefinitions: ServiceDefinition[] = [
     description: 'pull and adopt changes from local forks',
     options: [['--fork <name>', 'pre-select a fork by name (skips the fork selection prompt)'], jsonOption],
     includeInMenu: (context) => context.hasForks,
-  },
-  {
-    name: 'stats',
-    description: 'count files by category and workspace package',
-    options: [
-      ['-V, --verbose', 'show detailed output during operations'],
-      ['--since <ref>', 'count what the current branch changed since it left <ref>, by kind of file'],
-      ['--md', 'with --since: print the table as markdown for a pull request description'],
-    ],
   },
 ];
 
@@ -405,11 +393,11 @@ function buildRuntimeConfig(
 export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig | ToolSelection> {
   const selection = parseCommandLine(process.argv);
 
-  // In machine-output modes (--json, --list, --md), reserve stdout for the payload/rows/table
+  // In machine-output modes (--json, --list), reserve stdout for the payload or rows
   // and route all human output (header, warnings, spinner) to stderr. Audit's --list only skips
   // its interactive prompts; its report is the human output and stays on stdout.
   const machineList = selection.options.list && selection.service !== 'audit';
-  if (selection.options.json || selection.options.md || machineList) setJsonMode(true);
+  if (selection.options.json || machineList) setJsonMode(true);
 
   printHeader();
 

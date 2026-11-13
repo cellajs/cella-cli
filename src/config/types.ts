@@ -188,7 +188,7 @@ export const cellaConfigSchema = z
 // Internal types for the services.
 
 /** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt' | 'stats';
+export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt';
 
 /** A command's `--help` heading and menu place; a gate shows in `--help` only, since scripts and CI run it. */
 export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
@@ -242,9 +242,6 @@ export interface RuntimeConfig extends CellaCliConfig {
   /** Scope of files returned in analyze list/json output */
   scope?: AnalyzeScope;
 
-  /** Show verbose output */
-  verbose: boolean;
-
   /** Pre-selected fork name (skips fork selection prompt) */
   fork?: string;
 
@@ -272,12 +269,6 @@ export interface RuntimeConfig extends CellaCliConfig {
    * uses the full upstream history, so upstream changes that earlier syncs dropped come back too.
    */
   unpinned?: boolean;
-
-  /** Count what the current branch changed since it left this ref, by kind of file (stats service) */
-  since?: string;
-
-  /** Print the `since` table as markdown for a pull request description (stats service) */
-  md?: boolean;
 
   /** List every file instead of collapsing large groups (analyze), or every upstream alignment (align) */
   all?: boolean;

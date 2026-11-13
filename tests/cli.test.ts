@@ -129,17 +129,6 @@ describe('parseCli', () => {
     expect((await parseUpstream(baseConfig, '/tmp/fork')).runArgs).toEqual([]);
   });
 
-  it('parses the branch mode of stats', async () => {
-    process.argv = ['node', 'cella', 'stats', '--since', 'origin/main', '--md'];
-    const branch = await parseUpstream(baseConfig, '/tmp/fork');
-    expect(branch).toMatchObject({ service: 'stats', since: 'origin/main', md: true });
-
-    process.argv = ['node', 'cella', 'stats'];
-    const snapshot = await parseUpstream(baseConfig, '/tmp/fork');
-    expect(snapshot.since).toBeUndefined();
-    expect(snapshot.md).toBe(false);
-  });
-
   it('refuses arguments after the options without --run', async () => {
     process.argv = ['node', 'cella', 'align', '--', 'rewrite', 'frontend/src'];
     await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow(/unexpected argument 'rewrite'.*--run <id>/);
@@ -182,5 +171,17 @@ describe('parseToolCommand', () => {
       audit: { states: ['sign-in', 'home'], workers: 4, email: undefined },
     });
     expect(() => parse('a11y', 'report', '--states', 'home')).toThrow(/--states goes with `a11y audit`/);
+  });
+
+  it('parses the branch mode of stats, which needs no cella.config.ts', () => {
+    const parse = (...args: string[]) => parseToolCommand(['node', 'cella', ...args])?.options;
+
+    expect(parse('stats', '--since', 'origin/main', '--md')).toEqual({
+      since: 'origin/main',
+      md: true,
+      verbose: false,
+    });
+    expect(parse('stats')).toEqual({ since: undefined, md: false, verbose: false });
+    expect(() => parse('stats', '--md')).toThrow(/--md goes with --since <ref>/);
   });
 });
