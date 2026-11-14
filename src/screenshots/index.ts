@@ -1,4 +1,4 @@
-import type { ToolCommand } from '../config/types';
+import type { Command } from '../command';
 import { hasShowcase, withTestbed } from '../testbed';
 import { requireChromium } from '../utils/drive';
 import { loadShotList, requireEncoder, type ShootOptions, shoot } from './shoot';
@@ -17,7 +17,7 @@ async function runShoot(repoRoot: string, options: ShootOptions): Promise<number
   return withTestbed(repoRoot, (testbed) => shoot(repoRoot, list, testbed, options), { data });
 }
 
-export const shootCommand: ToolCommand<ShootOptions> = {
+export const shootCommand: Command<ShootOptions> = {
   name: 'shoot',
   group: 'develop',
   description: 'shoot the marketing screenshots on a testbed',

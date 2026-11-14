@@ -71,9 +71,6 @@ describe('packages merge', () => {
       overrides: { pinned: [], ignored: [] },
       repoRoot,
       upstreamRef: 'cella-upstream/main',
-      service: 'upgrade',
-      list: false,
-      json: false,
     };
   }
 

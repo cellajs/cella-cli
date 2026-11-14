@@ -112,7 +112,7 @@ export async function loadConfig(repoRoot: string): Promise<CellaCliConfig> {
 
   // Auto-derive app-owned module folders (modules declaring `owner: 'app'`) and merge
   // them into ignored. This keeps app modules as app territory: upstream never
-  // adds/modifies/deletes them during upgrade, and the adopt service never offers
+  // adds/modifies/deletes them during upgrade, and the adopt command never offers
   // them back upstream. Derived entries always exist (they come from real files), so
   // config validation never warns about them.
   const appModuleFolders = resolveAppModuleFolders(realRepoRoot);

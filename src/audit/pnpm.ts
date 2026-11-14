@@ -1,5 +1,5 @@
 /**
- * Audit utilities: running pnpm, repository links and table formatting for the audit service.
+ * Audit utilities: running pnpm, repository links and table formatting for the audit command.
  */
 
 import { execFile } from 'node:child_process';

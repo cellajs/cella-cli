@@ -1,6 +1,6 @@
 import { existsSync, readdirSync } from 'node:fs';
 import { basename, join } from 'node:path';
-import type { ToolCommand } from '../config/types';
+import type { Command } from '../command';
 import { runCommand, withTestbed } from '../testbed';
 import { toolDir } from '../utils/app';
 import { getEnvSnapshot } from '../utils/env';
@@ -50,7 +50,7 @@ async function runBench(repoRoot: string, options: BenchOptions): Promise<number
   return options.isolated ? withTestbed(repoRoot, (testbed) => run(testbed.env)) : run(getEnvSnapshot());
 }
 
-export const benchCommand: ToolCommand<BenchOptions> = {
+export const benchCommand: Command<BenchOptions> = {
   name: 'bench',
   group: 'develop',
   description: 'load-test the running app and check what the stack did with the load',

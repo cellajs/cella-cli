@@ -62,10 +62,10 @@ describe('upgrade e2e', () => {
     }
   }
 
-  describe('analyze service', () => {
+  describe('analyze', () => {
     it('detects app is identical to upstream', async () => {
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'analyze' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runAnalyze(config);
 
@@ -82,7 +82,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'analyze' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runAnalyze(config);
 
@@ -107,7 +107,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'analyze' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runAnalyze(config);
 
@@ -131,7 +131,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'analyze',
         pinned: ['backend/src/index.ts'],
       });
 
@@ -157,7 +156,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'analyze',
         pinned: ['backend/src/index.ts'],
       });
 
@@ -179,7 +177,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'analyze',
         ignored: ['docs'],
       });
 
@@ -192,7 +189,7 @@ describe('upgrade e2e', () => {
     });
   });
 
-  describe('upgrade service', () => {
+  describe('upgrade', () => {
     it('upgrades new files from upstream', async () => {
       // Add new file to upstream
       makeCommit(env.upstreamPath, {
@@ -201,7 +198,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'upgrade' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runUpgrade(config);
 
@@ -227,7 +224,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'upgrade',
         pinned: ['custom.ts'],
       });
 
@@ -251,18 +247,18 @@ describe('upgrade e2e', () => {
       makeCommit(env.repoRoot, { files: { 'styles.css': styles('a-app', 'c', 'e') }, message: 'feat: app styles' });
       makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c', 'e-up') }, message: 'feat: styles 1' });
       fetchUpstream(env.repoRoot);
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', pinned }));
+      await runUpgrade(buildRuntimeConfig(env, { pinned }));
       await commitMerge('chore: upgrade upstream cella', { squash: true });
       expect(readRepoFile(env.repoRoot, 'styles.css')).toBe(styles('a-app', 'c', 'e'));
 
       // Upstream changes line 3. Analyze shows the file as an ordinary both-changed file under the flag.
       makeCommit(env.upstreamPath, { files: { 'styles.css': styles('a', 'c-up', 'e-up') }, message: 'feat: styles 2' });
       fetchUpstream(env.repoRoot);
-      const preview = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', pinned, unpinned: true }));
+      const preview = await runAnalyze(buildRuntimeConfig(env, { pinned, unpinned: true }));
       expect(preview.files.find((f) => f.path === 'styles.css')).toMatchObject({ isPinned: false, status: 'diverged' });
 
       // The merge brings in line 3 and the line 5 change that the first upgrade dropped.
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', pinned, unpinned: true }));
+      await runUpgrade(buildRuntimeConfig(env, { pinned, unpinned: true }));
       expect(readRepoFile(env.repoRoot, 'styles.css')).toBe(styles('a-app', 'c-up', 'e-up'));
     });
 
@@ -275,7 +271,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'upgrade',
         ignored: ['docs'],
       });
 
@@ -294,7 +289,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'upgrade' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runUpgrade(config);
 
@@ -311,7 +306,7 @@ describe('upgrade e2e', () => {
 
       // Upgrade to get the file
       fetchUpstream(env.repoRoot);
-      let config = buildRuntimeConfig(env, { service: 'upgrade' });
+      let config = buildRuntimeConfig(env);
       await runUpgrade(config);
 
       expect(fileExists(env.repoRoot, 'temp.ts')).toBe(true);
@@ -323,7 +318,7 @@ describe('upgrade e2e', () => {
       deleteFileAndCommit(env.upstreamPath, 'temp.ts', 'chore: remove temp file');
 
       fetchUpstream(env.repoRoot);
-      config = buildRuntimeConfig(env, { service: 'upgrade' });
+      config = buildRuntimeConfig(env);
       const result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -335,17 +330,17 @@ describe('upgrade e2e', () => {
     it('keeps a file the app changed as a conflict when upstream deletes it', async () => {
       makeCommit(env.upstreamPath, { files: { 'temp.ts': '// Temporary file\n' }, message: 'chore: add temp file' });
       fetchUpstream(env.repoRoot);
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await runUpgrade(buildRuntimeConfig(env));
       await commitMerge('upgrade: merge upstream');
 
       makeCommit(env.repoRoot, { files: { 'temp.ts': '// fork: kept by the app\n' }, message: 'feat: own temp' });
       deleteFileAndCommit(env.upstreamPath, 'temp.ts', 'chore: remove temp file');
       fetchUpstream(env.repoRoot);
 
-      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' }));
+      const analysis = await runAnalyze(buildRuntimeConfig(env));
       expect(analysis.files.find((file) => file.path === 'temp.ts')?.status).toBe('diverged');
 
-      const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+      const result = await runUpgrade(buildRuntimeConfig(env));
       expect(result.conflicts).toContain('temp.ts');
       expect(readRepoFile(env.repoRoot, 'temp.ts')).toBe('// fork: kept by the app\n');
     });
@@ -360,14 +355,14 @@ describe('upgrade e2e', () => {
 
       // Analyze: the app's deletion must be classified as 'deleted', not 'behind': otherwise it
       // would be re-added as if upstream introduced a new file, resurfacing on every upgrade.
-      const analyzeConfig = buildRuntimeConfig(env, { service: 'analyze' });
+      const analyzeConfig = buildRuntimeConfig(env);
       const analysis = await runAnalyze(analyzeConfig);
       const deletedFile = analysis.files.find((f) => f.path === 'README.md');
       expect(deletedFile).toBeDefined();
       expect(deletedFile?.status).toBe('deleted');
 
       // Upgrade: the deletion is respected: README.md stays gone.
-      const upgradeConfig = buildRuntimeConfig(env, { service: 'upgrade' });
+      const upgradeConfig = buildRuntimeConfig(env);
       const result = await runUpgrade(upgradeConfig);
       expect(result.conflicts).toEqual([]);
       expect(fileExists(env.repoRoot, 'README.md')).toBe(false);
@@ -382,7 +377,7 @@ describe('upgrade e2e', () => {
 
       // Upgrade to get the file
       fetchUpstream(env.repoRoot);
-      let config = buildRuntimeConfig(env, { service: 'upgrade' });
+      let config = buildRuntimeConfig(env);
       await runUpgrade(config);
 
       expect(fileExists(env.repoRoot, 'old-dir/moved-file.ts')).toBe(true);
@@ -398,7 +393,7 @@ describe('upgrade e2e', () => {
       );
 
       fetchUpstream(env.repoRoot);
-      config = buildRuntimeConfig(env, { service: 'upgrade' });
+      config = buildRuntimeConfig(env);
       const result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -422,13 +417,13 @@ describe('upgrade e2e', () => {
         message: 'chore: texts',
       });
       fetchUpstream(env.repoRoot);
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await runUpgrade(buildRuntimeConfig(env));
       await commitMerge('upgrade: merge upstream');
       makeCommit(env.repoRoot, { files: { 'old-dir/texts.json': '{ "a": "app" }\n' }, message: 'feat: app texts' });
 
       renameFileAndCommit(env.upstreamPath, 'old-dir/texts.json', 'new-dir/texts.json', 'refactor: move texts');
       fetchUpstream(env.repoRoot);
-      const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ignored: [entry] }));
+      const result = await runUpgrade(buildRuntimeConfig(env, { ignored: [entry] }));
 
       expect(result.conflicts).toEqual([]);
       expect(fileExists(env.repoRoot, 'old-dir/texts.json')).toBe(false);
@@ -444,7 +439,7 @@ describe('upgrade e2e', () => {
 
       // Upgrade to get the file
       fetchUpstream(env.repoRoot);
-      let config = buildRuntimeConfig(env, { service: 'upgrade' });
+      let config = buildRuntimeConfig(env);
       await runUpgrade(config);
 
       expect(fileExists(env.repoRoot, 'src/old-name.ts')).toBe(true);
@@ -455,7 +450,7 @@ describe('upgrade e2e', () => {
       renameFileAndCommit(env.upstreamPath, 'src/old-name.ts', 'src/new-name.ts', 'refactor: rename file');
 
       fetchUpstream(env.repoRoot);
-      config = buildRuntimeConfig(env, { service: 'upgrade' });
+      config = buildRuntimeConfig(env);
       const result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -479,7 +474,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'analyze' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runAnalyze(config);
 
@@ -502,7 +497,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'analyze' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runAnalyze(config);
 
@@ -527,7 +522,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'upgrade' });
+      const config = buildRuntimeConfig(env);
 
       const result = await runUpgrade(config);
 
@@ -549,7 +544,7 @@ describe('upgrade e2e', () => {
 
       // Upgrade shared.ts into the app and finalize so it becomes part of the merge base.
       fetchUpstream(env.repoRoot);
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await runUpgrade(buildRuntimeConfig(env));
       await commitMerge('upgrade: shared');
 
       // Upstream: conflicting README edit + non-overlapping edit at the TOP of shared.ts.
@@ -580,7 +575,7 @@ describe('upgrade e2e', () => {
 
       let result: Awaited<ReturnType<typeof runUpgrade>>;
       try {
-        result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+        result = await runUpgrade(buildRuntimeConfig(env));
       } finally {
         spy.mockRestore();
       }
@@ -603,7 +598,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      let config = buildRuntimeConfig(env, { service: 'upgrade' });
+      let config = buildRuntimeConfig(env);
       let result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -618,7 +613,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      config = buildRuntimeConfig(env, { service: 'upgrade' });
+      config = buildRuntimeConfig(env);
       result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -633,7 +628,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      config = buildRuntimeConfig(env, { service: 'analyze' });
+      config = buildRuntimeConfig(env);
       const analysis = await runAnalyze(config);
 
       const cycleFile = analysis.files.find((f) => f.path === 'cycle-file.ts');
@@ -649,7 +644,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      let config = buildRuntimeConfig(env, { service: 'upgrade' });
+      let config = buildRuntimeConfig(env);
       let result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -675,7 +670,7 @@ describe('upgrade e2e', () => {
       expect(effectiveBase).toBe(storedRef);
 
       // Upgrade should work correctly despite squash history
-      config = buildRuntimeConfig(env, { service: 'upgrade' });
+      config = buildRuntimeConfig(env);
       result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -702,7 +697,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'upgrade', track: 'release' });
+      const config = buildRuntimeConfig(env, { track: 'release' });
       const result = await runUpgrade(config);
 
       expect(result.conflicts).toEqual([]);
@@ -723,7 +718,7 @@ describe('upgrade e2e', () => {
       });
 
       fetchUpstream(env.repoRoot);
-      const config = buildRuntimeConfig(env, { service: 'upgrade', track: 'release' });
+      const config = buildRuntimeConfig(env, { track: 'release' });
 
       await expect(runUpgrade(config)).rejects.toThrow(/no upstream release tags found/);
     });
@@ -737,7 +732,6 @@ describe('upgrade e2e', () => {
 
       fetchUpstream(env.repoRoot);
       const config = buildRuntimeConfig(env, {
-        service: 'upgrade',
         track: 'release',
         trackOverride: 'branch',
       });
@@ -760,11 +754,11 @@ describe('upgrade e2e', () => {
 
       // Release tracking without any release: --ref wins, so no "no upstream releases" error
       const ref = pinned.slice(0, 7);
-      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', track: 'release', ref }));
+      const analysis = await runAnalyze(buildRuntimeConfig(env, { track: 'release', ref }));
       expect(analysis.files.find((f) => f.path === 'pinned.ts')?.status).toBe('behind');
       expect(analysis.files.find((f) => f.path === 'later.ts')).toBeUndefined();
 
-      const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', track: 'release', ref }));
+      const result = await runUpgrade(buildRuntimeConfig(env, { track: 'release', ref }));
 
       expect(result.conflicts).toEqual([]);
       expect(recordedRelease()).toBeNull();
@@ -782,7 +776,7 @@ describe('upgrade e2e', () => {
       tagUpstream(env.upstreamPath, 'v0.2.0');
       fetchUpstream(env.repoRoot);
 
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
+      await runUpgrade(buildRuntimeConfig(env, { ref: 'v0.1.0' }));
 
       expect(recordedRelease()).toBe('v0.1.0');
       expect(fileExists(env.repoRoot, 'one.ts')).toBe(true);
@@ -798,7 +792,7 @@ describe('upgrade e2e', () => {
       tagUpstream(env.upstreamPath, 'archive/pre-release');
       fetchUpstream(env.repoRoot);
 
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
+      await runUpgrade(buildRuntimeConfig(env, { track: 'release' }));
 
       expect(recordedRelease()).toBe('0.18.1');
       expect(fileExists(env.repoRoot, 'released.ts')).toBe(true);
@@ -813,7 +807,7 @@ describe('upgrade e2e', () => {
       execSync('git checkout -q main', { cwd: env.upstreamPath });
       fetchUpstream(env.repoRoot);
 
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ref: '0.3.0' }));
+      await runUpgrade(buildRuntimeConfig(env, { ref: '0.3.0' }));
 
       expect(recordedRelease()).toBe('0.3.0');
       expect(fileExists(env.repoRoot, 'one.ts')).toBe(true);
@@ -843,7 +837,7 @@ describe('upgrade e2e', () => {
       makeCommit(env.upstreamPath, { files: { 'tip.ts': 'export const t = 1;\n' }, message: 'feat: tip' });
       fetchUpstream(env.repoRoot);
 
-      const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ref: 'main' }));
+      const result = await runUpgrade(buildRuntimeConfig(env, { ref: 'main' }));
 
       expect(result.upstreamCommit?.hash).toBe(
         execSync('git rev-parse main', { cwd: env.upstreamPath }).toString().trim(),
@@ -860,7 +854,7 @@ describe('upgrade e2e', () => {
         message: 'feat: app change',
       });
       fetchUpstream(env.repoRoot);
-      const upgrade = (ref: string) => runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ref }));
+      const upgrade = (ref: string) => runUpgrade(buildRuntimeConfig(env, { ref }));
 
       await expect(upgrade('no-such-ref')).rejects.toThrow(/--ref 'no-such-ref' does not resolve to a commit/);
       await expect(upgrade('feature')).rejects.toThrow(/is not on cella-upstream\/main or in an upstream release/);
@@ -875,12 +869,10 @@ describe('upgrade e2e', () => {
       fetchUpstream(env.repoRoot);
 
       // A branch-tracking upgrade moves the upgrade point past the latest release
-      await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', track: 'branch' }));
+      await runUpgrade(buildRuntimeConfig(env, { track: 'branch' }));
       await commitMerge('chore: upgrade upstream cella', { squash: true });
 
-      await expect(runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }))).rejects.toThrow(
-        /Pick a newer --ref/,
-      );
+      await expect(runUpgrade(buildRuntimeConfig(env, { ref: 'v0.1.0' }))).rejects.toThrow(/Pick a newer --ref/);
       expect(readRepoFile(env.repoRoot, 'version.ts')).toBe('v2\n');
       expect(execSync('git status --porcelain', { cwd: env.repoRoot }).toString()).toBe('');
     });
@@ -918,7 +910,7 @@ describe('upgrade e2e', () => {
 
     it('analyze reports new upstream override entries and ignored paths only upstream changed', async () => {
       await setupBase();
-      const config = buildRuntimeConfig(env, { service: 'analyze', pinned: ['a.ts'], ignored: ['shared/config'] });
+      const config = buildRuntimeConfig(env, { pinned: ['a.ts'], ignored: ['shared/config'] });
 
       const result = await runAnalyze(config);
 
@@ -941,8 +933,7 @@ describe('upgrade e2e', () => {
 
     it('analyze --json flags the files and carries the override changes on the upgrade config', async () => {
       await setupBase();
-      const config = buildRuntimeConfig(env, { service: 'analyze', pinned: ['a.ts'], ignored: ['shared/config'] });
-      config.json = true;
+      const config = buildRuntimeConfig(env, { pinned: ['a.ts'], ignored: ['shared/config'] });
 
       const chunks: string[] = [];
       const info = vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -951,7 +942,7 @@ describe('upgrade e2e', () => {
         return true;
       });
       try {
-        await runAnalyze(config);
+        await runAnalyze(config, { json: true });
       } finally {
         write.mockRestore();
         info.mockRestore();
@@ -971,7 +962,6 @@ describe('upgrade e2e', () => {
     it('upgrade --keep-config merges, reports the same and leaves the app config and ignored files alone', async () => {
       await setupBase();
       const config = buildRuntimeConfig(env, {
-        service: 'upgrade',
         pinned: ['a.ts'],
         ignored: ['shared/config'],
         keepConfig: true,
@@ -1005,10 +995,10 @@ describe('upgrade e2e', () => {
       const options = { pinned: ['a.ts', 'backend/src'], ignored: ['shared/config'], keepConfig: true };
       const dropped = ['backend/src/index.ts', 'shared/config/default.ts'];
 
-      const analysis = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze', ...options }));
+      const analysis = await runAnalyze(buildRuntimeConfig(env, { ...options }));
       expect(analysis.protectedConflicts?.sort()).toEqual(dropped);
 
-      const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade', ...options }));
+      const result = await runUpgrade(buildRuntimeConfig(env, { ...options }));
       const [section] = reviewSections(result, 'upgrade');
       expect(section.paths.sort()).toEqual(dropped);
 

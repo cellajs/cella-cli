@@ -32,7 +32,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 
 | Security | Description |
 |----------|-------------|
-| `audit` | Update outdated packages and runtime pins, then rebuild the security overrides from a fresh audit; report the security fixes this machine's Node, pnpm and gh miss |
+| `audit` | Report outdated packages and runtime pins, the security overrides a fresh audit asks for and the security fixes this machine's Node, pnpm and gh miss; `audit fix` updates them (see [Audit](#audit)) |
 | `pentest` | Scan a throwaway testbed of the app: a cross-tenant access probe, then Nuclei and ZAP (see [Pentest](#pentest)) |
 
 | Upstream | Description |
@@ -67,8 +67,8 @@ Per-command help: `pnpm cella <command> --help`.
 | pentest | `report`, `--only <probe,nuclei,zap>`, `--json` |
 | analyze | `--list`, `--json`, `--scope <all\|risk\|protected>`, `--all`, `--track <release\|branch>`, `--ref <ref>`, `--unpinned` |
 | upgrade | `--track <release\|branch>`, `--ref <ref>`, `--keep-config`, `--unpinned` |
-| align | `--all`, `--json`, `--show <id>`, `--extract <id>`, `--run <id> [-- <codemod args>]`, `--mark <ids...>` |
-| audit | `--list` |
+| align | `show <id>`, `run <id> [-- <codemod args>]`, `mark <ids...>`, `--all`, `--json` |
+| audit | `fix` |
 | adopt | `--fork <name>`, `--json` |
 | style | `[paths...]` |
 
@@ -250,7 +250,7 @@ database after, since the scans write rows and run into the rate limits. It refu
 | `pnpm cella pentest report` | Print the last run's findings; `--json` prints the report as JSON |
 
 A run fails (exit code 1) on a finding of high or critical severity, and every read the probe lets through to the
-outsider is one. The scanners run as Docker images pinned by digest, pulled on first use, on the host network so
+outsider is one. A scanner that failed or timed out fails it too. The scanners run as Docker images pinned by digest, pulled on first use, on the host network so
 they reach the testbed by its own origin. Results stay in `.git/cella-pentest/`, out of the repository, because the
 scanners' output can hold the sessions, which the run signs out at the end.
 
@@ -451,7 +451,7 @@ next steps
 ```
 
 Without a terminal (piped, or read by an agent) each alignment row also gets its id, for
-`pnpm cella align --show <id>`.
+`pnpm cella align show <id>`.
 
 ## Alignments
 
@@ -468,7 +468,7 @@ codemod, its `roots`. A `grep` term that starts and ends with a letter or digit 
 a whole word; any other term, such as `.results`, matches anywhere in a line.
 
 The app keeps one small record, `cella/cella.alignments.json`, listing the alignments it has not
-handled yet. The upgrade adds the ones that arrive with it, `align --mark` removes them, and the file
+handled yet. The upgrade adds the ones that arrive with it, `align mark` removes them, and the file
 is deleted once the list is empty. No file means nothing is pending, so a new app starts without
 one.
 
@@ -486,11 +486,10 @@ stay listed until marked.
 
 ```bash
 pnpm cella align                    # open alignments, with summary and links
-pnpm cella align --show <id>        # one alignment's README and what git tells about it
-pnpm cella align --run <id>         # run its codemod, report only
-pnpm cella align --run <id> -- rewrite frontend/src   # run it with your own arguments
-pnpm cella align --extract <id>     # its folder under node_modules/.cache/cella/alignments/<id>/
-pnpm cella align --mark <id> [...]  # record alignments as handled
+pnpm cella align show <id>          # one alignment's README and what git tells about it
+pnpm cella align run <id>           # run its codemod, report only
+pnpm cella align run <id> -- rewrite frontend/src   # run it with your own arguments
+pnpm cella align mark <id> [...]    # record alignments as handled
 ```
 
 Next to its README, each alignment shows what git can tell about it: the upstream commit and PR
@@ -498,21 +497,21 @@ that added it, the other alignments of that commit, the files of that commit the
 or changed, and the lines of app code that hold one of its `grep` terms. Only files that differ
 from the upstream commit of the last upgrade count, so a template file the app never touched is
 never a hit. Two or more open alignments with `generate` get one line: work their code steps first, then
-generate once. `--show` reads an alignment the last upgrade does not have yet from the fetched
+generate once. `align show` reads an alignment the last upgrade does not have yet from the fetched
 upstream branch, so it works before the upgrade that brings it.
 
-`--run` extracts the alignment and runs its codemod with `tsx` from your app root. Everything after
-`--` goes to the codemod as given; without it the codemod gets `inventory` and the alignment's
-`roots`, the report-only run.
+`align run` extracts the alignment to `node_modules/.cache/cella/alignments/<id>/` and runs its
+codemod with `tsx` from your app root. Everything after `--` goes to the codemod as given; without
+it the codemod gets `inventory` and the alignment's `roots`, the report-only run.
 
 A codemod's roots cover template-owned files too, and a file that is identical to upstream already
 is the way upstream wants it: upstream may have changed it after writing the codemod, so a rewrite
-there only creates drift. Before the codemod starts, `--run` notes which files are byte-identical
+there only creates drift. Before the codemod starts, `align run` notes which files are byte-identical
 to the upstream commit of the last upgrade (`upstream.commit` in `cella/cella.manifest.json`,
 during a staged upgrade the incoming commit). After the run, each of those files the codemod changed gets its
 upstream content back, and the run prints how many it restored. Files your app changed keep the
 codemod's rewrite. The codemod's own report still counts the restored files, in a report-only run
-too. A codemod run by hand from the `--extract` folder has no such protection.
+too. A codemod run by hand from the extracted folder has no such protection.
 
 ## Merge rules
 
@@ -688,7 +687,7 @@ previous value, and a package.json without `type` gets upstream's. Set it yourse
 
 ## Audit
 
-`pnpm cella audit` works in two layers, in this order:
+`pnpm cella audit fix` works in two layers, in this order:
 
 1. **Updates.** It lists the outdated packages and runtime pins in one table and asks once which to
    update. Rows with a high or critical advisory start ticked; submitting with nothing ticked skips
@@ -768,7 +767,7 @@ version an advisory claims. Most outcomes need no answer from you:
   with an exclude.
 - **No fix published**: you are asked whether to ignore the advisory until one is.
 
-`--list` prints the same report without prompts and writes nothing.
+`pnpm cella audit` prints the same report without prompts and writes nothing.
 
 ## Adopt from forks
 

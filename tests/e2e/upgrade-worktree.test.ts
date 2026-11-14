@@ -49,7 +49,7 @@ function pushTeammateCommit(env: TestEnv, { merge = false } = {}): string {
 }
 
 function upgradeConfig(env: TestEnv, repoRoot: string): RuntimeConfig {
-  return { ...buildRuntimeConfig(env, { service: 'upgrade' }), repoRoot };
+  return { ...buildRuntimeConfig(env), repoRoot };
 }
 
 describe('upgrade from a linked worktree', () => {

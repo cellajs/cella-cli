@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import type { Command } from '../command';
 import { defaultUpstreamRemote } from '../config/load';
-import type { ToolCommand } from '../config/types';
 import { readUpgradePoint } from '../upstream/manifest';
 import { git } from '../utils/git';
 import { alignmentFindings, type BranchChanges, owedAlignmentFindings } from './alignment-rules';
@@ -130,7 +130,7 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
   return 0;
 }
 
-export const styleCommand: ToolCommand<StyleOptions> = {
+export const styleCommand: Command<StyleOptions> = {
   name: 'style',
   group: 'gate',
   description: 'the style check: terminology, docs, comments and frontend code; exits 1 on any finding',

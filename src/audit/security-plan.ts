@@ -1,6 +1,6 @@
 /**
  * The plan behind the audit's security pass: which advisories an override can fix, which have a
- * fix that is too young to install, and which have none. Pure, so the service around it only
+ * fix that is too young to install, and which have none. Pure, so the command around it only
  * gathers the inputs and carries the plan out.
  */
 

@@ -1,10 +1,10 @@
 /**
- * E2E tests for `cella align --run <id>`: the alignment's codemod runs from its extracted copy with
+ * E2E tests for `cella align run <id>`: the alignment's codemod runs from its extracted copy with
  * `tsx`, and files that were identical to the last upgraded upstream commit get their upstream
  * content back when the codemod changed them.
  *
  * `pnpm exec tsx` is replaced by this repo's own `tsx` (the temp app has no node_modules), so the
- * codemod really runs, from the app root, with the arguments the service hands it.
+ * codemod really runs, from the app root, with the arguments the command hands it.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -22,7 +22,7 @@ import {
   type TestEnv,
 } from '../helpers/test-env';
 
-/** Every `pnpm exec tsx` the service spawned: where, and with which arguments. */
+/** Every `pnpm exec tsx` the command spawned: where, and with which arguments. */
 const { codemodRuns } = vi.hoisted(() => ({ codemodRuns: [] as Array<{ cwd: string; args: string[] }> }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -79,14 +79,14 @@ if (mode === 'crash') {
 console.log(\`\${mode}: \${count} file(s)\`);
 `;
 
-describe('align --run e2e', () => {
+describe('align run e2e', () => {
   let env: TestEnv;
   let lines: string[];
   let upstreamCommit: string;
 
   const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.repoRoot, encoding: 'utf8' }).trim();
-  const run = (options: { run: string; runArgs?: string[] }) =>
-    runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), ...options });
+  const run = (id: string, codemodArgs: string[] = []) =>
+    runAlign(buildRuntimeConfig(env), { job: 'run', id, codemodArgs });
 
   /**
    * The app has its own file and its own edit of a template file. Upstream then ships the alignments,
@@ -131,7 +131,7 @@ describe('align --run e2e', () => {
     vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
-    await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+    await runUpgrade(buildRuntimeConfig(env));
     lines.length = 0;
   });
 
@@ -141,7 +141,7 @@ describe('align --run e2e', () => {
   });
 
   it('passes the arguments after -- as given, rewrites app files and restores files identical to upstream', async () => {
-    await run({ run: codemodId, runArgs: ['rewrite', 'frontend/src'] });
+    await run(codemodId, ['rewrite', 'frontend/src']);
 
     expect(codemodRuns).toEqual([{ cwd: env.repoRoot, args: [extracted, 'rewrite', 'frontend/src'] }]);
     // App-owned content is rewritten
@@ -167,7 +167,7 @@ describe('align --run e2e', () => {
       message: 'feat: app edit of a template file',
     });
 
-    await run({ run: codemodId, runArgs: ['rewrite', 'frontend/src'] });
+    await run(codemodId, ['rewrite', 'frontend/src']);
 
     // No longer identical to upstream: the app owns the edit, so the rewrite stays
     expect(readRepoFile(env.repoRoot, 'frontend/src/template.ts')).toBe('export const template = "size-3 app";\n');
@@ -176,26 +176,26 @@ describe('align --run e2e', () => {
   });
 
   it('covers the roots named after --, whichever they are', async () => {
-    await run({ run: codemodId, runArgs: ['rewrite', 'backend/src'] });
+    await run(codemodId, ['rewrite', 'backend/src']);
 
     expect(readRepoFile(env.repoRoot, 'backend/src/template.ts')).toBe('export const backend = "icon-xs";\n');
     expect(lines.join('\n')).toContain('restored 1 file(s)');
   });
 
   it("defaults to a report-only run over the alignment's roots", async () => {
-    await run({ run: codemodId });
+    await run(codemodId);
 
     expect(codemodRuns[0].args).toEqual([extracted, 'inventory', 'frontend/src']);
     expect(readRepoFile(env.repoRoot, 'frontend/src/app-only.ts')).toBe('export const mine = "icon-xs";\n');
     const out = lines.join('\n');
     expect(out).toContain(`no file identical to upstream ${upstreamCommit.slice(0, 9)} was changed`);
-    expect(out).toContain(`report only. to apply: pnpm cella align --run ${codemodId} -- rewrite frontend/src`);
+    expect(out).toContain(`report only. to apply: pnpm cella align run ${codemodId} -- rewrite frontend/src`);
   });
 
-  it('restores what a failing codemod changed or deleted, then fails', async () => {
-    await expect(run({ run: codemodId, runArgs: ['crash', 'frontend/src'] })).rejects.toThrow(
-      'the codemod exited with code 3',
-    );
+  it('restores what a failing codemod changed or deleted, then exits 1', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await run(codemodId, ['crash', 'frontend/src'])).toBe(1);
+    expect(error.mock.calls.join('\n')).toContain('the codemod exited with code 3');
 
     expect(readRepoFile(env.repoRoot, 'frontend/src/template.ts')).toBe('export const template = "icon-xs";\n');
     expect(readRepoFile(env.repoRoot, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
@@ -203,10 +203,8 @@ describe('align --run e2e', () => {
   });
 
   it('refuses an alignment without a script, and an unknown alignment', async () => {
-    await expect(run({ run: manual })).rejects.toThrow(
-      `alignment '${manual}' ships no codemod script: its steps are manual`,
-    );
-    await expect(run({ run: '20260101T0000-unknown' })).rejects.toThrow(/no alignment/);
+    await expect(run(manual)).rejects.toThrow(`alignment '${manual}' ships no codemod script: its steps are manual`);
+    await expect(run('20260101T0000-unknown')).rejects.toThrow(/no alignment/);
     expect(codemodRuns).toEqual([]);
   });
 
@@ -214,7 +212,7 @@ describe('align --run e2e', () => {
     // As a pattern, `[id].ts` also names `i.ts`, which the app changed: its rewrite has to stay
     fs.writeFileSync(path.join(env.repoRoot, 'mcp/src/i.ts'), 'export const index = "icon-xs app";\n');
 
-    await run({ run: codemodId, runArgs: ['rewrite', 'mcp/src'] });
+    await run(codemodId, ['rewrite', 'mcp/src']);
 
     expect(readRepoFile(env.repoRoot, 'mcp/src/[id].ts')).toBe('export const route = "icon-xs";\n');
     expect(readRepoFile(env.repoRoot, 'mcp/src/i.ts')).toBe('export const index = "size-3 app";\n');

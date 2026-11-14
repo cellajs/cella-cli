@@ -7,7 +7,7 @@
  * app and removes a copy it finds. Alignments are read from upstream commits the upgrade already fetched.
  *
  * The app records only the alignments it has not handled yet, in `cella/cella.alignments.json` as
- * `{ "pending": [...] }`. The upgrade adds the ones that arrive with it; `cella align --mark` removes
+ * `{ "pending": [...] }`. The upgrade adds the ones that arrive with it; `cella align mark` removes
  * them. A missing file means nothing is pending, so a new app needs no seed. Alignments are
  * information, never a gate: nothing blocks on a pending one.
  */

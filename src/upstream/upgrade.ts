@@ -1,8 +1,8 @@
 /**
- * Upgrade service for the cella CLI.
+ * Upgrade command for the cella CLI.
  *
  * Runs the merge engine directly in the app (no worktree) so conflicts surface in the IDE, on
- * a fresh temporary branch cut from the trunk. The service is idempotent: if a run stops at
+ * a fresh temporary branch cut from the trunk. The command is idempotent: if a run stops at
  * conflicts, resolve them and run `cella upgrade` again to finish the same merge.
  */
 
@@ -463,10 +463,10 @@ async function flattenUpgradeBranch(repoRoot: string, branch: string, trunk: str
 
 /**
  * Push the finished upgrade branch to `origin`, open a PR into the trunk, and switch back to the
- * trunk (see `returnToTrunk`). A failed push prints the manual steps and leaves you on the branch;
- * a missing or failed `gh` prints the `gh` command but still returns you to the trunk.
+ * trunk (see `returnToTrunk`). A failed push prints the manual steps and leaves you on the branch,
+ * and returns 1; a missing or failed `gh` prints the `gh` command but still returns you to the trunk.
  */
-async function shipUpgradeBranch(config: RuntimeConfig, branch: string): Promise<void> {
+async function shipUpgradeBranch(config: RuntimeConfig, branch: string): Promise<number> {
   const { repoRoot, settings } = config;
   const trunk = resolveTrunk(settings);
   // The PR targets `trunk`; its commits and body are read against the trunk the branch was cut from.
@@ -489,7 +489,7 @@ async function shipUpgradeBranch(config: RuntimeConfig, branch: string): Promise
     console.info(pc.yellow(`push failed (${errorMessage(error).split('\n')[0]}). finish manually:`));
     console.info(pc.dim(`  git push -u origin ${branch}`));
     printPrCreateStep(branch, trunk, prTitle);
-    return;
+    return 1;
   }
 
   if (ghAvailable()) {
@@ -530,6 +530,7 @@ async function shipUpgradeBranch(config: RuntimeConfig, branch: string): Promise
     await upgradeAlignmentsStep(config),
   ];
   printNextSteps(steps.filter((step): step is NextStep => !!step));
+  return 0;
 }
 
 /**
@@ -625,10 +626,11 @@ async function runUpgradeCycle(config: RuntimeConfig): Promise<UpgradeCycleOutco
 
 /**
  * Commit an in-progress merge on the temporary upgrade branch as one single-parent commit, then stop
- * there for drift triage; shipping is always its own rerun. Stops early while conflicts remain.
- * `run` is the merge this run made, absent when it resumes an earlier run's merge.
+ * there for drift triage; shipping is always its own rerun. Stops early, returning 1, while conflicts
+ * remain or when `pnpm install` or `pnpm check` fails. `run` is the merge this run made, absent when
+ * it resumes an earlier run's merge.
  */
-async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: UpgradeRunResult): Promise<void> {
+async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: UpgradeRunResult): Promise<number> {
   const { repoRoot } = config;
   const conflicts = await getConflictedFiles(repoRoot);
 
@@ -636,7 +638,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
   if (conflicts.length > 0) {
     printStep('conflicts', `${plural(conflicts.length, 'file')} still conflict on '${branch}'`, warningMark);
     printNextSteps(await conflictSteps(config, conflicts, run));
-    return;
+    return 1;
   }
 
   // Stage resolved conflicts and manual edits before tooling that may fail, so they are recorded.
@@ -653,7 +655,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
         details: [pc.dim('commits the upgrade and stops for drift triage')],
       },
     ]);
-    return;
+    return 1;
   }
 
   // The subject reads MERGE_HEAD, which commitSquash clears; re-stage what install/check touched.
@@ -673,6 +675,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
     { label: 'ship', line: 'pnpm cella upgrade', details: [pc.dim('pushes the branch and opens the squash-merge PR')] },
   ];
   printNextSteps(steps.filter((step): step is NextStep => !!step));
+  return 0;
 }
 
 /**
@@ -688,9 +691,10 @@ async function engineFinishedMerge(repoRoot: string): Promise<boolean> {
 /**
  * Handle a merge in progress the engine did not finish. On a branch without a committed upgrade it
  * is the engine's own, stopped by ctrl-c or a throw: the merge goes, and the branch with it, which
- * would ship empty. On top of a committed upgrade it is a merge of the app's own, left to git.
+ * would ship empty. On top of a committed upgrade it is a merge of the app's own, left to git: the
+ * run returns 1.
  */
-async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Promise<void> {
+async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Promise<number> {
   const { repoRoot } = config;
   const trunk = resolveTrunk(config.settings);
   const cutPoint = await getMergeBase(repoRoot, 'HEAD', await resolveTrunkRef(repoRoot, trunk));
@@ -703,7 +707,7 @@ async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Pro
   if (committed !== atCut) {
     console.info(pc.yellow(`'${branch}' has a merge in progress that \`cella upgrade\` did not start.`));
     console.info(pc.dim('finish it with `git commit` or undo it with `git merge --abort`, then rerun to ship.'));
-    return;
+    return 1;
   }
 
   await mergeAbort(repoRoot);
@@ -713,6 +717,7 @@ async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Pro
     pc.yellow(`an earlier run stopped before it finished the merge on '${branch}': undid it and removed the branch.`),
   );
   console.info(pc.dim(`${position}: run \`pnpm cella upgrade\` again to start a fresh upgrade.`));
+  return 0;
 }
 
 /**
@@ -721,7 +726,7 @@ async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Pro
  * same stale trunk), so the newest is squash-merged and the rest are closed. A merge GitHub
  * refuses (conflicts, failing required checks) stops the run.
  */
-async function mergeOpenUpgradePrs(config: RuntimeConfig, open: GhPullRequest[]): Promise<'continue' | 'cancel'> {
+async function mergeOpenUpgradePrs(config: RuntimeConfig, open: GhPullRequest[]): Promise<'continue' | 'refused'> {
   const { repoRoot, settings } = config;
   const trunk = resolveTrunk(settings);
   const [newest, ...superseded] = open;
@@ -734,7 +739,7 @@ async function mergeOpenUpgradePrs(config: RuntimeConfig, open: GhPullRequest[])
     console.info(pc.yellow(`could not merge #${newest.number}: resolve it first, then re-run \`pnpm cella upgrade\`:`));
     if (merged.error) console.info(pc.dim(merged.error.replace(/^/gm, '  ')));
     console.info(pc.dim(`  ${newest.url}`));
-    return 'cancel';
+    return 'refused';
   }
   console.info(`${checkMark} merged #${newest.number}`);
   // Drop the stale local branch that tracked the merged PR (the remote one went with --delete-branch).
@@ -754,7 +759,7 @@ async function mergeOpenUpgradePrs(config: RuntimeConfig, open: GhPullRequest[])
  * upgrade point lives in the manifest on the upgrade branch, so a cycle cut from a trunk without it
  * re-includes that PR's whole delta. A silent `continue` without `gh`, an open PR or a TTY.
  */
-async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<'continue' | 'cancel'> {
+async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<'continue' | 'cancel' | 'refused'> {
   const { repoRoot } = config;
 
   if (!ghAvailable() || !process.stdout.isTTY) return 'continue';
@@ -796,18 +801,20 @@ async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<'contin
 
 /**
  * Run the standalone `cella upgrade` command. Idempotent: each run advances the upgrade one stage
- * (cut and merge, commit, ship) and never commits and ships in the same run.
+ * (cut and merge, commit, ship) and never commits and ships in the same run. Returns 0 when a stage
+ * finished, there was nothing to upgrade or the person cancelled, and 1 where a person must act
+ * before a rerun can go on.
  */
-export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
+export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> {
   const { repoRoot } = config;
   const currentBranch = await getCurrentBranch(repoRoot);
   const onUpgradeBranch = isUpgradeBranch(currentBranch);
 
   // Resume path: finish the merge an earlier run left staged on this branch.
   if (onUpgradeBranch && (await mergeInProgress(repoRoot))) {
-    if (await engineFinishedMerge(repoRoot)) await commitUpgradeMerge(config, currentBranch);
-    else await handleUnfinishedMerge(config, currentBranch);
-    return;
+    return (await engineFinishedMerge(repoRoot))
+      ? commitUpgradeMerge(config, currentBranch)
+      : handleUnfinishedMerge(config, currentBranch);
   }
 
   // On an upgrade branch with the merge already committed: ship it. Edits not committed would be left
@@ -821,17 +828,17 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
             'commit them first (`git commit --amend --no-edit` or a new commit).',
         ),
       );
-      return;
+      return 1;
     }
-    await shipUpgradeBranch(config, currentBranch);
-    return;
+    return shipUpgradeBranch(config, currentBranch);
   }
 
   // Fresh cycle, from a clean tree only.
   if (!(await isClean(repoRoot))) {
     throw new Error('working directory has uncommitted changes. please commit or stash before upgrading.');
   }
-  if ((await guardAgainstOpenUpgradePr(config)) === 'cancel') return;
+  const guard = await guardAgainstOpenUpgradePr(config);
+  if (guard !== 'continue') return guard === 'refused' ? 1 : 0;
 
   const outcome = await runUpgradeCycle(config);
 
@@ -845,7 +852,7 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
     }
     const align = await upgradeAlignmentsStep(config, outcome.result);
     if (align) printNextSteps([align]);
-    return;
+    return 0;
   }
 
   const { name: upgradeBranch } = outcome.branch;
@@ -853,8 +860,8 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
     const conflicts = await getConflictedFiles(repoRoot);
     printStep('conflicts', `${plural(conflicts.length, 'file')} on '${upgradeBranch}'`, warningMark);
     printNextSteps(await conflictSteps(config, conflicts, outcome.result));
-    return;
+    return 1;
   }
 
-  await commitUpgradeMerge(config, upgradeBranch, outcome.result);
+  return commitUpgradeMerge(config, upgradeBranch, outcome.result);
 }

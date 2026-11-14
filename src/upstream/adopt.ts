@@ -1,5 +1,5 @@
 /**
- * Adopt service for the cella CLI.
+ * Adopt command for the cella CLI.
  *
  * Upstream-side (cella): based on the configured `forks`, lets the user pick a
  * single fork, pulls its `pullBranch` and builds a clean local `contrib/<fork>`
@@ -214,21 +214,27 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
   return `${lines}\x1B[?25l`;
 });
 
+/** The fork to pull from, by name (skips the fork prompt), and the JSON output for tooling. */
+export interface AdoptOptions {
+  fork?: string;
+  json: boolean;
+}
+
 /**
  * Resolve the fork to pull from: the explicit --fork by name, the single valid fork with --json,
  * or an interactive prompt. Throws when no fork can be selected; returns undefined only when the
  * prompt selects nothing.
  */
-async function selectFork(config: RuntimeConfig, validated: ValidatedFork[]): Promise<ValidatedFork | undefined> {
-  if (config.fork) {
-    const match = validated.find((v) => v.fork.name === config.fork);
+async function selectFork(options: AdoptOptions, validated: ValidatedFork[]): Promise<ValidatedFork | undefined> {
+  if (options.fork) {
+    const match = validated.find((v) => v.fork.name === options.fork);
     if (!match?.valid) {
-      throw new Error(`fork '${config.fork}' not found or invalid in config`);
+      throw new Error(`fork '${options.fork}' not found or invalid in config`);
     }
     return match;
   }
 
-  if (config.json) {
+  if (options.json) {
     const validForks = validated.filter((v) => v.valid);
     if (validForks.length === 0) throw new Error('no valid forks configured');
     if (validForks.length > 1) throw new Error('multiple forks configured; pass --fork <name> to choose one');
@@ -260,18 +266,19 @@ async function forkRefMeta(cellaPath: string, forkRef: string): Promise<{ sha: s
 }
 
 /**
- * Run the adopt service.
+ * Run the adopt command.
  *
  * Based on the configured `forks`, lets the user select one fork, pulls its
  * `pullBranch`, builds a clean local `contrib/<fork>` branch, then presents
- * an interactive TUI to review and adopt individual files.
+ * an interactive TUI to review and adopt individual files. Returns 1 without forks to adopt
+ * from, when the pull failed and when a file did not apply.
  */
-export async function runAdopt(config: RuntimeConfig): Promise<void> {
+export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Promise<number> {
   const forks = config.forks ?? [];
 
   if (forks.length === 0) {
     printNoForksHint('add forks to pull contributions from:');
-    return;
+    return 1;
   }
 
   // Compare forks against cella's currently checked-out branch, not a fixed
@@ -294,8 +301,8 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
   const forkBasePath = await resolveForkBasePath(config.repoRoot);
   const validated = forks.map((fork) => validateForkPath(fork, forkBasePath));
 
-  const selectedFork = await selectFork(config, validated);
-  if (!selectedFork) return;
+  const selectedFork = await selectFork(options, validated);
+  if (!selectedFork) return 0;
 
   const { fork, resolvedPath } = selectedFork;
   const forkName = fork.name;
@@ -336,12 +343,12 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
   } catch (error) {
     spinnerFail(`failed to pull ${forkName}`);
     console.info(pc.red(`  ✗ ${errorMessage(error)}`));
-    return;
+    return 1;
   }
 
   if (allItems.length === 0) {
     spinnerSuccess('no contributions found');
-    return;
+    return 0;
   }
 
   // Sort by most recent fork change first (undated files last), path as tie-breaker,
@@ -359,7 +366,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
   }
 
   // Machine-readable JSON output for tooling/agent usage
-  if (config.json) {
+  if (options.json) {
     const out = allItems.map((item) => ({
       fork: forkName,
       path: item.path,
@@ -371,7 +378,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
       deletions: item.deletions,
     }));
     writeStdout(JSON.stringify(out, null, 2));
-    return;
+    return 0;
   }
 
   console.info();
@@ -388,7 +395,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
 
   if (selected.length === 0) {
     console.info();
-    return;
+    return 0;
   }
 
   // Apply selected files into the working tree (unstaged in upstream cella, staged in a fork)
@@ -443,4 +450,5 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
     ),
   );
   console.info();
+  return errors.length > 0 ? 1 : 0;
 }

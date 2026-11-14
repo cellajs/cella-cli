@@ -117,7 +117,8 @@ export function createSpinner(text: string): Spinner {
   const render = () => process.stdout.write(`\r${pc.cyan(frames[frame++ % frames.length])} ${spinner.text}`);
   if (enabled) {
     render();
-    timer = setInterval(render, 80);
+    // A spinner a thrown error leaves running must not hold the process open
+    timer = setInterval(render, 80).unref();
   }
   activeSpinner = spinner;
   return spinner;

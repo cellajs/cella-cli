@@ -1,6 +1,6 @@
 /**
  * E2E tests for upstream alignments: the upgrade keeps `cella/alignments/` out of the app, records
- * the alignments that arrive as pending, and `cella align --mark` clears them.
+ * the alignments that arrive as pending, and `cella align mark` clears them.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -60,7 +60,7 @@ describe('alignments e2e', () => {
     });
 
     fetchUpstream(env.repoRoot);
-    const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+    const result = await runUpgrade(buildRuntimeConfig(env));
 
     expect(fileExists(env.repoRoot, 'feature.ts')).toBe(true);
     expect(fileExists(env.repoRoot, 'cella/alignments')).toBe(false);
@@ -109,7 +109,7 @@ describe('alignments e2e', () => {
 
     try {
       // First run: stops at the conflict, with the folder already gone
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await runUpgradeCommand(buildRuntimeConfig(env));
 
       const branch = git('rev-parse --abbrev-ref HEAD');
       expect(branch).toMatch(/^cella\/upgrade\//);
@@ -130,7 +130,7 @@ describe('alignments e2e', () => {
       // Finishing rerun: commits the resolved merge, and the folder stays gone
       fs.writeFileSync(path.join(env.repoRoot, 'README.md'), '# App readme\n');
       git('add README.md');
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
+      await runUpgradeCommand(buildRuntimeConfig(env));
 
       expect(git('rev-parse --abbrev-ref HEAD')).toBe(branch);
       expect(git('log -1 --format=%s')).toMatch(/^chore: upgrade cella to/);
@@ -162,7 +162,7 @@ describe('alignments e2e', () => {
     const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
-    const result = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' })).finally(() => info.mockRestore());
+    const result = await runAnalyze(buildRuntimeConfig(env)).finally(() => info.mockRestore());
 
     expect(result.alignments).toEqual({ total: 1, arrived: [newId], open: [] });
     expect(pending(env.repoRoot)).toBeNull();
@@ -183,9 +183,9 @@ describe('alignments e2e', () => {
       message: 'feat: new alignment',
     });
     fetchUpstream(env.repoRoot);
-    await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
+    await runUpgrade(buildRuntimeConfig(env));
 
-    await runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), mark: [newId] });
+    await runAlign(buildRuntimeConfig(env), { job: 'mark', ids: [newId] });
 
     expect(pending(env.repoRoot)).toBeNull();
   });

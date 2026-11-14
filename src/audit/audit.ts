@@ -1,5 +1,5 @@
 /**
- * Audit service for the Cella CLI.
+ * Audit command for the Cella CLI.
  *
  * One table and one checkbox for outdated packages and runtime pins (Node, pnpm, image tags). The
  * picked updates become file edits that the security pass (see security-pass.ts) stages, checks
@@ -11,7 +11,6 @@
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { checkbox, Separator } from '@inquirer/prompts';
-import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
@@ -42,7 +41,7 @@ import {
   type RuntimeUpdate,
   readRuntimePins,
 } from './runtimes';
-import { runSecurityPass, type WorkspaceEdits } from './security-pass';
+import { runSecurityPass, type SecurityPassOutcome, type WorkspaceEdits } from './security-pass';
 import { type Advisory, advisoriesFromAudit, severities } from './security-plan';
 
 /** The manifest sections an update rewrites, as `pnpm up --latest` does. */
@@ -68,9 +67,13 @@ function createDependentPkgReader(): (location: string) => DependentPkgJson | nu
   };
 }
 
-export async function runAudit(config: RuntimeConfig): Promise<void> {
-  const { repoRoot } = config;
+const exitCode = (outcome: SecurityPassOutcome) => (outcome === 'failed' ? 1 : 0);
 
+/**
+ * Report the updates and the security plan; with `fix`, ask which to take and write them.
+ * @returns 1 when a step gave no answer or failed, 0 for a report, a cancelled prompt and a written fix
+ */
+export async function runAudit(repoRoot: string, fix: boolean): Promise<number> {
   const spinner = createSpinner('checking packages and runtimes...');
   try {
     const pins = await readRuntimePins(repoRoot);
@@ -86,7 +89,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     if (!outdated) {
       spinnerFail('pnpm outdated gave no answer: run pnpm -r outdated to see why');
       console.info(`${warningMark} security pass skipped: it runs after the update check`);
-      return;
+      return 1;
     }
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
@@ -102,8 +105,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
       printNotes(repoRoot, runtimes.unchecked);
       console.info();
       printLocalTools(localTools);
-      await runSecurityPass(repoRoot, { apply: !config.list, releaseAgeMinutes });
-      return;
+      return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes }));
     }
 
     spinner.stop();
@@ -112,17 +114,16 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
     console.info();
     printLocalTools(localTools);
 
-    // --list is the non-interactive mode: report only, no prompts and no writes.
-    if (config.list) {
-      await runSecurityPass(repoRoot, { apply: false, releaseAgeMinutes });
-      return;
-    }
+    // A report asks nothing and writes nothing
+    if (!fix) return exitCode(await runSecurityPass(repoRoot, { apply: false, releaseAgeMinutes }));
 
     printReported(advisories);
     const selected = await promptForUpdates(rows);
-    if (!selected) return;
+    if (!selected) return 0;
     const { edits, bumped } = await planEdits(repoRoot, rows, selected, pins.nodeImageSuffixes);
-    if (await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits })) printNext(bumped);
+    const outcome = await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits });
+    if (outcome === 'written') printNext(bumped);
+    return exitCode(outcome);
   } finally {
     spinner.stop();
   }

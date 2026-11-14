@@ -1,6 +1,6 @@
 /**
  * Configuration types: the public cella/cella.config.ts surface, its runtime
- * schema, and the internal types the services share.
+ * schema, and the internal types the upstream commands share.
  */
 
 import { z } from 'zod';
@@ -70,7 +70,7 @@ export interface UpgradeSettings {
 /**
  * Configuration for a downstream fork repository that cella interacts with.
  *
- * Cella is the upstream/source-of-truth: the adopt service pulls contributions FROM the fork's `pullBranch`.
+ * Cella is the upstream/source-of-truth: the adopt command pulls contributions FROM the fork's `pullBranch`.
  */
 export interface ForkConfig {
   /** Display name for the fork (also used as the contrib/<name> branch slug) */
@@ -79,13 +79,13 @@ export interface ForkConfig {
   localPath: string;
   /**
    * Git remote URL of the fork (e.g. 'git@github.com:org/fork.git').
-   * When set, the adopt service fetches the fork's `pullBranch` from this
+   * When set, the adopt command fetches the fork's `pullBranch` from this
    * remote (the authoritative committed ref), so the comparison does not depend on
    * the local checkout being up to date. The local clone is still used to read the
    * fork's owned-folder territory when available.
    */
   remoteUrl?: string;
-  /** Fork branch that cella pulls contributions from (adopt service) */
+  /** Fork branch that cella pulls contributions from (adopt command) */
   pullBranch: string;
 }
 
@@ -119,7 +119,7 @@ export interface CellaCliConfig {
 
   /**
    * Downstream fork repositories that cella interacts with (for upstream template repos).
-   * When configured, the 'adopt' service appears in the CLI menu.
+   * When configured, the 'adopt' command appears in the CLI menu.
    */
   forks?: ForkConfig[];
 }
@@ -177,66 +177,13 @@ export const cellaConfigSchema = z
   })
   .strict() satisfies z.ZodType<CellaCliConfig>;
 
-// Internal types for the services.
-
-/** Services available in the CLI */
-export type CliService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt';
-
-/** A command's `--help` heading and menu place; a gate shows in `--help` only, since scripts and CI run it. */
-export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
-
-export type CommandOption = [flags: string, description: string];
-
-/**
- * A command that runs without the upgrade config: no `cella.config.ts`, no override validation. It declares its own
- * options, parses them into its own shape and returns its exit code.
- */
-export interface ToolCommand<Options = unknown> {
-  name: string;
-  group: Exclude<CommandGroup, 'upstream'>;
-  /** Left out of the menu: the app runs it through a root script of its own, `pnpm <name>`. */
-  notInMenu?: true;
-  description: string;
-  /** The jobs its first operand names, the default first; the menu asks for one. Empty: the command has one job. */
-  jobs: [name: string, description: string][];
-  /**
-   * The words it takes after the job, in commander's notation such as `[scenario]` or `[paths...]`; none when unset.
-   * A command takes these or a passthrough, never both.
-   */
-  operands?: CommandOption;
-  options?: CommandOption[];
-  /** What the words after `--` are for, in `--help`. */
-  passthrough?: CommandOption;
-  parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
-  run(repoRoot: string, options: Options): Promise<number>;
-}
+// Internal types for the upstream commands.
 
 /** Analyze output scope for interactive and machine-readable flows */
 export type AnalyzeScope = 'all' | 'risk' | 'protected';
 
-/** Runtime configuration with all resolved values */
-export interface RuntimeConfig extends CellaCliConfig {
-  /** The repository the command runs in */
-  repoRoot: string;
-
-  /** Full upstream remote ref (e.g., 'cella-upstream/development') */
-  upstreamRef: string;
-
-  /** Selected service */
-  service: CliService;
-
-  /** Non-interactive list output (for LLM/agent usage) */
-  list: boolean;
-
-  /** Machine-readable JSON output (for tooling/agent usage) */
-  json: boolean;
-
-  /** Scope of files returned in analyze list/json output */
-  scope?: AnalyzeScope;
-
-  /** Pre-selected fork name (skips fork selection prompt) */
-  fork?: string;
-
+/** How one run of the merge engine picks and merges upstream: the options analyze and upgrade read. */
+export interface EngineOptions {
   /**
    * Override upstream tracking for this run (analyze/upgrade), ignoring `settings.upstreamTrack`.
    * 'branch' follows the upstream branch tip (bleeding edge); 'release' uses a release tag.
@@ -250,7 +197,7 @@ export interface RuntimeConfig extends CellaCliConfig {
   ref?: string;
 
   /**
-   * Merge with the app's CLI config as it stands (upgrade service). Without it, a new merge stops
+   * Merge with the app's CLI config as it stands (upgrade). Without it, a new merge stops
    * before anything changes when upstream changed its own `overrides` or `packageJsonKeys` in ways
    * the app config does not follow.
    */
@@ -261,24 +208,15 @@ export interface RuntimeConfig extends CellaCliConfig {
    * uses the full upstream history, so upstream changes that earlier upgrades dropped come back too.
    */
   unpinned?: boolean;
+}
 
-  /** List every file instead of collapsing large groups (analyze), or every upstream alignment (align) */
-  all?: boolean;
+/** What the upstream commands run on: the app's config, the repository and the upstream ref, and the engine's options. */
+export interface RuntimeConfig extends CellaCliConfig, EngineOptions {
+  /** The repository the command runs in */
+  repoRoot: string;
 
-  /** Print one alignment's README (align service) */
-  show?: string;
-
-  /** Write one alignment's folder where its codemod can run (align service) */
-  extract?: string;
-
-  /** Run one alignment's codemod, keeping files identical to upstream as they are (align service) */
-  run?: string;
-
-  /** Arguments after `--`, passed to the codemod as given (align service, with `run`) */
-  runArgs?: string[];
-
-  /** Alignment ids to record as handled (align service) */
-  mark?: string[];
+  /** Full upstream remote ref (e.g., 'cella-upstream/development') */
+  upstreamRef: string;
 }
 
 /** File status after analysis */

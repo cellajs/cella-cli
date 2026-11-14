@@ -1,15 +1,11 @@
 import process from 'node:process';
 import { input } from '@inquirer/prompts';
-import type { ToolCommand } from '../config/types';
-import { setJsonMode } from '../utils/display';
+import type { Command } from '../command';
 import { type RenameOptions, runRename } from './rename';
 import { runStatus } from './status';
 import { runUnused } from './unused';
 
 type I18nOptions = Partial<RenameOptions> & { job: 'status' | 'unused' | 'rename'; json: boolean };
-
-const jobs = ['status', 'unused', 'rename'] as const;
-const isJob = (job: string): job is (typeof jobs)[number] => (jobs as readonly string[]).includes(job);
 
 /** The two keys of a rename, asked for when the menu started it. */
 async function renameKeys(options: Partial<RenameOptions>): Promise<RenameOptions> {
@@ -20,7 +16,7 @@ async function renameKeys(options: Partial<RenameOptions>): Promise<RenameOption
   return { from: from.trim(), to: to.trim() };
 }
 
-export const i18nCommand: ToolCommand<I18nOptions> = {
+export const i18nCommand: Command<I18nOptions, I18nOptions['job']> = {
   name: 'i18n',
   group: 'develop',
   description: 'translation status, unused keys and renames across the locale files and the code',
@@ -31,11 +27,9 @@ export const i18nCommand: ToolCommand<I18nOptions> = {
   ],
   options: [['--json', 'machine-readable output for tooling/agents']],
   operands: ['[keys...]', 'with rename: the key and its new name, as ns:key'],
-  parse: ({ job = 'status', operands, opts }) => {
-    if (!isJob(job)) throw new Error(`unknown job '${job}'. expected one of: ${jobs.join(', ')}`);
+  machineOutput: ['json'],
+  parse: ({ job, operands, opts }) => {
     const json = opts.json === true;
-    // Before the header prints, so stdout holds the payload alone
-    if (json) setJsonMode(true);
     if (job !== 'rename') {
       if (operands.length > 0) throw new Error(`unexpected argument '${operands[0]}'. only rename takes keys`);
       return { job, json };

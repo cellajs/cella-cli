@@ -1,5 +1,5 @@
 /**
- * Packages service: package.json keys merged from upstream into the app, three-way against the merge-base
+ * Package merge: package.json keys merged from upstream into the app, three-way against the merge-base
  * package.json (upstream as of the previous upgrade):
  * - Add: entries that are new upstream are added
  * - Follow: an entry the app never touched (still equal to its base value) follows upstream,

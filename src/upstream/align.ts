@@ -1,5 +1,5 @@
 /**
- * Align service: the upstream alignments this app has not handled yet.
+ * Align command: the upstream alignments this app has not handled yet.
  *
  * Alignments live upstream only (see `upstream/alignments`). They are read at the upstream commit the
  * app last upgraded to, which the upgrade already fetched, so this works offline after an upgrade and
@@ -10,7 +10,7 @@
  * commit and PR that added it, the files of that commit the app owns or changed, and where app
  * code still uses the README's `grep` terms (see `describeAlignment`).
  *
- * `--run` runs an alignment's codemod from an extracted copy and puts back the files it changed
+ * `align run` runs an alignment's codemod from an extracted copy and puts back the files it changed
  * that were identical to upstream (see `runAlignment`).
  */
 
@@ -52,14 +52,21 @@ import { readUpgradePoint } from './manifest';
 import { getGitHubBaseUrl } from './merge-engine';
 import { isUnderAnyFolder } from './protection';
 
-/** Where `--extract` writes an alignment folder: inside the app, so a codemod resolves the app's packages. */
+/** Where `align run` writes an alignment folder: inside the app, so a codemod resolves the app's packages. */
 const extractDir = 'node_modules/.cache/cella/alignments';
 
-/** How many restored paths `--run` lists before it cuts the list short. */
+/** How many restored paths `align run` lists before it cuts the list short. */
 const restoredListMax = 20;
 
-/** How many paths or grep hits `--show` lists per block before it cuts the list short. */
+/** How many paths or grep hits `align show` lists per block before it cuts the list short. */
 const showListMax = 30;
+
+/** What `align` does: list the alignments, show one, run its codemod with the words after `--`, or mark some handled. */
+export type AlignOptions =
+  | { job: 'list'; all: boolean; json: boolean }
+  | { job: 'show'; id: string }
+  | { job: 'run'; id: string; codemodArgs: string[] }
+  | { job: 'mark'; ids: string[] };
 
 /** An alignment with what git tells about it, as `--json` writes it. */
 interface DescribedAlignment extends Alignment {
@@ -109,13 +116,8 @@ async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | nul
 
 /** Open alignments at the app's upgrade point, for a run without a merge result; null before any upgrade. */
 export async function readOpenAlignments(config: RuntimeConfig): Promise<AlignmentsView | null> {
-  try {
-    const ref = await resolveAlignmentsRef(config);
-    if (!ref) return null;
-    return { ref, open: await readPending(config.repoRoot) };
-  } catch {
-    return null;
-  }
+  const ref = await resolveAlignmentsRef(config);
+  return ref ? { ref, open: await readPending(config.repoRoot) } : null;
 }
 
 /** Alignments for the `align` step: the ref to read them at, and the ids by state. */
@@ -146,7 +148,7 @@ function alignmentTags(alignment: Alignment): string {
 /**
  * The `align` step that closes analyze and upgrade: the alignments arriving with the upgrade (in a dry
  * run) and the open ones, by title with their kind, then the command. Without a terminal each row
- * also gets its id, for `pnpm cella align --show <id>`. Undefined when there are none.
+ * also gets its id, for `pnpm cella align show <id>`. Undefined when there are none.
  */
 export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView): Promise<NextStep | undefined> {
   const arriving = view.arriving ?? [];
@@ -241,13 +243,13 @@ function printAlignment(index: number, alignment: DescribedAlignment): void {
     console.info(pc.dim(`   added in #${alignment.pr}${alignment.prUrl ? `  ${alignment.prUrl}` : ''}`));
   }
   if (grep) console.info(pc.dim(`   ${grep}`));
-  console.info(pc.dim(`   read:    pnpm cella align --show ${alignment.id}`));
+  console.info(pc.dim(`   read:    pnpm cella align show ${alignment.id}`));
   if (alignment.url) console.info(pc.dim(`            ${alignment.url}`));
-  if (alignment.codemod) console.info(pc.dim(`   codemod: pnpm cella align --run ${alignment.id}`));
+  if (alignment.codemod) console.info(pc.dim(`   codemod: pnpm cella align run ${alignment.id}`));
   console.info();
 }
 
-/** Print a titled block of lines for `--show`, cut short after {@link showListMax}. */
+/** Print a titled block of lines for `align show`, cut short after {@link showListMax}. */
 function printShowBlock(title: string, items: string[]): void {
   if (items.length === 0) return;
   console.info(pc.dim(`${title} (${items.length}):`));
@@ -256,7 +258,7 @@ function printShowBlock(title: string, items: string[]): void {
 }
 
 /**
- * `--show <id>`: the README, then what git tells about it. Read at the upgrade point, or at the
+ * `align show <id>`: the README, then what git tells about it. Read at the upgrade point, or at the
  * fetched upstream branch when the upgrade point lacks it (an alignment read before its upgrade merges).
  */
 async function showAlignment(config: RuntimeConfig, ref: string, pending: string[], id: string): Promise<void> {
@@ -300,14 +302,14 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
 }
 
 /**
- * Write an alignment's folder under {@link extractDir}, byte for byte. Returns the alignment, the
- * folder (relative to the app) and its files.
+ * Write an alignment's folder under {@link extractDir}, byte for byte. Returns the alignment and the
+ * folder, relative to the app.
  */
 async function writeAlignmentFolder(
   config: RuntimeConfig,
   ref: string,
   id: string,
-): Promise<{ alignment: Alignment; target: string; files: string[] }> {
+): Promise<{ alignment: Alignment; target: string }> {
   const { repoRoot } = config;
   const alignment = await readAlignment(repoRoot, ref, id);
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)}`);
@@ -326,36 +328,24 @@ async function writeAlignmentFolder(
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content);
   }
-  return { alignment, target, files };
-}
-
-/** `--extract <id>`: write the alignment folder under {@link extractDir} and print how to run its codemod. */
-async function extractAlignment(config: RuntimeConfig, ref: string, id: string): Promise<void> {
-  const { alignment, target, files } = await writeAlignmentFolder(config, ref, id);
-
-  console.info(`${checkMark} extracted ${files.length} file(s) to ${target}/`);
-  console.info(pc.dim(`  the README's ${alignmentsDir}/${id}/ paths are this folder.`));
-  if (alignment.codemod) {
-    console.info(pc.dim(`  pnpm exec tsx ${target}/${alignment.codemod} inventory ${alignment.roots.join(' ')}`));
-    console.info(pc.dim(`  or, keeping files identical to upstream as they are: pnpm cella align --run ${id}`));
-  }
+  return { alignment, target };
 }
 
 /**
- * `--run <id>`: run the alignment's codemod with `tsx` from the app root, then give each file that
+ * `align run <id>`: run the alignment's codemod with `tsx` from the app root, then give each file that
  * was identical to the manifest's upstream commit before the run, and changed by it, its upstream
- * content back.
+ * content back. Returns 1 when the codemod failed.
  */
-async function runAlignment(config: RuntimeConfig, ref: string, id: string): Promise<void> {
+async function runAlignment(config: RuntimeConfig, ref: string, id: string, codemodArgs: string[]): Promise<number> {
   const { repoRoot } = config;
   const { alignment, target } = await writeAlignmentFolder(config, ref, id);
   if (!alignment.codemod) {
     throw new Error(
-      `alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align --show ${id}\`.`,
+      `alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`,
     );
   }
   const script = join(target, alignment.codemod);
-  const args = config.runArgs?.length ? config.runArgs : ['inventory', ...alignment.roots];
+  const args = codemodArgs.length > 0 ? codemodArgs : ['inventory', ...alignment.roots];
 
   const upstreamCommit = (await readUpgradePoint(repoRoot)) ?? ref;
   await ensureUpstreamCommit(config, upstreamCommit);
@@ -384,14 +374,18 @@ async function runAlignment(config: RuntimeConfig, ref: string, id: string): Pro
     console.info(pc.dim(`no file identical to upstream ${upstreamShort} was changed by the codemod.`));
   }
 
-  if (child.status !== 0) throw new Error(`the codemod exited with code ${child.status ?? 'unknown'}`);
-  if (!config.runArgs?.length) {
-    const apply = ['rewrite', ...alignment.roots].join(' ');
-    console.info(pc.dim(`report only. to apply: pnpm cella align --run ${id} -- ${apply}`));
+  if (child.status !== 0) {
+    console.error(`${pc.red('✗')} the codemod exited with code ${child.status ?? 'unknown'}`);
+    return 1;
   }
+  if (codemodArgs.length === 0) {
+    const apply = ['rewrite', ...alignment.roots].join(' ');
+    console.info(pc.dim(`report only. to apply: pnpm cella align run ${id} -- ${apply}`));
+  }
+  return 0;
 }
 
-/** `--mark <ids…>`: drop handled alignments from the pending list. */
+/** `align mark <ids…>`: drop handled alignments from the pending list. */
 async function markAlignments(config: RuntimeConfig, ref: string, pending: string[], ids: string[]): Promise<void> {
   const open = new Set(pending);
   const unknown = ids.filter((id) => !open.has(id));
@@ -403,23 +397,23 @@ async function markAlignments(config: RuntimeConfig, ref: string, pending: strin
   console.info(pc.dim(formatAlignmentsLine((await listAlignmentIds(config.repoRoot, ref)).length, open.size)));
 }
 
-/** Run the align service. */
-export async function runAlign(config: RuntimeConfig): Promise<void> {
+/** Run the align command; a job that names an alignment exits 1 before any upgrade, since there is none to name. */
+export async function runAlign(config: RuntimeConfig, options: AlignOptions): Promise<number> {
   const { repoRoot } = config;
   const ref = await resolveAlignmentsRef(config);
   if (!ref) {
     console.info(pc.dim('no upgrade recorded yet: alignments start with the first `pnpm cella upgrade`.'));
-    return;
+    return options.job === 'list' ? 0 : 1;
   }
 
   const pending = await readPending(repoRoot);
 
-  if (config.mark?.length) return markAlignments(config, ref, pending, config.mark);
-  if (config.run) return runAlignment(config, ref, config.run);
-  if (config.extract) return extractAlignment(config, ref, config.extract);
-  if (config.show) return showAlignment(config, ref, pending, config.show);
+  if (options.job === 'run') return runAlignment(config, ref, options.id, options.codemodArgs);
+  if (options.job === 'mark') await markAlignments(config, ref, pending, options.ids);
+  if (options.job === 'show') await showAlignment(config, ref, pending, options.id);
+  if (options.job !== 'list') return 0;
 
-  const ids = config.all ? await listAlignmentIds(repoRoot, ref) : pending;
+  const ids = options.all ? await listAlignmentIds(repoRoot, ref) : pending;
   const read = await Promise.all(ids.map((id) => readAlignment(repoRoot, ref, id)));
   const alignments: Alignment[] = read.map(
     (alignment, i) =>
@@ -443,13 +437,13 @@ export async function runAlign(config: RuntimeConfig): Promise<void> {
     alignments.map((alignment) => describeAlignment(config, view, ref, alignment, open.has(alignment.id))),
   );
 
-  if (config.json) {
+  if (options.json) {
     writeStdout(JSON.stringify({ upstreamCommit: ref, total, open: pending.length, alignments: described }, null, 2));
-    return;
+    return 0;
   }
 
   console.info(pc.dim(formatAlignmentsLine(total, pending.length)));
-  if (described.length === 0) return;
+  if (described.length === 0) return 0;
   console.info();
   for (const [i, alignment] of described.entries()) printAlignment(i + 1, alignment);
 
@@ -463,6 +457,7 @@ export async function runAlign(config: RuntimeConfig): Promise<void> {
   }
   if (pending.length > 0) {
     console.info(pc.dim("work each alignment's README, check with `pnpm check`, then record it:"));
-    console.info(pc.dim(`  pnpm cella align --mark ${pending.join(' ')}`));
+    console.info(pc.dim(`  pnpm cella align mark ${pending.join(' ')}`));
   }
+  return 0;
 }

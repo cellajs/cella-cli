@@ -1,5 +1,5 @@
 /**
- * Reads and edits the settings in `pnpm-workspace.yaml` that the audit service manages. Edits go
+ * Reads and edits the settings in `pnpm-workspace.yaml` that the audit command manages. Edits go
  * through a parsed document, so comments, quoting and every other setting stay as they are.
  */
 

@@ -85,7 +85,7 @@ export function alignmentFindings(files: string[], read: (file: string) => strin
     if (codemods.length > 1) finding(readme, `one codemod per alignment, found ${codemods.join(', ')}`, 1);
     if (roots.length > 0 && codemods.length === 0) finding(readme, 'roots is only for an alignment with a codemod', 1);
     if (roots.length === 0 && codemods.length > 0)
-      finding(readme, 'a codemod needs roots: the folders `pnpm cella align --run` scans by default', 1);
+      finding(readme, 'a codemod needs roots: the folders `pnpm cella align run` scans by default', 1);
   }
   return findings;
 }

@@ -1,5 +1,5 @@
 /**
- * Coverage overview for the stats service, from the `.coverage/coverage-summary.json` that the
+ * Coverage overview for the stats command, from the `.coverage/coverage-summary.json` that the
  * `json-summary` Vitest reporter writes on `pnpm test`.
  */
 

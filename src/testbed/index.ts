@@ -4,7 +4,7 @@ import { constants } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { parseEnv } from 'node:util';
-import type { ToolCommand } from '../config/types';
+import type { Command } from '../command';
 import { loadAppFacts, loadLocalDatabases, toolDir } from '../utils/app';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
@@ -454,25 +454,25 @@ async function runTestbed(repoRoot: string, options: TestbedOptions): Promise<nu
   return 1;
 }
 
-export const testbedCommand: ToolCommand<TestbedOptions> = {
+export const testbedCommand: Command<TestbedOptions, TestbedOptions['job']> = {
   name: 'testbed',
   group: 'develop',
-  notInMenu: true,
+  // The app runs it through a root script of its own, `pnpm testbed`
+  inMenu: () => false,
   description: 'a throwaway copy of the app on its own seeded database and ports, beside pnpm dev',
   jobs: [
     ['start', 'start it and hold it until ctrl-c'],
     ['stop', 'stop the testbed that runs, or one left behind'],
   ],
   options: [
-    ['--fresh', 'start from an empty database: migrate and seed it again'],
-    ['--showcase', 'hold the showcase seed, which the screenshots shoot, for a review loop'],
+    ['--fresh', 'start from an empty database: migrate and seed it again', 'start'],
+    ['--showcase', 'hold the showcase seed, which the screenshots shoot, for a review loop', 'start'],
   ],
   passthrough: [
     'command',
     "after `--`: run it against the testbed (this checkout's running one, else one started for it and stopped after)",
   ],
-  parse: ({ job = 'start', opts, passthrough }) => {
-    if (job !== 'start' && job !== 'stop') throw new Error(`unknown job '${job}'. expected one of: start, stop`);
+  parse: ({ job, opts, passthrough }) => {
     if (job === 'stop' && passthrough.length > 0) throw new Error('stop takes no command');
     return { job, fresh: opts.fresh === true, showcase: opts.showcase === true, command: passthrough };
   },

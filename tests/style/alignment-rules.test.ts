@@ -93,7 +93,7 @@ describe('alignmentFindings', () => {
       'cella/alignments/config-switch/README.md: roots is only for an alignment with a codemod',
       'cella/alignments/20261002T0614-no-readme: alignment folder has no README.md',
       'cella/alignments/20261002T0615-manual/README.md: roots is only for an alignment with a codemod',
-      'cella/alignments/20261002T0616-no-roots/README.md: a codemod needs roots: the folders `pnpm cella align --run` scans by default',
+      'cella/alignments/20261002T0616-no-roots/README.md: a codemod needs roots: the folders `pnpm cella align run` scans by default',
     ]);
   });
 });

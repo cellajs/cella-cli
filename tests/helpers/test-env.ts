@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
-import type { AnalyzedFile, CellaCliConfig, CliService, FileStatus, RuntimeConfig } from '../../src/config/types';
+import type { AnalyzedFile, CellaCliConfig, FileStatus, RuntimeConfig } from '../../src/config/types';
 
 /** Git config for test commits */
 export const gitUser = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
@@ -197,7 +197,6 @@ export function tagUpstream(repoPath: string, tag: string): void {
 export function buildRuntimeConfig(
   env: TestEnv,
   options: {
-    service?: CliService;
     pinned?: string[];
     ignored?: string[];
     track?: 'release' | 'branch';
@@ -210,7 +209,7 @@ export function buildRuntimeConfig(
     unpinned?: boolean;
   } = {},
 ): RuntimeConfig {
-  const { service = 'analyze', pinned = [], ignored = [], track = 'branch', trackOverride, ref, keepConfig } = options;
+  const { pinned = [], ignored = [], track = 'branch', trackOverride, ref, keepConfig } = options;
   const { unpinned } = options;
 
   const config: CellaCliConfig = {
@@ -229,13 +228,10 @@ export function buildRuntimeConfig(
     ...config,
     repoRoot: env.repoRoot,
     upstreamRef: `${upstreamRemote}/main`,
-    service,
     track: trackOverride,
     ref,
     keepConfig,
     unpinned,
-    list: false,
-    json: false,
   };
 }
 

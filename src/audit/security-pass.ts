@@ -1,5 +1,5 @@
 /**
- * The security pass of the audit service. Audit overrides are derived data: every run drops them,
+ * The security pass of the audit command. Audit overrides are derived data: every run drops them,
  * resolves the workspace without them in a staging copy, and puts back only what a current
  * advisory still needs. The workspace itself changes once, at the end, when the staged result
  * differs from what is there.
@@ -237,16 +237,18 @@ export interface WorkspaceEdits {
 
 const noEdits: WorkspaceEdits = { manifests: {}, files: {} };
 
+/** Whether the edits landed; a report and a cancelled prompt leave the workspace as it was, and so does a failure. */
+export type SecurityPassOutcome = 'written' | 'unchanged' | 'failed';
+
 /**
  * Run the security pass on the workspace at `repoRoot`, with the update step's `edits` already in
  * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
- * written once, at the end; with `apply` off nothing is written. Returns whether the edits landed:
- * false for a report, a failure or a cancelled prompt, which all leave the workspace as it was.
+ * written once, at the end; with `apply` off nothing is written.
  */
 export async function runSecurityPass(
   repoRoot: string,
   options: { apply: boolean; releaseAgeMinutes: number; edits?: WorkspaceEdits },
-): Promise<boolean> {
+): Promise<SecurityPassOutcome> {
   const { releaseAgeMinutes, edits = noEdits } = options;
   const workspaceYaml = readOr(join(repoRoot, workspaceFile), '');
   let previous: AuditSettings;
@@ -256,7 +258,7 @@ export async function runSecurityPass(
     console.error(
       `${pc.red('✗')} ${workspaceFile} could not be read: ${error instanceof Error ? error.message : error}`,
     );
-    return false;
+    return 'failed';
   }
   const auditKeys = Object.keys(previous.overrides).filter(isAuditOverride);
   const lasting = Object.fromEntries(Object.entries(previous.overrides).filter(([key]) => !isAuditOverride(key)));
@@ -267,13 +269,13 @@ export async function runSecurityPass(
       ? `resolving without the ${plural(auditKeys.length, 'audit override')}...`
       : 'resolving the workspace...',
   );
-  const fail = (message: string, detail = ''): false => {
+  const fail = (message: string, detail = ''): 'failed' => {
     spinner.stop();
     console.error(`${pc.red('✗')} ${message}`);
     if (detail) console.error(pc.dim(detail.split('\n').slice(-12).join('\n')));
     console.info(pc.dim('  the workspace is unchanged'));
     console.info();
-    return false;
+    return 'failed';
   };
 
   const staging = await createStaging(repoRoot, workspaceYaml);
@@ -319,9 +321,9 @@ export async function runSecurityPass(
       releaseAgeHours,
     });
     if (!options.apply) {
-      if (changes) console.info(pc.dim('run without --list to apply'));
+      if (changes) console.info(pc.dim('`pnpm cella audit fix` applies it'));
       console.info();
-      return false;
+      return 'unchanged';
     }
 
     let decisions: Decision[];
@@ -329,7 +331,7 @@ export async function runSecurityPass(
       decisions = await decide(items, releaseAgeHours);
     } catch {
       console.info(pc.dim('  cancelled, the workspace is unchanged'));
-      return false;
+      return 'unchanged';
     }
 
     const open = decisions.filter((decision) => decision.action === 'open').map((decision) => decision.item.module);
@@ -349,7 +351,7 @@ export async function runSecurityPass(
       const state = `${plural(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
       console.info(`${checkMark} security settings are current ${pc.dim(`· ${state}`)}`);
       printOpen(open);
-      return true;
+      return 'written';
     }
 
     const summarize = (): void => {
@@ -368,7 +370,7 @@ export async function runSecurityPass(
       console.info(`${checkMark} ${workspaceFile} updated ${pc.dim('· nothing to install')}`);
       printOpen(open);
       summarize();
-      return true;
+      return 'written';
     }
 
     const stagingSpinner = createSpinner('resolving with the new settings...');
@@ -392,7 +394,7 @@ export async function runSecurityPass(
       console.error(`${pc.red('✗')} pnpm install failed (exit code ${install.status})`);
       console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
       console.info();
-      return false;
+      return 'failed';
     }
 
     // The workspace's own audit has the last word on what is still reported.
@@ -402,7 +404,7 @@ export async function runSecurityPass(
     printOpen(reported);
 
     summarize();
-    return true;
+    return 'written';
   } finally {
     spinner.stop();
     rmSync(staging, { recursive: true, force: true });

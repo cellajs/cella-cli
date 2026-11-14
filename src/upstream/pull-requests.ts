@@ -1,7 +1,7 @@
 /**
  * GitHub CLI (`gh`) helpers for the cella CLI.
  *
- * Thin wrappers around `gh` used by the upgrade service to open, list, merge, and close the upgrade pull
+ * Thin wrappers around `gh` used by the upgrade command to open, list, merge, and close the upgrade pull
  * requests. Every wrapper degrades gracefully when `gh` is missing or a call fails, so an upgrade
  * run on a repo without `gh`/`origin` still works; it just skips the PR automation.
  */

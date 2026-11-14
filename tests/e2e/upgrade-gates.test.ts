@@ -87,7 +87,7 @@ describe('upgrade stops before the merge', () => {
       exec('git switch -q -c work', env.repoRoot);
       const head = exec('git rev-parse HEAD', env.repoRoot);
 
-      const config = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'] });
+      const config = buildRuntimeConfig(env, { pinned: ['a.ts'] });
       const stop = await runUpgradeCommand(config).catch((error: unknown) => error);
 
       expect(stop).toBeInstanceOf(UpstreamConfigChangedError);
@@ -110,7 +110,7 @@ describe('upgrade stops before the merge', () => {
     it('merges with the app config as it stands on --keep-config', async () => {
       setupConfigChange();
 
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'], keepConfig: true }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { pinned: ['a.ts'], keepConfig: true }));
 
       // The path upstream now pins arrived as an ordinary merged file, and the run still reports the entries
       expect(exec('git rev-parse --abbrev-ref HEAD', env.repoRoot)).toMatch(/^cella\/upgrade\//);
@@ -121,7 +121,7 @@ describe('upgrade stops before the merge', () => {
 
     it('merges once the app config follows upstream', async () => {
       setupConfigChange();
-      const config = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
+      const config = buildRuntimeConfig(env, { pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
       config.settings.packageJsonKeys = ['dependencies', 'devDependencies', 'exports'];
 
       await runUpgradeCommand(config);
@@ -135,14 +135,14 @@ describe('upgrade stops before the merge', () => {
     it('never gates the rerun that commits an already staged merge', async () => {
       setupConfigChange();
       makeCommit(env.repoRoot, { files: { 'README.md': '# App readme\n' }, message: 'docs: app readme' });
-      const keep = buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'], keepConfig: true });
+      const keep = buildRuntimeConfig(env, { pinned: ['a.ts'], keepConfig: true });
       await runUpgradeCommand(keep);
       expect(exec('git diff --name-only --diff-filter=U', env.repoRoot)).toBe('README.md');
 
       // Resolve the conflict, then rerun without the flag: the merge is staged, so the run only commits it
       fs.writeFileSync(path.join(env.repoRoot, 'README.md'), '# App readme\n');
       exec('git add README.md', env.repoRoot);
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', pinned: ['a.ts'] }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { pinned: ['a.ts'] }));
 
       expect(exec('git log -1 --format=%s', env.repoRoot)).toMatch(/^chore: upgrade cella to/);
       expect(exec('git status --porcelain', env.repoRoot)).toBe('');
@@ -155,7 +155,7 @@ describe('upgrade stops before the merge', () => {
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v1\n' }, message: 'feat: v1' });
       tagUpstream(env.upstreamPath, 'v0.1.0');
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v2\n' }, message: 'feat: v2' });
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'branch' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { track: 'branch' }));
       landUpgradeBranch();
       lines.length = 0;
       return exec('git rev-parse HEAD', env.repoRoot);
@@ -164,7 +164,7 @@ describe('upgrade stops before the merge', () => {
     it('ends release tracking as a no-op with a message, back on the start branch', async () => {
       const head = await upgradePastLatestRelease();
 
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { track: 'release' }));
 
       expectUntouched('main', head);
       expect(fs.readFileSync(path.join(env.repoRoot, 'version.ts'), 'utf8')).toBe('v2\n');
@@ -178,7 +178,7 @@ describe('upgrade stops before the merge', () => {
       const head = await upgradePastLatestRelease();
       exec('git switch -q --detach', env.repoRoot);
 
-      await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
+      await runUpgradeCommand(buildRuntimeConfig(env, { track: 'release' }));
 
       expectUntouched('HEAD', head);
     });
@@ -186,7 +186,7 @@ describe('upgrade stops before the merge', () => {
     it('fails for a pinned --ref behind the upgrade point, and still drops the branch', async () => {
       const head = await upgradePastLatestRelease();
 
-      const run = runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
+      const run = runUpgradeCommand(buildRuntimeConfig(env, { ref: 'v0.1.0' }));
 
       await expect(run).rejects.toThrow(/behind the last upgrade at[\s\S]*Pick a newer --ref/);
       expectUntouched('main', head);
@@ -194,7 +194,7 @@ describe('upgrade stops before the merge', () => {
   });
 
   it('leaves an app whose only change since the last upgrade is in an ignored path where it started', async () => {
-    const config = buildRuntimeConfig(env, { service: 'upgrade', ignored: ['docs'] });
+    const config = buildRuntimeConfig(env, { ignored: ['docs'] });
     makeCommit(env.upstreamPath, { files: { 'feature.ts': 'export const f = 1;\n' }, message: 'feat: feature' });
     await runUpgradeCommand(config);
     landUpgradeBranch();
@@ -212,7 +212,7 @@ describe('upgrade stops before the merge', () => {
     exec('git switch -q -c cella/upgrade/20260101-0000', env.repoRoot);
     exec('git fetch -q cella-upstream && git merge -q --no-ff --no-commit cella-upstream/main', env.repoRoot);
 
-    await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
+    await runUpgradeCommand(buildRuntimeConfig(env));
 
     expectUntouched('main', head);
     expect(lines.join('\n')).toContain("stopped before it finished the merge on 'cella/upgrade/20260101-0000'");
@@ -225,7 +225,7 @@ describe('upgrade stops before the merge', () => {
     });
     const head = exec('git rev-parse HEAD', env.repoRoot);
 
-    await expect(runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }))).rejects.toThrow(
+    await expect(runUpgradeCommand(buildRuntimeConfig(env))).rejects.toThrow(
       /upstream needs @cellajs\/cli \^999\.0\.0/,
     );
 

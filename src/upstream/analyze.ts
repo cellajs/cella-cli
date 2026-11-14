@@ -1,8 +1,8 @@
 /**
- * Analyze service: a dry run of the upgrade that shows what would change without applying.
+ * Analyze command: a dry run of the upgrade that shows what would change without applying.
  */
 
-import type { MergeResult, RuntimeConfig } from '../config/types';
+import type { AnalyzeScope, MergeResult, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import {
   createSpinner,
@@ -45,16 +45,24 @@ function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected')
   );
 }
 
-export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
+/** How analyze prints: one path per line or JSON for tooling, the scope of those, and large groups in full. */
+export interface AnalyzeOutput {
+  list?: boolean;
+  json?: boolean;
+  scope?: AnalyzeScope;
+  all?: boolean;
+}
+
+export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = {}): Promise<MergeResult> {
   createSpinner('starting analysis...');
 
   const result = await runEngineWithSpinner(config, false);
 
   spinnerSuccess();
 
-  const scopedFiles = filterByScope(result, config.scope ?? 'all');
+  const scopedFiles = filterByScope(result, output.scope ?? 'all');
 
-  if (config.json) {
+  if (output.json) {
     const overrides = result.upstreamOverrides?.type === 'changes' ? result.upstreamOverrides : undefined;
     const out = scopedFiles.map((f) => ({
       path: f.path,
@@ -77,7 +85,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     return result;
   }
 
-  if (config.list) {
+  if (output.list) {
     for (const file of scopedFiles) {
       writeStdout(file.path);
     }
@@ -93,7 +101,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       fileLinkMode: config.settings.fileLinkMode,
       repoRoot: config.repoRoot,
     },
-    all: config.all,
+    all: output.all,
     overrides: config.overrides,
   });
   printUpstreamOverrideChanges(result);
