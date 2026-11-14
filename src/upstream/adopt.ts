@@ -323,7 +323,7 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
     let forkTerritory: string[] = [];
     try {
       const forkConfig = await loadConfig(resolvedPath);
-      forkTerritory = forkConfig.overrides?.ignored ?? [];
+      forkTerritory = forkConfig.ignored ?? [];
     } catch {
       // Fork may not have a cella/cella.config.ts: no extra territory to exclude
     }

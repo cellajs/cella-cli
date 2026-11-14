@@ -516,7 +516,7 @@ export function printIgnoredUpstreamChanges(result: MergeResult): void {
 
 /**
  * Upstream CLI config entries the app config does not follow (`MergeResult.upstreamOverrides`):
- * `overrides` entries and `packageJsonKeys` upstream added that the app lacks, and ones
+ * `pinned`, `ignored` and `packageJsonKeys` entries upstream added that the app lacks, and ones
  * upstream dropped that the app still has. The CLI config is managed and never merges, so these
  * only reach the app by hand. Silent when there is nothing to report; one dim line when upstream's
  * config was unreadable.

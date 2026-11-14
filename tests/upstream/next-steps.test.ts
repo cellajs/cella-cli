@@ -41,8 +41,7 @@ describe('printNextSteps', () => {
 describe('alignmentsStep', () => {
   let repo: string;
   const ids = Array.from({ length: 7 }, (_, i) => `2026010${i + 1}T0000-alignment-${i + 1}`);
-  const config = () =>
-    ({ repoRoot: repo, settings: { upstreamUrl: 'git@github.com:cellajs/cella.git' } }) as RuntimeConfig;
+  const config = () => ({ repoRoot: repo, upstreamUrl: 'git@github.com:cellajs/cella.git' }) as RuntimeConfig;
 
   beforeAll(() => {
     repo = createRepo('cella-next-steps-');

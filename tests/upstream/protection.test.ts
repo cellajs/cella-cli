@@ -11,18 +11,9 @@ import { configFile, isManagedFile } from '../../src/upstream/managed-files';
 import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from '../../src/upstream/protection';
 import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from '../helpers/test-env';
 
-/** Helper to build a minimal config with overrides */
-function buildConfig(overrides: { pinned?: string[]; ignored?: string[] }): CellaCliConfig {
-  return {
-    settings: {
-      upstreamUrl: 'test',
-      upstreamBranch: 'main',
-    },
-    overrides: {
-      pinned: overrides.pinned ?? [],
-      ignored: overrides.ignored ?? [],
-    },
-  };
+/** Helper to build a minimal config with the given pinned and ignored entries */
+function buildConfig({ pinned = [], ignored = [] }: { pinned?: string[]; ignored?: string[] }): CellaCliConfig {
+  return { upstreamUrl: 'test', upstreamBranch: 'main', pinned, ignored };
 }
 
 describe('overrides', () => {
@@ -104,13 +95,8 @@ describe('overrides', () => {
       expect(isPinned('any/file.ts', config)).toBe(false);
     });
 
-    it('returns false with undefined overrides', () => {
-      const config: CellaCliConfig = {
-        settings: {
-          upstreamUrl: 'test',
-          upstreamBranch: 'main',
-        },
-      };
+    it('returns false with no pinned or ignored entries', () => {
+      const config: CellaCliConfig = { upstreamUrl: 'test', upstreamBranch: 'main' };
       expect(isPinned('any/file.ts', config)).toBe(false);
       expect(isIgnored('any/file.ts', config)).toBe(false);
     });
@@ -205,7 +191,7 @@ describe('overrides', () => {
       ]);
       // A pin upstream's own config lists is the template's file for the app to fill in
       makeCommit(env.upstreamPath, {
-        files: { [configFile]: "export default { overrides: { pinned: ['kept/'], ignored: [] } };\n" },
+        files: { [configFile]: "export default { pinned: ['kept/'], ignored: [] };\n" },
         message: 'chore: upstream pins kept',
       });
       fetchUpstream(env.repoRoot);

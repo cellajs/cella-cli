@@ -156,7 +156,7 @@ describe('exit codes', () => {
   const repo = mkdtempSync(join(tmpdir(), 'cella-cli-repo-'));
   spawnSync('git', ['init', '-q'], { cwd: repo });
   mkdirSync(join(repo, 'cella'));
-  writeFileSync(join(repo, 'cella/cella.config.ts'), "export default { settings: { upstreamUrl: 'upstream.git' } };\n");
+  writeFileSync(join(repo, 'cella/cella.config.ts'), "export default { upstreamUrl: 'upstream.git' };\n");
   afterAll(() => {
     rmSync(plain, { recursive: true, force: true });
     rmSync(repo, { recursive: true, force: true });

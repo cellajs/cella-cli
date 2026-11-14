@@ -467,7 +467,7 @@ async function mergePackageJson(
 export async function runPackages(config: RuntimeConfig, options: { conflictedFiles?: string[] } = {}): Promise<void> {
   createSpinner('merging package.json files...');
 
-  const keysToMerge = config.settings.packageJsonKeys || defaultPackageJsonKeys;
+  const keysToMerge = config.packageJsonKeys || defaultPackageJsonKeys;
   const conflictedSet = new Set(options.conflictedFiles ?? []);
 
   const baseRef = await resolveMergeBase(config.repoRoot, config.upstreamRef);

@@ -99,7 +99,7 @@ async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise
   const { repoRoot } = config;
   const present = async () => !!(await revParse(repoRoot, `${sha}^{commit}`));
   if (await present()) return;
-  await ensureRemote(repoRoot, defaultUpstreamRemote, config.settings.upstreamUrl);
+  await ensureRemote(repoRoot, defaultUpstreamRemote, config.upstreamUrl);
   await fetchRemote(repoRoot, defaultUpstreamRemote);
   if (!(await present()))
     throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
@@ -161,7 +161,7 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
       ? `${plural(arriving.length, 'alignment')} ${arriving.length === 1 ? 'arrives' : 'arrive'} with this upgrade${open.length > 0 ? pc.dim(` · ${open.length} open`) : ''}`
       : `${plural(open.length, 'alignment')} open${arrived.length > 0 ? pc.dim(` · ${arrived.length} arrived with this upgrade`) : ''}`;
 
-  const githubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
+  const githubUrl = getGitHubBaseUrl(config.upstreamUrl) ?? undefined;
   const ids = [...arriving, ...open];
   const details: string[] = [];
   for (const id of ids.slice(0, stepRowsMax)) {
@@ -175,13 +175,13 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
   return { label: 'align', line, details };
 }
 
-/** Read the app's overrides and its differences from the upgrade point, for the derived fields. */
+/** Read the app's `pinned` and `ignored` entries and its differences from the upgrade point, for the derived fields. */
 async function readAppView(config: RuntimeConfig, ref: string): Promise<AppView> {
-  const { pinned = [], ignored = [] } = config.overrides ?? {};
+  const { pinned = [], ignored = [] } = config;
   const counts = (path: string) => !isManagedFile(path) && !isGeneratedFile(path) && !isUpstreamOnly(path);
   const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--'], config.repoRoot);
   return {
-    githubUrl: getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined,
+    githubUrl: getGitHubBaseUrl(config.upstreamUrl) ?? undefined,
     owns: (path) => counts(path) && isUnderAnyFolder(path, [...pinned, ...ignored]),
     changed: new Set(out.split('\0').filter((path) => path && counts(path))),
   };
@@ -263,7 +263,7 @@ function printShowBlock(title: string, items: string[]): void {
  */
 async function showAlignment(config: RuntimeConfig, ref: string, pending: string[], id: string): Promise<void> {
   const { repoRoot } = config;
-  const upstreamBranch = `${defaultUpstreamRemote}/${config.settings.upstreamBranch}`;
+  const upstreamBranch = config.upstreamRef;
   let readRef = ref;
   let alignment = await readAlignment(repoRoot, ref, id);
   if (!alignment && (await revParse(repoRoot, upstreamBranch))) {

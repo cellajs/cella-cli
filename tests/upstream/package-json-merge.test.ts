@@ -63,12 +63,11 @@ describe('packages merge', () => {
   /** Build a RuntimeConfig for the packages service */
   function buildConfig(options?: { packageJsonKeys?: PackageJsonKey[] }): RuntimeConfig {
     return {
-      settings: {
-        upstreamUrl: upstreamPath,
-        upstreamBranch: 'main',
-        ...(options?.packageJsonKeys ? { packageJsonKeys: options.packageJsonKeys } : {}),
-      },
-      overrides: { pinned: [], ignored: [] },
+      upstreamUrl: upstreamPath,
+      upstreamBranch: 'main',
+      ...(options?.packageJsonKeys ? { packageJsonKeys: options.packageJsonKeys } : {}),
+      pinned: [],
+      ignored: [],
       repoRoot,
       upstreamRef: 'cella-upstream/main',
     };

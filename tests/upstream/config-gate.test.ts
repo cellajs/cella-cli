@@ -2,10 +2,10 @@
  * Tests for upstream override changes.
  *
  * The upgrade config is managed (never merged), so entries upstream adds to its own
- * `overrides.pinned`/`overrides.ignored`, and keys it adds to `settings.packageJsonKeys`, never
- * reach the app. `parseOverrideLists` reads the lists without evaluating the file,
- * `diffOverrideLists` keeps what the app config does not follow, and `compareUpstreamOverrides`
- * runs both against upstream's config at two refs.
+ * `pinned`/`ignored`, and keys it adds to `packageJsonKeys`, never reach the app.
+ * `parseOverrideLists` reads the lists without evaluating the file, `diffOverrideLists` keeps
+ * what the app config does not follow, and `compareUpstreamOverrides` runs both against
+ * upstream's config at two refs.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -28,30 +28,26 @@ const none = { added: [], removed: [] };
 
 /**
  * A cella-style config with the given list bodies (raw source, so tests can embed comments).
- * `settings` adds raw lines to the settings object, e.g. a `packageJsonKeys` list.
+ * `extra` adds raw lines to the config object, e.g. a `packageJsonKeys` list.
  */
-function configSource(pinned: string, ignored: string, settings = ''): string {
+function configSource(pinned: string, ignored: string, extra = ''): string {
   return `import { defineConfig } from '@cellajs/cli/config';
 
 export default defineConfig({
-  settings: {
-    upstreamUrl: 'git@github.com:cellajs/cella.git',
-    ${settings}
-  },
-  overrides: {
-    // Paths the app fully owns
-    ignored: [${ignored}],
-    pinned: [${pinned}],
-  },
+  upstreamUrl: 'git@github.com:cellajs/cella.git',
+  ${extra}
+  // Paths the app fully owns
+  ignored: [${ignored}],
+  pinned: [${pinned}],
 });
 `;
 }
 
 function appConfig(
-  overrides: { pinned?: string[]; ignored?: string[] },
+  lists: { pinned?: string[]; ignored?: string[] },
   packageJsonKeys?: PackageJsonKey[],
 ): CellaCliConfig {
-  return { settings: { upstreamUrl: 'test', packageJsonKeys }, overrides };
+  return { upstreamUrl: 'test', packageJsonKeys, ...lists };
 }
 
 describe('parseOverrideLists', () => {
@@ -76,8 +72,8 @@ describe('parseOverrideLists', () => {
     });
   });
 
-  it('reads empty lists when overrides or a list is absent', () => {
-    expect(parseOverrideLists(`export default defineConfig({ settings: { upstreamUrl: 'x' } });`)).toEqual({
+  it('reads empty lists when a list is absent, in the 0.7 shape too', () => {
+    expect(parseOverrideLists(`export default defineConfig({ upstreamUrl: 'x' });`)).toEqual({
       pinned: [],
       ignored: [],
       packageJsonKeys: defaultKeys,
@@ -89,7 +85,7 @@ describe('parseOverrideLists', () => {
     });
   });
 
-  it('reads the packageJsonKeys keys, and null when settings or the list cannot be read statically', () => {
+  it('reads the packageJsonKeys keys, and null when the list or the 0.7 settings cannot be read statically', () => {
     const source = configSource(
       `'a.ts'`,
       '',
@@ -119,7 +115,7 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists('this is { not a config')).toBeNull();
     expect(parseOverrideLists('export default defineConfig(buildConfig());')).toBeNull();
     expect(parseOverrideLists('export default defineConfig({ overrides: makeOverrides() });')).toBeNull();
-    expect(parseOverrideLists('export default defineConfig({ overrides: { pinned: list() } });')).toBeNull();
+    expect(parseOverrideLists('export default defineConfig({ pinned: list() });')).toBeNull();
   });
 });
 
@@ -210,9 +206,15 @@ describe('compareUpstreamOverrides', () => {
     fs.rmSync(repoPath, { recursive: true, force: true });
   });
 
-  it('reports what upstream added and removed since the merge-base', async () => {
+  it('reports what upstream added and removed since a merge-base with the 0.7 shape', async () => {
     repoPath = createRepo('cella-upstream-overrides-');
-    const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, `'README.md', 'old'`) });
+    const base = commit({
+      'cella/cella.config.ts': `export default defineConfig({
+  settings: { upstreamUrl: 'x', packageJsonKeys: ['dependencies', 'devDependencies'] },
+  overrides: { ignored: ['README.md', 'old'], pinned: ['a.ts'] },
+});
+`,
+    });
     const incoming = commit({
       'cella/cella.config.ts': configSource(
         `'a.ts',\n // Bundle composition is app-owned\n 'backend/src/bundle-config.ts'`,

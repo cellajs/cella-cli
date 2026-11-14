@@ -33,7 +33,7 @@ export function isUnderAnyFolder(filePath: string, folders: string[]): boolean {
  * which every app ignores without listing it.
  */
 export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
-  return isUpstreamOnly(filePath) || isUnderAnyFolder(filePath, config.overrides?.ignored || []);
+  return isUpstreamOnly(filePath) || isUnderAnyFolder(filePath, config.ignored || []);
 }
 
 /**
@@ -42,7 +42,7 @@ export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
  */
 export function isPinned(filePath: string, config: CellaCliConfig): boolean {
   if (isManagedFile(filePath)) return true;
-  return isUnderAnyFolder(filePath, config.overrides?.pinned || []);
+  return isUnderAnyFolder(filePath, config.pinned || []);
 }
 
 /** Normalized, deduplicated entries in config order, and a lookup for the most specific one holding a path. */
@@ -93,12 +93,12 @@ export async function validateOverrides(
   upstreamRef?: string,
 ): Promise<string[]> {
   const warnings: string[] = [];
-  const ignored = config.overrides?.ignored ?? [];
+  const ignored = config.ignored ?? [];
   const upstream = upstreamRef && (await revParse(repoRoot, upstreamRef)) ? upstreamRef : undefined;
   const pinsUpstreamHas: string[] = [];
   let mergeBase: string | undefined;
 
-  for (const entry of config.overrides?.pinned ?? []) {
+  for (const entry of config.pinned ?? []) {
     const path = normalizeEntry(entry);
     const ignoredEntry = ignored.find((folder) => isUnderAnyFolder(path, [folder]));
     if (/[*?]/.test(entry)) warnings.push(`pin uses glob (not supported, use a path or folder): ${entry}`);
@@ -127,7 +127,7 @@ export async function validateOverrides(
     }
   }
 
-  for (const entry of config.overrides?.ignored ?? []) {
+  for (const entry of config.ignored ?? []) {
     const path = normalizeEntry(entry);
     if (/[*?]/.test(entry)) {
       warnings.push(`ignored entry uses glob (not supported, use a path or folder): ${entry}`);

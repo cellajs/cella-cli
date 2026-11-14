@@ -148,7 +148,7 @@ describe('upgrade e2e', () => {
         files: {
           'package.json': '{"name": "test-app", "dependencies": {"app-only": "1.0.0"}}\n',
           'pnpm-lock.yaml': 'lockfileVersion: "9.0"\n\npackages:\n  app-only: {}\n',
-          'cella/cella.config.ts': 'export default { settings: { upstreamUrl: "app" } };\n',
+          'cella/cella.config.ts': 'export default { upstreamUrl: "app" };\n',
           'backend/src/index.ts': '// App custom backend\nexport const backend = "app";\n',
         },
         message: 'chore: customize managed files and backend',
@@ -881,9 +881,8 @@ describe('upgrade e2e', () => {
   describe('upstream changes the upgrade never brings in', () => {
     /** Upstream upgrade config with the given pinned entries (a comment inside the array on purpose). */
     const upstreamConfig = (pinned: string[]) =>
-      `export default defineConfig({\n  settings: { upstreamUrl: 'x' },\n  overrides: {\n` +
-      `    ignored: ['shared/config'],\n    pinned: [\n      // app-owned seams\n` +
-      `${pinned.map((entry) => `      '${entry}',\n`).join('')}    ],\n  },\n});\n`;
+      `export default defineConfig({\n  upstreamUrl: 'x',\n  ignored: ['shared/config'],\n  pinned: [\n` +
+      `    // app-owned seams\n${pinned.map((entry) => `    '${entry}',\n`).join('')}  ],\n});\n`;
 
     /** Base both sides share: upstream config + an ignored config folder, fast-forwarded into the app. */
     async function setupBase(): Promise<void> {

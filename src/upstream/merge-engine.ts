@@ -10,7 +10,7 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readReleaseAgeMinutes } from '../audit/pnpm';
-import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
+import { defaultBranch, defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import {
   type AnalysisSummary,
   type AnalyzedFile,
@@ -363,7 +363,7 @@ async function resolvePinnedRef(
   if (!resolved) {
     throw new Error(
       `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag or a branch on ` +
-        `${config.settings.upstreamUrl}.`,
+        `${config.upstreamUrl}.`,
     );
   }
   if (!(await isPublishedUpstream(repoRoot, remoteName, branchRef, resolved.sha))) {
@@ -397,11 +397,11 @@ async function prepareUpstream(
   onStep?.('checkout', formatCheckoutStep({ branch, headSha, changeCount, tracking: trackingStatus }));
 
   onProgress?.('setting up upstream remote...');
-  const { track: configTrack, branchRef } = resolveUpstream(config.settings);
+  const { track: configTrack, branchRef } = resolveUpstream(config);
   const remoteName = defaultUpstreamRemote;
   // A per-run --track flag (config.track) overrides the configured tracking mode.
   const track = config.track ?? configTrack;
-  await ensureRemote(repoRoot, remoteName, config.settings.upstreamUrl);
+  await ensureRemote(repoRoot, remoteName, config.upstreamUrl);
 
   onProgress?.(`fetching upstream (${remoteName})...`);
   await fetchRemote(repoRoot, remoteName);
@@ -422,7 +422,7 @@ async function prepareUpstream(
     if (!latest) {
       throw new Error(
         `no upstream release tags found on '${remoteName}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
-          `or check that ${config.settings.upstreamUrl} publishes release tags.`,
+          `or check that ${config.upstreamUrl} publishes release tags.`,
       );
     }
     upstreamRef = latest.ref;
@@ -448,7 +448,7 @@ async function prepareUpstream(
   onProgress?.('checking the upgrade point...');
   await ensureUpgradePoint(repoRoot, 'HEAD', upstreamRef);
 
-  const upstreamGitHubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
+  const upstreamGitHubUrl = getGitHubBaseUrl(config.upstreamUrl) ?? undefined;
 
   // Effective merge base (handles a stale base from previous squash upgrades).
   const mergeBase = await getEffectiveMergeBase(repoRoot, 'HEAD', upstreamRef);
@@ -516,7 +516,7 @@ async function assertUpstreamConfigFollowed(config: RuntimeConfig, ctx: Upstream
 /** MergeResult fields shared by both engine modes. */
 function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
   return {
-    upstreamBranch: config.settings.upstreamBranch ?? 'main',
+    upstreamBranch: config.upstreamBranch ?? defaultBranch,
     upstreamRef: ctx.upstreamRef,
     upstreamGitHubUrl: ctx.upstreamGitHubUrl,
     upstreamCommit: ctx.upstreamCommit,
@@ -526,7 +526,7 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 
 /**
  * Upstream changes the app never receives, shared by both engine modes: the upstream config's
- * `overrides` entries and `packageJsonKeys` the app config does not follow (the config itself
+ * `pinned`, `ignored` and `packageJsonKeys` entries the app config does not follow (the config itself
  * never merges), ignored files only upstream changed, and the range the review page diffs upstream's
  * changes over. Report only, read from refs (the merge state is irrelevant); a failure here yields
  * no report and never fails the run.
@@ -547,7 +547,7 @@ async function upstreamOnlyReports(
     return {
       upstreamDiffRange: `${baseSha}..${upstreamSha}`,
       upstreamOverrides,
-      ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, config.overrides?.ignored ?? []),
+      ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, config.ignored ?? []),
     };
   } catch {
     return {};

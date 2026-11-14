@@ -1,6 +1,6 @@
 /**
  * Upstream override changes: the upgrade never merges the app's config, so this reads upstream's
- * `overrides` lists and `packageJsonKeys` at the merge-base and the incoming ref (ts-morph,
+ * `pinned`, `ignored` and `packageJsonKeys` at the merge-base and the incoming ref (ts-morph,
  * syntax only) and reports the entries the app config does not follow. Report only.
  */
 
@@ -15,11 +15,21 @@ import { isUnderAnyFolder, normalizeEntry } from './protection';
 interface OverrideLists {
   pinned: string[];
   ignored: string[];
-  /** `settings.packageJsonKeys`, the default when the config names none; null when it cannot be read statically. */
+  /** The default when the config names none; null when unreadable, or false: the config merges no package.json. */
   packageJsonKeys: string[] | null;
 }
 
 const listKeys = ['pinned', 'ignored'] as const;
+
+/**
+ * Where each list sits, newest shape first: at the top level, in the 0.7 shape's `overrides` and `settings`, and as
+ * `packageJsonSync` before 0.6. The merge-base can predate the app's CLI, so every shape stays readable.
+ */
+const listPaths: Record<keyof OverrideLists, string[][]> = {
+  pinned: [['pinned'], ['overrides', 'pinned']],
+  ignored: [['ignored'], ['overrides', 'ignored']],
+  packageJsonKeys: [['packageJsonKeys'], ['settings', 'packageJsonKeys'], ['settings', 'packageJsonSync']],
+};
 
 /** Resolve wrappers (`(x)`, `x as T`, `x satisfies T`) and same-file identifiers to the underlying expression. */
 function resolveExpression(node: Node | undefined, sourceFile: SourceFile, depth = 0): Node | undefined {
@@ -78,25 +88,27 @@ function readStringEntries(node: Node): string[] | null {
   return entries;
 }
 
-/**
- * `settings.packageJsonKeys` of a config object, or its 0.5 name `packageJsonSync` at an older commit:
- * the default keys when `settings` or the list is absent, null when either is present without a
- * statically readable value.
- */
-function readPackageJsonKeys(config: ObjectLiteralExpression, sourceFile: SourceFile): string[] | null {
-  const settings = readProperty(config, 'settings', sourceFile);
-  if (settings === undefined) return [...defaultPackageJsonKeys];
-  if (!settings || !Node.isObjectLiteralExpression(settings)) return null;
-  const current = readProperty(settings, 'packageJsonKeys', sourceFile);
-  const keys = current === undefined ? readProperty(settings, 'packageJsonSync', sourceFile) : current;
-  if (keys === undefined) return [...defaultPackageJsonKeys];
-  return keys ? readStringEntries(keys) : null;
+/** String entries at the first of `paths` the config holds: undefined when none, null when that one is unreadable. */
+function readList(
+  config: ObjectLiteralExpression,
+  paths: string[][],
+  sourceFile: SourceFile,
+): string[] | null | undefined {
+  for (const path of paths) {
+    let node: Node | null | undefined = config;
+    for (const name of path) {
+      if (node === undefined) break;
+      node = node && Node.isObjectLiteralExpression(node) ? readProperty(node, name, sourceFile) : null;
+    }
+    if (node !== undefined) return node && readStringEntries(node);
+  }
+  return undefined;
 }
 
 /**
- * Extract `overrides.pinned`, `overrides.ignored` and `settings.packageJsonKeys` from config source
- * without evaluating it; only string literals count. Null when the config object or a present
- * `overrides`/list cannot be read statically; unreadable `packageJsonKeys` alone read as null.
+ * Extract `pinned`, `ignored` and `packageJsonKeys` from config source without evaluating it, in any shape a config had
+ * (see {@link listPaths}); only string literals count. Null when the config object or a present `pinned` or `ignored`
+ * cannot be read statically; unreadable `packageJsonKeys` alone read as null.
  */
 export function parseOverrideLists(source: string): OverrideLists | null {
   try {
@@ -105,23 +117,15 @@ export function parseOverrideLists(source: string): OverrideLists | null {
     const config = findConfigObject(sourceFile);
     if (!config) return null;
 
-    const lists: OverrideLists = {
-      pinned: [],
-      ignored: [],
-      packageJsonKeys: readPackageJsonKeys(config, sourceFile),
+    const [pinned, ignored, keys] = (['pinned', 'ignored', 'packageJsonKeys'] as const).map((key) =>
+      readList(config, listPaths[key], sourceFile),
+    );
+    if (pinned === null || ignored === null) return null;
+    return {
+      pinned: pinned ?? [],
+      ignored: ignored ?? [],
+      packageJsonKeys: keys === undefined ? [...defaultPackageJsonKeys] : keys,
     };
-    const overrides = readProperty(config, 'overrides', sourceFile);
-    if (overrides === undefined) return lists;
-    if (!overrides || !Node.isObjectLiteralExpression(overrides)) return null;
-
-    for (const key of listKeys) {
-      const list = readProperty(overrides, key, sourceFile);
-      if (list === undefined) continue;
-      const entries = list ? readStringEntries(list) : null;
-      if (!entries) return null;
-      lists[key] = entries;
-    }
-    return lists;
   } catch {
     return null;
   }
@@ -179,7 +183,7 @@ export function diffOverrideLists(
 }
 
 /**
- * Report how upstream's `overrides` and `packageJsonKeys` changed between the merge-base and the
+ * Report how upstream's `pinned`, `ignored` and `packageJsonKeys` changed between the merge-base and the
  * incoming ref, limited to entries the app config does not follow (see {@link diffOverrideLists}).
  * Undefined when there is nothing to report; `unreadable` when the config is missing or unparsable
  * at one side only.
@@ -202,9 +206,9 @@ export async function compareUpstreamOverrides(
   if (!incoming) return { type: 'unreadable', side: 'incoming' };
 
   const app: OverrideLists = {
-    pinned: appConfig.overrides?.pinned ?? [],
-    ignored: appConfig.overrides?.ignored ?? [],
-    packageJsonKeys: appConfig.settings.packageJsonKeys ?? defaultPackageJsonKeys,
+    pinned: appConfig.pinned ?? [],
+    ignored: appConfig.ignored ?? [],
+    packageJsonKeys: appConfig.packageJsonKeys === false ? null : (appConfig.packageJsonKeys ?? defaultPackageJsonKeys),
   };
   const changes = diffOverrideLists(base, incoming, app);
   const count = Object.values(changes).reduce(

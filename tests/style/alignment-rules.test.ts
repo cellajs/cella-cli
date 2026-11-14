@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  alignmentFindings,
-  checkAlignmentReadme,
-  owedAlignmentFindings,
-  ownedPaths,
-} from '../../src/style/alignment-rules';
+import { alignmentFindings, checkAlignmentReadme, owedAlignmentFindings } from '../../src/style/alignment-rules';
 
 const lines = (...rows: string[]) => rows.join('\n');
 const alignment = lines(
@@ -99,38 +94,17 @@ describe('alignmentFindings', () => {
 });
 
 describe('owedAlignmentFindings', () => {
-  const config = lines(
-    'export default defineConfig({',
-    '  overrides: {',
-    '    ignored: [',
-    "      'README.md',",
-    "      'shared/config',",
-    "      'backend/drizzle',",
-    '      // App identity',
-    "      'frontend/src/modules/common/logo-art.tsx',",
-    "      'shared/locales/en/app.json',",
-    '    ],',
-    '    pinned: [',
-    "      'backend/src/modules.ts',",
-    "      'shared/json/text-blocks.json',",
-    '    ],',
-    '  },',
-    '});',
-  );
+  const owned = [
+    'README.md',
+    'shared/config',
+    'backend/drizzle',
+    'frontend/src/modules/common/logo-art.tsx',
+    'shared/locales/en/app.json',
+    'backend/src/modules.ts',
+    'shared/json/text-blocks.json',
+  ];
   const rule = (changed: string[], messages = '', added = changed) =>
-    owedAlignmentFindings({ changed, added, messages }, config).map((finding) => finding.file);
-
-  it('reads the ignored and pinned entries of the CLI config', () => {
-    expect(ownedPaths(config)).toEqual([
-      'README.md',
-      'shared/config',
-      'backend/drizzle',
-      'frontend/src/modules/common/logo-art.tsx',
-      'shared/locales/en/app.json',
-      'backend/src/modules.ts',
-      'shared/json/text-blocks.json',
-    ]);
-  });
+    owedAlignmentFindings({ changed, added, messages }, owned).map((finding) => finding.file);
 
   it('asks for an alignment when a branch changes an app-owned path template code reads from', () => {
     expect(rule(['frontend/src/modules/common/logo-art.tsx', 'frontend/src/modules/auth/auth-layout.tsx'])).toEqual([

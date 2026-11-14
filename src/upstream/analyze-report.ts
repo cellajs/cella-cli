@@ -39,8 +39,9 @@ export interface AnalyzeReportOptions {
   links: LinkOptions;
   /** List every path instead of collapsing large groups (`--all`). */
   all?: boolean;
-  /** The app config's override entries: protected files collapse by the entry that holds them. */
-  overrides?: { ignored?: string[]; pinned?: string[] };
+  /** The app config's `ignored` and `pinned` entries: protected files collapse by the entry that holds them. */
+  ignored?: string[];
+  pinned?: string[];
   columns?: number;
   nowMs?: number;
 }
@@ -288,8 +289,8 @@ interface ProtectedItem {
 }
 
 /** The most specific `ignored` or `pinned` entry holding a path. */
-function entryFinder(overrides: AnalyzeReportOptions['overrides']): (path: string) => string | undefined {
-  const entries = [...(overrides?.ignored ?? []), ...(overrides?.pinned ?? [])]
+function entryFinder({ ignored = [], pinned = [] }: AnalyzeReportOptions): (path: string) => string | undefined {
+  const entries = [...ignored, ...pinned]
     .map(normalizeEntry)
     .filter(Boolean)
     .sort((a, b) => b.length - a.length);
@@ -334,7 +335,7 @@ function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Ro
  * under one override entry collapse to a row for the entry.
  */
 function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions): void {
-  const findEntry = entryFinder(options.overrides);
+  const findEntry = entryFinder(options);
   // Both sides changed reads as a change even where the app deleted its copy; only upstream's own
   // additions and deletions get a tag.
   const items: ProtectedItem[] = findProtectedBehindUpstream(result).map((file) => ({

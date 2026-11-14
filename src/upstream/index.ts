@@ -18,7 +18,7 @@ async function upstreamContext(
   config: CellaCliConfig,
   engine: EngineOptions = {},
 ): Promise<RuntimeConfig> {
-  const { branchRef } = resolveUpstream(config.settings);
+  const { branchRef } = resolveUpstream(config);
   const warnings = await validateOverrides(config, repoRoot, branchRef);
   for (const warning of warnings) console.info(`${warningMark} ${warning}`);
   if (warnings.length > 0) console.info();

@@ -1,7 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from '../command';
-import { defaultUpstreamRemote } from '../config/load';
+import { resolveAppModuleFolders } from '../config/app-modules';
+import { defaultUpstreamRemote, loadConfig } from '../config/load';
 import { readUpgradePoint } from '../upstream/manifest';
 import { git } from '../utils/git';
 import { alignmentFindings, type BranchChanges, owedAlignmentFindings } from './alignment-rules';
@@ -83,7 +84,11 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
     files.includes('cella/alignments/_TEMPLATE.md') &&
     !files.includes('cella/cella.manifest.json');
   if (owesAlignments && base) {
-    findings.push(...owedAlignmentFindings(await branchChanges(base), read('cella/cella.config.ts')));
+    // The template's own `owner: 'app'` modules hold nothing template code reads
+    const appModules = resolveAppModuleFolders(repoRoot);
+    const { ignored = [], pinned = [] } = await loadConfig(repoRoot);
+    const owned = [...ignored, ...pinned].filter((entry) => !appModules.includes(entry));
+    findings.push(...owedAlignmentFindings(await branchChanges(base), owned));
   }
   for (const file of requested) {
     const content = readFileSync(join(repoRoot, file));

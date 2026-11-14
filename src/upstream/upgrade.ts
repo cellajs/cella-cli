@@ -78,7 +78,7 @@ import { existingUpgradeReviewPage, type ReviewPageReport, reportReviewPage, rev
 interface UpgradeBranch {
   /** The freshly cut temporary branch, e.g. `cella/upgrade/20260702-1430`. */
   name: string;
-  /** The trunk the branch was cut from and PRs land into (`releaseBase`, default `main`). */
+  /** The trunk the branch was cut from and PRs land into (`trunk`, default `main`). */
   trunk: string;
   /** The branch the user was on before the cycle started, 'HEAD' when detached (for cleanup on no-op). */
   startBranch: string;
@@ -141,8 +141,8 @@ async function resolveCycleStart(repoRoot: string, trunk: string, currentBranch:
  * alignment asks for, then ride in the upgrade PR from any branch.
  */
 async function cutUpgradeBranch(config: RuntimeConfig): Promise<UpgradeBranch> {
-  const { repoRoot, settings } = config;
-  const trunk = resolveTrunk(settings);
+  const { repoRoot } = config;
+  const trunk = resolveTrunk(config);
   const startBranch = await getCurrentBranch(repoRoot);
   const startCommit = (await getCommitInfo(repoRoot, 'HEAD')).hash;
 
@@ -467,8 +467,8 @@ async function flattenUpgradeBranch(repoRoot: string, branch: string, trunk: str
  * and returns 1; a missing or failed `gh` prints the `gh` command but still returns you to the trunk.
  */
 async function shipUpgradeBranch(config: RuntimeConfig, branch: string): Promise<number> {
-  const { repoRoot, settings } = config;
-  const trunk = resolveTrunk(settings);
+  const { repoRoot } = config;
+  const trunk = resolveTrunk(config);
   // The PR targets `trunk`; its commits and body are read against the trunk the branch was cut from.
   const trunkRef = await resolveTrunkRef(repoRoot, trunk);
 
@@ -606,7 +606,7 @@ async function runUpgradeCycle(config: RuntimeConfig): Promise<UpgradeCycleOutco
     throw error;
   }
 
-  if (config.settings.mergePackageJson !== false) {
+  if (config.packageJsonKeys !== false) {
     // Merge package.json keys even when the merge left conflicts: package.json files that are
     // themselves conflicted are skipped and reported; all others still merge.
     await runPackages(config, { conflictedFiles: result.conflicts });
@@ -696,7 +696,7 @@ async function engineFinishedMerge(repoRoot: string): Promise<boolean> {
  */
 async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Promise<number> {
   const { repoRoot } = config;
-  const trunk = resolveTrunk(config.settings);
+  const trunk = resolveTrunk(config);
   const cutPoint = await getMergeBase(repoRoot, 'HEAD', await resolveTrunkRef(repoRoot, trunk));
   const [committed, atCut] = await Promise.all([
     readUpgradePointAtRef(repoRoot, 'HEAD'),
@@ -727,8 +727,8 @@ async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Pro
  * refuses (conflicts, failing required checks) stops the run.
  */
 async function mergeOpenUpgradePrs(config: RuntimeConfig, open: GhPullRequest[]): Promise<'continue' | 'refused'> {
-  const { repoRoot, settings } = config;
-  const trunk = resolveTrunk(settings);
+  const { repoRoot } = config;
+  const trunk = resolveTrunk(config);
   const [newest, ...superseded] = open;
 
   console.info();

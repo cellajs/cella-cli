@@ -109,12 +109,6 @@ const alignmentExempt = [
   'shared/locales/',
 ];
 
-/** The `ignored` and `pinned` entries of the CLI config, read from its source text. */
-export function ownedPaths(configSource: string): string[] {
-  const lists = [...configSource.matchAll(/\b(?:ignored|pinned): \[([\s\S]*?)\n {4}\]/g)].map((match) => match[1]);
-  return lists.flatMap((list) => [...list.matchAll(/^\s*'([^']+)',?\s*$/gm)].map((match) => match[1]));
-}
-
 /** What a branch changes against its base: every changed path, the paths it adds, and its commit messages. */
 export interface BranchChanges {
   changed: string[];
@@ -126,9 +120,10 @@ export interface BranchChanges {
  * The finding for a branch that changes an app-owned path template code reads from (a pinned file, `logo-art.tsx`,
  * `backend/drizzle`) without adding an alignment. Such a change never reaches an app's copy, so the app's template code
  * breaks until someone tells it what to add. An `Alignment: none, <reason>` line in a commit message waives it.
+ * `ownedPaths` are the `ignored` and `pinned` entries of the CLI config.
  */
-export function owedAlignmentFindings({ changed, added, messages }: BranchChanges, configSource: string): Finding[] {
-  const owned = ownedPaths(configSource).filter((entry) => !alignmentExempt.some((exempt) => isUnder(entry, exempt)));
+export function owedAlignmentFindings({ changed, added, messages }: BranchChanges, ownedPaths: string[]): Finding[] {
+  const owned = ownedPaths.filter((entry) => !alignmentExempt.some((exempt) => isUnder(entry, exempt)));
   // A Markdown file inside an owned folder is read by people, never by template code
   const touched = changed.filter((file) => !file.endsWith('.md') && owned.some((entry) => isUnder(file, entry)));
   if (touched.length === 0) return [];

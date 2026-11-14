@@ -150,7 +150,8 @@ function fixture(): MergeResult {
 
 const options: AnalyzeReportOptions = {
   links: { upstreamGitHubUrl: upstream, upstreamSha: sha, appGitHubUrl: app },
-  overrides: { ignored, pinned },
+  ignored,
+  pinned,
   columns: 80,
   nowMs,
 };

@@ -213,15 +213,11 @@ export function buildRuntimeConfig(
   const { unpinned } = options;
 
   const config: CellaCliConfig = {
-    settings: {
-      upstreamUrl: env.upstreamPath,
-      upstreamBranch: 'main',
-      upstreamTrack: track,
-    },
-    overrides: {
-      pinned,
-      ignored,
-    },
+    upstreamUrl: env.upstreamPath,
+    upstreamBranch: 'main',
+    upstreamTrack: track,
+    pinned,
+    ignored,
   };
 
   return {

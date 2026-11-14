@@ -24,50 +24,6 @@ const packageJsonKeys = [
 export type PackageJsonKey = (typeof packageJsonKeys)[number];
 
 /**
- * Settings: all configurable options for the cella CLI.
- * Hover over each property for documentation.
- */
-export interface UpgradeSettings {
-  /** Upstream repository URL (e.g., 'git@github.com:cellajs/cella.git') */
-  upstreamUrl: string;
-
-  /**
-   * Upstream branch, used for `upstreamTrack: 'branch'` and for GitHub file links.
-   * Defaults to 'main'.
-   */
-  upstreamBranch?: string;
-
-  /**
-   * How to track upstream cella. Defaults to 'release'.
-   * - 'release' (default): upgrade to a published cella release tag (`0.18.1`, with or without `v`). Stable and
-   *   reviewable: each bump maps to a changelog. Uses the latest release.
-   * - 'branch': follow the bleeding-edge tip of `upstreamBranch`. For cella
-   *   maintainers and apps doing active development on top of unreleased changes.
-   */
-  upstreamTrack?: 'release' | 'branch';
-
-  /**
-   * Trunk branch that `pnpm cella upgrade` cuts the temporary branch from and that you open the
-   * squash-merge PR into. Defaults to 'main'. Cutting fresh from trunk each cycle keeps every
-   * PR limited to that cycle's upstream delta (no accumulation) and `main` linear.
-   */
-  releaseBase?: string;
-
-  /** Which package.json keys merge from upstream (default: ['dependencies', 'devDependencies']). `type` always merges. */
-  packageJsonKeys?: PackageJsonKey[];
-
-  /** Merge the `packageJsonKeys` of every package.json after the upgrade merge (default: true). */
-  mergePackageJson?: boolean;
-
-  /**
-   * How to link files in CLI output.
-   * - 'commit' (default): Link to the commit that changed the file on GitHub.
-   * - 'file': Link to the file in the repo at the upstream branch on GitHub.
-   */
-  fileLinkMode?: 'commit' | 'file';
-}
-
-/**
  * Configuration for a downstream fork repository that cella interacts with.
  *
  * Cella is the upstream/source-of-truth: the adopt command pulls contributions FROM the fork's `pullBranch`.
@@ -89,38 +45,33 @@ export interface ForkConfig {
   pullBranch: string;
 }
 
-/** User-configurable upgrade options for cella/cella.config.ts. */
+/** The app's cella/cella.config.ts. Paths in `ignored` and `pinned` are exact files or folders, never globs. */
 export interface CellaCliConfig {
-  /** Core upgrade settings */
-  settings: UpgradeSettings;
+  /** Upstream repository URL, e.g. 'git@github.com:cellajs/cella.git'. */
+  upstreamUrl: string;
 
-  /**
-   * File overrides for controlling upgrade behavior per folder/file.
-   */
-  overrides?: {
-    /**
-     * Paths the app fully owns: never merged (existing or new).
-     * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
-     * everything under it, 'README.md' matches that exact file.
-     * Local territory: upstream cannot add, modify, or delete anything under these.
-     */
-    ignored?: string[];
+  /** Upstream branch that `upstreamTrack: 'branch'` follows and GitHub file links read (default: 'main'). */
+  upstreamBranch?: string;
 
-    /**
-     * Paths pinned to the app: the app copy wins whole-file.
-     * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
-     * everything under it, 'README.md' matches that exact file.
-     * Upstream changes to a pinned file are dropped, not merged: analyze lists them under
-     * "protected but behind upstream" to adopt by hand.
-     * If the app deleted a pinned file, deletion is respected.
-     */
-    pinned?: string[];
-  };
+  /** 'release' (default) upgrades to the latest upstream release tag, 'branch' to the tip of `upstreamBranch`. */
+  upstreamTrack?: 'release' | 'branch';
 
-  /**
-   * Downstream fork repositories that cella interacts with (for upstream template repos).
-   * When configured, the 'adopt' command appears in the CLI menu.
-   */
+  /** The app's main branch: `cella upgrade` cuts its branch from it and opens the PR into it (default: 'main'). */
+  trunk?: string;
+
+  /** Keys each package.json merges from upstream, plus `type` (default: dependencies, devDependencies); false: none. */
+  packageJsonKeys?: PackageJsonKey[] | false;
+
+  /** CLI output links a file to the commit that changed it ('commit', default) or to the file at `upstreamBranch`. */
+  fileLinkMode?: 'commit' | 'file';
+
+  /** Paths the app owns whole: upstream never adds, changes or deletes anything under them. */
+  ignored?: string[];
+
+  /** Paths where the app's copy wins whole-file: upstream's changes drop, and analyze lists them to adopt by hand. */
+  pinned?: string[];
+
+  /** Downstream forks the template pulls contributions from (`cella adopt`). */
   forks?: ForkConfig[];
 }
 
@@ -144,24 +95,14 @@ export function defineConfig(config: CellaCliConfig): CellaCliConfig {
  */
 export const cellaConfigSchema = z
   .object({
-    settings: z
-      .object({
-        upstreamUrl: z.string().min(1),
-        upstreamBranch: z.string().min(1).optional(),
-        upstreamTrack: z.enum(['release', 'branch']).optional(),
-        releaseBase: z.string().min(1).optional(),
-        packageJsonKeys: z.array(z.enum(packageJsonKeys)).optional(),
-        mergePackageJson: z.boolean().optional(),
-        fileLinkMode: z.enum(['commit', 'file']).optional(),
-      })
-      .strict(),
-    overrides: z
-      .object({
-        ignored: z.array(z.string()).optional(),
-        pinned: z.array(z.string()).optional(),
-      })
-      .strict()
-      .optional(),
+    upstreamUrl: z.string().min(1),
+    upstreamBranch: z.string().min(1).optional(),
+    upstreamTrack: z.enum(['release', 'branch']).optional(),
+    trunk: z.string().min(1).optional(),
+    packageJsonKeys: z.union([z.array(z.enum(packageJsonKeys)), z.literal(false)]).optional(),
+    fileLinkMode: z.enum(['commit', 'file']).optional(),
+    ignored: z.array(z.string()).optional(),
+    pinned: z.array(z.string()).optional(),
     forks: z
       .array(
         z
@@ -185,7 +126,7 @@ export type AnalyzeScope = 'all' | 'risk' | 'protected';
 /** How one run of the merge engine picks and merges upstream: the options analyze and upgrade read. */
 export interface EngineOptions {
   /**
-   * Override upstream tracking for this run (analyze/upgrade), ignoring `settings.upstreamTrack`.
+   * Override upstream tracking for this run (analyze/upgrade), ignoring the config's `upstreamTrack`.
    * 'branch' follows the upstream branch tip (bleeding edge); 'release' uses a release tag.
    */
   track?: 'release' | 'branch';
@@ -198,7 +139,7 @@ export interface EngineOptions {
 
   /**
    * Merge with the app's CLI config as it stands (upgrade). Without it, a new merge stops
-   * before anything changes when upstream changed its own `overrides` or `packageJsonKeys` in ways
+   * before anything changes when upstream changed its own `ignored`, `pinned` or `packageJsonKeys` in ways
    * the app config does not follow.
    */
   keepConfig?: boolean;

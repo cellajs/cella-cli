@@ -6,14 +6,15 @@ import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
 import { configFile } from '../upstream/managed-files';
+import { warningMark } from '../utils/display';
 import { errorMessage } from '../utils/errors';
 import { resolveAppModuleFolders } from './app-modules';
-import { type CellaCliConfig, cellaConfigSchema, type PackageJsonKey, type UpgradeSettings } from './types';
+import { type CellaCliConfig, cellaConfigSchema, type PackageJsonKey } from './types';
 
 /** Default git remote name used to point at the upstream repository. */
 export const defaultUpstreamRemote = 'cella-upstream';
 
-/** Default branch used when a config omits `upstreamBranch` or `releaseBase`; also cella's fork-compare base. */
+/** Default branch used when a config omits `upstreamBranch` or `trunk`; also cella's fork-compare base. */
 export const defaultBranch = 'main';
 
 /**
@@ -41,8 +42,8 @@ export function isUpgradeBranch(branch: string): boolean {
 /**
  * Resolve the trunk branch `cella upgrade` cuts the temporary branch from and PRs into.
  */
-export function resolveTrunk(settings: UpgradeSettings): string {
-  return settings.releaseBase ?? defaultBranch;
+export function resolveTrunk(config: CellaCliConfig): string {
+  return config.trunk ?? defaultBranch;
 }
 
 /**
@@ -58,7 +59,7 @@ export function buildUpgradeBranchName(): string {
 }
 
 /**
- * Resolve the upstream tracking plan from upgrade settings.
+ * Resolve the upstream tracking plan from the config.
  *
  * Single source of truth shared by the CLI entry point and the merge engine.
  * The concrete ref for release tracking (latest tag) can only be resolved after
@@ -67,14 +68,63 @@ export function buildUpgradeBranchName(): string {
  * - `track`: 'release' (default) upgrades to the latest release tag; 'branch' follows the tip.
  * - `branchRef`: `<defaultUpstreamRemote>/<branch>`, the branch-track ref and static fallback.
  */
-export function resolveUpstream(settings: UpgradeSettings): {
+export function resolveUpstream(config: CellaCliConfig): {
   track: 'release' | 'branch';
   branchRef: string;
 } {
-  const track = settings.upstreamTrack ?? 'release';
-  const branch = settings.upstreamBranch ?? defaultBranch;
+  const track = config.upstreamTrack ?? 'release';
+  const branch = config.upstreamBranch ?? defaultBranch;
   const branchRef = `${defaultUpstreamRemote}/${branch}`;
   return { track, branchRef };
+}
+
+/** The 0.7 shape: the settings and the two path lists in wrappers, `forks` beside them. */
+const shape07 = z.looseObject({
+  settings: z.record(z.string(), z.unknown()).optional(),
+  overrides: z.record(z.string(), z.unknown()).optional(),
+});
+
+/** Configs warned about in this process: the menu and the command it picks each load the config. */
+const warnedPaths = new Set<string>();
+
+/**
+ * A config in the 0.7 shape, mapped to the current one with one warning that names the keys to move: `cella upgrade`
+ * installs the new CLI and runs its later stages with it before the app can edit its config. Goes at 1.0.
+ *
+ * @throws when the config mixes both shapes.
+ */
+function fromShape07(value: unknown, configPath: string): unknown {
+  const parsed = shape07.safeParse(value);
+  if (!parsed.success || (!parsed.data.settings && !parsed.data.overrides)) return value;
+  const { settings = {}, overrides = {}, ...rest } = parsed.data;
+  const mixed = Object.keys(rest).filter((key) => key !== 'forks');
+  if (mixed.length > 0) {
+    throw new Error(`${configPath} mixes the 0.7 shape (settings, overrides) with top-level ${mixed.join(', ')}`);
+  }
+
+  const { releaseBase, mergePackageJson, ...kept } = settings;
+  const moved = [
+    ...Object.keys(kept).map((key) => `settings.${key}`),
+    ...Object.keys(overrides).map((key) => `overrides.${key}`),
+  ];
+  const changes = [
+    `move ${moved.join(', ')} to the top level`,
+    ...(releaseBase === undefined ? [] : ['rename settings.releaseBase to trunk']),
+    ...(mergePackageJson === undefined ? [] : ['drop settings.mergePackageJson (false is packageJsonKeys: false)']),
+  ];
+  if (!warnedPaths.has(configPath)) {
+    console.warn(
+      `${warningMark} ${configPath} has the 0.7 shape, which the CLI reads until 1.0: ${changes.join(', ')}.`,
+    );
+  }
+  warnedPaths.add(configPath);
+  return {
+    ...rest,
+    ...kept,
+    ...overrides,
+    ...(releaseBase === undefined ? {} : { trunk: releaseBase }),
+    ...(mergePackageJson === false ? { packageJsonKeys: false } : {}),
+  };
 }
 
 /**
@@ -104,7 +154,7 @@ export async function loadConfig(repoRoot: string): Promise<CellaCliConfig> {
   }
 
   // Strict schema validation.
-  const result = cellaConfigSchema.safeParse(configModule.default);
+  const result = cellaConfigSchema.safeParse(fromShape07(configModule.default, configPath));
   if (!result.success) {
     throw new Error(`invalid ${configPath}:\n${z.prettifyError(result.error)}`);
   }
@@ -116,13 +166,7 @@ export async function loadConfig(repoRoot: string): Promise<CellaCliConfig> {
   // them back upstream. Derived entries always exist (they come from real files), so
   // config validation never warns about them.
   const appModuleFolders = resolveAppModuleFolders(realRepoRoot);
-  if (appModuleFolders.length > 0) {
-    const existing = config.overrides?.ignored ?? [];
-    config.overrides = {
-      ...config.overrides,
-      ignored: [...new Set([...existing, ...appModuleFolders])],
-    };
-  }
+  if (appModuleFolders.length > 0) config.ignored = [...new Set([...(config.ignored ?? []), ...appModuleFolders])];
 
   return config;
 }

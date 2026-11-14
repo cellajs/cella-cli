@@ -22,9 +22,9 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 /** Upstream upgrade config with the given pinned entries and package.json keys. */
 const upstreamConfig = (pinned: string[], packageJsonKeys: string[]) =>
-  `export default defineConfig({\n  settings: {\n    upstreamUrl: 'x',\n` +
-  `    packageJsonKeys: [${packageJsonKeys.map((key) => `'${key}'`).join(', ')}],\n  },\n` +
-  `  overrides: {\n    pinned: [${pinned.map((entry) => `'${entry}'`).join(', ')}],\n  },\n});\n`;
+  `export default defineConfig({\n  upstreamUrl: 'x',\n` +
+  `  packageJsonKeys: [${packageJsonKeys.map((key) => `'${key}'`).join(', ')}],\n` +
+  `  pinned: [${pinned.map((entry) => `'${entry}'`).join(', ')}],\n});\n`;
 
 describe('upgrade stops before the merge', () => {
   let env: TestEnv;
@@ -122,7 +122,7 @@ describe('upgrade stops before the merge', () => {
     it('merges once the app config follows upstream', async () => {
       setupConfigChange();
       const config = buildRuntimeConfig(env, { pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
-      config.settings.packageJsonKeys = ['dependencies', 'devDependencies', 'exports'];
+      config.packageJsonKeys = ['dependencies', 'devDependencies', 'exports'];
 
       await runUpgradeCommand(config);
 

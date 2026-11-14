@@ -30,7 +30,7 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
  * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
  * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing. So do
  * ignored files only upstream changed (`upstreamOnly`), and the CLI config when upstream's
- * overrides changed in ways the app config does not follow.
+ * `pinned`, `ignored` or `packageJsonKeys` changed in ways the app config does not follow.
  */
 function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
   const statuses = scopeStatuses[scope];
@@ -98,11 +98,12 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
       upstreamGitHubUrl: result.upstreamGitHubUrl,
       upstreamSha: result.upstreamCommit?.hash,
       appGitHubUrl: await readOriginGitHubUrl(config.repoRoot),
-      fileLinkMode: config.settings.fileLinkMode,
+      fileLinkMode: config.fileLinkMode,
       repoRoot: config.repoRoot,
     },
     all: output.all,
-    overrides: config.overrides,
+    ignored: config.ignored,
+    pinned: config.pinned,
   });
   printUpstreamOverrideChanges(result);
   printMaskingPinWarning(result.files);

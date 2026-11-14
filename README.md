@@ -326,14 +326,31 @@ An install in the app puts the published package back, so link again after every
 ## Configuration
 
 Upgrade behavior lives in `cella.config.ts` at your monorepo root (a sensible default ships with new
-apps). To deviate files or folders from the template:
+apps). Every key sits at the top level, and your editor shows what each one does:
+
+```typescript
+import { defineConfig } from '@cellajs/cli/config';
+
+export default defineConfig({
+  upstreamUrl: 'https://github.com/cellajs/cella.git',
+  trunk: 'main', // your main branch: upgrade branches are cut from it and their PRs go into it
+  packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'],
+  ignored: ['README.md', 'shared/config'],
+  pinned: ['backend/src/modules.ts'],
+});
+```
+
+A config in the 0.7 shape, with `settings` and `overrides` blocks, still loads until CLI 1.0, with a warning
+that names the keys to move.
+
+To deviate files or folders from the template:
 
 - **`ignored`**: files completely excluded from upgrades (existing and new)
 - **`pinned`**: full app control, existing, modified, or deleted files are preserved
 
 An `ignored` entry may name a path your app does not have, to keep it from arriving (a file upstream
 has and your app deleted). Every run warns `ignored entry not found` only when neither your app nor
-upstream has the path. Upstream is read at `settings.upstreamBranch` as last fetched; before the
+upstream has the path. Upstream is read at `upstreamBranch` as last fetched; before the
 first fetch, every `ignored` entry missing from your app warns.
 
 Every run also warns about a `pinned` entry that does nothing: one inside an `ignored` path (app
@@ -342,12 +359,12 @@ identical to upstream, which only drops upstream's next change to it.
 
 ## Upstream tracking
 
-The CLI tracks upstream cella one of two ways, set via `settings.upstreamTrack`:
+The CLI tracks upstream cella one of two ways, set via `upstreamTrack`:
 
 | Mode | Behavior | For |
 |------|----------|-----|
 | `release` (default) | Upgrade to the latest cella release tag. Stable and reviewable: each bump maps to a changelog. | Most apps |
-| `branch` | Follow the bleeding-edge tip of `settings.upstreamBranch`. | cella maintainers, active development |
+| `branch` | Follow the bleeding-edge tip of `upstreamBranch`. | cella maintainers, active development |
 
 For a one-off run that ignores the configured mode, pass `--track`:
 
@@ -357,7 +374,7 @@ pnpm cella upgrade --track branch   # follow the tip once, without editing confi
 
 To upgrade to one specific upstream point, pin it with `--ref` (it wins over `--track`): a commit sha,
 a release tag or an upstream branch name, resolved on the upstream remote (`main` is upstream's
-`main`, not yours). The ref must be on `settings.upstreamBranch` or in an upstream release; a
+`main`, not yours). The ref must be on `upstreamBranch` or in an upstream release; a
 release tag upgrades as that release, anything else is recorded like branch tracking.
 
 ```bash
@@ -600,7 +617,7 @@ after its merge summary:
   (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
   files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
 - **Upstream CLI config changes.** `cella/cella.config.ts` never merges, so entries upstream adds to
-  its own `overrides.pinned` or `overrides.ignored`, and keys it adds to `settings.packageJsonKeys`
+  its own `pinned` or `ignored`, and keys it adds to `packageJsonKeys`
   (the template your config started from), never arrive. The report names each entry upstream added
   that your config lacks (`+`) and each entry upstream dropped that your config still has (`−`). It
   reads upstream's config without running it and never edits yours. `--json` puts the lists on the
@@ -659,7 +676,8 @@ by path.
 
 ## Package.json merge
 
-`packageJsonKeys` controls which package.json sections merge from upstream:
+`packageJsonKeys` controls which package.json sections merge from upstream, and `false` merges no
+package.json at all:
 
 ```typescript
 packageJsonKeys: ['dependencies', 'devDependencies', 'scripts']
