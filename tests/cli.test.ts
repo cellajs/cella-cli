@@ -44,9 +44,16 @@ const baseConfig: CellaCliConfig = {
 
 describe('parseCli', () => {
   const originalArgv = process.argv;
+  const terminal = { stdin: process.stdin.isTTY, stdout: process.stdout.isTTY };
+  const setTerminal = (isTTY: boolean) => {
+    Object.assign(process.stdin, { isTTY });
+    Object.assign(process.stdout, { isTTY });
+  };
 
   afterEach(() => {
     process.argv = originalArgv;
+    Object.assign(process.stdin, { isTTY: terminal.stdin });
+    Object.assign(process.stdout, { isTTY: terminal.stdout });
     selectMock.mockReset();
     readFileSyncMock.mockClear();
     vi.restoreAllMocks();
@@ -54,12 +61,27 @@ describe('parseCli', () => {
 
   it('prompts for a service when no arguments are provided', async () => {
     process.argv = ['node', 'cella'];
+    setTerminal(true);
     selectMock.mockResolvedValue('analyze');
 
     const config = await parseUpstream(baseConfig, '/tmp/fork');
 
     expect(selectMock).toHaveBeenCalledOnce();
     expect(config.service).toBe('analyze');
+  });
+
+  it('prints the help without a terminal, where no one can answer the menu', async () => {
+    process.argv = ['node', 'cella'];
+    setTerminal(false);
+    selectMock.mockResolvedValue('analyze');
+    const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    vi.spyOn(process, 'exit').mockImplementation((code) => {
+      throw new Error(`exit ${code}`);
+    });
+
+    await expect(parseCli(baseConfig, '/tmp/fork')).rejects.toThrow('exit 0');
+    expect(selectMock).not.toHaveBeenCalled();
+    expect(write.mock.calls.join('')).toContain('Usage: cella');
   });
 
   it('parses a subcommand with additional options', async () => {

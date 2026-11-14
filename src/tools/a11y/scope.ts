@@ -1,7 +1,6 @@
 import type { Page } from 'playwright';
 import { z } from 'zod';
 import { importFromApp } from '../../utils/app-facts';
-import { setEnv } from '../../utils/env';
 import { applyDelta, loadAdapter, type Placeholders, type Prepare } from '../adapters';
 import { type A11yState, appSchema, baseSchema } from './define';
 
@@ -15,8 +14,6 @@ export interface Scope {
 }
 
 export async function loadScope(forkPath: string): Promise<Scope> {
-  // The adapters read the app config, which takes the development ports and URLs in development mode only
-  setEnv('NODE_ENV', 'development');
   const { base, app } = await loadAdapter(forkPath, 'a11y', baseSchema, appSchema);
   return {
     prepare: [base.prepare, app?.prepare].filter((step) => step !== undefined),
@@ -33,8 +30,8 @@ const appConfigSchema = z.object({
   supportEmail: z.string(),
   frontendUrl: z.string(),
   company: z.object({ name: z.string() }),
-  languages: z.array(z.string()).min(1),
-  defaultLanguage: z.string(),
+  languageCodes: z.array(z.string()).min(1),
+  defaultLanguageCode: z.string(),
   enabledAuthStrategies: z.array(z.string()),
 });
 
@@ -43,8 +40,7 @@ export type AppConfig = z.infer<typeof appConfigSchema>;
 
 /** The app's config in `mode`: the report describes the production app, the audit runs against development builds. */
 export async function loadAppConfig(forkPath: string, mode: 'development' | 'production'): Promise<AppConfig> {
-  setEnv('NODE_ENV', mode);
-  const parsed = appConfigSchema.safeParse((await importFromApp(forkPath, 'shared/index.ts')).appConfig);
+  const parsed = appConfigSchema.safeParse((await importFromApp(forkPath, 'shared/index.ts', mode)).appConfig);
   if (!parsed.success)
     throw new Error(`shared/index.ts exports no appConfig the audit can read: ${parsed.error.message}`);
   return parsed.data;

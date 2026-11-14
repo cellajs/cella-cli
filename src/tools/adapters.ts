@@ -3,6 +3,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { importFromWorkspace } from '../utils/app-facts';
+import { setEnv } from '../utils/env';
 import type { Session } from './drive';
 
 /** What `prepare` and a placeholder resolver get: the signed-in tool user, to call the API as. */
@@ -46,10 +47,12 @@ interface TsxApi {
 }
 
 /**
- * Imports an adapter file under the app's own tsx. An adapter imports the app's SDK, whose generated files import each
- * other without an extension, and Node's own type stripping resolves no such import.
+ * Imports an adapter file under the app's own tsx and returns its default export. An adapter imports the app's SDK,
+ * whose generated files import each other without an extension, and Node's own type stripping resolves no such import.
  */
-async function importAdapter(forkPath: string, file: string): Promise<unknown> {
+export async function importAdapter(forkPath: string, file: string): Promise<unknown> {
+  // An adapter reads the app config, which takes the development ports and URLs in development mode only
+  setEnv('NODE_ENV', 'development');
   const { tsImport } = await importFromWorkspace<TsxApi>(forkPath, '.', 'tsx/esm/api');
   const module = await tsImport(pathToFileURL(join(forkPath, file)).href, import.meta.url);
   return module.default;

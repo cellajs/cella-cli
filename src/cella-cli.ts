@@ -64,10 +64,13 @@ const services: Record<SyncService, (config: RuntimeConfig) => Promise<unknown>>
   adopt: runAdopt,
 };
 
+/** A help or version flag before `--`: the words after it belong to the command a tool runs. */
 function isHelpOrVersionRequest(): boolean {
+  const args = process.argv.slice(2);
+  const end = args.indexOf('--');
+  const own = end === -1 ? args : args.slice(0, end);
   return (
-    process.argv.slice(2).some((arg) => arg === '--help' || arg === '-h' || arg === '--version' || arg === '-v') ||
-    process.argv[2] === 'help'
+    own.some((arg) => arg === '--help' || arg === '-h' || arg === '--version' || arg === '-v') || own[0] === 'help'
   );
 }
 
@@ -105,10 +108,8 @@ async function main(): Promise<void> {
       return;
     }
 
-    // Services that operate on other fork paths skip the local-repo preflight.
-    if (!['audit', 'adopt'].includes(config.service)) {
-      preflight(forkPath);
-    }
+    // Audit needs no repository: outside one, `git ls-files` finds no Dockerfile and only the image pins go unread
+    if (config.service !== 'audit') preflight(forkPath);
 
     await services[config.service](config);
 

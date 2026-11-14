@@ -4,7 +4,6 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import pc from '../../utils/colors';
 import { printStep, warningMark } from '../../utils/display';
-import { setEnv } from '../../utils/env';
 import { onShutdown } from '../../utils/signals';
 import { applyDelta, fillPath, loadAdapter, type Placeholders, type Prepare, signedIn } from '../adapters';
 import { type Browser, loadPlaywright, mintSession, newContext, openPage, type Page, settle, signOut } from '../drive';
@@ -40,8 +39,6 @@ const JPEG_QUALITY = 92;
 const PUBLIC_DIR = 'frontend/public/';
 
 export async function loadShotList(forkPath: string): Promise<ShotList> {
-  // The adapters read the app config, which takes the development ports and URLs in development mode only
-  setEnv('NODE_ENV', 'development');
   const { base, app } = await loadAdapter(forkPath, 'screenshots', baseSchema, appSchema);
   const shots = app ? applyDelta(base.shots, app, 'cella/screenshots.app.ts') : base.shots;
   const devices = { ...base.devices, ...app?.devices };
@@ -155,7 +152,8 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
     for (const [name, resolve] of Object.entries(list.placeholders)) values[name] = await resolve(signedIn(user));
 
     const { chromium } = await loadPlaywright(forkPath);
-    browser = await chromium.launch();
+    // The cleanup registered above closes it on a signal, before the testbed stops
+    browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
 
     // One context per device and mode: the UI store lives in the context, so it is written once and every shot in the
     // group inherits it. A pair is the same recipe run twice, which is what keeps the light and dark shot in register.

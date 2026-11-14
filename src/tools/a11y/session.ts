@@ -1,6 +1,7 @@
 import process from 'node:process';
 import type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playwright';
 import { getEnv } from '../../utils/env';
+import { onShutdown } from '../../utils/signals';
 import { fillPath, signedIn } from '../adapters';
 import { loadPlaywright, mintSession, newContext, openPage, type Session, settle, signOut } from '../drive';
 import { type A11yState, auditContrast } from './define';
@@ -39,13 +40,16 @@ export async function startAudit(
   { email, env }: { email: string; env?: NodeJS.ProcessEnv },
 ): Promise<AuditSession> {
   const user = mintSession(email, { forkPath, env, hours: 4 });
+  let browser: Browser | undefined;
+  // Closes the browser on a signal until the caller registers endAudit
+  const forget = onShutdown(() => browser?.close());
   try {
     for (const prepare of scope.prepare) await prepare(signedIn(user));
     const values: AuditSession['values'] = {};
     for (const [name, resolve] of Object.entries(scope.placeholders)) values[name] = await resolve(signedIn(user));
 
     const { chromium } = await loadPlaywright(forkPath);
-    const browser = await chromium.launch();
+    browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
     // Route guards read the user store, which a real sign-in fills before any deep link is opened
     const context = await newContext(browser, { session: user });
     const page = await context.newPage();
@@ -58,6 +62,8 @@ export async function startAudit(
   } catch (error) {
     await signOut(user);
     throw error;
+  } finally {
+    forget();
   }
 }
 

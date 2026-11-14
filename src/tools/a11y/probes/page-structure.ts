@@ -34,7 +34,10 @@ export const pageStructure: Check = async (page, state, { app }) => {
       what: 'A main landmark or skip link to bypass repeated navigation',
       problems: bypass ? [] : ['no main landmark and no skip link'],
     },
-    { ...language, problems: lang === app.defaultLanguage ? [] : [`lang="${lang}" on an ${app.defaultLanguage} page`] },
+    {
+      ...language,
+      problems: lang === app.defaultLanguageCode ? [] : [`lang="${lang}" on an ${app.defaultLanguageCode} page`],
+    },
   ];
 };
 
@@ -45,11 +48,11 @@ export const pageStructure: Check = async (page, state, { app }) => {
 export const languageSwitch: Check = async (page, state, { app, forkPath }) => {
   if (state.open) return [];
   const names: Record<string, string> = JSON.parse(
-    readFileSync(join(forkPath, localesDir(forkPath), app.defaultLanguage, 'common.json'), 'utf8'),
+    readFileSync(join(forkPath, localesDir(forkPath), app.defaultLanguageCode, 'common.json'), 'utf8'),
   );
   const findings: Awaited<ReturnType<Check>> = [];
 
-  for (const other of app.languages.filter((lng) => lng !== app.defaultLanguage)) {
+  for (const other of app.languageCodes.filter((lng) => lng !== app.defaultLanguageCode)) {
     const button = page.getByRole('button', { name: /change language/i }).first();
     if (!(await button.count())) break;
     const label = names[other] ?? other;
