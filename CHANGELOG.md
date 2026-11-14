@@ -1,5 +1,50 @@
 # Changelog
 
+## [0.8.0](https://github.com/cellajs/cella-cli/compare/cli-0.7.4...cli-0.8.0) (2026-11-14)
+
+
+### ⚠ BREAKING CHANGES
+
+* `cella align --show|--run|--mark <id>` are `cella align show|run|mark <id>` and `align --extract` is gone; `cella audit` reports and writes nothing (it was `audit --list`), and `cella audit fix` asks and writes.
+* `upgrade`, `audit` and `adopt` exit 1 where they printed a failure and exited 0 (conflicts open, failed checks, a refused push, a registry that gave no answer), `pentest` exits 1 when a scanner did not run, and a usage or runtime error exits 2.
+* in `cella/cella.config.ts` the keys of `settings` and `overrides` move to the top level, `releaseBase` is `trunk` and `mergePackageJson: false` is `packageJsonKeys: false`; the 0.7 shape loads with a warning until 1.0.
+* in an app's adapter files `SignedIn` is `Session` and its `cookie` string is `header`, a11y's `scope` is `states`, `cella/pentest.ts` uses `definePentestBase`, and a pentest delta joins the base's lists and drops entries with `remove`; `@cellajs/cli/drive` exports `loadPlaywright`, `mintSession` and `signOut`.
+* `shared/config/vocabulary-allowlist.ts` is `shared/config/style-exceptions.ts` exporting `styleExceptions: StyleExceptions` (the old file loads with a warning until 1.0); `@cellajs/cli/style` no longer exports `openRepository`, and `repoFiles` and `loadTailwindNode` take the repository root; findings print on stdout.
+* bench's `maxErrorRate` is `maxErrorShare`, `beforeAll` takes no `skipSeed`, `vu.ws`, `http.put` and `http.request` are gone, and baselines move to `cella-bench@2` because SSE connects left `http.response_time`.
+* `@cellajs/cli` has no root export or `main`; `engines.node` is `>=26` and `os` is darwin and linux.
+* the `sync` alias, `CELLA_FORK_PATH`, `refs/cella/last-sync` and the `cella/sync` branch prefix are gone: an app that last upgraded under a CLI before 0.6 upgrades once under 0.7 first.
+
+### 🎉 New features
+
+* `align` and `audit` take jobs: `align show|run|mark <id>`, `audit` reports and `audit fix` writes ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* bench names its limits as shares, reports `rejected`, and times SSE connects apart ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* every command follows one exit-code rule: 0 done, 1 a check failed or a person must act, 2 an error ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* one adapter vocabulary for a11y, pentest and screenshots: `define*`, one `Session`, `states` ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* one rule contract for the style gate, with an app's exceptions keyed by rule id ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* the config is flat: `ignored`, `pinned` and `trunk` beside the upstream keys ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* the package names its public surface: every subpath lists its exports, and the root export is gone ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+
+
+### 🐞 Bug fixes
+
+* **a11y:** the audit reads the current template's language keys, and the report describes the production app ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **align:** `--json` always prints its payload, and a failed read of the alignments in range stops the upgrade ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **audit:** `semver` reads advisory ranges, each feed is asked once, and a failed install removes a lockfile it wrote ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **i18n:** `status` survives a locale folder name `Intl` refuses, and `rename` loads TypeScript before it writes ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **pentest:** `--json` keeps stdout for the payload on a first run, and the adapter loads through the app's tsx ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **style:** the gate names what it skipped without origin/main, and the `, so` rule reads wrapped sentences ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **upgrade:** a pinned file that upstream deleted is kept, a path with glob characters is a literal, and a case-only move of a protected file keeps the file ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **upgrade:** a rerun never commits a merge the engine did not finish, and a failed git read stops the run ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **upgrade:** git's merge decides every file that is not protected: an app-only file, an upstream move onto app content and an edited move no longer lose data ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* **upgrade:** ignored images an app does not keep leave the kept-fork-version list ([#92](https://github.com/cellajs/cella-cli/issues/92)) ([5be4dc8](https://github.com/cellajs/cella-cli/commit/5be4dc8b2cde342e98f96f892e720c13255b64f6))
+* words after `--` belong to the command, a bare `cella` without a terminal prints the help, and `FORCE_COLOR=0` turns color off ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+
+
+### 🔧 Small improvements
+
+* drop the compatibility with CLI versions before 0.6 ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+* one folder per command, one command model, and the upgrade and analyze commands read as their stages ([9884f05](https://github.com/cellajs/cella-cli/commit/9884f050ec36ce89e0f9bcb2a359f0da6f9b26af))
+
 ## [0.7.4](https://github.com/cellajs/cella-cli/compare/cli-0.7.3...cli-0.7.4) (2026-11-13)
 
 
