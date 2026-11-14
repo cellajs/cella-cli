@@ -27,9 +27,9 @@ export const pendingFile = 'cella/cella.alignments.json';
 export const alignmentId = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** What catches app code the change leaves behind: the typecheck, the tests the app inherits, or nothing. */
-type CaughtBy = 'compiler' | 'tests' | 'nothing';
+export const caughtBy = ['compiler', 'tests', 'nothing'] as const;
 
-export const caughtBy: CaughtBy[] = ['compiler', 'tests', 'nothing'];
+type CaughtBy = (typeof caughtBy)[number];
 
 /** One alignment, as read at an upstream ref. */
 export interface Alignment {

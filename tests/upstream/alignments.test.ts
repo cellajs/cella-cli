@@ -13,7 +13,7 @@ import {
   isUpstreamOnly,
   parseAlignment,
 } from '../../src/upstream/alignments';
-import { buildUpgradePrBody } from '../../src/upstream/upgrade';
+import { buildUpgradePrBody } from '../../src/upstream/pull-requests';
 
 const readme = [
   '---',

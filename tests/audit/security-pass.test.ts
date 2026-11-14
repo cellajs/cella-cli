@@ -7,8 +7,8 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import semver from 'semver';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { satisfiesComparators } from '../../src/utils/versions';
 import { readAuditSettings } from '../../src/utils/workspace-yaml';
 
 interface SimulatedPackage {
@@ -49,8 +49,8 @@ const lockedIn = (dir: string): Record<string, string> => {
   return Object.fromEntries([...text.matchAll(/^ {2}(.+)@(\d[^:]*):$/gm)].map(([, name, version]) => [name, version]));
 };
 
-vi.mock('../../src/audit/pnpm', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../src/audit/pnpm')>()),
+vi.mock('../../src/utils/pnpm', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/utils/pnpm')>()),
   runPnpmJson: async (_args: string[], cwd: string) => [{ path: cwd }],
   fetchPublishTimes: async (name: string) =>
     Object.fromEntries((world.packages[name]?.published ?? []).map((version) => [version, '2024-01-01T00:00:00Z'])),
@@ -61,7 +61,7 @@ vi.mock('../../src/audit/pnpm', async (importOriginal) => ({
     const resolved = Object.fromEntries(
       Object.entries(world.packages).map(([name, pkg]) => {
         const override = Object.entries(overrides).find(([key]) => key.startsWith(`${name}@`))?.[1];
-        const preferred = locked[name] && satisfiesComparators(locked[name], pkg.admits) ? locked[name] : pkg.resolves;
+        const preferred = locked[name] && semver.satisfies(locked[name], pkg.admits) ? locked[name] : pkg.resolves;
         return [name, override ? override.replace(/^\D+/, '') : preferred];
       }),
     );
@@ -73,8 +73,7 @@ vi.mock('../../src/audit/pnpm', async (importOriginal) => ({
     const { ignoredGhsas } = readAuditSettings(readFileSync(join(cwd, 'pnpm-workspace.yaml'), 'utf8'));
     const advisories = Object.entries(lockedIn(cwd)).flatMap(([name, version]) => {
       const advisory = world.packages[name]?.advisory;
-      if (!advisory || ignoredGhsas.includes(advisory.ghsa) || !satisfiesComparators(version, advisory.range))
-        return [];
+      if (!advisory || ignoredGhsas.includes(advisory.ghsa) || !semver.satisfies(version, advisory.range)) return [];
       return [
         {
           module_name: name,

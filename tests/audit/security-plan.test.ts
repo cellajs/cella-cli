@@ -10,7 +10,7 @@ import {
   planSecurity,
   standingOverrides,
 } from '../../src/audit/security-plan';
-import { isBreakingJump, satisfiesComparators } from '../../src/utils/versions';
+import { isBreakingJump } from '../../src/utils/versions';
 
 const hour = 3_600_000;
 const now = Date.parse('2026-10-13T12:00:00Z');
@@ -39,16 +39,7 @@ const plan = (input: Partial<PlanInput>) =>
     ...input,
   });
 
-describe('version ranges', () => {
-  it('matches the comparator ranges advisories use', () => {
-    expect(satisfiesComparators('4.2.0', '>=4.0.0 <4.3.2')).toBe(true);
-    expect(satisfiesComparators('4.3.2', '>=4.0.0 <4.3.2')).toBe(false);
-    expect(satisfiesComparators('3.15.2', '>=4.0.0 <4.3.2')).toBe(false);
-    expect(satisfiesComparators('3.0.3', '<=3.0.3')).toBe(true);
-    expect(satisfiesComparators('2.0.5', '<1.2.0 || >=2.0.0 <2.1.0')).toBe(true);
-    expect(satisfiesComparators('1.5.0', '<1.2.0 || >=2.0.0 <2.1.0')).toBe(false);
-  });
-
+describe('isBreakingJump', () => {
   it('calls a jump breaking when a caret range would not allow it', () => {
     expect(isBreakingJump('4.16.3', '7.0.2')).toBe(true);
     expect(isBreakingJump('4.2.0', '4.3.2')).toBe(false);

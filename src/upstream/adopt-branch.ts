@@ -13,9 +13,10 @@
 
 import { rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
-import type { CellaCliConfig, FileStatus } from '../config/types';
+import type { CellaCliConfig } from '../config/types';
 import { git } from '../utils/git';
 import { analyzeRefs, enrichChangeInfo } from './classify';
+import type { AnalyzedFile } from './model';
 import { isIgnored, isPinned, isUnderAnyFolder } from './protection';
 
 /** A single contributable file with classification and metadata. */
@@ -24,26 +25,35 @@ export interface ContribFile {
   path: string;
   /** How adopting this file changes cella */
   kind: 'modified' | 'created' | 'deleted';
-  /** Analyzer status from cella's POV (behind = fork ahead, diverged = both changed) */
-  status: FileStatus;
+  /** `behind`: only the fork changed it since the merge-base; `diverged`: cella changed it too. */
+  status: 'behind' | 'diverged';
   /** Relative date of the fork's change (e.g. '3 days ago') */
   changedAt?: string;
   /** Unix epoch seconds of the fork's change, for sorting */
   changedTs?: number;
 }
 
-async function listFilesAtRef(repoPath: string, ref: string): Promise<Set<string>> {
-  const raw = await git(['ls-tree', '-r', '--name-only', ref], repoPath);
-  return new Set(raw.split('\n').filter(Boolean));
+/**
+ * One analyzed file in adopt's terms, or null when the fork offers nothing in it. The analyzer
+ * names its sides for an app pulling from upstream: its local side is cella here, and its incoming
+ * side the fork. A file the fork created is offered only where its directory exists in cella, so
+ * fork-specific modules do not flood the list (the fork's `ignored` folders keep out the rest).
+ */
+function toContribution(file: AnalyzedFile, cellaDirs: Set<string>): ContribFile | null {
+  const { path, status, existsInApp: inCella, existsInUpstream: inFork } = file;
+  if ((status !== 'behind' && status !== 'diverged') || file.isIgnored || file.isPinned) return null;
+  if (!inCella && !cellaDirs.has(dirname(path))) return null;
+  const kind = !inFork ? 'deleted' : inCella ? 'modified' : 'created';
+  // The fork's change date: a `behind` file carries it as its only date, a `diverged` one beside cella's
+  const changedAt = status === 'diverged' ? file.upstreamChangedAt : file.changedAt;
+  const changedTs = status === 'diverged' ? file.upstreamChangedTs : file.changedTs;
+  return { path, kind, status, changedAt, changedTs };
 }
 
 /**
- * Detect the files a fork contributes relative to cella's base branch.
- *
- * Uses a merge-base 3-way analysis (cella = local, fork = incoming) so the
- * result distinguishes fork-ahead changes from cella's own drift. Only files
- * where the fork is ahead (status `behind`) or both sides changed (`diverged`)
- * are contributable. `forkTerritory` (the fork's own `ignored` list) keeps fork-specific modules out.
+ * Detect the files a fork contributes relative to cella's base branch, from a merge-base 3-way
+ * analysis that tells the fork's changes from cella's own drift. `forkTerritory` (the fork's own
+ * `ignored` list) keeps fork-specific modules out.
  */
 export async function detectContributableFiles(
   repoPath: string,
@@ -59,52 +69,15 @@ export async function detectContributableFiles(
     isIgnored: (path: string) => isIgnored(path, config) || isUnderAnyFolder(path, forkTerritory),
     isPinned: (path: string) => isPinned(path, config),
   };
-
-  // local = cella (baseRef), incoming = fork (forkRef)
   const analyzed = await analyzeRefs(repoPath, baseRef, forkRef, mergeBase, predicates);
   await enrichChangeInfo(repoPath, analyzed, mergeBase, baseRef, forkRef);
 
-  // Base directory set for the sibling heuristic on created files.
-  // Seed with '.' because the repo root always exists in cella, so new fork
-  // files at the root (e.g. a shared config) are offered, not silently skipped.
-  const baseFiles = await listFilesAtRef(repoPath, baseRef);
-  const baseDirs = new Set<string>(['.']);
-  for (const f of baseFiles) {
-    let dir = dirname(f);
-    while (dir !== '.') {
-      baseDirs.add(dir);
-      dir = dirname(dir);
-    }
+  // Seeded with '.': the repo root always exists in cella, so new fork files at the root are offered.
+  const cellaDirs = new Set<string>(['.']);
+  for (const path of (await git(['ls-tree', '-r', '--name-only', baseRef], repoPath)).split('\n').filter(Boolean)) {
+    for (let dir = dirname(path); dir !== '.'; dir = dirname(dir)) cellaDirs.add(dir);
   }
-
-  const files: ContribFile[] = [];
-  for (const file of analyzed) {
-    // Only files where the fork is ahead of cella are contributable
-    if (file.status !== 'behind' && file.status !== 'diverged') continue;
-    if (file.isIgnored || file.isPinned) continue;
-
-    const inCella = file.existsInApp; // local side
-    const inFork = file.existsInUpstream; // incoming side
-
-    let kind: ContribFile['kind'];
-    if (inCella && !inFork) {
-      kind = 'deleted';
-    } else if (!inCella && inFork) {
-      // New fork file: only offer it when its directory already exists in cella,
-      // so fork-specific modules don't flood the list (territory handles the rest)
-      if (!baseDirs.has(dirname(file.path))) continue;
-      kind = 'created';
-    } else {
-      kind = 'modified';
-    }
-
-    // Fork-side change date: 'behind' stores it in changedAt, 'diverged' in upstreamChangedAt
-    const changedAt = file.status === 'diverged' ? file.upstreamChangedAt : file.changedAt;
-    const changedTs = file.status === 'diverged' ? file.upstreamChangedTs : file.changedTs;
-    files.push({ path: file.path, kind, status: file.status, changedAt, changedTs });
-  }
-
-  return files;
+  return analyzed.flatMap((file) => toContribution(file, cellaDirs) ?? []);
 }
 
 /**

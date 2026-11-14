@@ -1,5 +1,7 @@
 /**
- * Version parsing shared by package.json merging and the CLI version check.
+ * Version parsing for package.json merging, the CLI version check and the audit's breaking jumps:
+ * plain versions and simple ranges, partial ones (`2.8`) included. Range matching and ordering of
+ * published versions go through `semver`.
  */
 
 interface ComparableVersion {
@@ -32,42 +34,6 @@ export function compareVersions(left: ComparableVersion, right: ComparableVersio
   if (left.major !== right.major) return left.major - right.major;
   if (left.minor !== right.minor) return left.minor - right.minor;
   return left.patch - right.patch;
-}
-
-/** Whether a version carries a prerelease tag (`2.0.0-beta.1`). */
-export function isPrerelease(version: string): boolean {
-  return /^v?\d+(?:\.\d+){0,2}-/.test(version.trim());
-}
-
-/**
- * Order of two version strings; a prerelease sorts below its release. Unparsable input sorts
- * lowest, so it never wins a "highest version" pick.
- */
-export function compareVersionStrings(left: string, right: string): number {
-  const a = parseComparableVersion(left);
-  const b = parseComparableVersion(right);
-  if (!a || !b) return Number(!!a) - Number(!!b);
-  return compareVersions(a, b) || Number(isPrerelease(right)) - Number(isPrerelease(left));
-}
-
-/**
- * Whether `version` falls inside a comparator range as security advisories write them:
- * space-separated comparators (`>=4.0.0 <4.3.2`, `<=3.0.3`), alternatives joined by `||`.
- * A range with no readable comparator matches nothing.
- */
-export function satisfiesComparators(version: string, range: string): boolean {
-  return range.split('||').some((alternative) => {
-    const comparators = [...alternative.matchAll(/(>=|<=|>|<|=)?\s*v?(\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?)/g)];
-    if (comparators.length === 0) return false;
-    return comparators.every(([, operator = '=', bound]) => {
-      const order = compareVersionStrings(version, bound);
-      if (operator === '>=') return order >= 0;
-      if (operator === '<=') return order <= 0;
-      if (operator === '>') return order > 0;
-      if (operator === '<') return order < 0;
-      return order === 0;
-    });
-  });
 }
 
 /**

@@ -11,29 +11,17 @@
  * code still uses the README's `grep` terms (see `describeAlignment`).
  *
  * `align run` runs an alignment's codemod from an extracted copy and puts back the files it changed
- * that were identical to upstream (see `runAlignment`).
+ * that were identical to upstream (see align-run.ts).
  */
 
-import { execFileSync, spawnSync } from 'node:child_process';
-import { mkdir, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
 import process from 'node:process';
 import { defaultUpstreamRemote } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { checkMark, hyperlink, type NextStep, plural, writeStdout } from '../utils/display';
-import {
-  batchRestoreWorktreeFromRef,
-  ensureRemote,
-  fetchRemote,
-  git,
-  listIdenticalToRef,
-  maxBuffer,
-  readStoredUpgradePoint,
-  readUpgradePointAtRef,
-  revParse,
-} from '../utils/git';
+import { ensureRemote, fetchRemote, git, gitHubRepo, revParse } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
+import { runAlignment } from './align-run';
 import {
   type Alignment,
   alignmentsDir,
@@ -42,21 +30,15 @@ import {
   grepAlignmentTerms,
   isUpstreamOnly,
   listAlignmentIds,
+  parseAlignment,
   readAlignment,
   readAlignmentSource,
   readPending,
   writePending,
 } from './alignments';
 import { isManagedFile } from './managed-files';
-import { readUpgradePoint } from './manifest';
-import { getGitHubBaseUrl } from './merge-engine';
 import { isUnderAnyFolder } from './protection';
-
-/** Where `align run` writes an alignment folder: inside the app, so a codemod resolves the app's packages. */
-const extractDir = 'node_modules/.cache/cella/alignments';
-
-/** How many restored paths `align run` lists before it cuts the list short. */
-const restoredListMax = 20;
+import { readStoredUpgradePoint, readUpgradePoint } from './upgrade-point';
 
 /** How many paths or grep hits `align show` lists per block before it cuts the list short. */
 const showListMax = 30;
@@ -94,23 +76,21 @@ interface AppView {
   changed: Set<string>;
 }
 
-/** Make sure an upstream commit is in this clone, fetching upstream once when it is not. */
-async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise<void> {
+/**
+ * The upstream commit the app last upgraded to, with upstream fetched once when this clone lacks
+ * it; null before any upgrade. The manifest is the record, since it travels with the repository;
+ * this clone's own ref stands in for a missing one.
+ */
+async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | null> {
   const { repoRoot } = config;
-  const present = async () => !!(await revParse(repoRoot, `${sha}^{commit}`));
-  if (await present()) return;
+  const ref = (await readUpgradePoint(repoRoot)) ?? (await readStoredUpgradePoint(repoRoot));
+  if (!ref) return null;
+  const present = async () => !!(await revParse(repoRoot, `${ref}^{commit}`));
+  if (await present()) return ref;
   await ensureRemote(repoRoot, defaultUpstreamRemote, config.upstreamUrl);
   await fetchRemote(repoRoot, defaultUpstreamRemote);
   if (!(await present()))
-    throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
-}
-
-/** The upstream commit the app last upgraded to, fetched if this clone lacks it; null before any upgrade. */
-async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | null> {
-  const { repoRoot } = config;
-  const ref = (await readStoredUpgradePoint(repoRoot)) ?? (await readUpgradePointAtRef(repoRoot, 'HEAD'));
-  if (!ref) return null;
-  await ensureUpstreamCommit(config, ref);
+    throw new Error(`upstream commit ${ref.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
   return ref;
 }
 
@@ -134,12 +114,14 @@ interface AlignmentsView {
 /** Alignment rows the `align` step lists before it points to `pnpm cella align`. */
 const stepRowsMax = 5;
 
-/** `manual · not breaking`, `codemod · breaking · caught by compiler`. */
+/** The tags the `align` step and `cella align` show: `codemod · breaking · caught by compiler · generate`. */
 function alignmentTags(alignment: Alignment): string {
   return [
     alignment.codemod ? 'codemod' : 'manual',
     alignment.breaking ? 'breaking' : 'not breaking',
     alignment.caughtBy ? `caught by ${alignment.caughtBy}` : null,
+    alignment.clientCacheBump ? 'cache bump' : null,
+    alignment.generate ? 'generate' : null,
   ]
     .filter(Boolean)
     .join(' · ');
@@ -161,7 +143,7 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
       ? `${plural(arriving.length, 'alignment')} ${arriving.length === 1 ? 'arrives' : 'arrive'} with this upgrade${open.length > 0 ? pc.dim(` · ${open.length} open`) : ''}`
       : `${plural(open.length, 'alignment')} open${arrived.length > 0 ? pc.dim(` · ${arrived.length} arrived with this upgrade`) : ''}`;
 
-  const githubUrl = getGitHubBaseUrl(config.upstreamUrl) ?? undefined;
+  const githubUrl = gitHubRepo(config.upstreamUrl)?.url;
   const ids = [...arriving, ...open];
   const details: string[] = [];
   for (const id of ids.slice(0, stepRowsMax)) {
@@ -181,7 +163,7 @@ async function readAppView(config: RuntimeConfig, ref: string): Promise<AppView>
   const counts = (path: string) => !isManagedFile(path) && !isGeneratedFile(path) && !isUpstreamOnly(path);
   const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--'], config.repoRoot);
   return {
-    githubUrl: getGitHubBaseUrl(config.upstreamUrl) ?? undefined,
+    githubUrl: gitHubRepo(config.upstreamUrl)?.url,
     owns: (path) => counts(path) && isUnderAnyFolder(path, [...pinned, ...ignored]),
     changed: new Set(out.split('\0').filter((path) => path && counts(path))),
   };
@@ -221,22 +203,13 @@ function grepSummary(alignment: DescribedAlignment): string | null {
   const hits = alignment.grepHits.length;
   if (hits === 0) return 'grep: no app hits';
   const files = new Set(alignment.grepHits.map((hit) => hit.file)).size;
-  return `grep: ${hits} hit${hits === 1 ? '' : 's'} in ${files} app file${files === 1 ? '' : 's'}`;
+  return `grep: ${plural(hits, 'hit')} in ${plural(files, 'app file')}`;
 }
 
 /** Print one alignment in the human list. */
 function printAlignment(index: number, alignment: DescribedAlignment): void {
-  const tags = [
-    alignment.codemod ? 'codemod' : 'manual',
-    alignment.breaking ? 'breaking' : null,
-    alignment.clientCacheBump ? 'cache-bump' : null,
-    alignment.caughtBy ? `caught by: ${alignment.caughtBy}` : null,
-    alignment.generate ? 'generate' : null,
-  ]
-    .filter(Boolean)
-    .join(', ');
   const grep = grepSummary(alignment);
-  console.info(`${index}. ${alignment.title}  ${pc.dim(`[${tags}]`)}`);
+  console.info(`${index}. ${alignment.title}  ${pc.dim(alignmentTags(alignment))}`);
   console.info(pc.dim(`   id:      ${alignment.id}`));
   if (alignment.summary) console.info(`   ${alignment.summary}`);
   if (alignment.pr !== null) {
@@ -301,90 +274,6 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
   );
 }
 
-/**
- * Write an alignment's folder under {@link extractDir}, byte for byte. Returns the alignment and the
- * folder, relative to the app.
- */
-async function writeAlignmentFolder(
-  config: RuntimeConfig,
-  ref: string,
-  id: string,
-): Promise<{ alignment: Alignment; target: string }> {
-  const { repoRoot } = config;
-  const alignment = await readAlignment(repoRoot, ref, id);
-  if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)}`);
-
-  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot))
-    .split('\n')
-    .filter(Boolean);
-  const target = join(extractDir, id);
-  for (const file of files) {
-    // Byte for byte: the git helper trims its output.
-    const content = execFileSync('git', ['show', `${ref}:${alignmentsDir}/${id}/${file}`], {
-      cwd: repoRoot,
-      maxBuffer,
-    });
-    const path = join(repoRoot, target, file);
-    await mkdir(dirname(path), { recursive: true });
-    await writeFile(path, content);
-  }
-  return { alignment, target };
-}
-
-/**
- * `align run <id>`: run the alignment's codemod with `tsx` from the app root, then give each file that
- * was identical to the manifest's upstream commit before the run, and changed by it, its upstream
- * content back. Returns 1 when the codemod failed.
- */
-async function runAlignment(config: RuntimeConfig, ref: string, id: string, codemodArgs: string[]): Promise<number> {
-  const { repoRoot } = config;
-  const { alignment, target } = await writeAlignmentFolder(config, ref, id);
-  if (!alignment.codemod) {
-    throw new Error(
-      `alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`,
-    );
-  }
-  const script = join(target, alignment.codemod);
-  const args = codemodArgs.length > 0 ? codemodArgs : ['inventory', ...alignment.roots];
-
-  const upstreamCommit = (await readUpgradePoint(repoRoot)) ?? ref;
-  await ensureUpstreamCommit(config, upstreamCommit);
-  const identical = await listIdenticalToRef(repoRoot, upstreamCommit);
-
-  console.info(pc.dim(`running pnpm exec tsx ${script} ${args.join(' ')}`));
-  console.info();
-  const child = spawnSync('pnpm', ['exec', 'tsx', script, ...args], { cwd: repoRoot, stdio: 'inherit' });
-  if (child.error) throw new Error(`could not run the codemod: ${child.error.message}`);
-
-  // Also after a failed run: a codemod that stopped halfway may have rewritten files already.
-  const stillIdentical = await listIdenticalToRef(repoRoot, upstreamCommit);
-  const restored = [...identical].filter((path) => !stillIdentical.has(path)).sort();
-  await batchRestoreWorktreeFromRef(repoRoot, upstreamCommit, restored);
-
-  const upstreamShort = upstreamCommit.slice(0, 9);
-  console.info();
-  if (restored.length > 0) {
-    console.info(`${checkMark} restored ${restored.length} file(s) to upstream ${upstreamShort}`);
-    console.info(pc.dim('  the codemod changed them, and they were identical to upstream before the run:'));
-    for (const path of restored.slice(0, restoredListMax)) console.info(pc.dim(`    ${path}`));
-    if (restored.length > restoredListMax) {
-      console.info(pc.dim(`    ... + ${restored.length - restoredListMax} more`));
-    }
-  } else {
-    console.info(pc.dim(`no file identical to upstream ${upstreamShort} was changed by the codemod.`));
-  }
-
-  if (child.status !== 0) {
-    console.error(`${pc.red('✗')} the codemod exited with code ${child.status ?? 'unknown'}`);
-    return 1;
-  }
-  if (codemodArgs.length === 0) {
-    const apply = ['rewrite', ...alignment.roots].join(' ');
-    console.info(pc.dim(`report only. to apply: pnpm cella align run ${id} -- ${apply}`));
-  }
-  return 0;
-}
-
 /** `align mark <ids…>`: drop handled alignments from the pending list. */
 async function markAlignments(config: RuntimeConfig, ref: string, pending: string[], ids: string[]): Promise<void> {
   const open = new Set(pending);
@@ -397,53 +286,37 @@ async function markAlignments(config: RuntimeConfig, ref: string, pending: strin
   console.info(pc.dim(formatAlignmentsLine((await listAlignmentIds(config.repoRoot, ref)).length, open.size)));
 }
 
-/** Run the align command; a job that names an alignment exits 1 before any upgrade, since there is none to name. */
-export async function runAlign(config: RuntimeConfig, options: AlignOptions): Promise<number> {
+/** `align`: the open alignments, or with `all` every upstream alignment, each with what git tells about it. */
+async function listAlignments(
+  config: RuntimeConfig,
+  ref: string,
+  pending: string[],
+  options: { all: boolean; json: boolean },
+): Promise<void> {
   const { repoRoot } = config;
-  const ref = await resolveAlignmentsRef(config);
-  if (!ref) {
-    console.info(pc.dim('no upgrade recorded yet: alignments start with the first `pnpm cella upgrade`.'));
-    return options.job === 'list' ? 0 : 1;
-  }
-
-  const pending = await readPending(repoRoot);
-
-  if (options.job === 'run') return runAlignment(config, ref, options.id, options.codemodArgs);
-  if (options.job === 'mark') await markAlignments(config, ref, pending, options.ids);
-  if (options.job === 'show') await showAlignment(config, ref, pending, options.id);
-  if (options.job !== 'list') return 0;
-
-  const ids = options.all ? await listAlignmentIds(repoRoot, ref) : pending;
-  const read = await Promise.all(ids.map((id) => readAlignment(repoRoot, ref, id)));
-  const alignments: Alignment[] = read.map(
-    (alignment, i) =>
-      alignment ?? {
-        id: ids[i],
-        title: `${ids[i]} (no longer upstream)`,
-        summary: '',
-        breaking: false,
-        clientCacheBump: false,
-        caughtBy: null,
-        generate: false,
-        grep: [],
-        roots: [],
-        codemod: null,
-      },
+  const every = await listAlignmentIds(repoRoot, ref);
+  const alignments = await Promise.all(
+    (options.all ? every : pending).map(
+      async (id) =>
+        (await readAlignment(repoRoot, ref, id)) ?? {
+          ...parseAlignment(id, '', []),
+          title: `${id} (no longer upstream)`,
+        },
+    ),
   );
-  const total = (await listAlignmentIds(repoRoot, ref)).length;
-  const open = new Set(pending);
   const view = await readAppView(config, ref);
   const described = await Promise.all(
-    alignments.map((alignment) => describeAlignment(config, view, ref, alignment, open.has(alignment.id))),
+    alignments.map((alignment) => describeAlignment(config, view, ref, alignment, pending.includes(alignment.id))),
   );
 
   if (options.json) {
-    writeStdout(JSON.stringify({ upstreamCommit: ref, total, open: pending.length, alignments: described }, null, 2));
-    return 0;
+    const payload = { upstreamCommit: ref, total: every.length, open: pending.length, alignments: described };
+    writeStdout(JSON.stringify(payload, null, 2));
+    return;
   }
 
-  console.info(pc.dim(formatAlignmentsLine(total, pending.length)));
-  if (described.length === 0) return 0;
+  console.info(pc.dim(formatAlignmentsLine(every.length, pending.length)));
+  if (described.length === 0) return;
   console.info();
   for (const [i, alignment] of described.entries()) printAlignment(i + 1, alignment);
 
@@ -459,5 +332,25 @@ export async function runAlign(config: RuntimeConfig, options: AlignOptions): Pr
     console.info(pc.dim("work each alignment's README, check with `pnpm check`, then record it:"));
     console.info(pc.dim(`  pnpm cella align mark ${pending.join(' ')}`));
   }
+}
+
+/**
+ * Run the align command. Before any upgrade a list is empty (its `--json` payload too), and a job
+ * that names an alignment exits 1, since there is none to name.
+ */
+export async function runAlign(config: RuntimeConfig, options: AlignOptions): Promise<number> {
+  const ref = await resolveAlignmentsRef(config);
+  if (!ref) {
+    console.info(pc.dim('no upgrade recorded yet: alignments start with the first `pnpm cella upgrade`.'));
+    if (options.job !== 'list') return 1;
+    if (options.json) writeStdout(JSON.stringify({ upstreamCommit: null, total: 0, open: 0, alignments: [] }, null, 2));
+    return 0;
+  }
+
+  const pending = await readPending(config.repoRoot);
+  if (options.job === 'run') return runAlignment(config.repoRoot, ref, options.id, options.codemodArgs);
+  if (options.job === 'mark') await markAlignments(config, ref, pending, options.ids);
+  else if (options.job === 'show') await showAlignment(config, ref, pending, options.id);
+  else await listAlignments(config, ref, pending, options);
   return 0;
 }

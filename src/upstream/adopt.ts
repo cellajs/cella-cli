@@ -1,10 +1,8 @@
 /**
- * Adopt command for the cella CLI.
- *
- * Upstream-side (cella): based on the configured `forks`, lets the user pick a
- * single fork, pulls its `pullBranch` and builds a clean local `contrib/<fork>`
- * branch with only that fork's contributed files. Then shows an interactive TUI
- * to review and adopt individual files into the working tree.
+ * Adopt command for the cella CLI, run in upstream cella: pick one of the configured `forks`, pull
+ * its `pullBranch` onto a clean local `contrib/<fork>` branch that holds only the fork's
+ * contributed files (see adopt-branch.ts), then review them and adopt single files into the
+ * working tree.
  */
 
 import {
@@ -66,10 +64,7 @@ interface ContribPromptConfig {
   cwd: string;
 }
 
-/**
- * Interactive prompt for reviewing contributed files.
- * Returns items selected for acceptance.
- */
+/** The review screen: a list of the fork's files to select, with a browser diff per file; resolves to the selected ones. */
 const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, done) => {
   const { baseRef, branch, cwd, forkName } = config;
 
@@ -79,16 +74,6 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
   const [promptStatus, setPromptStatus] = useState<'idle' | 'done'>('idle');
 
   useKeypress(async (key) => {
-    const last = items.length - 1;
-
-    if (items.length === 0) {
-      if (isEnterKey(key) || key.name === 'q') {
-        setPromptStatus('done');
-        done([]);
-      }
-      return;
-    }
-
     if (key.name === 'q') {
       setPromptStatus('done');
       done([]);
@@ -106,24 +91,10 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       return;
     }
 
-    // Navigation
-    if (key.ctrl && isUpKey(key)) {
-      setActive(0);
-      setStatusMsg('');
-      return;
-    }
-    if (key.ctrl && isDownKey(key)) {
-      setActive(last);
-      setStatusMsg('');
-      return;
-    }
-    if (isUpKey(key)) {
-      setActive(active <= 0 ? 0 : active - 1);
-      setStatusMsg('');
-      return;
-    }
-    if (isDownKey(key)) {
-      setActive(active >= last ? last : active + 1);
+    // ctrl jumps to the first or last item
+    if (isUpKey(key) || isDownKey(key)) {
+      const to = key.ctrl ? (isUpKey(key) ? 0 : items.length - 1) : active + (isUpKey(key) ? -1 : 1);
+      setActive(Math.min(items.length - 1, Math.max(0, to)));
       setStatusMsg('');
       return;
     }
@@ -137,7 +108,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
     if (key.name === 'd') {
       const { path } = items[active];
       try {
-        const patch = gitDiffFile(cwd, `${baseRef}..${branch}`, path);
+        const patch = await gitDiffFile(cwd, `${baseRef}..${branch}`, path);
         if (patch.length === 0) return setStatusMsg(`no changes for ${path}`);
         const page = await writeDiffPage(
           [{ files: [{ path, patch: patch.toString() }] }],
@@ -160,22 +131,9 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
     }
   });
 
-  // Render: done state
-  if (promptStatus === 'done') {
-    const checked = items.filter((i) => i.checked);
-    if (checked.length > 0) {
-      return `${checkMark} ${checked.length} files accepted`;
-    }
-    return `${checkMark} done`;
-  }
-
-  // Render: empty
-  if (items.length === 0) {
-    return `${checkMark} no contributions: press enter`;
-  }
-
-  // Render: paginated list
   const checkedCount = items.filter((i) => i.checked).length;
+  if (promptStatus === 'done')
+    return checkedCount > 0 ? `${checkMark} ${checkedCount} files accepted` : `${checkMark} done`;
 
   const page = usePagination({
     items,
@@ -258,36 +216,92 @@ async function selectFork(options: AdoptOptions, validated: ValidatedFork[]): Pr
   return selected;
 }
 
-/** Short sha + relative date of the fork's committed pullBranch HEAD (for the comparison banner). */
-async function forkRefMeta(cellaPath: string, forkRef: string): Promise<{ sha: string; date: string }> {
-  const out = await git(['log', '-1', '--format=%h%x09%cr', forkRef], cellaPath, { ignoreErrors: true });
-  const [sha = forkRef.slice(0, 7), date = 'unknown'] = out.split('\t');
-  return { sha, date };
+/** What a fork offers: its files on a fresh `contrib/<fork>` branch, and the commit they were read at. */
+interface Contributions {
+  items: ContribItem[];
+  branch: string;
+  /** Short sha and relative date of the fork's committed `pullBranch` head. */
+  head: { sha: string; date: string };
 }
 
 /**
- * Run the adopt command.
- *
- * Based on the configured `forks`, lets the user select one fork, pulls its
- * `pullBranch`, builds a clean local `contrib/<fork>` branch, then presents
- * an interactive TUI to review and adopt individual files. Returns 1 without forks to adopt
- * from, when the pull failed and when a file did not apply.
+ * Fetch the fork's `pullBranch` and collect the files it contributes against `baseRef` on a local
+ * `contrib/<fork>` branch, the most recent fork change first; no items when it offers none.
+ */
+async function collectContributions(
+  config: RuntimeConfig,
+  { fork, resolvedPath }: ValidatedFork,
+  baseRef: string,
+): Promise<Contributions> {
+  const { repoRoot } = config;
+  // The fork's remote holds its committed ref, ahead of the local clone.
+  await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], repoRoot);
+  const forkRef = await git(['rev-parse', 'FETCH_HEAD'], repoRoot);
+  const meta = await git(['log', '-1', '--format=%h%x09%cr', forkRef], repoRoot, { ignoreErrors: true });
+  const [sha = forkRef.slice(0, 7), date = 'unknown'] = meta.split('\t');
+  const empty: Contributions = { items: [], branch: '', head: { sha, date } };
+
+  // The fork's own `ignored` folders hold its fork-specific modules; a fork without a config has none.
+  const forkTerritory = await loadConfig(resolvedPath).then(
+    (forkConfig) => forkConfig.ignored ?? [],
+    () => [],
+  );
+  const files = await detectContributableFiles(repoRoot, baseRef, forkRef, config, forkTerritory);
+  if (files.length === 0) return empty;
+  const { branch, appliedFiles } = await buildContribBranch(repoRoot, baseRef, forkRef, files, fork.name);
+  if (appliedFiles.length === 0) return empty;
+
+  const stat = await getDiffStat(repoRoot, baseRef, branch);
+  const items = files.map((file): ContribItem => {
+    const { additions = null, deletions = null } = stat.get(file.path) ?? {};
+    return { ...file, additions, deletions, checked: false };
+  });
+  // Undated files last, path as tie-breaker: the top shows where the fork last drifted apart.
+  items.sort((a, b) => (b.changedTs ?? 0) - (a.changedTs ?? 0) || a.path.localeCompare(b.path));
+  return { ...empty, items, branch };
+}
+
+/** Bring the selected files from `branch` into the working tree, unstaged or staged; returns one error line per file that failed. */
+async function applyContributions(
+  repoRoot: string,
+  branch: string,
+  selected: ContribItem[],
+  unstaged: boolean,
+): Promise<string[]> {
+  const errors: string[] = [];
+  for (const { path, kind } of selected) {
+    // Reject paths with traversal components (CWE-22)
+    if (path.includes('..') || path.startsWith('/')) {
+      errors.push(`${path}: rejected (path traversal)`);
+      continue;
+    }
+    try {
+      if (kind === 'deleted') await (unstaged ? removeFileFromWorktree(repoRoot, path) : gitRm(repoRoot, [path]));
+      else
+        await (unstaged ? restoreWorktreeFromRef(repoRoot, branch, path) : checkoutFromRef(repoRoot, branch, [path]));
+    } catch (error) {
+      errors.push(`${path}: ${errorMessage(error)}`);
+    }
+  }
+  return errors;
+}
+
+/**
+ * Run the adopt command: pick a fork, collect what it contributes, then print it as JSON or review
+ * it and apply the selected files. Returns 1 without forks to adopt from, when the pull failed and
+ * when a file did not apply.
  */
 export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Promise<number> {
   const forks = config.forks ?? [];
-
   if (forks.length === 0) {
     printNoForksHint('add forks to pull contributions from:');
     return 1;
   }
 
-  // Compare forks against cella's currently checked-out branch, not a fixed
-  // configured branch, so contributions reflect the branch you're working on.
+  // Forks compare against the checked-out branch, so contributions reflect the branch you are working on.
   const baseRef = await getCurrentBranch(config.repoRoot);
-
-  // Warn when not on cella's base branch. The comparison is a 3-way analysis against
-  // merge-base(baseRef, fork), so a long-lived feature branch has an older merge-base
-  // than 'main' and may surface extra 'diverged' files that would show clean from main.
+  // The comparison is a 3-way analysis against merge-base(baseRef, fork): a long-lived feature branch
+  // has an older merge-base than 'main' and may show extra 'diverged' files.
   if (baseRef !== defaultBranch) {
     console.info(
       `${warningMark} ${pc.yellow(`not on base branch '${defaultBranch}'`)} ${pc.dim(`comparing forks against '${baseRef}'`)}`,
@@ -299,75 +313,36 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
   }
 
   const forkBasePath = await resolveForkBasePath(config.repoRoot);
-  const validated = forks.map((fork) => validateForkPath(fork, forkBasePath));
-
-  const selectedFork = await selectFork(options, validated);
+  const selectedFork = await selectFork(
+    options,
+    forks.map((fork) => validateForkPath(fork, forkBasePath)),
+  );
   if (!selectedFork) return 0;
-
-  const { fork, resolvedPath } = selectedFork;
-  const forkName = fork.name;
+  const { name: forkName, pullBranch } = selectedFork.fork;
 
   createSpinner('pulling fork contributions...');
-  const allItems: ContribItem[] = [];
-  let forkBanner: { pullBranch: string; sha: string; date: string } | null = null;
-  let branch = '';
-
+  let contributions: Contributions;
   try {
-    // Prefer the fork's remote (authoritative committed ref) over the local clone.
-    await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], config.repoRoot);
-    const forkRef = await git(['rev-parse', 'FETCH_HEAD'], config.repoRoot);
-    const meta = await forkRefMeta(config.repoRoot, forkRef);
-    forkBanner = { pullBranch: fork.pullBranch, sha: meta.sha, date: meta.date };
-
-    // Read the fork's own owned folders so its fork-specific modules aren't offered back
-    let forkTerritory: string[] = [];
-    try {
-      const forkConfig = await loadConfig(resolvedPath);
-      forkTerritory = forkConfig.ignored ?? [];
-    } catch {
-      // Fork may not have a cella/cella.config.ts: no extra territory to exclude
-    }
-
-    const files = await detectContributableFiles(config.repoRoot, baseRef, forkRef, config, forkTerritory);
-    if (files.length > 0) {
-      const built = await buildContribBranch(config.repoRoot, baseRef, forkRef, files, forkName);
-      if (built.appliedFiles.length > 0) {
-        branch = built.branch;
-        const stat = await getDiffStat(config.repoRoot, baseRef, branch);
-        for (const file of files) {
-          const { additions = null, deletions = null } = stat.get(file.path) ?? {};
-          allItems.push({ ...file, additions, deletions, checked: false });
-        }
-      }
-    }
+    contributions = await collectContributions(config, selectedFork, baseRef);
   } catch (error) {
     spinnerFail(`failed to pull ${forkName}`);
     console.info(pc.red(`  ✗ ${errorMessage(error)}`));
     return 1;
   }
-
-  if (allItems.length === 0) {
+  const { items, branch, head } = contributions;
+  if (items.length === 0) {
     spinnerSuccess('no contributions found');
     return 0;
   }
 
-  // Sort by most recent fork change first (undated files last), path as tie-breaker,
-  // so the top of the list shows where the fork last drifted (further) apart.
-  allItems.sort((a, b) => (b.changedTs ?? 0) - (a.changedTs ?? 0) || a.path.localeCompare(b.path));
+  spinnerSuccess(`${items.length} files from ${forkName}`);
+  // The fork is compared at its committed head, so uncommitted fork edits never show here.
+  console.info(
+    `  ${pc.dim(`${forkName}: comparing committed '${pullBranch}' @ ${head.sha} (${head.date}); uncommitted fork changes are not included`)}`,
+  );
 
-  spinnerSuccess(`${allItems.length} files from ${forkName}`);
-
-  // Make the comparison basis explicit: the fork is compared at its committed pullBranch HEAD,
-  // not its working tree, so uncommitted fork edits never appear here.
-  if (forkBanner) {
-    console.info(
-      `  ${pc.dim(`${forkName}: comparing committed '${forkBanner.pullBranch}' @ ${forkBanner.sha} (${forkBanner.date}); uncommitted fork changes are not included`)}`,
-    );
-  }
-
-  // Machine-readable JSON output for tooling/agent usage
   if (options.json) {
-    const out = allItems.map((item) => ({
+    const out = items.map((item) => ({
       fork: forkName,
       path: item.path,
       status: item.status,
@@ -383,68 +358,35 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
 
   console.info();
   console.info(divider);
-
   const selected = await contribPrompt({
     message: `contributions from ${forkName}`,
-    items: allItems,
+    items,
     forkName,
     baseRef,
     branch,
     cwd: config.repoRoot,
   });
-
   if (selected.length === 0) {
     console.info();
     return 0;
   }
 
-  // Apply selected files into the working tree (unstaged in upstream cella, staged in a fork)
+  // Unstaged in upstream cella, staged in a fork.
   createSpinner(`applying ${selected.length} files...`);
-  const applyUnstaged = isUpstreamRepo(config.repoRoot);
-
-  let applied = 0;
-  const errors: string[] = [];
-
-  for (const item of selected) {
-    try {
-      // Reject paths with traversal components (CWE-22)
-      if (item.path.includes('..') || item.path.startsWith('/')) {
-        errors.push(`${item.path}: rejected (path traversal)`);
-        continue;
-      }
-      if (item.kind === 'deleted') {
-        if (applyUnstaged) {
-          await removeFileFromWorktree(config.repoRoot, item.path);
-        } else {
-          await gitRm(config.repoRoot, [item.path]);
-        }
-      } else {
-        if (applyUnstaged) {
-          await restoreWorktreeFromRef(config.repoRoot, branch, item.path);
-        } else {
-          await checkoutFromRef(config.repoRoot, branch, [item.path]);
-        }
-      }
-      applied++;
-    } catch (error) {
-      errors.push(`${item.path}: ${errorMessage(error)}`);
-    }
-  }
-
+  const unstaged = isUpstreamRepo(config.repoRoot);
+  const errors = await applyContributions(config.repoRoot, branch, selected, unstaged);
   if (errors.length > 0) {
-    spinnerFail(`applied ${applied}/${selected.length} files (${errors.length} errors)`);
-    for (const err of errors) {
-      console.info(pc.red(`  ✗ ${err}`));
-    }
+    spinnerFail(`applied ${selected.length - errors.length}/${selected.length} files (${errors.length} errors)`);
+    for (const error of errors) console.info(pc.red(`  ✗ ${error}`));
   } else {
-    spinnerSuccess(`applied ${applied} files ${pc.dim(applyUnstaged ? '(unstaged)' : '(staged)')}`);
+    spinnerSuccess(`applied ${selected.length} files ${pc.dim(unstaged ? '(unstaged)' : '(staged)')}`);
   }
 
   // No per-file summary: the applied files are visible in the IDE's source control view.
   console.info();
   console.info(
     pc.dim(
-      applyUnstaged
+      unstaged
         ? '  files are unstaged: review, stage what you want, and commit when ready'
         : '  files are staged: review and commit when ready',
     ),

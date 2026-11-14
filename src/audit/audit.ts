@@ -14,60 +14,74 @@ import { checkbox, Separator } from '@inquirer/prompts';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
-import { isBreakingJump } from '../utils/versions';
-import { readTopLevel } from '../utils/workspace-yaml';
-import { type LocalToolCheck, planLocalTools, readLocalTools } from './machine';
 import {
-  type EnhancedPackageInfo,
-  editJsonText,
-  formatDependents,
-  getReleasesUrl,
-  getRepoUrl,
-  getVulnIcon,
-  middleTruncate,
   type OutdatedPackage,
-  outdatedPackageName,
   readReleaseAgeMinutes,
-  rewriteSpecifier,
   runPnpmAudit,
   runPnpmJson,
-} from './pnpm';
+  severities,
+  type VulnerabilitySeverity,
+  worstSeverity,
+} from '../utils/pnpm';
+import { isBreakingJump } from '../utils/versions';
+import { readTopLevel } from '../utils/workspace-yaml';
+import { fetchFeeds, missingNodeImages } from './feeds';
+import { formatDependents, middleTruncate, printAdvisoryRows, severityDot } from './format';
+import { type LocalToolCheck, planLocalTools, readLocalTools } from './machine';
 import {
   applyRuntimeUpdate,
-  fetchRuntimeFeeds,
-  missingNodeImages,
+  editJsonText,
   pinLocation,
   planRuntimeUpdates,
   type RuntimeUpdate,
   readRuntimePins,
 } from './runtimes';
 import { runSecurityPass, type SecurityPassOutcome, type WorkspaceEdits } from './security-pass';
-import { type Advisory, advisoriesFromAudit, severities } from './security-plan';
+import { type Advisory, advisoriesFromAudit } from './security-plan';
 
 /** The manifest sections an update rewrites, as `pnpm up --latest` does. */
 const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
-/** A dependent workspace's package.json: its dependency maps, for pin detection. */
-type DependentPkgJson = Partial<Record<'dependencies' | 'devDependencies', Record<string, string>>>;
-
-/** Reader for dependents' package.jsons that loads each one once, caching by location. */
-function createDependentPkgReader(): (location: string) => DependentPkgJson | null {
-  const cache = new Map<string, DependentPkgJson | null>();
-  return (location) => {
-    let cached = cache.get(location);
-    if (cached === undefined) {
-      try {
-        cached = JSON.parse(readFileSync(join(location, 'package.json'), 'utf8'));
-      } catch {
-        cached = null;
-      }
-      cache.set(location, cached ?? null);
-    }
-    return cached ?? null;
-  };
+/** One row of the update table and the checkbox: an outdated package or a runtime pin. */
+interface UpdateRow {
+  /** The checkbox value: pnpm's outdated key for a package, `runtime:<file>:<name>` for a runtime pin. */
+  key: string;
+  /** The package name as a manifest lists it, or the runtime's name. */
+  name: string;
+  current: string;
+  latest: string;
+  dependentPackages: OutdatedPackage['dependentPackages'];
+  isDev: boolean;
+  /** The update leaves the range a caret allows: another major, or another minor below 1.0. */
+  breaking: boolean;
+  /** Workspace names where this package is pinned to an exact version (no ^ or ~) */
+  pinnedIn: string[];
+  repoUrl: string | null;
+  releasesUrl: string | null;
+  /** The highest severity the audit reports for the package, or null when it reports none. */
+  severity: VulnerabilitySeverity | null;
+  /** Set for a runtime pin (Node, pnpm, an image tag) shown among the packages. */
+  runtime?: RuntimeUpdate;
 }
 
 const exitCode = (outcome: SecurityPassOutcome) => (outcome === 'failed' ? 1 : 0);
+
+/** The runtime pins, this machine's tools and the feeds both are checked against, each feed asked once. */
+async function readRuntimes(repoRoot: string, now: number) {
+  const [pins, tools] = await Promise.all([readRuntimePins(repoRoot), readLocalTools()]);
+  const versions = (...found: Array<string | null | undefined>) => [...new Set(found.flatMap((v) => v ?? []))];
+  const feeds = await fetchFeeds(
+    {
+      node: versions(pins.node, tools.node.version),
+      pnpm: versions(pins.pnpm, tools.pnpm?.version),
+      images: pins.images,
+      gh: tools.gh?.version ?? null,
+    },
+    repoRoot,
+    now,
+  );
+  return { pins, tools, feeds };
+}
 
 /**
  * Report the updates and the security plan; with `fix`, ask which to take and write them.
@@ -76,15 +90,13 @@ const exitCode = (outcome: SecurityPassOutcome) => (outcome === 'failed' ? 1 : 0
 export async function runAudit(repoRoot: string, fix: boolean): Promise<number> {
   const spinner = createSpinner('checking packages and runtimes...');
   try {
-    const pins = await readRuntimePins(repoRoot);
     const now = Date.now();
     // --long adds each package's latest manifest, which holds its repository URL.
-    const [outdated, auditResult, releaseAgeMinutes, feeds, machine] = await Promise.all([
+    const [outdated, auditResult, releaseAgeMinutes, { pins, tools, feeds }] = await Promise.all([
       runPnpmJson(['-r', 'outdated', '--json', '--long'], repoRoot),
       runPnpmAudit(repoRoot),
       readReleaseAgeMinutes(repoRoot),
-      fetchRuntimeFeeds(pins, repoRoot, now),
-      readLocalTools(repoRoot, now),
+      readRuntimes(repoRoot, now),
     ]);
     if (!outdated) {
       spinnerFail('pnpm outdated gave no answer: run pnpm -r outdated to see why');
@@ -93,7 +105,6 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
     }
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
-    const localTools = planLocalTools(machine, { releaseAgeMinutes, now });
     const advisories = auditResult ? advisoriesFromAudit(auditResult) : null;
     const rows = [
       ...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []),
@@ -102,56 +113,82 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
 
     if (rows.length === 0) {
       spinnerSuccess('all packages and runtimes are up to date');
-      printNotes(repoRoot, runtimes.unchecked);
-      console.info();
-      printLocalTools(localTools);
-      return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes }));
+    } else {
+      spinner.stop();
+      printUpdateTable(rows);
+      printManifestLinks(rows, repoRoot);
     }
-
-    spinner.stop();
-    printOutdatedResults(rows, repoRoot);
     printNotes(repoRoot, runtimes.unchecked);
     console.info();
-    printLocalTools(localTools);
+    printLocalTools(planLocalTools(tools, feeds, { releaseAgeMinutes, now }));
 
     // A report asks nothing and writes nothing
-    if (!fix) return exitCode(await runSecurityPass(repoRoot, { apply: false, releaseAgeMinutes }));
+    if (!fix || rows.length === 0) return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes }));
 
     printReported(advisories);
     const selected = await promptForUpdates(rows);
     if (!selected) return 0;
-    const { edits, bumped } = await planEdits(repoRoot, rows, selected, pins.nodeImageSuffixes);
-    const outcome = await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits });
-    if (outcome === 'written') printNext(bumped);
+    const chosen = rows.filter((row) => selected.includes(row.key));
+    const node = chosen.find((row) => row.runtime?.pin.type === 'node')?.runtime;
+    const missingImages = node ? await missingNodeImages(node.target, pins.nodeImageSuffixes) : [];
+    const plan = planEdits(repoRoot, chosen, missingImages);
+    for (const warning of plan.warnings) console.info(`${warningMark} ${warning}`);
+    for (const [label, items] of plan.changed)
+      console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
+    if (plan.changed.size > 0) console.info();
+
+    const outcome = await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits: plan.edits });
+    if (outcome === 'written') printNext(plan.bumped);
     return exitCode(outcome);
   } finally {
     spinner.stop();
   }
 }
 
+/**
+ * The package name of a `pnpm -r outdated --json` key. pnpm keys a name that has several entries
+ * (another installed version or dependency type) as `name@current (dev)`.
+ */
+function outdatedPackageName(key: string): string {
+  const name = key.split(' ')[0];
+  const at = name.indexOf('@', 1);
+  return at === -1 ? name : name.slice(0, at);
+}
+
 /** The most severe advisory on a package; null when it has none. */
-const worstSeverity = (advisories: Advisory[], name: string) =>
-  severities.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
+const severityOf = (advisories: Advisory[], name: string) =>
+  worstSeverity(advisories.filter((advisory) => advisory.module === name).map((advisory) => advisory.severity));
+
+/** A repository URL from package metadata in a plain https:// form, and its releases page when it is on GitHub. */
+function repoLinks(repositoryUrl: string | undefined): Pick<UpdateRow, 'repoUrl' | 'releasesUrl'> {
+  const repoUrl =
+    repositoryUrl
+      ?.replace(/^git\+/, '')
+      .replace(/\.git$/, '')
+      .replace(/^git:\/\//, 'https://') || null;
+  const host = URL.parse(repoUrl ?? '')?.hostname;
+  return { repoUrl, releasesUrl: host === 'github.com' || host === 'www.github.com' ? `${repoUrl}/releases` : null };
+}
 
 /** The outdated packages as table rows, sorted by the workspaces that depend on them. */
-function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Advisory[]) {
-  const readDependentPkg = createDependentPkgReader();
-
-  const rows: EnhancedPackageInfo[] = Object.entries(outdated).map(([key, pkg]) => {
-    const name = outdatedPackageName(key);
-    const repoUrl = getRepoUrl(pkg.latestManifest?.repository?.url);
-    // pnpm leaves `current` out for a dependency that is not installed.
-    const current = pkg.current ?? 'missing';
-
-    // Workspaces that pin this package to an exact version.
-    const pinnedIn: string[] = [];
-    for (const d of pkg.dependentPackages) {
-      const spec = readDependentPkg(d.location)?.[pkg.dependencyType]?.[name] || '';
-      if (spec && !spec.startsWith('^') && !spec.startsWith('~') && !spec.startsWith('>')) {
-        pinnedIn.push(d.name);
+function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Advisory[]): UpdateRow[] {
+  // Each dependent's package.json, read once: its dependency maps tell an exact pin.
+  const manifests = new Map<string, Partial<Record<OutdatedPackage['dependencyType'], Record<string, string>>>>();
+  const manifestAt = (location: string) => {
+    if (!manifests.has(location)) {
+      try {
+        manifests.set(location, JSON.parse(readFileSync(join(location, 'package.json'), 'utf8')) ?? {});
+      } catch {
+        manifests.set(location, {});
       }
     }
+    return manifests.get(location);
+  };
 
+  const rows = Object.entries(outdated).map(([key, pkg]): UpdateRow => {
+    const name = outdatedPackageName(key);
+    // pnpm leaves `current` out for a dependency that is not installed.
+    const current = pkg.current ?? 'missing';
     return {
       key,
       name,
@@ -160,17 +197,19 @@ function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Advi
       dependentPackages: pkg.dependentPackages,
       isDev: pkg.dependencyType === 'devDependencies',
       breaking: isBreakingJump(current, pkg.latest),
-      pinnedIn,
-      repoUrl,
-      releasesUrl: getReleasesUrl(repoUrl),
-      severity: worstSeverity(advisories, name),
+      // An exact pin: a specifier without ^, ~ or > in front
+      pinnedIn: pkg.dependentPackages
+        .filter(({ location }) => /^[^^~>]/.test(manifestAt(location)?.[pkg.dependencyType]?.[name] ?? ''))
+        .map((dependent) => dependent.name),
+      ...repoLinks(pkg.latestManifest?.repository?.url),
+      severity: severityOf(advisories, name),
     };
   });
 
   return rows.sort((a, b) => inText(a).localeCompare(inText(b)) || a.name.localeCompare(b.name));
 }
 
-function runtimeRow(update: RuntimeUpdate): EnhancedPackageInfo {
+function runtimeRow(update: RuntimeUpdate): UpdateRow {
   return {
     key: `runtime:${update.file}:${update.name}`,
     name: update.name,
@@ -187,83 +226,57 @@ function runtimeRow(update: RuntimeUpdate): EnhancedPackageInfo {
   };
 }
 
-const isRed = (row: EnhancedPackageInfo): boolean => row.severity === 'critical' || row.severity === 'high';
-
 /** The "in" column: where a runtime is pinned, or the workspaces that depend on the package, as "first +N". */
-const inText = (row: EnhancedPackageInfo): string =>
+const inText = (row: UpdateRow): string =>
   row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name));
 
-function printOutdatedResults(rows: EnhancedPackageInfo[], repoRoot: string): void {
-  const devTag = ' (dev)';
-  const runtimeTag = ' (runtime)';
-  const maxNameLen = 35;
-  const maxDependentsLen = 15;
-  const tag = (row: EnhancedPackageInfo) => (row.runtime ? runtimeTag : row.isDev ? devTag : '');
-  const nameWidth = Math.min(maxNameLen, Math.max(7, ...rows.map((p) => p.name.length + tag(p).length)));
-  const currentWidth = Math.max(7, ...rows.map((p) => p.current.length));
-  const latestWidth = Math.max(6, ...rows.map((p) => p.latest.length));
-  const dependentsWidth = Math.min(maxDependentsLen, Math.max(10, ...rows.map((p) => inText(p).length)));
+/** The table of updates: severity dot, name, current and latest version, where it is used, and links. */
+function printUpdateTable(rows: UpdateRow[]): void {
+  const tag = (row: UpdateRow) => (row.runtime ? ' (runtime)' : row.isDev ? ' (dev)' : '');
+  const nameWidth = Math.min(35, Math.max(7, ...rows.map((row) => row.name.length + tag(row).length)));
+  const currentWidth = Math.max(7, ...rows.map((row) => row.current.length));
+  const latestWidth = Math.max(6, ...rows.map((row) => row.latest.length));
+  const inWidth = Math.min(15, Math.max(10, ...rows.map((row) => inText(row).length)));
 
-  // The vuln column is a single dot, so it gets no width budget.
-  const header = [
-    ' ',
-    pc.bold('package'.padEnd(nameWidth)),
-    pc.bold('current'.padEnd(currentWidth)),
-    pc.bold('latest'.padEnd(latestWidth)),
-    pc.bold('in'.padEnd(dependentsWidth)),
-    pc.bold('links'),
-  ].join(' ');
+  // The severity column is a single dot, so it gets no width budget.
+  const header = [' ', 'package'.padEnd(nameWidth), 'current'.padEnd(currentWidth), 'latest'.padEnd(latestWidth)];
+  console.info([...header, 'in'.padEnd(inWidth), 'links'].map((title) => pc.bold(title)).join(' '));
 
-  console.info(header);
-
-  for (const pkg of rows) {
-    const vulnIndicator = pkg.severity ? getVulnIcon(pkg.severity) : ' ';
-
-    const displayName = middleTruncate(`${pkg.name}${tag(pkg)}`, nameWidth);
-    const name = pc.white(displayName.padEnd(nameWidth));
-
-    const current = pc.red(pkg.current.padEnd(currentWidth));
-    const latestText = pkg.latest.padEnd(latestWidth);
-    const latest = pkg.breaking ? pc.bold(pc.green(latestText)) : pc.green(latestText);
-
-    const dependents = pc.dim(middleTruncate(inText(pkg), dependentsWidth).padEnd(dependentsWidth));
-
-    const links: string[] = [];
-    if (pkg.releasesUrl) {
-      links.push(hyperlink(pc.blue('rel'), pkg.releasesUrl));
-    }
-    if (pkg.repoUrl) {
-      links.push(hyperlink(pc.cyan('repo'), pkg.repoUrl));
-    }
-
-    const linksStr = links.length > 0 ? links.join(' ') : pc.dim('n/a');
-
-    console.info(`${vulnIndicator} ${name} ${current} ${latest} ${dependents} ${linksStr}`);
-  }
-
-  // Package.json links with counts by dependent name.
-  console.info();
-  const dependentMap = new Map<string, { location: string; count: number }>();
-  for (const pkg of rows) {
-    for (const { name, location } of pkg.dependentPackages) {
-      const dependentName = name || basename(location);
-      const existing = dependentMap.get(dependentName);
-      if (existing) {
-        existing.count++;
-      } else {
-        dependentMap.set(dependentName, { location, count: 1 });
-      }
-    }
-  }
-  const sortedDependents = [...dependentMap.entries()].sort((a, b) => a[0].localeCompare(b[0]));
-  const maxDependentNameLen = Math.max(0, ...sortedDependents.map(([name]) => name.length));
-  for (const [dependentName, { location, count }] of sortedDependents) {
-    const packageJsonPath = join(location, 'package.json');
-    const relativePath = relative(repoRoot, packageJsonPath);
-    const paddedName = dependentName.padEnd(maxDependentNameLen);
+  for (const row of rows) {
+    const name = pc.white(middleTruncate(`${row.name}${tag(row)}`, nameWidth).padEnd(nameWidth));
+    const latest = pc.green(row.latest.padEnd(latestWidth));
+    const links = [
+      row.releasesUrl ? hyperlink(pc.blue('rel'), row.releasesUrl) : '',
+      row.repoUrl ? hyperlink(pc.cyan('repo'), row.repoUrl) : '',
+    ].filter(Boolean);
     console.info(
-      `  ${pc.dim('•')} ${paddedName}  ${hyperlink(relativePath, `file://${packageJsonPath}`)} ${pc.dim(`${count}`)}`,
+      [
+        severityDot(row.severity),
+        name,
+        pc.red(row.current.padEnd(currentWidth)),
+        row.breaking ? pc.bold(latest) : latest,
+        pc.dim(middleTruncate(inText(row), inWidth).padEnd(inWidth)),
+        links.length > 0 ? links.join(' ') : pc.dim('n/a'),
+      ].join(' '),
     );
+  }
+}
+
+/** A link to each dependent's package.json, with how many of the rows it lists. */
+function printManifestLinks(rows: UpdateRow[], repoRoot: string): void {
+  console.info();
+  const dependents = new Map<string, { location: string; count: number }>();
+  for (const { name, location } of rows.flatMap((row) => row.dependentPackages)) {
+    const key = name || basename(location);
+    const entry = dependents.get(key) ?? { location, count: 0 };
+    dependents.set(key, { ...entry, count: entry.count + 1 });
+  }
+  const sorted = [...dependents.entries()].sort(([a], [b]) => a.localeCompare(b));
+  const width = Math.max(0, ...sorted.map(([name]) => name.length));
+  for (const [name, { location, count }] of sorted) {
+    const manifest = join(location, 'package.json');
+    const link = hyperlink(relative(repoRoot, manifest), `file://${manifest}`);
+    console.info(`  ${pc.dim('•')} ${name.padEnd(width)}  ${link} ${pc.dim(`${count}`)}`);
   }
 }
 
@@ -291,7 +304,7 @@ function printLocalTools(checks: LocalToolCheck[]): void {
     const detail = tool.severity
       ? `${tool.note} ${pc.dim('·')} ${tool.fix}`
       : pc.dim(tool.note || 'no missing security fixes');
-    console.info(`${tool.severity ? getVulnIcon(tool.severity) : ' '} ${label}  ${detail}`);
+    console.info(`${severityDot(tool.severity)} ${label}  ${detail}`);
   }
   console.info();
 }
@@ -312,91 +325,60 @@ function printReported(advisories: Advisory[] | null): void {
     return;
   }
 
-  const modules = [...new Set(advisories.map((a) => a.module))].map((name) => {
-    const own = advisories.filter((a) => a.module === name);
-    return {
-      name,
-      severity: worstSeverity(own, name) ?? own[0].severity,
-      installed: [...new Set(own.flatMap((a) => a.installed))].join(', '),
-      via: formatDependents([...new Set(own.flatMap((a) => a.via))]),
-      direct: own.some((a) => a.direct),
-    };
-  });
-  modules.sort((a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity));
-  const nameWidth = Math.min(30, Math.max(...modules.map((m) => m.name.length)));
-  const versionWidth = Math.max(...modules.map((m) => m.installed.length));
-
-  console.info(`${pc.bold('pnpm audit')} ${pc.dim('· with the current overrides and ignores')}`);
-  for (const m of modules) {
-    const name = pc.white(middleTruncate(m.name, nameWidth).padEnd(nameWidth));
-    const source = `${m.via}${m.direct ? ' (direct)' : ''}`;
-    console.info(
-      `${getVulnIcon(m.severity)} ${name}  ${m.severity.padEnd(8)}  ${m.installed.padEnd(versionWidth)}  ${pc.dim(source)}`,
-    );
-  }
-  console.info();
+  const modules = Map.groupBy(advisories, (advisory) => advisory.module);
+  const rows = [...modules].map(([module, own]) => ({
+    module,
+    severity: worstSeverity(own.map((advisory) => advisory.severity)) ?? own[0].severity,
+    versions: [...new Set(own.flatMap((advisory) => advisory.installed))].join(', '),
+    note: `${formatDependents([...new Set(own.flatMap((advisory) => advisory.via))])}${own.some((advisory) => advisory.direct) ? ' (direct)' : ''}`,
+  }));
+  rows.sort((a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity));
+  printAdvisoryRows(`${pc.bold('pnpm audit')} ${pc.dim('· with the current overrides and ignores')}`, rows);
 }
 
 /** The grouped checkbox choices: runtimes, pinned packages, then the regular ones. A red dot starts ticked. */
-function buildUpdateChoices(
-  rows: EnhancedPackageInfo[],
-): Array<{ name: string; value: string; checked: boolean } | Separator> {
-  const makeChoice = (row: EnhancedPackageInfo) => {
-    const devTag = row.isDev ? pc.dim(' (dev)') : '';
-    const version = `${pc.red(row.current)} → ${pc.green(row.latest)}`;
+function updateChoices(rows: UpdateRow[]): Array<{ name: string; value: string; checked: boolean } | Separator> {
+  const choice = (row: UpdateRow) => {
     const notes = [
       row.breaking ? pc.bold('breaking') : '',
       row.runtime?.note ? pc.dim(row.runtime.note) : '',
       row.pinnedIn.length > 0 ? `${warningMark} ${pc.dim(`pinned in ${row.pinnedIn.join(', ')}`)}` : '',
     ].filter(Boolean);
     return {
-      name: `${row.name}${devTag}  ${version}${notes.length > 0 ? `  ${notes.join('  ')}` : ''}`,
+      name: `${row.name}${row.isDev ? pc.dim(' (dev)') : ''}  ${pc.red(row.current)} → ${pc.green(row.latest)}${notes.length > 0 ? `  ${notes.join('  ')}` : ''}`,
       value: row.key,
-      checked: isRed(row),
+      checked: row.severity === 'critical' || row.severity === 'high',
     };
   };
 
-  const runtimes = rows.filter((p) => p.runtime);
-  const pinned = rows.filter((p) => !p.runtime && p.pinnedIn.length > 0);
-  const regular = rows.filter((p) => !p.runtime && p.pinnedIn.length === 0);
-
-  const choices: Array<{ name: string; value: string; checked: boolean } | Separator> = [];
-
-  if (runtimes.length > 0) {
-    choices.push(new Separator(pc.yellow(`── runtimes (${runtimes.length}) ──`)));
-    choices.push(...runtimes.map(makeChoice));
-  }
-  if (pinned.length > 0) {
-    choices.push(new Separator(pc.yellow(`── pinned (${pinned.length}) ──`)));
-    choices.push(...pinned.map(makeChoice));
-  }
-  if (regular.length > 0) {
-    if (choices.length > 0) choices.push(new Separator(pc.dim(`── packages (${regular.length}) ──`)));
-    choices.push(...regular.map(makeChoice));
-  }
-
-  return choices;
+  const runtimes = rows.filter((row) => row.runtime);
+  const pinned = rows.filter((row) => !row.runtime && row.pinnedIn.length > 0);
+  const regular = rows.filter((row) => !row.runtime && row.pinnedIn.length === 0);
+  const groups: Array<[label: string | null, UpdateRow[]]> = [
+    [pc.yellow(`── runtimes (${runtimes.length}) ──`), runtimes],
+    [pc.yellow(`── pinned (${pinned.length}) ──`), pinned],
+    // Regular packages get a heading only below another group.
+    [runtimes.length + pinned.length > 0 ? pc.dim(`── packages (${regular.length}) ──`) : null, regular],
+  ];
+  return groups.flatMap(([label, group]) =>
+    group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)],
+  );
 }
 
 /** The one prompt of the update step; null when it was cancelled. Submitting with nothing ticked skips the updates. */
-async function promptForUpdates(rows: EnhancedPackageInfo[]): Promise<string[] | null> {
+async function promptForUpdates(rows: UpdateRow[]): Promise<string[] | null> {
   try {
     const selected = await checkbox({
       message: `toggle what to update ${pc.dim('· enter with nothing ticked skips')}`,
-      choices: buildUpdateChoices(rows),
+      choices: updateChoices(rows),
       required: false,
       pageSize: 20,
       loop: false,
       theme: {
-        icon: {
-          cursor: '❯ ',
-        },
+        icon: { cursor: '❯ ' },
         style: {
           highlight: (text: string) => text,
-          keysHelpTip: (keys: [string, string][]) => {
-            const tips = keys.map(([key, action]: [string, string]) => `${pc.dim(key)} ${action}`);
-            return tips.join('  ');
-          },
+          keysHelpTip: (keys: [string, string][]) => keys.map(([key, action]) => `${pc.dim(key)} ${action}`).join('  '),
           renderSelectedChoices: (selectedChoices: Array<{ value?: string }>) =>
             pc.dim(`${selectedChoices.length} selected`),
         },
@@ -417,28 +399,28 @@ function bumpText(update: RuntimeUpdate): string {
 }
 
 /**
- * The selected updates as file contents, printed as one line per changed file. A dependency's
- * specifier keeps its prefix; one the audit cannot rewrite is left as written with a warning. A
- * Node bump waits until Docker Hub has every `node:<version><suffix>` image the Dockerfiles build from.
+ * The chosen updates as file contents, with the changed items per file and the warnings to show. A
+ * dependency's specifier keeps its prefix; one the audit cannot rewrite is left as written. A Node
+ * bump waits while Docker Hub lacks any of `missingImages`, the images the Dockerfiles build from.
  */
-async function planEdits(
+function planEdits(
   repoRoot: string,
-  rows: EnhancedPackageInfo[],
-  selected: string[],
-  nodeImageSuffixes: string[],
-): Promise<{ edits: WorkspaceEdits; bumped: RuntimeUpdate[] }> {
-  const contents = new Map<string, { content: string; resolves: boolean }>();
-  const summary = new Map<string, string[]>();
+  chosen: UpdateRow[],
+  missingImages: string[],
+): { edits: WorkspaceEdits; bumped: RuntimeUpdate[]; changed: Map<string, string[]>; warnings: string[] } {
+  const edits: WorkspaceEdits = { manifests: {}, files: {} };
+  const changed = new Map<string, string[]>();
+  const warnings: string[] = [];
   const bumped: RuntimeUpdate[] = [];
+  // A file a dependency update changed is a manifest to resolve, also when a runtime bump edits it after.
   const edit = (file: string, label: string, item: string, resolves: boolean, change: (content: string) => string) => {
-    const entry = contents.get(file) ?? { content: readFileSync(join(repoRoot, file), 'utf8'), resolves: false };
-    const next = change(entry.content);
-    if (next === entry.content) return;
-    contents.set(file, { content: next, resolves: entry.resolves || resolves });
-    summary.set(label, [...(summary.get(label) ?? []), item]);
+    const content = edits.manifests[file] ?? edits.files[file] ?? readFileSync(join(repoRoot, file), 'utf8');
+    const next = change(content);
+    if (next === content) return;
+    (resolves || file in edits.manifests ? edits.manifests : edits.files)[file] = next;
+    changed.set(label, [...(changed.get(label) ?? []), item]);
   };
 
-  const chosen = rows.filter((row) => selected.includes(row.key));
   for (const row of chosen) {
     if (row.runtime) continue;
     for (const { name: dependent, location } of row.dependentPackages) {
@@ -451,37 +433,34 @@ async function planEdits(
             if (!deps || spec === undefined) continue;
             const next = rewriteSpecifier(spec, row.latest);
             if (next) deps[row.name] = next;
-            else console.info(`${warningMark} ${row.name} in ${dependent || file} left as written: ${spec}`);
+            else warnings.push(`${row.name} in ${dependent || file} left as written: ${spec}`);
           }
         }),
       );
     }
   }
 
-  for (const row of chosen) {
-    const update = row.runtime;
+  for (const { runtime: update } of chosen) {
     if (!update) continue;
-    if (update.pin.type === 'node') {
-      const missing = await missingNodeImages(update.target, nodeImageSuffixes);
-      if (missing.length > 0) {
-        console.info(`${warningMark} node ${update.target} skipped: ${missing.join(', ')} is not on docker hub yet`);
-        continue;
-      }
+    if (update.pin.type === 'node' && missingImages.length > 0) {
+      warnings.push(`node ${update.target} skipped: ${missingImages.join(', ')} is not on docker hub yet`);
+      continue;
     }
     edit(update.file, update.file, bumpText(update), false, (content) => applyRuntimeUpdate(content, update));
     bumped.push(update);
   }
 
-  for (const [label, items] of summary) {
-    console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
-  }
-  if (summary.size > 0) console.info();
+  return { edits, bumped, changed, warnings };
+}
 
-  const edits: WorkspaceEdits = { manifests: {}, files: {} };
-  for (const [file, { content, resolves }] of contents) {
-    (resolves ? edits.manifests : edits.files)[file] = content;
-  }
-  return { edits, bumped };
+/**
+ * The specifier that moves a dependency to `latest` and keeps its prefix (`^`, `~` or exact), as
+ * `pnpm up --latest` writes it; null for one the audit leaves as written (`workspace:`, `catalog:`,
+ * `npm:` aliases, operator ranges, tags).
+ */
+export function rewriteSpecifier(spec: string, latest: string): string | null {
+  const match = spec.match(/^([\^~]?)\d+(?:\.\d+){0,2}(?:-[0-9A-Za-z.-]+)?$/);
+  return match ? `${match[1]}${latest}` : null;
 }
 
 /** The steps a runtime bump leaves to the developer: this machine's Node, and a local build of each changed image. */

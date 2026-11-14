@@ -1,16 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { rewriteSpecifier } from '../../src/audit/pnpm';
-import {
-  applyRuntimeUpdate,
-  parseDockerfile,
-  planRuntimeUpdates,
-  type RuntimeFeeds,
-  type RuntimePins,
-} from '../../src/audit/runtimes';
+import { rewriteSpecifier } from '../../src/audit/audit';
+import type { Feeds } from '../../src/audit/feeds';
+import { applyRuntimeUpdate, parseDockerfile, planRuntimeUpdates, type RuntimePins } from '../../src/audit/runtimes';
 
 const now = Date.parse('2026-10-22T14:00:00Z');
 const ago = (hours: number) => now - hours * 60 * 60 * 1000;
-const iso = (hours: number) => new Date(ago(hours)).toISOString();
 
 describe('runtimes', () => {
   it('reads the Docker Hub tags a Dockerfile builds from, and the suffixes of its Node build-argument images', () => {
@@ -48,25 +42,25 @@ FROM nginx`;
       ],
       nodeImageSuffixes: ['-alpine'],
     };
-    const feeds: RuntimeFeeds = {
+    const feeds: Feeds = {
       node: [
         { version: '26.13.0', publishedAt: ago(1), security: false },
         { version: '26.12.1', publishedAt: ago(27), security: true },
         { version: '26.12.0', publishedAt: ago(200), security: false },
       ],
-      pnpm: {
-        published: {
-          created: iso(9000),
-          '11.11.0': iso(2000),
-          '11.28.6': iso(170),
-          '11.28.7': iso(1),
-          '12.15.0': iso(27),
-        },
-        advisories: [
-          { vulnerable_versions: '>=11.0.0 <11.11.0', severity: 'high' },
-          { vulnerable_versions: '>=11.0.0 <12.0.0', severity: 'high' },
-        ],
-      },
+      pnpm: [
+        { version: 'created', publishedAt: ago(9000) },
+        { version: '11.11.0', publishedAt: ago(2000) },
+        { version: '11.28.6', publishedAt: ago(170) },
+        { version: '11.28.7', publishedAt: ago(1) },
+        { version: '12.15.0', publishedAt: ago(27) },
+      ],
+      pnpmAdvisories: [
+        { vulnerable_versions: '>=11.0.0 <11.11.0', severity: 'high' },
+        { vulnerable_versions: '>=11.0.0 <12.0.0', severity: 'high' },
+      ],
+      gh: null,
+      ghAdvisories: null,
       images: [
         {
           pinned: { name: '2.8-alpine', pushedAt: ago(24 * 400) },

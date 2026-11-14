@@ -3,9 +3,9 @@ import { tmpdir } from 'node:os';
 import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAudit } from '../../src/audit/audit';
-import { getReleasesUrl, getRepoUrl, runPnpmJson } from '../../src/audit/pnpm';
 import { hyperlink } from '../../src/utils/display';
 import { getEnv } from '../../src/utils/env';
+import { runPnpmJson } from '../../src/utils/pnpm';
 
 const securityPass = vi.hoisted(() => vi.fn());
 vi.mock('../../src/audit/security-pass', () => ({ runSecurityPass: securityPass }));
@@ -19,31 +19,14 @@ vi.mock('@inquirer/prompts', async (importOriginal) => ({
 // The machine's own tools stay out of these runs: no binaries asked, no feeds fetched.
 vi.mock('../../src/audit/machine', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../src/audit/machine')>()),
-  readLocalTools: async () => ({ node: { version: '26.12.1', installer: null, releases: [] }, pnpm: null, gh: null }),
+  readLocalTools: async () => ({ node: { version: '26.12.1', installer: null }, pnpm: null, gh: null }),
+}));
+vi.mock('../../src/audit/feeds', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../src/audit/feeds')>()),
+  fetchFeeds: async () => ({ node: [], pnpm: null, pnpmAdvisories: null, images: [], gh: null, ghAdvisories: null }),
 }));
 
-describe('audit-utils', () => {
-  describe('getRepoUrl', () => {
-    it('returns null for a missing URL', () => {
-      expect(getRepoUrl(undefined)).toBe(null);
-      expect(getRepoUrl('')).toBe(null);
-    });
-
-    it('normalizes various URL formats', () => {
-      expect(getRepoUrl('git+https://github.com/user/repo.git')).toBe('https://github.com/user/repo');
-      expect(getRepoUrl('git://github.com/user/repo.git')).toBe('https://github.com/user/repo');
-      expect(getRepoUrl('https://github.com/user/repo')).toBe('https://github.com/user/repo');
-    });
-  });
-
-  describe('getReleasesUrl', () => {
-    it('returns releases URL only for GitHub repos', () => {
-      expect(getReleasesUrl('https://github.com/user/repo')).toBe('https://github.com/user/repo/releases');
-      expect(getReleasesUrl('https://gitlab.com/user/repo')).toBe(null);
-      expect(getReleasesUrl(null)).toBe(null);
-    });
-  });
-
+describe('audit', () => {
   describe('hyperlink', () => {
     it('creates OSC 8 hyperlink format', () => {
       const result = hyperlink('click me', 'https://example.com');

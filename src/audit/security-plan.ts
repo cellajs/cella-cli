@@ -4,9 +4,10 @@
  * gathers the inputs and carries the plan out.
  */
 
-import { compareVersionStrings, isBreakingJump, isPrerelease, satisfiesComparators } from '../utils/versions';
+import semver from 'semver';
+import { type AuditResult, severities, type VulnerabilitySeverity, worstSeverity } from '../utils/pnpm';
+import { isBreakingJump } from '../utils/versions';
 import type { AuditSettings } from '../utils/workspace-yaml';
-import type { AuditResult, VulnerabilitySeverity } from './pnpm';
 
 /** One advisory from `pnpm audit --json`, reduced to what the plan needs. */
 export interface Advisory {
@@ -70,9 +71,6 @@ export interface PlanInput {
   now: number;
 }
 
-/** Severity levels, most severe first. */
-export const severities: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
-
 /**
  * Whether an override key is audit output. A key with a version selector and no parent
  * (`pkg@<1.2.3`) is what an audit fix writes: the audit owns it and rebuilds it every run. A key
@@ -99,7 +97,10 @@ export function parseVersionedExclude(entry: string): { name: string; version: s
   return /^\d+\.\d+\.\d+[0-9A-Za-z.+-]*$/.test(version) ? { name: entry.slice(0, at), version } : null;
 }
 
-/** The advisories in an audit result. Paths look like `workspace>direct-dep>…>package`. */
+/**
+ * The advisories in an audit result. Paths look like `workspace>direct-dep>…>package`. An installed
+ * version that is no semver version is left out, so every version the plan compares is one.
+ */
 export function advisoriesFromAudit(audit: AuditResult): Advisory[] {
   return Object.values(audit.advisories).map((advisory) => {
     const paths = (advisory.findings ?? []).flatMap((finding) => finding.paths ?? []).map((path) => path.split('>'));
@@ -108,7 +109,7 @@ export function advisoriesFromAudit(audit: AuditResult): Advisory[] {
       module: advisory.module_name,
       severity: advisory.severity,
       range: advisory.vulnerable_versions,
-      installed: [...new Set((advisory.findings ?? []).map((finding) => finding.version))],
+      installed: [...new Set((advisory.findings ?? []).flatMap((finding) => semver.valid(finding.version) ?? []))],
       via: [...new Set(paths.map((parts) => parts[parts.length > 2 ? 1 : 0]))],
       direct: paths.some((parts) => parts.length === 2),
     };
@@ -127,13 +128,6 @@ function isInstallable(name: string, version: string, input: PlanInput): boolean
   return Number.isNaN(age) || age >= input.releaseAgeMinutes * 60_000;
 }
 
-/** Whether an override target such as `^7.0.2` or `>=0.28.1` lets `version` in. */
-function admits(target: string, version: string): boolean {
-  const base = target.replace(/^[\^~>=<\s]+/, '');
-  if (compareVersionStrings(base, version) > 0) return false;
-  return target.trim().startsWith('>') || !isBreakingJump(base, version);
-}
-
 /** The audit overrides a package had before the run. */
 const previousOverrides = (module: string, previous: AuditSettings): Array<[key: string, target: string]> =>
   Object.entries(previous.overrides).filter(([key]) => isAuditOverride(key) && overrideModule(key) === module);
@@ -148,7 +142,7 @@ export function standingOverrides(
 ): Record<string, string> {
   const versions = Object.keys(input.published[module] ?? {});
   return Object.fromEntries(
-    previousOverrides(module, input.previous).filter(([, target]) => versions.some((v) => admits(target, v))),
+    previousOverrides(module, input.previous).filter(([, target]) => versions.some((v) => semver.satisfies(v, target))),
   );
 }
 
@@ -164,22 +158,21 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
   const items: SecurityItem[] = [];
 
   for (const [module, advisories] of byModule) {
-    const versions = Object.keys(input.published[module] ?? {}).filter((v) => /^\d/.test(v));
-    const stable = versions.filter((v) => !isPrerelease(v)).sort(compareVersionStrings);
-    const escapesAll = (v: string) => !advisories.some((advisory) => satisfiesComparators(v, advisory.range));
+    const stable = semver.sort(
+      Object.keys(input.published[module] ?? {}).filter((v) => semver.valid(v) && !semver.prerelease(v)),
+    );
+    const escapesAll = (v: string) => !advisories.some((advisory) => semver.satisfies(v, advisory.range));
 
     const fixOf = (advisory: Advisory): string | undefined => {
-      const highest = [...advisory.installed].sort(compareVersionStrings).at(-1) ?? '0.0.0';
-      const candidates = stable.filter(
-        (v) => compareVersionStrings(v, highest) > 0 && !satisfiesComparators(v, advisory.range),
-      );
+      const highest = semver.rsort([...advisory.installed])[0] ?? '0.0.0';
+      const candidates = stable.filter((v) => semver.gt(v, highest) && !semver.satisfies(v, advisory.range));
       const installable = candidates.filter((v) => isInstallable(module, v, input));
       const pick = (among: string[]) => among.find(escapesAll) ?? among[0];
       return pick(installable) ?? pick(candidates);
     };
 
     for (const [fix, group] of Map.groupBy(advisories, fixOf)) {
-      const installed = [...new Set(group.flatMap((advisory) => advisory.installed))].sort(compareVersionStrings);
+      const installed = semver.sort([...new Set(group.flatMap((advisory) => advisory.installed))]);
       const ghsas = group.map((advisory) => advisory.ghsa);
       const allIgnored = ghsas.every((ghsa) => ignored.has(ghsa));
       const breaking = !!fix && installed.some((v) => isBreakingJump(v, fix));
@@ -199,12 +192,13 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
             const key = `${module}@${range}`;
             const kept = input.previous.overrides[key];
             // A target someone widened by hand (`>=1.2.3`) stays as written while it still admits the fix.
-            return [key, kept && admits(kept, fix) ? kept : `^${fix}`];
+            return [key, kept && semver.satisfies(fix, kept) ? kept : `^${fix}`];
           }),
         );
 
         if (remedy.type === 'override') {
-          if (previousOverrides(module, input.previous).some(([, target]) => admits(target, fix))) standing = 'carried';
+          if (previousOverrides(module, input.previous).some(([, target]) => semver.satisfies(fix, target)))
+            standing = 'carried';
           // An ignored advisory whose fix arrived moves to an override, unless that takes a breaking jump.
           else if (allIgnored && !breaking) standing = 'new';
         }
@@ -212,7 +206,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
 
       items.push({
         module,
-        severity: severities.find((severity) => group.some((advisory) => advisory.severity === severity)) ?? 'info',
+        severity: worstSeverity(group.map((advisory) => advisory.severity)) ?? 'info',
         ghsas,
         installed: installed[0] ?? '',
         via: [...new Set(group.flatMap((advisory) => advisory.via))],

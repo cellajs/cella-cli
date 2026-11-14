@@ -12,16 +12,9 @@ import { dirname, join, relative } from 'node:path';
 import { confirm, select } from '@inquirer/prompts';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, divider, plural, spinnerText, warningMark } from '../utils/display';
+import { fetchPublishTimes, runPnpm, runPnpmAudit, runPnpmJson } from '../utils/pnpm';
 import { type AuditSettings, readAuditSettings, readPatchFiles, writeAuditSettings } from '../utils/workspace-yaml';
-import {
-  fetchPublishTimes,
-  formatDependents,
-  getVulnIcon,
-  middleTruncate,
-  runPnpm,
-  runPnpmAudit,
-  runPnpmJson,
-} from './pnpm';
+import { formatDependents, middleTruncate, printAdvisoryRows } from './format';
 import {
   type Advisory,
   advisoriesFromAudit,
@@ -124,20 +117,17 @@ function noteText(item: SecurityItem, releaseAgeHours: number): string {
 }
 
 function printGroup(title: string, items: SecurityItem[], releaseAgeHours: number): void {
-  if (items.length === 0) return;
-  const nameWidth = Math.min(30, Math.max(...items.map((item) => item.module.length)));
-  const versionWidth = Math.max(...items.map((item) => versionsText(item).length));
-
-  console.info(pc.bold(`${title} (${items.length})`));
-  for (const item of items) {
-    const name = pc.white(middleTruncate(item.module, nameWidth).padEnd(nameWidth));
-    const source = `${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`;
-    const tail = [source, noteText(item, releaseAgeHours)].filter(Boolean).join(' · ');
-    console.info(
-      `${getVulnIcon(item.severity)} ${name}  ${item.severity.padEnd(8)}  ${versionsText(item).padEnd(versionWidth)}  ${pc.dim(tail)}`,
-    );
-  }
-  console.info();
+  printAdvisoryRows(
+    pc.bold(`${title} (${items.length})`),
+    items.map((item) => ({
+      module: item.module,
+      severity: item.severity,
+      versions: versionsText(item),
+      note: [`${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`, noteText(item, releaseAgeHours)]
+        .filter(Boolean)
+        .join(' · '),
+    })),
+  );
 }
 
 function printDropped(title: string, rows: Array<[name: string, reason: string]>): void {
@@ -241,6 +231,30 @@ const noEdits: WorkspaceEdits = { manifests: {}, files: {} };
 export type SecurityPassOutcome = 'written' | 'unchanged' | 'failed';
 
 /**
+ * Write `files` into the workspace, then run `pnpm install` when `install` is set. A failed install
+ * puts every file back and removes one that did not exist before. Returns whether it succeeded.
+ */
+function writeWorkspace(repoRoot: string, files: Record<string, string>, install: boolean): boolean {
+  const before = Object.fromEntries(
+    Object.keys(files).map((file) => [file, readOr(join(repoRoot, file), undefined)] as const),
+  );
+  for (const [file, content] of Object.entries(files)) writeFileSync(join(repoRoot, file), content);
+  if (!install) return true;
+
+  const result = spawnSync('pnpm', ['install'], { cwd: repoRoot, stdio: 'inherit' });
+  console.info();
+  if (result.status === 0) return true;
+  for (const [file, content] of Object.entries(before)) {
+    if (content === undefined) rmSync(join(repoRoot, file), { force: true });
+    else writeFileSync(join(repoRoot, file), content);
+  }
+  console.error(`${pc.red('✗')} pnpm install failed (exit code ${result.status})`);
+  console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
+  console.info();
+  return false;
+}
+
+/**
  * Run the security pass on the workspace at `repoRoot`, with the update step's `edits` already in
  * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
  * written once, at the end; with `apply` off nothing is written.
@@ -308,7 +322,6 @@ export async function runSecurityPass(
     const releaseAgeHours = Math.round(releaseAgeMinutes / 60);
     const planInput = { advisories, published, previous, releaseAgeMinutes, now: Date.now() };
     const items = planSecurity(planInput);
-    const excludes = liveExcludes(planInput);
     spinner.stop();
 
     const changes = printPlan({
@@ -336,74 +349,44 @@ export async function runSecurityPass(
 
     const open = decisions.filter((decision) => decision.action === 'open').map((decision) => decision.item.module);
     const kept = Object.assign({}, lasting, ...open.map((module) => standingOverrides(module, planInput)));
-    const next = settingsFor(decisions, kept, excludes);
+    const next = settingsFor(decisions, kept, liveExcludes(planInput));
     const nextYaml = writeAuditSettings(workspaceYaml, next);
     const settingsChanged = nextYaml !== workspaceYaml;
+    // Ignores and aged excludes do not change what resolves: only new manifests or overrides need an install.
+    const install = updatesManifests || !sameEntries(next.overrides, previous.overrides);
+    const files: Record<string, string> = { ...edits.files, ...(settingsChanged && { [workspaceFile]: nextYaml }) };
 
-    const otherFiles = Object.keys(edits.files);
-    const writeFiles = (): void => {
-      for (const [file, content] of Object.entries(edits.files)) writeFileSync(join(repoRoot, file), content);
-      if (otherFiles.length > 0) console.info(`${checkMark} ${otherFiles.join(', ')} updated`);
-    };
+    if (install) {
+      const stagingSpinner = createSpinner('resolving with the new settings...');
+      const staged = await resolveStaging(staging, workspaceYaml, next);
+      stagingSpinner.stop();
+      if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
+      Object.assign(files, edits.manifests, { [lockFile]: staged.lock });
+    }
+    if (!writeWorkspace(repoRoot, files, install)) return 'failed';
 
-    if (!settingsChanged && !updatesManifests) {
-      writeFiles();
+    let reported = open;
+    if (install) {
+      // The workspace's own audit has the last word on what is still reported.
+      const verified = await runPnpmAudit(repoRoot);
+      if (verified) reported = [...new Set(advisoriesFromAudit(verified).map((advisory) => advisory.module))];
+      console.info(`${checkMark} installed${reported.length === 0 ? ` ${pc.dim('·')} audit clean` : ''}`);
+    } else if (Object.keys(files).length > 0) {
+      console.info(`${checkMark} ${Object.keys(files).join(', ')} updated ${pc.dim('· nothing to install')}`);
+    }
+    if (!settingsChanged) {
       const state = `${plural(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
       console.info(`${checkMark} security settings are current ${pc.dim(`· ${state}`)}`);
-      printOpen(open);
-      return 'written';
     }
+    printOpen(reported);
 
-    const summarize = (): void => {
-      if (!settingsChanged) return;
+    if (settingsChanged) {
       console.info(pc.bold(workspaceFile));
       console.info(changeLine('overrides', auditKeys, Object.keys(next.overrides).filter(isAuditOverride)));
       console.info(changeLine('excludes', previous.releaseAgeExcludes, next.releaseAgeExcludes));
       console.info(changeLine('ignored', previous.ignoredGhsas, next.ignoredGhsas));
       console.info();
-    };
-
-    // Ignores and aged excludes do not change what resolves: the file is all there is to write.
-    if (!updatesManifests && sameEntries(next.overrides, previous.overrides)) {
-      writeFiles();
-      writeFileSync(join(repoRoot, workspaceFile), nextYaml);
-      console.info(`${checkMark} ${workspaceFile} updated ${pc.dim('· nothing to install')}`);
-      printOpen(open);
-      summarize();
-      return 'written';
     }
-
-    const stagingSpinner = createSpinner('resolving with the new settings...');
-    const staged = await resolveStaging(staging, workspaceYaml, next);
-    stagingSpinner.stop();
-    if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
-
-    const written = { ...edits.files, ...edits.manifests, [workspaceFile]: nextYaml, [lockFile]: staged.lock };
-    // Undefined for a file that does not exist yet, which the rollback removes
-    const before = Object.fromEntries(
-      Object.keys(written).map((file) => [file, readOr(join(repoRoot, file), undefined)] as const),
-    );
-    for (const [file, content] of Object.entries(written)) writeFileSync(join(repoRoot, file), content);
-    const install = spawnSync('pnpm', ['install'], { cwd: repoRoot, stdio: 'inherit' });
-    console.info();
-    if (install.status !== 0) {
-      for (const [file, content] of Object.entries(before)) {
-        if (content === undefined) rmSync(join(repoRoot, file), { force: true });
-        else writeFileSync(join(repoRoot, file), content);
-      }
-      console.error(`${pc.red('✗')} pnpm install failed (exit code ${install.status})`);
-      console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
-      console.info();
-      return 'failed';
-    }
-
-    // The workspace's own audit has the last word on what is still reported.
-    const verified = await runPnpmAudit(repoRoot);
-    const reported = verified ? [...new Set(advisoriesFromAudit(verified).map((advisory) => advisory.module))] : open;
-    console.info(`${checkMark} installed${reported.length === 0 ? ` ${pc.dim('·')} audit clean` : ''}`);
-    printOpen(reported);
-
-    summarize();
     return 'written';
   } finally {
     spinner.stop();

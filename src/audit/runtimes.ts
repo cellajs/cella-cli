@@ -1,15 +1,23 @@
 /**
  * Runtime pins for the audit: the Node and pnpm versions the root package.json pins, and the image
- * tags of the Dockerfiles, checked against their release feeds. Reading, planning and rewriting
- * are pure; the fetches never throw, so a feed that does not answer only leaves its runtime out.
+ * tags of the Dockerfiles, checked against their release feeds (see feeds.ts). Reading the pins
+ * and planning their updates are pure; rewriting a pin returns the new file content.
  */
 
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
+import semver from 'semver';
 import { plural } from '../utils/display';
 import { git } from '../utils/git';
-import { compareVersionStrings, isPrerelease, parseComparableVersion, satisfiesComparators } from '../utils/versions';
-import { editJsonText, fetchPublishTimes, type VulnerabilitySeverity } from './pnpm';
+import {
+  type BulkAdvisory,
+  type Feeds,
+  hubRepository,
+  type ImageTags,
+  minorTag,
+  type NodeRelease,
+  type Release,
+} from './feeds';
 
 /** An image tag in a Dockerfile `FROM` line. */
 interface ImagePin {
@@ -28,33 +36,6 @@ export interface RuntimePins {
   images: ImagePin[];
   /** Suffixes of `FROM node:${…}<suffix>` lines (`-alpine`): the images a Node bump needs to exist. */
   nodeImageSuffixes: string[];
-}
-
-/** A Node release from nodejs.org, with the time it was published. */
-export interface NodeRelease {
-  version: string;
-  publishedAt: number;
-  security: boolean;
-}
-
-/** An image tag on Docker Hub and when it was last pushed. */
-interface HubTag {
-  name: string;
-  pushedAt: number;
-}
-
-/** An npm advisory, reduced to its vulnerable range and severity. */
-export interface BulkAdvisory {
-  vulnerable_versions: string;
-  severity: VulnerabilitySeverity;
-}
-
-/** What the feeds answered; null where a feed did not answer. */
-export interface RuntimeFeeds {
-  node: NodeRelease[] | null;
-  pnpm: { published: Record<string, string>; advisories: BulkAdvisory[] } | null;
-  /** Per image pin, in the order of {@link RuntimePins.images}. */
-  images: Array<{ pinned: HubTag | null; tags: HubTag[] } | null>;
 }
 
 /** How a pin moves, and what the audit shows about it. */
@@ -83,9 +64,6 @@ const fromLine = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?\s*$/i
 
 /** `FROM node:${NODE_VERSION}-alpine`: the version comes from a build argument. */
 const nodeArgTag = /^(?:docker\.io\/)?(?:library\/)?node:\$\{?\w+\}?([\w.-]*)$/;
-
-/** A tag naming at least a minor (`2.8`, `2.8.4`), with an optional suffix (`-alpine`). */
-const minorTag = /^(\d+(?:\.\d+){1,2})(-[\w.-]+)?$/;
 
 const isDockerfile = (path: string): boolean => /(^|\.)Dockerfile$|^Dockerfile\./i.test(basename(path));
 
@@ -159,112 +137,85 @@ export async function readRuntimePins(repoRoot: string): Promise<RuntimePins> {
   };
 }
 
-/** The parsed JSON answer of a URL; null for an error status, a timeout or unparsable output. */
-export async function fetchJson(url: string, init?: RequestInit): Promise<unknown> {
-  try {
-    const response = await fetch(url, { ...init, signal: AbortSignal.timeout(10_000) });
-    return response.ok ? await response.json() : null;
-  } catch {
-    return null;
-  }
-}
-
-const hubRepository = (image: string): string => (image.includes('/') ? image : `library/${image}`);
-
-const hubTag = (entry: unknown): HubTag | null => {
-  const { name, last_updated } = (entry ?? {}) as { name?: string; last_updated?: string };
-  const pushedAt = Date.parse(last_updated ?? '');
-  return name && !Number.isNaN(pushedAt) ? { name, pushedAt } : null;
-};
-
-/**
- * Node releases from nodejs.org. The index gives a release day only, so a release from the last
- * two days, where the day alone cannot settle the release age, gets its exact time from the
- * Last-Modified header of its checksum file (the end of its day when that does not answer).
- */
-export async function fetchNodeReleases(major: number, now: number): Promise<NodeRelease[] | null> {
-  const index = await fetchJson('https://nodejs.org/dist/index.json');
-  if (!Array.isArray(index)) return null;
-  const releases = index
-    .map((entry) => entry as { version?: string; date?: string; security?: boolean })
-    .filter((entry) => entry.version && parseComparableVersion(entry.version)?.major === major)
-    .map((entry) => ({
-      version: String(entry.version).replace(/^v/, ''),
-      publishedAt: Date.parse(entry.date ?? ''),
-      security: entry.security === true,
-    }))
-    .filter((release) => !Number.isNaN(release.publishedAt));
-
-  await Promise.all(
-    releases
-      .filter((release) => now - release.publishedAt < 2 * day)
-      .map(async (release) => {
-        try {
-          const response = await fetch(`https://nodejs.org/dist/v${release.version}/SHASUMS256.txt`, {
-            method: 'HEAD',
-            signal: AbortSignal.timeout(10_000),
-          });
-          const modified = Date.parse(response.headers.get('last-modified') ?? '');
-          release.publishedAt = Number.isNaN(modified) ? release.publishedAt + day : modified;
-        } catch {
-          release.publishedAt += day;
-        }
-      }),
-  );
-  return releases;
-}
-
-async function fetchImageTags(pin: ImagePin): Promise<{ pinned: HubTag | null; tags: HubTag[] } | null> {
-  const shape = pin.tag.match(minorTag);
-  if (!shape) return null;
-  const base = `https://hub.docker.com/v2/repositories/${hubRepository(pin.image)}/tags`;
-  const filter = shape[2] ?? `${shape[1].split('.')[0]}.`;
-  const [list, pinned] = await Promise.all([
-    fetchJson(`${base}?page_size=100&ordering=last_updated&name=${encodeURIComponent(filter)}`),
-    fetchJson(`${base}/${encodeURIComponent(pin.tag)}`),
-  ]);
-  const results = (list as { results?: unknown[] } | null)?.results;
-  if (!Array.isArray(results)) return null;
-  return { pinned: hubTag(pinned), tags: results.flatMap((entry) => hubTag(entry) ?? []) };
-}
-
-/** The npm advisories against a pnpm version; null when the registry does not answer. */
-export async function fetchPnpmAdvisories(version: string): Promise<BulkAdvisory[] | null> {
-  const answer = await fetchJson('https://registry.npmjs.org/-/npm/v1/security/advisories/bulk', {
-    method: 'POST',
-    headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ pnpm: [version] }),
-  });
-  return answer ? ((answer as { pnpm?: BulkAdvisory[] }).pnpm ?? []) : null;
-}
-
-/** Ask every feed the pins need, in parallel. Only pins whose tag names a minor reach Docker Hub. */
-export async function fetchRuntimeFeeds(pins: RuntimePins, cwd: string, now: number): Promise<RuntimeFeeds> {
-  const nodeMajor = pins.node ? parseComparableVersion(pins.node)?.major : undefined;
-  const [node, published, advisories, images] = await Promise.all([
-    nodeMajor === undefined ? null : fetchNodeReleases(nodeMajor, now),
-    pins.pnpm ? fetchPublishTimes('pnpm', cwd) : null,
-    pins.pnpm ? fetchPnpmAdvisories(pins.pnpm) : null,
-    Promise.all(pins.images.map(fetchImageTags)),
-  ]);
-  return { node, pnpm: published && advisories ? { published, advisories } : null, images };
-}
-
 const monthYear = (time: number): string =>
   new Date(time).toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).toLowerCase();
 
-/** The highest version above `pinned` in its major that is older than the release age. */
-export function newestAged(pinned: string, versions: Array<{ version: string; publishedAt: number }>, cutoff: number) {
-  const major = parseComparableVersion(pinned)?.major;
-  return versions
-    .filter(
-      (entry) =>
-        !isPrerelease(entry.version) &&
-        parseComparableVersion(entry.version)?.major === major &&
-        compareVersionStrings(entry.version, pinned) > 0 &&
-        entry.publishedAt <= cutoff,
-    )
-    .sort((a, b) => compareVersionStrings(b.version, a.version))[0];
+/** The highest stable version above `pinned` in its major that is older than the release age. */
+export function newestAged(pinned: string, releases: Release[], cutoff: number): string | undefined {
+  const aged = releases.filter((release) => release.publishedAt <= cutoff).map((release) => release.version);
+  return semver.maxSatisfying(aged, `>${pinned} <${semver.major(pinned) + 1}`) ?? undefined;
+}
+
+function nodeUpdate(node: string, releases: NodeRelease[], cutoff: number): RuntimeUpdate | null {
+  const target = newestAged(node, releases, cutoff);
+  if (!target) return null;
+  const security = releases.some(
+    (release) => release.security && semver.satisfies(release.version, `>${node} <=${target}`),
+  );
+  return {
+    name: 'node',
+    current: node,
+    target,
+    file: 'package.json',
+    severity: security ? 'high' : null,
+    note: security ? 'security release' : '',
+    releasesUrl: `https://nodejs.org/en/blog/release/v${target}`,
+    pin: { type: 'node' },
+  };
+}
+
+function pnpmUpdate(
+  pnpm: string,
+  releases: Release[],
+  advisories: BulkAdvisory[],
+  cutoff: number,
+): RuntimeUpdate | null {
+  const target = newestAged(pnpm, releases, cutoff);
+  if (!target) return null;
+  const fixed = advisories.filter(
+    ({ vulnerable_versions: range }) => semver.satisfies(pnpm, range) && !semver.satisfies(target, range),
+  ).length;
+  return {
+    name: 'pnpm',
+    current: pnpm,
+    target,
+    file: 'package.json',
+    severity: fixed > 0 ? 'high' : null,
+    note: fixed > 0 ? plural(fixed, 'advisory', 'advisories') : '',
+    releasesUrl: `https://github.com/pnpm/pnpm/releases/tag/v${target}`,
+    pin: { type: 'pnpm' },
+  };
+}
+
+/** A newer minor tag in the pin's line: the same major and suffix, and as many version parts. */
+function imageUpdate(pin: ImagePin, feed: ImageTags | null, now: number): RuntimeUpdate | null {
+  const [, version, suffix = ''] = pin.tag.match(minorTag) ?? [];
+  if (!version || !feed) return null;
+  // A tag naming a minor reads as a version: `2.8` is 2.8.0.
+  const pinned = semver.coerce(version)!;
+  const newer = feed.tags.flatMap((tag) => {
+    const [, tagVersion, tagSuffix = ''] = tag.name.match(minorTag) ?? [];
+    if (!tagVersion || tagSuffix !== suffix || tagVersion.split('.').length !== version.split('.').length) return [];
+    const parsed = semver.coerce(tagVersion)!;
+    return parsed.major === pinned.major && semver.gt(parsed, pinned) ? [{ tag, version: tagVersion, parsed }] : [];
+  });
+  const target = newer.sort((a, b) => semver.rcompare(a.parsed, b.parsed))[0];
+  if (!target) return null;
+
+  const frozen = !!feed.pinned && now - feed.pinned.pushedAt > frozenAfter && now - target.tag.pushedAt < recentPush;
+  const repository = hubRepository(pin.image);
+  return {
+    name: pin.image,
+    current: version,
+    target: target.version,
+    file: pin.file,
+    severity: frozen ? 'moderate' : null,
+    note: frozen && feed.pinned ? `tag frozen since ${monthYear(feed.pinned.pushedAt)}` : '',
+    releasesUrl: repository.startsWith('library/')
+      ? `https://hub.docker.com/_/${pin.image}/tags`
+      : `https://hub.docker.com/r/${repository}/tags`,
+    pin: { type: 'image', line: pin.line, ref: `${pin.image}:${pin.tag}`, to: `${pin.image}:${target.tag.name}` },
+  };
 }
 
 /**
@@ -273,108 +224,33 @@ export function newestAged(pinned: string, versions: Array<{ version: string; pu
  */
 export function planRuntimeUpdates(
   pins: RuntimePins,
-  feeds: RuntimeFeeds,
+  feeds: Feeds,
   options: { releaseAgeMinutes: number; now: number },
 ): { updates: RuntimeUpdate[]; unchecked: string[] } {
   const cutoff = options.now - options.releaseAgeMinutes * 60 * 1000;
-  const updates: RuntimeUpdate[] = [];
-  const unchecked: string[] = [];
+  const { node, pnpm, pnpmAdvisories, images } = feeds;
+  const updates = [
+    pins.node && node ? nodeUpdate(pins.node, node, cutoff) : null,
+    pins.pnpm && pnpm && pnpmAdvisories ? pnpmUpdate(pins.pnpm, pnpm, pnpmAdvisories, cutoff) : null,
+    ...pins.images.map((pin, i) => imageUpdate(pin, images[i], options.now)),
+  ];
+  const unchecked = [
+    ...(pins.node && !node ? ['node'] : []),
+    ...(pins.pnpm && !(pnpm && pnpmAdvisories) ? ['pnpm'] : []),
+    ...pins.images.flatMap((pin, i) => (minorTag.test(pin.tag) && !images[i] ? [pin.image] : [])),
+  ];
+  return { updates: updates.filter((update) => update !== null), unchecked };
+}
 
-  if (pins.node) {
-    if (!feeds.node) unchecked.push('node');
-    const target = feeds.node && newestAged(pins.node, feeds.node, cutoff);
-    if (target) {
-      const node = pins.node;
-      const security = (feeds.node ?? []).some(
-        (release) =>
-          release.security &&
-          compareVersionStrings(release.version, node) > 0 &&
-          compareVersionStrings(release.version, target.version) <= 0,
-      );
-      updates.push({
-        name: 'node',
-        current: node,
-        target: target.version,
-        file: 'package.json',
-        severity: security ? 'high' : null,
-        note: security ? 'security release' : '',
-        releasesUrl: `https://nodejs.org/en/blog/release/v${target.version}`,
-        pin: { type: 'node' },
-      });
-    }
-  }
-
-  if (pins.pnpm) {
-    if (!feeds.pnpm) unchecked.push('pnpm');
-    const published = Object.entries(feeds.pnpm?.published ?? {}).map(([version, time]) => ({
-      version,
-      publishedAt: Date.parse(time),
-    }));
-    const target = feeds.pnpm && newestAged(pins.pnpm, published, cutoff);
-    if (target) {
-      const pnpm = pins.pnpm;
-      const fixed = (feeds.pnpm?.advisories ?? []).filter(
-        (advisory) =>
-          satisfiesComparators(pnpm, advisory.vulnerable_versions) &&
-          !satisfiesComparators(target.version, advisory.vulnerable_versions),
-      ).length;
-      updates.push({
-        name: 'pnpm',
-        current: pnpm,
-        target: target.version,
-        file: 'package.json',
-        severity: fixed > 0 ? 'high' : null,
-        note: fixed > 0 ? plural(fixed, 'advisory', 'advisories') : '',
-        releasesUrl: `https://github.com/pnpm/pnpm/releases/tag/v${target.version}`,
-        pin: { type: 'pnpm' },
-      });
-    }
-  }
-
-  pins.images.forEach((pin, i) => {
-    const shape = pin.tag.match(minorTag);
-    if (!shape) return;
-    const feed = feeds.images[i];
-    if (!feed) {
-      unchecked.push(pin.image);
-      return;
-    }
-    const [, version, suffix = ''] = shape;
-    const parts = version.split('.').length;
-    const major = version.split('.')[0];
-    const target = feed.tags
-      .map((tag) => ({ tag, match: tag.name.match(minorTag) }))
-      .filter(
-        ({ match }) =>
-          match &&
-          (match[2] ?? '') === suffix &&
-          match[1].split('.').length === parts &&
-          match[1].split('.')[0] === major &&
-          compareVersionStrings(match[1], version) > 0,
-      )
-      .sort((a, b) => compareVersionStrings(b.match?.[1] ?? '', a.match?.[1] ?? ''))[0];
-    if (!target?.match) return;
-
-    const frozen =
-      !!feed.pinned &&
-      options.now - feed.pinned.pushedAt > frozenAfter &&
-      options.now - target.tag.pushedAt < recentPush;
-    const repository = hubRepository(pin.image);
-    updates.push({
-      name: pin.image,
-      current: version,
-      target: target.match[1],
-      file: pin.file,
-      severity: frozen ? 'moderate' : null,
-      note: frozen && feed.pinned ? `tag frozen since ${monthYear(feed.pinned.pushedAt)}` : '',
-      releasesUrl: repository.startsWith('library/')
-        ? `https://hub.docker.com/_/${pin.image}/tags`
-        : `https://hub.docker.com/r/${repository}/tags`,
-      pin: { type: 'image', line: pin.line, ref: `${pin.image}:${pin.tag}`, to: `${pin.image}:${target.tag.name}` },
-    });
-  });
-
-  return { updates, unchecked };
+/**
+ * JSON text after `change` ran on its parsed value, written back with the file's own indent and
+ * final newline, the way pnpm writes a manifest.
+ */
+export function editJsonText(content: string, change: (json: Record<string, unknown>) => void): string {
+  const json = JSON.parse(content) as Record<string, unknown>;
+  change(json);
+  const indent = content.match(/^[ \t]+(?=")/m)?.[0] ?? '  ';
+  return `${JSON.stringify(json, null, indent)}${content.endsWith('\n') ? '\n' : ''}`;
 }
 
 /** The file content with the update's pin moved to its target. */
@@ -390,18 +266,6 @@ export function applyRuntimeUpdate(content: string, update: RuntimeUpdate): stri
     // A `+sha` suffix names the old version's tarball, so it goes.
     else json.packageManager = `pnpm@${update.target}`;
   });
-}
-
-/** The `node:<version><suffix>` images a Node bump would build from that Docker Hub does not have (yet). */
-export async function missingNodeImages(version: string, suffixes: string[]): Promise<string[]> {
-  const missing = await Promise.all(
-    suffixes.map(async (suffix) => {
-      const tag = `${version}${suffix}`;
-      const found = await fetchJson(`https://hub.docker.com/v2/repositories/library/node/tags/${tag}`);
-      return found ? [] : [`node:${tag}`];
-    }),
-  );
-  return missing.flat();
 }
 
 /** Where a pin lives, for the table: the file's directory, or the file itself at the root. */
