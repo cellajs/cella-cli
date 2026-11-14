@@ -10,14 +10,9 @@ import { runAnalyze } from '../../src/upstream/analyze';
 import { gitDiffFile } from '../../src/upstream/diff-page';
 import { reviewSections } from '../../src/upstream/review-page';
 import { runUpgrade } from '../../src/upstream/upgrade';
-import {
-  commitSquash,
-  fetchUpstreamTags,
-  getEffectiveMergeBase,
-  readStoredUpgradePoint,
-  resolveUpstreamCommit,
-  stageAll,
-} from '../../src/utils/git';
+import { getEffectiveMergeBase, readStoredUpgradePoint } from '../../src/upstream/upgrade-point';
+import { fetchUpstreamTags, resolveUpstreamCommit } from '../../src/upstream/upstream-ref';
+import { commitSquash, stageAll } from '../../src/utils/git';
 import {
   buildRuntimeConfig,
   createTestEnv,
@@ -1002,7 +997,7 @@ describe('upgrade e2e', () => {
       expect(section.paths.sort()).toEqual(dropped);
 
       // The review page's diff: upstream's side since the last upgrade, without the app's own changes
-      const diff = gitDiffFile(env.repoRoot, section.range, 'shared/config/default.ts').toString();
+      const diff = await gitDiffFile(env.repoRoot, section.range, 'shared/config/default.ts');
       expect(diff).toContain('+export const config = { a: 1, newKey: true };');
       expect(diff).not.toContain('forkKey');
     });

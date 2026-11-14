@@ -6,7 +6,7 @@
  * error. `findMaskingPins` isolates exactly those so the upgrade/analyze output can flag them.
  */
 import { describe, expect, it } from 'vitest';
-import { findMaskingPins } from '../../src/utils/display';
+import { findMaskingPins } from '../../src/upstream/report';
 import { analyzedFile as file } from '../helpers/test-env';
 
 describe('findMaskingPins', () => {

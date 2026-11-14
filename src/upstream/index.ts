@@ -9,8 +9,8 @@ import { validateOverrides } from './protection';
 import { runUpgradeCommand } from './upgrade';
 
 /**
- * What the upstream code runs on: the app's config, the repository, the upstream branch tip as last fetched (the merge
- * engine resolves a release tag from it when tracking releases) and the engine's options. Prints a warning for each
+ * What the upstream code runs on: the app's config, the repository, the upstream branch tip as last fetched (analyze
+ * and upgrade resolve the ref they merge from after their own fetch) and the run's options. Prints a warning for each
  * override entry that cannot work at that tip.
  */
 async function upstreamContext(

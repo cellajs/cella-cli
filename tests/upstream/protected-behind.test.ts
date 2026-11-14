@@ -10,9 +10,9 @@
  */
 import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import type { AnalyzedFile, MergeResult } from '../../src/config/types';
 import { analyzeRefs } from '../../src/upstream/classify';
-import { findProtectedBehindUpstream, printUpgradeComplete } from '../../src/utils/display';
+import type { AnalyzedFile, MergeResult } from '../../src/upstream/model';
+import { findProtectedBehindUpstream, printUpgradeComplete } from '../../src/upstream/report';
 import { getMergeBase } from '../../src/utils/git';
 import { captureInfo, createRepo, exec, analyzedFile as file, write } from '../helpers/test-env';
 

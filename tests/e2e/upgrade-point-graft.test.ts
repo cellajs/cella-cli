@@ -12,7 +12,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { getEffectiveMergeBase, merge, withUpgradePointGraft } from '../../src/utils/git';
+import { getEffectiveMergeBase, withUpgradePointGraft } from '../../src/upstream/upgrade-point';
+import { merge } from '../../src/utils/git';
 import { commitAll, createRepo, exec, gitUser, upstreamRemote, write } from '../helpers/test-env';
 
 const fileBase = 'export function getItems() {\n  const a = 1;\n  const b = 2;\n  return [a, b];\n}\n';

@@ -10,7 +10,8 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
-import type { AnalyzedFile, CellaCliConfig, FileStatus, RuntimeConfig } from '../../src/config/types';
+import type { CellaCliConfig, RuntimeConfig } from '../../src/config/types';
+import type { AnalyzedFile, FileStatus } from '../../src/upstream/model';
 
 /** Git config for test commits */
 export const gitUser = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';

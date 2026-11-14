@@ -8,7 +8,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import { cliVersionMismatch, readUpstreamCliRange, releaseAgeExcludeHint } from '../../src/upstream/cli-version';
+import { cliVersionMismatch, readUpstreamCliRange, releaseAgeExcludeHint } from '../../src/upstream/gates';
 import { createRepo, exec } from '../helpers/test-env';
 
 describe('cliVersionMismatch', () => {

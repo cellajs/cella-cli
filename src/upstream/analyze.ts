@@ -1,30 +1,33 @@
-/**
- * Analyze command: a dry run of the upgrade that shows what would change without applying.
- */
-
-import type { AnalyzeScope, MergeResult, RuntimeConfig } from '../config/types';
+import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import {
-  createSpinner,
-  type NextStep,
-  printMaskingPinWarning,
-  printNextSteps,
-  printSummary,
-  printUpstreamOverrideChanges,
-  spinnerSuccess,
-  writeStdout,
-} from '../utils/display';
+import { createSpinner, type NextStep, plural, printNextSteps, printStep, writeStdout } from '../utils/display';
+import { gitHubRepo, readRemoteUrl } from '../utils/git';
 import { alignmentsStep } from './align';
 import { printAnalysisFileGroups } from './analyze-report';
+import { classifyUpgrade, enrichChangeInfo, summarize } from './classify';
+import { assertAheadOfUpgradePoint, assertCliVersion } from './gates';
 import { configFile } from './managed-files';
-import { readOriginGitHubUrl, runEngineWithSpinner } from './merge-engine';
+import type { MergeResult } from './model';
+import {
+  printCheckoutStep,
+  printMaskingPinWarning,
+  printSummary,
+  printUpstreamOverrideChanges,
+  printUpstreamStep,
+  readUpstreamReports,
+} from './report';
 import { reportReviewPage, reviewStep } from './review-page';
+import { ensureUpgradePoint, readAlignmentsInRange, readUpgradeRange } from './upgrade-point';
+import { fetchUpstream, resolveUpstreamRef } from './upstream-ref';
 
-const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
+const scopeStatuses = {
   all: new Set(['ahead', 'drifted', 'diverged']),
   risk: new Set(['drifted', 'diverged']),
   protected: new Set(['ahead']),
 };
+
+/** Which files `--list` and `--json` print. */
+type AnalyzeScope = keyof typeof scopeStatuses;
 
 /**
  * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
@@ -32,7 +35,7 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
  * ignored files only upstream changed (`upstreamOnly`), and the CLI config when upstream's
  * `pinned`, `ignored` or `packageJsonKeys` changed in ways the app config does not follow.
  */
-function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
+function filterByScope(result: MergeResult, scope: AnalyzeScope): MergeResult['files'] {
   const statuses = scopeStatuses[scope];
   if (scope === 'risk') return result.files.filter((f) => statuses.has(f.status));
   const overridesChanged = result.upstreamOverrides?.type === 'changes';
@@ -53,12 +56,40 @@ export interface AnalyzeOutput {
   all?: boolean;
 }
 
+/**
+ * The `analyze` command: a dry run of the upgrade that classifies every file from git refs and
+ * prints what an upgrade would change. The app's branches and working tree stay unchanged; like
+ * upgrade, it fetches upstream, and an app with no common history with upstream yet gets the local
+ * graft and ref its comparison needs.
+ */
 export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = {}): Promise<MergeResult> {
+  const { repoRoot } = config;
   createSpinner('starting analysis...');
 
-  const result = await runEngineWithSpinner(config, false);
+  await printCheckoutStep(repoRoot);
+  await fetchUpstream(config);
+  const pick = await resolveUpstreamRef(config);
+  await ensureUpgradePoint(repoRoot, 'HEAD', pick.ref);
+  const upstream = await readUpgradeRange(config, pick);
+  await printUpstreamStep(config, upstream);
 
-  spinnerSuccess();
+  await assertCliVersion(repoRoot, upstream.ref);
+  await assertAheadOfUpgradePoint(config, upstream);
+
+  const alignments = await readAlignmentsInRange(repoRoot, upstream);
+  const files = await classifyUpgrade(config, upstream);
+  await enrichChangeInfo(repoRoot, files, upstream.mergeBase, 'HEAD', upstream.ref);
+  const result: MergeResult = {
+    files,
+    summary: summarize(files),
+    // Every diverged file may conflict.
+    conflicts: files.filter((file) => file.status === 'diverged').map((file) => file.path),
+    protectedConflicts: files.filter((file) => file.upstreamChanged).map((file) => file.path),
+    ...(await readUpstreamReports(config, upstream, files)),
+    // The arrivals open only once the upgrade lands.
+    alignments,
+  };
+  printStep('analyzed', `${plural(files.length, 'file')}${pc.dim(' · dry run, branches and working tree unchanged')}`);
 
   const scopedFiles = filterByScope(result, output.scope ?? 'all');
 
@@ -97,9 +128,9 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
     links: {
       upstreamGitHubUrl: result.upstreamGitHubUrl,
       upstreamSha: result.upstreamCommit?.hash,
-      appGitHubUrl: await readOriginGitHubUrl(config.repoRoot),
+      appGitHubUrl: gitHubRepo(await readRemoteUrl(repoRoot, 'origin'))?.url,
       fileLinkMode: config.fileLinkMode,
-      repoRoot: config.repoRoot,
+      repoRoot,
     },
     all: output.all,
     ignored: config.ignored,
@@ -110,18 +141,15 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
   printSummary(result.summary, 'analysis summary');
 
   const steps: NextStep[] = [];
-  const review = await reportReviewPage(config.repoRoot, result, 'analyze');
+  const review = await reportReviewPage(repoRoot, result, 'analyze');
   if (review) steps.push(reviewStep(review));
   const upgrade = upgradeStep(result);
   if (upgrade) steps.push(upgrade);
-  const align =
-    result.alignments && result.upstreamCommit
-      ? await alignmentsStep(config, {
-          ref: result.upstreamCommit.hash,
-          open: result.alignments.open,
-          arriving: result.alignments.arrived,
-        })
-      : undefined;
+  const align = await alignmentsStep(config, {
+    ref: upstream.commit.hash,
+    open: alignments.open,
+    arriving: alignments.arrived,
+  });
   if (align) steps.push(align);
   printNextSteps(steps);
 

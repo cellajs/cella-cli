@@ -10,7 +10,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { ensureUpgradePoint } from '../../src/utils/git';
+import { ensureUpgradePoint } from '../../src/upstream/upgrade-point';
 import { commitAll, createRepo, exec, gitUser, upstreamRemote, write } from '../helpers/test-env';
 
 describe('ensureUpgradePoint shallow recovery', () => {

@@ -12,8 +12,8 @@ import path from 'node:path';
 import process from 'node:process';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { AnalyzedFile, MergeResult } from '../../src/config/types';
 import { analyzeRefs } from '../../src/upstream/classify';
+import type { AnalyzedFile, MergeResult } from '../../src/upstream/model';
 import { groupIgnoredUpstreamChanges } from '../../src/upstream/protection';
 import {
   existingUpgradeReviewPage,
@@ -295,14 +295,14 @@ describe('review page', () => {
     });
 
     it('finds the page the merge run of an upgrade wrote, and drops it when a later upgrade has nothing to review', async () => {
-      expect(existingUpgradeReviewPage(repoPath)).toBeUndefined();
+      expect(await existingUpgradeReviewPage(repoPath)).toBeUndefined();
 
       await report('upgrade');
-      expect(existingUpgradeReviewPage(repoPath)).toContain('upgrade-review.html');
+      expect(await existingUpgradeReviewPage(repoPath)).toContain('upgrade-review.html');
 
       result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
       expect(await report('upgrade')).toBeUndefined();
-      expect(existingUpgradeReviewPage(repoPath)).toBeUndefined();
+      expect(await existingUpgradeReviewPage(repoPath)).toBeUndefined();
     });
   });
 

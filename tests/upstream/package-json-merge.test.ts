@@ -9,6 +9,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PackageJsonKey, RuntimeConfig } from '../../src/config/types';
 import { runPackages } from '../../src/upstream/package-json-merge';
+import { getEffectiveMergeBase } from '../../src/upstream/upgrade-point';
 import { commitAll, createTestEnv, exec, fetchUpstream, type TestEnv, write } from '../helpers/test-env';
 
 /** A parsed package.json; the root one starts with both dependency records. */
@@ -60,9 +61,9 @@ describe('packages merge', () => {
     env.cleanup();
   });
 
-  /** Build a RuntimeConfig for the packages service */
-  function buildConfig(options?: { packageJsonKeys?: PackageJsonKey[] }): RuntimeConfig {
-    return {
+  /** Merge package.json from upstream's main, against the merge base an upgrade would resolve. */
+  async function mergePackages(options?: { packageJsonKeys?: PackageJsonKey[] }): Promise<void> {
+    const config: RuntimeConfig = {
       upstreamUrl: upstreamPath,
       upstreamBranch: 'main',
       ...(options?.packageJsonKeys ? { packageJsonKeys: options.packageJsonKeys } : {}),
@@ -71,6 +72,8 @@ describe('packages merge', () => {
       repoRoot,
       upstreamRef: 'cella-upstream/main',
     };
+    const ref = 'cella-upstream/main';
+    await runPackages(config, { ref, mergeBase: await getEffectiveMergeBase(repoRoot, 'HEAD', ref) });
   }
 
   it('adds new dependencies from upstream in alphabetical order, at every package.json location', async () => {
@@ -81,7 +84,7 @@ describe('packages merge', () => {
     commitAll(repoRoot, 'add frontend package');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(Object.entries(readPkg(repoRoot).dependencies)).toEqual([
       ['axios', '^1.6.0'],
@@ -96,7 +99,7 @@ describe('packages merge', () => {
     // Upstream still has ^4.0.0: the app's ^6.0.0 stays
     commitPkg(repoRoot, (pkg) => (pkg.dependencies.hono = '^6.0.0'), 'bump hono in app');
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies.hono).toBe('^6.0.0');
   });
@@ -107,7 +110,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => delete pkg.dependencies.zod, 'remove zod');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies).toEqual({ hono: '^4.0.0', 'my-custom-lib': '^1.0.0', zod: '^3.23.0' });
   });
@@ -116,7 +119,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => delete pkg.dependencies.zod, 'remove zod');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies).toEqual({ hono: '^4.0.0' });
   });
@@ -127,7 +130,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => delete pkg.dependencies.zod, 'remove zod');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies.zod).toBe('^3.22.0');
   });
@@ -140,7 +143,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.devDependencies = {}), 'drop dev dependencies');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).devDependencies).toEqual({ typescript: '^5.3.0' });
   });
@@ -158,7 +161,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.dependencies = {}), 'drop backend dependencies', 'backend');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot, 'backend').dependencies).toEqual({ postgres: '^3.4.0' });
   });
@@ -168,7 +171,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.dependencies.hono = '^5.0.0'), 'bump hono');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies).toEqual({ hono: '^5.0.0' });
   });
@@ -178,7 +181,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => Object.assign(pkg.dependencies, ranges), 'pin hono lower, bump zod');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).dependencies).toEqual({ hono: '^3.12.0', zod: '^3.23.0' });
   });
@@ -194,7 +197,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = rewritten), 'rewrite scripts');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] });
 
     expect(readPkg(repoRoot).scripts).toEqual({ build: 'tsc -b', lint: 'my-linter', test: 'vitest' });
   });
@@ -210,7 +213,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = upstreamScripts), 'add lint');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] });
 
     expect(Object.keys(readPkg(repoRoot).scripts ?? {})).toEqual(['dev', 'build', 'test', 'test:update', 'lint']);
   });
@@ -225,7 +228,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.scripts = { build: 'tsc' }), 'drop scripts');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts'] });
 
     expect(readPkg(repoRoot).scripts).toEqual({ build: 'tsc', 'geoip:download': 'node geoip.js' });
   });
@@ -239,7 +242,7 @@ describe('packages merge', () => {
     // The file merge brought the workspace without its (always ignored) package.json
     write(repoRoot, { 'oauth/index.ts': 'export {};\n' });
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     const raw = fs.readFileSync(path.join(repoRoot, 'oauth', 'package.json'), 'utf-8');
     expect(raw).toBe(exec('git show cella-upstream/main:oauth/package.json', repoRoot).concat('\n'));
@@ -255,7 +258,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.dependencies.hono = '^5.0.0'), 'bump hono');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(fs.existsSync(path.join(repoRoot, 'sdk', 'package.json'))).toBe(false);
   });
@@ -267,7 +270,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.exports = { '.': './dist/index.js', './config': config }), 'add exports');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'exports'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'exports'] });
 
     const exportsMap = readPkg(repoRoot).exports as Record<string, unknown>;
     // Repointed subpath stays repointed, new subpath arrives with its conditions in upstream order
@@ -282,7 +285,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.exports = subpaths), 'add exports');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'exports'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'exports'] });
 
     expect(readPkg(repoRoot).exports).toBe('./dist/index.js');
   });
@@ -300,7 +303,7 @@ describe('packages merge', () => {
     fetchUpstream(repoRoot);
     const info = vi.spyOn(console, 'info');
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies'] });
 
     const resultPkg = readPkg(repoRoot);
     expect(resultPkg.type).toBe('module');
@@ -321,7 +324,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.type = 'commonjs'), 'root on cjs');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot).type).toBe('commonjs');
     expect(readPkg(repoRoot, 'backend').type).toBe('commonjs');
@@ -333,7 +336,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => delete pkg.type, 'drop type');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig());
+    await mergePackages();
 
     expect(readPkg(repoRoot)).not.toHaveProperty('type');
   });
@@ -348,7 +351,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.packageManager = 'pnpm@10.2.0'), 'bump pnpm');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['packageManager'] }));
+    await mergePackages({ packageJsonKeys: ['packageManager'] });
 
     expect(readPkg(repoRoot).packageManager).toBe('pnpm@10.2.0');
     expect(readPkg(repoRoot, 'backend').packageManager).toBe('pnpm@10.5.0');
@@ -362,7 +365,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.pnpm = { overrides: upstreamOverrides }), 'add pnpm overrides');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] });
 
     expect(readPkg(repoRoot).pnpm).toEqual({
       overrides: { 'esbuild@<=0.24.2': '>=0.26.0', 'app-only-pkg@<1.0.0': '>=1.0.0', 'hono@<4.12.7': '>=4.12.7' },
@@ -382,7 +385,7 @@ describe('packages merge', () => {
     commitPkg(upstreamPath, (pkg) => (pkg.pnpm = upstreamPnpm), 'add upstream patch and extension');
     fetchUpstream(repoRoot);
 
-    await runPackages(buildConfig({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] }));
+    await mergePackages({ packageJsonKeys: ['dependencies', 'devDependencies', 'pnpm'] });
 
     expect(readPkg(repoRoot).pnpm).toEqual({
       patchedDependencies: { ...appPnpm.patchedDependencies, ...upstreamPnpm.patchedDependencies },
@@ -397,7 +400,7 @@ describe('packages merge', () => {
     fetchUpstream(repoRoot);
     write(repoRoot, { 'oauth/package.json': '{ "name": ' });
 
-    await expect(runPackages(buildConfig())).rejects.toThrow(/cannot parse .*oauth\/package\.json/);
+    await expect(mergePackages()).rejects.toThrow(/cannot parse .*oauth\/package\.json/);
     expect(fs.readFileSync(path.join(repoRoot, 'oauth', 'package.json'), 'utf-8')).toBe('{ "name": ');
   });
 });

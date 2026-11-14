@@ -1,25 +1,12 @@
-/**
- * Review page: one browser page per analyze or upgrade run, holding the diff of every file the run
- * asks you to review, under the same sections the terminal prints.
- */
-
 import { existsSync, rmSync } from 'node:fs';
 import { basename } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import type { MergeResult } from '../config/types';
 import pc from '../utils/colors';
-import {
-  createSpinner,
-  filesWithStatus,
-  findMaskingPins,
-  findProtectedBehindUpstream,
-  hyperlink,
-  type NextStep,
-  plural,
-  spinnerSuccess,
-} from '../utils/display';
+import { createSpinner, hyperlink, type NextStep, plural, spinnerSuccess } from '../utils/display';
 import { type DiffPageSection, diffPagePath, gitDiffFile, openInBrowser, writeDiffPage } from './diff-page';
+import type { MergeResult } from './model';
+import { filesWithStatus, findMaskingPins, findProtectedBehindUpstream } from './report';
 
 /**
  * What one page renders at most; the rest is listed by path. A rendered patch line costs about
@@ -37,8 +24,8 @@ interface ReviewPageLimits {
 
 const pageLimits: ReviewPageLimits = { files: 50, lines: 15_000, patchLines: 2_000 };
 
-/** Larger patches are listed without counting their lines: highlighting them stalls the run. */
-const maxPatchBytes = 512 * 1024;
+/** Patches longer than this (characters) are listed without counting their lines: highlighting them stalls the run. */
+const maxPatchLength = 512 * 1024;
 
 /** What {@link writeReviewPage} wrote: the page, its diffs, and the files it lists without one. */
 interface ReviewPage {
@@ -123,13 +110,6 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'upgrad
   return sections.filter((section) => section.paths.length > 0);
 }
 
-/** Lines in a patch, without decoding it. */
-function countLines(patch: Buffer): number {
-  let count = 0;
-  for (let at = patch.indexOf(10); at !== -1; at = patch.indexOf(10, at + 1)) count++;
-  return count;
-}
-
 /**
  * Write the review page for `sections` and return its path, its diffs and the files it lists
  * without one. Sections take turns, one file each, so a section of large diffs cannot fill the
@@ -162,14 +142,14 @@ export async function writeReviewPage(
         pageSection.omitted.push(path);
         continue;
       }
-      const patch = gitDiffFile(repoRoot, sections[index].range, path);
+      const patch = await gitDiffFile(repoRoot, sections[index].range, path);
       if (patch.length === 0) continue;
-      const patchLines = patch.length > maxPatchBytes ? Number.POSITIVE_INFINITY : countLines(patch);
+      const patchLines = patch.length > maxPatchLength ? Number.POSITIVE_INFINITY : patch.split('\n').length;
       if (patchLines > limits.patchLines || lines + patchLines > limits.lines || !patch.includes('\n@@ ')) {
         pageSection.omitted.push(path);
         continue;
       }
-      pageSection.files.push({ path, patch: patch.toString() });
+      pageSection.files.push({ path, patch });
       diffs++;
       lines += patchLines;
     }
@@ -194,7 +174,8 @@ export interface ReviewPageReport extends ReviewPage {
 }
 
 /**
- * After an analyze or upgrade report: write the review page. Upgrade opens it in the browser when
+ * After an analyze or upgrade report: write the review page, one browser page per run holding the
+ * diff of every file the run asks you to review, under the same sections the terminal prints. Upgrade opens it in the browser when
  * stdout is a terminal, since the upstream changes it lists did not arrive. Undefined when there
  * is nothing to review; a failure is undefined too and never fails the run. An upgrade with nothing to
  * review removes the page an earlier upgrade left, so a rerun that resumes this merge never lists it.
@@ -216,7 +197,7 @@ export async function reportReviewPage(
     spinnerSuccess();
   }
   if (!page) {
-    if (command === 'upgrade') removeUpgradeReviewPage(repoRoot);
+    if (command === 'upgrade') await removeUpgradeReviewPage(repoRoot);
     return undefined;
   }
 
@@ -224,18 +205,18 @@ export async function reportReviewPage(
   return { ...page, command, opened };
 }
 
-function removeUpgradeReviewPage(repoRoot: string): void {
+async function removeUpgradeReviewPage(repoRoot: string): Promise<void> {
   try {
-    rmSync(diffPagePath(repoRoot, 'upgrade-review'), { force: true });
+    rmSync(await diffPagePath(repoRoot, 'upgrade-review'), { force: true });
   } catch {
     // Not a git repo or no git: there is no page to remove either.
   }
 }
 
 /** The upgrade review page the merge run of this upgrade wrote, when it is still there. */
-export function existingUpgradeReviewPage(repoRoot: string): string | undefined {
+export async function existingUpgradeReviewPage(repoRoot: string): Promise<string | undefined> {
   try {
-    const path = diffPagePath(repoRoot, 'upgrade-review');
+    const path = await diffPagePath(repoRoot, 'upgrade-review');
     return existsSync(path) ? path : undefined;
   } catch {
     return undefined;

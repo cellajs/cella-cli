@@ -1,11 +1,5 @@
-/**
- * Direction-agnostic ref analyzer: compares a "local" ref against an "incoming" ref from a shared
- * merge-base and classifies every changed file, with git plumbing on refs only, never the working
- * tree. Upgrade runs it with local = app HEAD and incoming = upstream, adopt with local =
- * cella branch and incoming = fork branch; `existsInApp`/`existsInUpstream` map to local/incoming.
- */
-
-import type { AnalyzedFile, FileStatus } from '../config/types';
+import type { RuntimeConfig } from '../config/types';
+import { spinnerText } from '../utils/display';
 import {
   type FileChange,
   type FileChangeInfo,
@@ -16,9 +10,11 @@ import {
 } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import { isManagedFile } from './managed-files';
+import type { AnalysisSummary, AnalyzedFile, FileStatus, UpstreamContext } from './model';
+import { isIgnored, isPinned } from './protection';
 
 /** Predicates that steer classification (direction-specific). */
-export interface AnalyzePredicates {
+interface AnalyzePredicates {
   /** True if the file is inside owned/ignored territory (never merged). */
   isIgnored: (path: string) => boolean;
   /** True if the file is pinned (local wins on conflict). */
@@ -141,7 +137,12 @@ export function repairIncomingRenames(changes: Map<string, FileChange>, context:
 
 type ProgressCallback = (message: string) => void;
 
-/** Analyze files between a local and an incoming ref using a merge-base, in a repo that reaches all three. */
+/**
+ * Classify every file changed between a "local" and an "incoming" ref from a shared merge-base, in a
+ * repo that reaches all three, with git plumbing on refs only, never the working tree. Upgrade runs it
+ * with local = app HEAD and incoming = upstream, adopt with local = cella branch and incoming = fork
+ * branch; `existsInApp`/`existsInUpstream` map to local/incoming.
+ */
 export async function analyzeRefs(
   repoPath: string,
   localRef: string,
@@ -254,7 +255,7 @@ export async function analyzeRefs(
 
       let upstreamChanged: boolean | undefined;
       if (fileIsPinned || fileIsIgnored || oldPathPinned || predicates.isIgnored(oldPath)) {
-        // Protected: local's version is kept at the new path, where the merge engine moves it from the old one.
+        // Protected: local's version is kept at the new path, where `applyDirectMerge` moves it from the old one.
         status = 'pinned';
         if (oldPathInApp) renamedFrom = oldPath;
         // Local edited the old file and incoming changed its content beyond the rename.
@@ -432,4 +433,38 @@ export async function enrichChangeInfo(
       }
     }
   }
+}
+
+/** Classifier predicates for the upgrade direction (local = app, incoming = upstream); `--unpinned` pins the managed files alone. */
+export function upgradePredicates(config: RuntimeConfig): AnalyzePredicates {
+  return {
+    isIgnored: (path) => isIgnored(path, config),
+    isPinned: (path) => (config.unpinned ? isManagedFile(path) : isPinned(path, config)),
+  };
+}
+
+/** Classify every file the upgrade compares: the app at HEAD against upstream at the run's ref, from the merge's base. */
+export function classifyUpgrade(config: RuntimeConfig, upstream: UpstreamContext): Promise<AnalyzedFile[]> {
+  spinnerText('analyzing files...');
+  return analyzeRefs(config.repoRoot, 'HEAD', upstream.ref, upstream.mergeRef, upgradePredicates(config), spinnerText);
+}
+
+/** Counts by status; a changed managed file counts as `managed`. */
+export function summarize(files: AnalyzedFile[]): AnalysisSummary {
+  const summary: AnalysisSummary = {
+    managed: 0,
+    identical: 0,
+    ahead: 0,
+    local: 0,
+    drifted: 0,
+    behind: 0,
+    diverged: 0,
+    pinned: 0,
+    ignored: 0,
+    deleted: 0,
+    renamed: 0,
+  };
+  for (const file of files)
+    summary[file.status !== 'identical' && isManagedFile(file.path) ? 'managed' : file.status]++;
+  return summary;
 }

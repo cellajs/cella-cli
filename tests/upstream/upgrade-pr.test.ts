@@ -7,8 +7,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildUpgradePrBody } from '../../src/upstream/upgrade';
-import { readManifestAtRef, readPackageVersionAtRef, readUpgradePointAtRef } from '../../src/utils/git';
+import { buildUpgradePrBody, readPackageVersionAtRef } from '../../src/upstream/pull-requests';
+import { readManifestAtRef, readUpgradePointAtRef } from '../../src/upstream/upgrade-point';
 import { createManifestRepo, exec } from '../helpers/test-env';
 
 const shaA = 'a'.repeat(40);

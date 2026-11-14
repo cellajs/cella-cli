@@ -1,26 +1,16 @@
-/**
- * Diff helpers: a single-file `git diff`, and diffs rendered as a self-contained HTML page that
- * opens in the default browser. Used by the adopt command and the review page.
- */
-
 import { execFileSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
-import { maxBuffer } from '../utils/git';
+import { git } from '../utils/git';
 
 /**
  * Run `git diff` for a single file over `range` (`a..b`, or one ref to diff against the working
- * tree). Returns the raw diff with standard a/ b/ prefixes, which the HTML renderer's patch
- * parser requires; empty when the file is identical.
+ * tree). Returns the diff with standard a/ b/ prefixes, which the HTML renderer's patch parser
+ * requires; empty when the file is identical.
  */
-export function gitDiffFile(cwd: string, range: string, filePath: string): Buffer {
-  try {
-    return execFileSync('git', ['diff', '--no-color', range, '--', filePath], { cwd, maxBuffer });
-  } catch (error) {
-    const stderr = (error as { stderr?: Buffer }).stderr?.toString().trim();
-    throw new Error(stderr || `failed to diff ${filePath}`);
-  }
+export function gitDiffFile(cwd: string, range: string, filePath: string): Promise<string> {
+  return git(['diff', '--no-color', range, '--', filePath], cwd);
 }
 
 /** One file on a diff page: its path and its unified diff, with standard a/ b/ prefixes. */
@@ -50,8 +40,8 @@ function escapeHtml(text: string): string {
 }
 
 /**
- * Render diffs as a complete, self-contained HTML document: one block per file, grouped in
- * sections, with a section index at the top when there is more than one.
+ * Render diffs as a complete, self-contained HTML document that opens in the default browser: one
+ * block per file, grouped in sections, with a section index at the top when there is more than one.
  *
  * Highlighting and diff layout come from `@pierre/diffs` (Shiki-based), rendered server-side to
  * static HTML: no scripts, no external requests, adapts to the viewer's light/dark preference.
@@ -180,15 +170,15 @@ export async function writeDiffPage(
   name: string,
 ): Promise<string> {
   const html = await renderDiffPage(sections, meta);
-  const outPath = diffPagePath(repoPath, name);
+  const outPath = await diffPagePath(repoPath, name);
   mkdirSync(dirname(outPath), { recursive: true });
   writeFileSync(outPath, html);
   return outPath;
 }
 
 /** Where {@link writeDiffPage} writes the page called `name`: `<git dir>/cella-diff/<name>.html`. */
-export function diffPagePath(repoPath: string, name: string): string {
-  const gitDir = execFileSync('git', ['rev-parse', '--absolute-git-dir'], { cwd: repoPath, encoding: 'utf8' }).trim();
+export async function diffPagePath(repoPath: string, name: string): Promise<string> {
+  const gitDir = await git(['rev-parse', '--absolute-git-dir'], repoPath);
   return join(gitDir, 'cella-diff', `${name.replace(/[^\w.-]+/g, '-')}.html`);
 }
 

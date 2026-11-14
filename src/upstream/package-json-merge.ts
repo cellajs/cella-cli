@@ -1,20 +1,3 @@
-/**
- * Package merge: package.json keys merged from upstream into the app, three-way against the merge-base
- * package.json (upstream as of the previous upgrade):
- * - Add: entries that are new upstream are added
- * - Follow: an entry the app never touched (still equal to its base value) follows upstream,
- *   whether upstream rewrote a script, changed a range, or dropped the entry
- * - Keep: an entry the app added or changed stays, except that a strictly higher upstream
- *   version still bumps it; an entry the app removed is not re-added
- * - Still used: a dependency or script upstream dropped stays while app-authored code still
- *   imports it, runs its CLI or runs the script (see package-usage.ts)
- * - Supports nested `pnpm` key (overrides, patchedDependencies, packageExtensions)
- * - `type` always merges, whatever `packageJsonKeys` lists (see mergeModuleType)
- * - A workspace package.json upstream added since the base arrives verbatim
- * Without a base (first upgrade, unrelated history) every upstream entry is added or bumped and
- * nothing is removed.
- */
-
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultPackageJsonKeys } from '../config/load';
@@ -22,8 +5,9 @@ import type { PackageJsonKey, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { createSpinner, plural, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import { getEffectiveMergeBase, git } from '../utils/git';
+import { git } from '../utils/git';
 import { compareVersions, parseComparableVersion } from '../utils/versions';
+import type { UpstreamContext } from './model';
 import { type AppUsage, loadAppUsage } from './package-usage';
 import { isIgnored } from './protection';
 
@@ -330,18 +314,6 @@ async function discoverPackageLocations(repoRoot: string, upstreamRef: string): 
 }
 
 /**
- * The upstream commit the app last upgraded to (the recorded upgrade point, else git's merge-base);
- * null when neither resolves, which turns every key merge into add-only.
- */
-async function resolveMergeBase(repoRoot: string, upstreamRef: string): Promise<string | null> {
-  try {
-    return (await getEffectiveMergeBase(repoRoot, 'HEAD', upstreamRef)) || null;
-  } catch {
-    return null;
-  }
-}
-
-/**
  * Merge a single package.json file three-way (app, upstream, merge-base).
  *
  * A location the app lacks is a workspace upstream added since the base: its package.json
@@ -353,31 +325,31 @@ async function resolveMergeBase(repoRoot: string, upstreamRef: string): Promise<
  */
 async function mergePackageJson(
   config: RuntimeConfig,
-  baseRef: string | null,
-  usage: AppUsage | null,
+  upstream: Pick<UpstreamContext, 'ref' | 'mergeBase'>,
+  usage: AppUsage,
   relativePath: string,
   keysToMerge: PackageJsonKey[],
 ): Promise<{ updated: boolean; changes: string[]; kept: string[] }> {
-  const { repoRoot, upstreamRef } = config;
+  const { repoRoot } = config;
   const changes: string[] = [];
   const kept: string[] = [];
   const pkgRelPath = packageJsonPath(relativePath);
   const pkgPath = join(repoRoot, pkgRelPath);
 
   const appPkg = readPackageJson(pkgPath);
-  const upstream = await readPackageJsonAtRef(repoRoot, upstreamRef, relativePath);
-  const basePkg = baseRef ? (await readPackageJsonAtRef(repoRoot, baseRef, relativePath))?.data : undefined;
+  const upstreamFile = await readPackageJsonAtRef(repoRoot, upstream.ref, relativePath);
+  const basePkg = (await readPackageJsonAtRef(repoRoot, upstream.mergeBase, relativePath))?.data;
 
-  if (!upstream) return { updated: false, changes, kept };
+  if (!upstreamFile) return { updated: false, changes, kept };
 
   if (!appPkg) {
     const workspaceArrived = relativePath !== '' && existsSync(join(repoRoot, relativePath));
     if (basePkg || !workspaceArrived || isIgnored(pkgRelPath, config)) return { updated: false, changes, kept };
-    writeFileSync(pkgPath, upstream.raw.endsWith('\n') ? upstream.raw : `${upstream.raw}\n`, 'utf8');
+    writeFileSync(pkgPath, upstreamFile.raw.endsWith('\n') ? upstreamFile.raw : `${upstreamFile.raw}\n`, 'utf8');
     return { updated: true, changes: ['copied from upstream (new workspace)'], kept };
   }
 
-  const upstreamPkg = upstream.data;
+  const upstreamPkg = upstreamFile.data;
   let updated = false;
 
   const type = mergeModuleType(appPkg.type, upstreamPkg.type, basePkg?.type);
@@ -429,8 +401,8 @@ async function mergePackageJson(
     const baseValue = basePkg?.[key] as Record<string, string> | undefined;
 
     let findUse: RecordMergeOptions['findUse'];
-    if (usage && key === 'scripts') findUse = (name) => usage.findScript(name);
-    else if (usage && dependencyKeys.includes(key)) findUse = (name) => usage.findPackage(relativePath, name);
+    if (key === 'scripts') findUse = (name) => usage.findScript(name);
+    else if (dependencyKeys.includes(key)) findUse = (name) => usage.findPackage(relativePath, name);
     const isScripts = key === 'scripts';
     const result = mergeRecord(appValue, upstreamValue, baseValue, {
       bumpHigher: !isScripts,
@@ -455,25 +427,35 @@ async function mergePackageJson(
 }
 
 /**
- * Run the package merge.
- *
- * Discovers every package.json location upstream has, then merges the configured keys three-way
- * against the merge-base (see the file header for the rules).
- *
- * When `conflictedFiles` is provided (e.g. after an upgrade merge that left conflicts),
- * any package.json that is itself unmerged is skipped to avoid clobbering
- * conflict markers; all other package.json files still merge.
+ * Merge the configured keys of every package.json upstream has into the app's, three-way against
+ * the merge base's package.json (upstream as of the previous upgrade):
+ * - Add: entries that are new upstream are added
+ * - Follow: an entry the app never touched (still equal to its base value) follows upstream,
+ *   whether upstream rewrote a script, changed a range, or dropped the entry
+ * - Keep: an entry the app added or changed stays, except that a strictly higher upstream
+ *   version still bumps it; an entry the app removed is not re-added
+ * - Still used: a dependency or script upstream dropped stays while app-authored code still
+ *   imports it, runs its CLI or runs the script (see package-usage.ts)
+ * - Supports nested `pnpm` key (overrides, patchedDependencies, packageExtensions)
+ * - `type` always merges, whatever `packageJsonKeys` lists (see mergeModuleType)
+ * - A workspace package.json upstream added since the base arrives verbatim
+ * Where the base has no such package.json, every upstream entry is added or bumped and nothing is
+ * removed. A package.json in `conflictedFiles` (the upgrade merge left it unmerged) is skipped so its
+ * conflict markers stay; all others still merge.
  */
-export async function runPackages(config: RuntimeConfig, options: { conflictedFiles?: string[] } = {}): Promise<void> {
+export async function runPackages(
+  config: RuntimeConfig,
+  upstream: Pick<UpstreamContext, 'ref' | 'mergeBase'>,
+  conflictedFiles: string[] = [],
+): Promise<void> {
   createSpinner('merging package.json files...');
 
   const keysToMerge = config.packageJsonKeys || defaultPackageJsonKeys;
-  const conflictedSet = new Set(options.conflictedFiles ?? []);
+  const conflictedSet = new Set(conflictedFiles);
 
-  const baseRef = await resolveMergeBase(config.repoRoot, config.upstreamRef);
   // Before any package.json is rewritten: the app-authored scripts are judged on the app's own copy
-  const usage = baseRef ? await loadAppUsage(config.repoRoot, config.upstreamRef, baseRef) : null;
-  const locations = await discoverPackageLocations(config.repoRoot, config.upstreamRef);
+  const usage = await loadAppUsage(config.repoRoot, upstream.ref, upstream.mergeBase);
+  const locations = await discoverPackageLocations(config.repoRoot, upstream.ref);
   const reports: { path: string; changes: string[]; kept: string[] }[] = [];
   const skipped: string[] = [];
 
@@ -489,7 +471,7 @@ export async function runPackages(config: RuntimeConfig, options: { conflictedFi
 
     spinnerText(`merging ${location || 'root'}/package.json...`);
 
-    const { updated, changes, kept } = await mergePackageJson(config, baseRef, usage, location, keysToMerge);
+    const { updated, changes, kept } = await mergePackageJson(config, upstream, usage, location, keysToMerge);
     if (updated || kept.length > 0) reports.push({ path: pkgRelPath, changes, kept });
   }
 

@@ -10,14 +10,15 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
-import type { CellaCliConfig, MergeResult, PackageJsonKey } from '../../src/config/types';
+import type { CellaCliConfig, PackageJsonKey } from '../../src/config/types';
 import {
   compareUpstreamOverrides,
   diffOverrideLists,
   hasBlockingOverrideChanges,
   parseOverrideLists,
 } from '../../src/upstream/config-gate';
-import { printUpstreamOverrideChanges } from '../../src/utils/display';
+import type { MergeResult } from '../../src/upstream/model';
+import { printUpstreamOverrideChanges } from '../../src/upstream/report';
 import { captureInfo, createRepo, exec, write } from '../helpers/test-env';
 
 /** The keys a config without `packageJsonKeys` upgrades. */

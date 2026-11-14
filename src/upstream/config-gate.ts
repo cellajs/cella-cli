@@ -1,14 +1,9 @@
-/**
- * Upstream override changes: the upgrade never merges the app's config, so this reads upstream's
- * `pinned`, `ignored` and `packageJsonKeys` at the merge-base and the incoming ref (ts-morph,
- * syntax only) and reports the entries the app config does not follow. Report only.
- */
-
 import { Node, type ObjectLiteralExpression, Project, type SourceFile, SyntaxKind } from 'ts-morph';
 import { defaultPackageJsonKeys } from '../config/load';
-import type { CellaCliConfig, OverrideListChanges, UpstreamOverridesReport } from '../config/types';
+import type { CellaCliConfig } from '../config/types';
 import { git } from '../utils/git';
 import { configFile } from './managed-files';
+import type { OverrideListChanges, UpstreamOverridesReport } from './model';
 import { isUnderAnyFolder, normalizeEntry } from './protection';
 
 /** The lists the comparison reads from a CLI config, as plain string entries. */
@@ -184,7 +179,7 @@ export function diffOverrideLists(
 
 /**
  * Report how upstream's `pinned`, `ignored` and `packageJsonKeys` changed between the merge-base and the
- * incoming ref, limited to entries the app config does not follow (see {@link diffOverrideLists}).
+ * incoming ref (the upgrade never merges the app's config, so these reach the app by hand only), limited to entries the app config does not follow (see {@link diffOverrideLists}).
  * Undefined when there is nothing to report; `unreadable` when the config is missing or unparsable
  * at one side only.
  */

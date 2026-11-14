@@ -1,16 +1,13 @@
-/**
- * Override matching and validation: files matched against the ignored/pinned
- * paths, and config warnings for entries that cannot work.
- */
-
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AnalyzedFile, CellaCliConfig, IgnoredUpstreamGroup } from '../config/types';
-import { fileExistsAtRef, getEffectiveMergeBase, git, listChangedSinceRef, revParse } from '../utils/git';
+import type { CellaCliConfig } from '../config/types';
+import { fileExistsAtRef, git, listChangedSinceRef, revParse } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import { isUpstreamOnly } from './alignments';
 import { parseOverrideLists } from './config-gate';
 import { configFile, isManagedFile } from './managed-files';
+import type { AnalyzedFile, IgnoredUpstreamGroup } from './model';
+import { getEffectiveMergeBase } from './upgrade-point';
 
 /** Normalize an override entry: trimmed, no leading `./`, no trailing slash. */
 export function normalizeEntry(entry: string): string {

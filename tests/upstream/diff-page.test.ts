@@ -22,9 +22,9 @@ describe('diff helpers', () => {
   let originalPath: string | undefined;
 
   /** Working-tree patch (HEAD vs modified x.ts) with standard a/ b/ prefixes. */
-  function makePatch(): string {
+  function makePatch(): Promise<string> {
     fs.writeFileSync(path.join(repoRoot, 'x.ts'), 'const side = "app content";\n');
-    return gitDiffFile(repoRoot, 'HEAD', 'x.ts').toString();
+    return gitDiffFile(repoRoot, 'HEAD', 'x.ts');
   }
 
   /** Page text without tags: highlighting splits lines into token spans. */
@@ -72,25 +72,25 @@ describe('diff helpers', () => {
   });
 
   describe('gitDiffFile', () => {
-    it('keeps standard a/ b/ prefixes (renderer input)', () => {
-      const patch = makePatch();
+    it('keeps standard a/ b/ prefixes (renderer input)', async () => {
+      const patch = await makePatch();
 
       expect(patch).toContain('--- a/x.ts');
       expect(patch).toContain('+++ b/x.ts');
     });
 
-    it('returns empty output for an unchanged file', () => {
-      expect(gitDiffFile(repoRoot, 'HEAD', 'x.ts').length).toBe(0);
+    it('returns empty output for an unchanged file', async () => {
+      expect(await gitDiffFile(repoRoot, 'HEAD', 'x.ts')).toBe('');
     });
 
-    it('throws a clear error for an invalid ref', () => {
-      expect(() => gitDiffFile(repoRoot, 'no-such-ref', 'x.ts')).toThrow();
+    it('throws a clear error for an invalid ref', async () => {
+      await expect(gitDiffFile(repoRoot, 'no-such-ref', 'x.ts')).rejects.toThrow();
     });
   });
 
   describe('renderDiffPage', () => {
     it('renders a complete, self-contained page with both sides of the change', async () => {
-      const html = await renderDiffPage([{ files: [{ path: 'x.ts', patch: makePatch() }] }], {
+      const html = await renderDiffPage([{ files: [{ path: 'x.ts', patch: await makePatch() }] }], {
         title: 'x.ts',
         note: 'cella ← → myfork',
       });
@@ -112,7 +112,7 @@ describe('diff helpers', () => {
     });
 
     it('renders titled sections with counts, an index, and the files left off the page', async () => {
-      const patch = makePatch();
+      const patch = await makePatch();
       const html = await renderDiffPage(
         [
           { title: 'first', hint: 'what these show', files: [{ path: 'x.ts', patch }] },
@@ -134,7 +134,7 @@ describe('diff helpers', () => {
 
     it('escapes HTML in the title, note, section text and omitted lines', async () => {
       const html = await renderDiffPage(
-        [{ title: '<b>t</b>', hint: 'a & b', files: [{ path: 'x.ts', patch: makePatch() }], omitted: ['"q"'] }],
+        [{ title: '<b>t</b>', hint: 'a & b', files: [{ path: 'x.ts', patch: await makePatch() }], omitted: ['"q"'] }],
         { title: '<script>alert(1)</script>', note: 'app "quoted"' },
       );
 
@@ -149,13 +149,15 @@ describe('diff helpers', () => {
   describe('writeDiffPage', () => {
     it("writes the page into the repo's git dir under a stable, flat name", async () => {
       const pagePath = await writeDiffPage(
-        [{ files: [{ path: 'x.ts', patch: makePatch() }] }],
+        [{ files: [{ path: 'x.ts', patch: await makePatch() }] }],
         { title: 'x.ts' },
         repoRoot,
         'src/utils/x.ts',
       );
 
-      expect(pagePath).toBe(path.join(fs.realpathSync(repoRoot), '.git', 'cella-diff', 'src-utils-x.ts.html'));
+      expect(fs.realpathSync(pagePath)).toBe(
+        path.join(fs.realpathSync(repoRoot), '.git', 'cella-diff', 'src-utils-x.ts.html'),
+      );
       expect(fs.readFileSync(pagePath, 'utf-8')).toContain('<!doctype html>');
       // Inside the git dir: the page never shows up as an untracked file.
       expect(exec('git status --porcelain', repoRoot)).toBe('M x.ts');

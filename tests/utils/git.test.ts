@@ -1,21 +1,19 @@
 /**
  * Unit tests for the git helpers in src/utils/git.ts, against real temp repos: the ls-tree and
- * diff-tree parsers, commit listing, upgrade ref storage, ancestry, the effective merge-base, and
- * merge-commit flattening.
+ * diff-tree parsers, commit listing, ancestry and merge-commit flattening; plus the upgrade ref
+ * storage and the effective merge-base from src/upstream/upgrade-point.ts.
  */
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { getEffectiveMergeBase, readStoredUpgradePoint, storeUpgradePoint } from '../../src/upstream/upgrade-point';
 import {
   flattenBranch,
-  getEffectiveMergeBase,
   getFileChanges,
   getFileHashesAtRef,
   isAncestor,
   listBranchMergeCommits,
   listCommitsBetween,
-  readStoredUpgradePoint,
-  storeUpgradePoint,
 } from '../../src/utils/git';
 import { createManifestRepo, exec, makeCommit, write } from '../helpers/test-env';
 
@@ -183,6 +181,10 @@ describe('git parsing', () => {
     it('returns true when both refs are the same', async () => {
       const ref = exec('git rev-parse HEAD', repoPath);
       expect(await isAncestor(repoPath, ref, ref)).toBe(true);
+    });
+
+    it('throws for a commit the clone lacks: git cannot answer, which is no "no"', async () => {
+      await expect(isAncestor(repoPath, 'f'.repeat(40), 'HEAD')).rejects.toThrow();
     });
   });
 

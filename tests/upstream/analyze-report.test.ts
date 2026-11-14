@@ -8,8 +8,8 @@
  */
 import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import type { AnalyzedFile, MergeResult } from '../../src/config/types';
 import { type AnalyzeReportOptions, printAnalysisFileGroups } from '../../src/upstream/analyze-report';
+import type { AnalyzedFile, MergeResult } from '../../src/upstream/model';
 import { groupIgnoredUpstreamChanges } from '../../src/upstream/protection';
 import { captureInfo, analyzedFile as file } from '../helpers/test-env';
 

@@ -1,24 +1,10 @@
-/**
- * The file sections of the analyze report, in the order they need you: files that merge on their
- * own first, the upstream changes the upgrade leaves out last. Each file is a row with its path, a
- * count and an age in columns. Large groups collapse unless `--all` asks for every path.
- */
-
 import { basename } from 'node:path';
-import type { AnalyzedFile, MergeResult } from '../config/types';
 import pc from '../utils/colors';
-import {
-  filesWithStatus,
-  findProtectedBehindUpstream,
-  hyperlink,
-  type LinkOptions,
-  plural,
-  printSectionHeader,
-  protectionIcon,
-  warningMark,
-} from '../utils/display';
+import { hyperlink, plural, printSectionHeader, warningMark } from '../utils/display';
 import { compactCount, padVisible, shortAge, terminalColumns, visibleWidth } from '../utils/layout';
+import type { AnalyzedFile, MergeResult } from './model';
 import { isUnderAnyFolder, normalizeEntry } from './protection';
+import { filesWithStatus, findProtectedBehindUpstream, type LinkOptions, protectionIcon } from './report';
 
 /** Behind files listed one per row up to this count; more collapse to one row per folder. */
 const behindFlatMax = 15;
@@ -374,8 +360,10 @@ function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions
 }
 
 /**
- * Print the analyze file sections: behind, diverged, protected in app, drifted, and protected but
- * behind upstream. Every `pinned`-status file is a protected-but-behind one, so there is no
+ * Print the analyze file sections in the order they need you, files that merge on their own first and
+ * the upstream changes the upgrade leaves out last: behind, diverged, protected in app, drifted, and
+ * protected but behind upstream. Each file is a row with its path, a count and an age in columns, and
+ * large groups collapse unless `--all` asks for every path. Every `pinned`-status file is a protected-but-behind one, so there is no
  * separate `pinned` section.
  */
 export function printAnalysisFileGroups(result: MergeResult, options: AnalyzeReportOptions): void {
