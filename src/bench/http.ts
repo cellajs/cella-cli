@@ -111,7 +111,7 @@ export function createHttpClient(
           signal.removeEventListener('abort', onAbort);
           const status = res.statusCode ?? 0;
           const ttfb = firstByteAt - Math.max(sentAt || started, connectedAt);
-          metrics.response(label, status, ttfb, performance.now() - started);
+          metrics.response(label, status, 'http.response_time', ttfb, performance.now() - started);
           const buffer = Buffer.concat(chunks);
           resolve({
             status,
@@ -141,10 +141,8 @@ export function createHttpClient(
   };
 
   return {
-    request,
     get: (url, options) => request('GET', url, options),
     post: (url, options) => request('POST', url, options),
-    put: (url, options) => request('PUT', url, options),
     patch: (url, options) => request('PATCH', url, options),
     delete: (url, options) => request('DELETE', url, options),
     /** Closes the connections once every request has settled: destroying a socket would reset a request still on it. */

@@ -1,113 +1,22 @@
-/**
- * Whole-repository mode of `cella stats`.
- *
- * Counts files in the codebase using `git ls-files` (fast, respects .gitignore).
- * Categorizes by type and workspace package.
- */
-
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
 import pc from '../utils/colors';
 import { createSpinner, divider, spinnerSuccess } from '../utils/display';
 import { git } from '../utils/git';
-import { isGeneratedFile } from '../utils/repo-files';
-import { readTopLevel } from '../utils/workspace-yaml';
 import { printCoverageSummary } from './coverage';
-
-/** Extensions Biome can check (source code, config, styles) */
-export const sourceExtensions = new Set(['ts', 'tsx', 'js', 'jsx', 'mjs', 'cjs', 'json', 'jsonc', 'css', 'html']);
-
-/** File category for classification */
-type FileCategory = 'test' | 'stories' | 'generated' | 'json' | 'other';
+import { classifyFile, type FileKind, getWorkspacePackages, matchPackage, sourceExtensions } from './file-kinds';
 
 /** Per-package file and LOC counts, broken down by category */
 interface PackageStats {
   total: number;
   loc: number;
-  categories: Record<FileCategory, { files: number; loc: number }>;
+  categories: Record<FileKind, { files: number; loc: number }>;
 }
 
 /** Stats result for display or JSON output */
 interface StatsResult {
   total: number;
   totalLoc: number;
-  categories: Record<FileCategory, { files: number; loc: number }>;
+  categories: Record<FileKind, { files: number; loc: number }>;
   packages: Record<string, PackageStats>;
-}
-
-/** Workspace package definition from pnpm-workspace.yaml */
-interface WorkspacePackage {
-  /** Display name (e.g., 'backend', 'cli/cella') */
-  name: string;
-  /** Path prefix to match (e.g., 'backend/', 'cli/cella/') */
-  prefix: string;
-}
-
-/** Workspace package names and path prefixes from pnpm-workspace.yaml; none without that file. */
-export async function getWorkspacePackages(repoRoot: string): Promise<WorkspacePackage[]> {
-  const content = await readFile(join(repoRoot, 'pnpm-workspace.yaml'), 'utf8').catch(() => '');
-  const patterns = readTopLevel(content, 'packages');
-
-  return (Array.isArray(patterns) ? patterns.map(String) : []).map((pattern) => {
-    // Wildcard patterns like 'cli/*' are resolved per file when matching.
-    if (pattern.endsWith('/*')) {
-      const base = pattern.slice(0, -2);
-      return { name: `${base}/*`, prefix: `${base}/` };
-    }
-    return { name: pattern, prefix: `${pattern}/` };
-  });
-}
-
-export function classifyFile(filePath: string): FileCategory {
-  if (
-    filePath.includes('.test.') ||
-    filePath.includes('.spec.') ||
-    filePath.includes('/tests/') ||
-    filePath.includes('/test/') ||
-    filePath.startsWith('tests/') ||
-    filePath.includes('/__tests__/')
-  ) {
-    return 'test';
-  }
-
-  if (filePath.includes('.stories.')) {
-    return 'stories';
-  }
-
-  if (
-    isGeneratedFile(filePath) ||
-    filePath.startsWith('drizzle/') ||
-    filePath.includes('/drizzle/') ||
-    filePath.endsWith('.d.ts') ||
-    filePath.includes('.tsbuildinfo')
-  ) {
-    return 'generated';
-  }
-
-  if (filePath.endsWith('.json') || filePath.endsWith('.jsonc')) {
-    return 'json';
-  }
-
-  return 'other';
-}
-
-/** The workspace package owning a file, with wildcard patterns resolved per file. */
-export function matchPackage(filePath: string, packages: WorkspacePackage[]): string {
-  for (const pkg of packages) {
-    if (pkg.name.endsWith('/*')) {
-      if (filePath.startsWith(pkg.prefix)) {
-        // Extract the actual subpackage name (e.g., 'cli/cella' from 'cli/cella/src/foo.ts')
-        const rest = filePath.slice(pkg.prefix.length);
-        const subDir = rest.split('/')[0];
-        if (subDir) {
-          return `${pkg.prefix}${subDir}`;
-        }
-      }
-    } else if (filePath.startsWith(pkg.prefix)) {
-      return pkg.name;
-    }
-  }
-  return '(root)';
 }
 
 /** Pathspec patterns for source extensions */
@@ -129,11 +38,13 @@ async function collectStats(repoRoot: string): Promise<StatsResult> {
     entries.push({ path: line.slice(0, sep), loc: Number.parseInt(line.slice(sep + 1), 10) });
   }
 
-  const emptyCat = () => ({
+  const emptyCat = (): Record<FileKind, { files: number; loc: number }> => ({
+    source: { files: 0, loc: 0 },
     test: { files: 0, loc: 0 },
     stories: { files: 0, loc: 0 },
     generated: { files: 0, loc: 0 },
     json: { files: 0, loc: 0 },
+    docs: { files: 0, loc: 0 },
     other: { files: 0, loc: 0 },
   });
   const categories = emptyCat();
@@ -159,7 +70,7 @@ async function collectStats(repoRoot: string): Promise<StatsResult> {
   }
 
   const sortedPackages = Object.fromEntries(
-    [...pkgStats.entries()].sort((a, b) => b[1].categories.other.loc - a[1].categories.other.loc),
+    [...pkgStats.entries()].sort((a, b) => b[1].categories.source.loc - a[1].categories.source.loc),
   );
 
   return { total: entries.length, totalLoc, categories, packages: sortedPackages };
@@ -188,7 +99,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
 
   const catEntries: [string, { files: number; loc: number }][] = [
-    ['source & config', stats.categories.other],
+    ['source & config', stats.categories.source],
     ['test', stats.categories.test],
     ['stories', stats.categories.stories],
     ['generated', stats.categories.generated],
@@ -208,17 +119,17 @@ function printStats(stats: StatsResult, verbose: boolean): void {
     ? `  ${''.padEnd(6)}  ${'package'.padEnd(18)} ${'loc'.padStart(8)} ${'test'.padStart(6)} ${'story'.padStart(6)} ${'gen'.padStart(6)} ${'json'.padStart(6)} ${'src'.padStart(6)}`
     : '  source & config by package';
   console.info(pc.dim(header));
-  const { other } = stats.categories;
+  const { source } = stats.categories;
   for (const [name, { categories: c }] of Object.entries(stats.packages)) {
-    if (c.other.files === 0) continue;
+    if (c.source.files === 0) continue;
     // Verbose: file counts per category. Plain: shares of all source & config files and lines.
     const head = verbose
-      ? pc.dim(pad(c.other.files))
-      : `${pad(c.other.files)} ${pc.dim(fmtPct(c.other.files, other.files))}`;
+      ? pc.dim(pad(c.source.files))
+      : `${pad(c.source.files)} ${pc.dim(fmtPct(c.source.files, source.files))}`;
     const tail = verbose
-      ? ` ${[c.test, c.stories, c.generated, c.json, c.other].map((cat) => pc.dim(pad(cat.files))).join(' ')}`
-      : `  ${pc.dim(fmtPct(c.other.loc, other.loc))}`;
-    console.info(`  ${head}  ${name.padEnd(18)} ${pc.cyan(formatLoc(c.other.loc).padStart(8))}${tail}`);
+      ? ` ${[c.test, c.stories, c.generated, c.json, c.source].map((cat) => pc.dim(pad(cat.files))).join(' ')}`
+      : `  ${pc.dim(fmtPct(c.source.loc, source.loc))}`;
+    console.info(`  ${head}  ${name.padEnd(18)} ${pc.cyan(formatLoc(c.source.loc).padStart(8))}${tail}`);
   }
 
   console.info();

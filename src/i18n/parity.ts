@@ -1,6 +1,6 @@
 import { pluralForm } from './locales';
 
-/** What a translation adds or drops against the English text: interpolations, nested keys or tags. */
+/** What a translation lacks or adds against the English text: interpolations, nested keys, tags or plural forms. */
 export interface Mismatch {
   key: string;
   missing: string[];
@@ -47,13 +47,6 @@ export function compare(
   return missing.length + extra.length > 0 ? { key, missing, extra } : undefined;
 }
 
-/** A plural group of one language that lacks a form the language needs, or has one it never uses. */
-export interface PluralGap {
-  key: string;
-  missing: string[];
-  extra: string[];
-}
-
 /** The plural categories `language` uses, or English's when `Intl` refuses the locale folder's name. */
 export function categoriesOf(language: string, ordinal: boolean): string[] {
   try {
@@ -96,14 +89,15 @@ function pluralGroups(english: Record<string, string>): Map<string, { base: stri
 }
 
 /**
- * The plural groups of `texts` in `language` that are incomplete: each category the language uses needs its form or
+ * The plural groups of `texts` in `language` that are incomplete, by the forms they lack and the ones the language
+ * never uses: each category the language uses needs its form or
  * the base key, which i18next falls back to; a form for a category the language never uses is extra.
  */
 export function pluralGaps(
   english: Record<string, string>,
   texts: Record<string, string>,
   language: string,
-): PluralGap[] {
+): Mismatch[] {
   const groups = pluralGroups(english);
   const present = new Map<string, Set<string>>();
   for (const key of Object.keys(texts)) {
@@ -113,7 +107,7 @@ export function pluralGaps(
     else if (groups.has(key)) present.set(key, present.get(key) ?? new Set());
   }
 
-  const gaps: PluralGap[] = [];
+  const gaps: Mismatch[] = [];
   // A group the language has not started falls back to English as a whole: that is a missing key, no gap
   for (const [key, categoriesPresent] of present) {
     const { base, ordinal } = groups.get(key) ?? { base: key, ordinal: false };

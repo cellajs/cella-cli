@@ -1,4 +1,5 @@
 import { createHistogram, type RecordableHistogram } from 'node:perf_hooks';
+import type { BuiltinHistogram } from './types';
 
 /** Percentiles of a histogram in milliseconds; zeros when it recorded nothing. */
 export interface Distribution {
@@ -97,14 +98,14 @@ export class Metrics {
     return stats;
   }
 
-  /** Records a response: `http.codes.<status>`, `http.response_time` (first byte) and, when the body was read, `http.total_time`. */
-  response(label: string, status: number, ttfbMs: number, totalMs?: number): void {
+  /** Records a response: `http.codes.<status>`, its first-byte time in `histogram` and, when the body was read, `http.total_time`. */
+  response(label: string, status: number, histogram: BuiltinHistogram, ttfbMs: number, totalMs?: number): void {
     const stats = this.endpoint(label);
     stats.codes.set(status, (stats.codes.get(status) ?? 0) + 1);
     stats.ttfb.record(toMicros(ttfbMs));
     this.counter('http.responses');
     this.counter(`http.codes.${status}`);
-    this.histogram('http.response_time', ttfbMs);
+    this.histogram(histogram, ttfbMs);
     if (totalMs !== undefined) {
       stats.total.record(toMicros(totalMs));
       this.histogram('http.total_time', totalMs);

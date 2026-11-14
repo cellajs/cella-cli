@@ -7,7 +7,6 @@ import {
   englishFor,
   isPluralOf,
   type Mismatch,
-  type PluralGap,
   placeholdersOf,
   pluralGaps,
   tagsOf,
@@ -23,7 +22,7 @@ interface LanguageStatus {
   sameAsEnglish: string[];
   placeholders: Mismatch[];
   tags: Mismatch[];
-  plurals: PluralGap[];
+  plurals: Mismatch[];
 }
 
 interface NamespaceStatus {
@@ -31,7 +30,7 @@ interface NamespaceStatus {
   files: string[];
   keys: number;
   /** English plural groups that lack or add a form. */
-  plurals: PluralGap[];
+  plurals: Mismatch[];
   /** Per language, the keys a later file of the namespace redefines: `app.json` over `common.json`. */
   overrides: Record<string, { key: string; files: string[] }[]>;
   /** Every language but English. */
@@ -146,7 +145,7 @@ function printList(title: string, items: string[]): void {
   console.info(`    ${pc.dim(`${items.slice(0, listMax).join(', ')}${more}`)}`);
 }
 
-const describe = ({ key, missing, extra }: Mismatch | PluralGap) =>
+const describe = ({ key, missing, extra }: Mismatch) =>
   [key, ...missing.map((name) => `-${name}`), ...extra.map((name) => `+${name}`)].join(' ');
 
 function printStatus(report: StatusReport, dir: string): void {

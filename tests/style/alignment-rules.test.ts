@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { alignmentFindings, checkAlignmentReadme, owedAlignmentFindings } from '../../src/style/alignment-rules';
+import { alignmentRule, checkAlignmentReadme, owedAlignmentRule } from '../../src/style/alignment-rules';
+import { check } from '../helpers/style-repo';
 
 const lines = (...rows: string[]) => rows.join('\n');
 const alignment = lines(
@@ -55,10 +56,11 @@ describe('checkAlignmentReadme', () => {
   });
 });
 
-describe('alignmentFindings', () => {
-  const read = (sources: Record<string, string>) => (file: string) => sources[file];
+describe('alignment', () => {
   const messages = (files: string[], sources: Record<string, string>) =>
-    alignmentFindings(files, read(sources)).map(({ file, message }) => `${file}: ${message}`);
+    files
+      .flatMap((file) => check([alignmentRule], file, sources[file] ?? '', { files }))
+      .map(({ file, message }) => `${file}: ${message}`);
 
   it('passes a well-formed alignment and ignores the files beside the folders', () => {
     const files = [
@@ -93,7 +95,7 @@ describe('alignmentFindings', () => {
   });
 });
 
-describe('owedAlignmentFindings', () => {
+describe('owed-alignment', () => {
   const owned = [
     'README.md',
     'shared/config',
@@ -104,7 +106,9 @@ describe('owedAlignmentFindings', () => {
     'shared/json/text-blocks.json',
   ];
   const rule = (changed: string[], messages = '', added = changed) =>
-    owedAlignmentFindings({ changed, added, messages }, owned).map((finding) => finding.file);
+    changed
+      .flatMap((file) => check([owedAlignmentRule], file, '', { branch: { changed, added, messages }, owned }))
+      .map((finding) => finding.file);
 
   it('asks for an alignment when a branch changes an app-owned path template code reads from', () => {
     expect(rule(['frontend/src/modules/common/logo-art.tsx', 'frontend/src/modules/auth/auth-layout.tsx'])).toEqual([

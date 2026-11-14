@@ -1,17 +1,20 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { commentFindings } from '../../src/style/comment-rules';
-import { docFindings } from '../../src/style/doc-rules';
-import { openRepository } from '../../src/style/repo';
-import { cliRoot } from '../helpers/style-repo';
+import { describe, expect, it } from 'vitest';
+import { detachedCommentRule } from '../../src/style/comment-rules';
+import { docRules } from '../../src/style/doc-rules';
+import { wordingRules } from '../../src/style/wording-rules';
+import { check } from '../helpers/style-repo';
 
 const singular = ['invar', 'iant'].join('');
 const dash = '\u2014';
 const found = (file: string, source: string) =>
-  docFindings(file, source).map(({ line, column, rule, term }) => ({ line, column, rule, term }));
+  check([...wordingRules, ...docRules], file, source).map(({ line, column, rule, term }) => ({
+    line,
+    column,
+    rule,
+    term,
+  }));
 
-beforeAll(() => openRepository(cliRoot));
-
-describe('docFindings', () => {
+describe('doc and wording rules', () => {
   it('finds the concrete-language term in any case or plural, never inside longer words', () => {
     const source = [`# ${singular}`, `${singular}s`.toUpperCase(), `source-${singular}`, 'invariance, invariantly'];
 
@@ -118,8 +121,8 @@ describe('docFindings', () => {
       ' */',
       'export const probe = 1;',
     ].join('\n');
-    expect(tails(commentFindings('src/probe.ts', jsdoc))).toEqual(['2:, so ']);
+    expect(tails(check([...wordingRules, detachedCommentRule], 'src/probe.ts', jsdoc))).toEqual(['2:, so ']);
     const lineComments = `// ${long.replace(' so', '\n// so')}\nexport const probe = 1;`;
-    expect(tails(commentFindings('src/probe.ts', lineComments))).toEqual(['1:, so ']);
+    expect(tails(check([...wordingRules, detachedCommentRule], 'src/probe.ts', lineComments))).toEqual(['1:, so ']);
   });
 });

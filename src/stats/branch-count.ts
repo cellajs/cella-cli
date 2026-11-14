@@ -1,18 +1,8 @@
-/**
- * Branch mode of `cella stats --since <ref>`.
- *
- * Counts what the current branch changed since it left a ref, by kind of file, so a pull request
- * can say where its lines went: source, tests, generated output, docs.
- */
-
 import pc from '../utils/colors';
 import { createSpinner, divider, spinnerSuccess, writeStdout } from '../utils/display';
 import { git, revParse } from '../utils/git';
 import { parseUnifiedDiff } from '../utils/unified-diff';
-import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions } from './snapshot';
-
-/** Kind of a changed file. `source` is code and styles that are none of the other kinds. */
-type ChangeKind = 'source' | 'test' | 'stories' | 'generated' | 'json' | 'docs' | 'other';
+import { classifyFile, type FileKind, getWorkspacePackages, matchPackage, sourceExtensions } from './file-kinds';
 
 /** What a changed source line holds. */
 type LineContent = 'code' | 'comments' | 'blank';
@@ -28,7 +18,7 @@ interface KindChange extends LineChange {
 
 export interface FileChange extends LineChange {
   path: string;
-  kind: ChangeKind;
+  kind: FileKind;
 }
 
 /** What a branch changed since it left a ref */
@@ -40,7 +30,7 @@ interface BranchStats {
   /** Current branch name, or the short sha of a detached HEAD */
   head: string;
   total: KindChange;
-  kinds: Record<ChangeKind, KindChange>;
+  kinds: Record<FileKind, KindChange>;
   /** Changed source lines by what they hold; null when git could not produce the patch */
   sourceContent: Record<LineContent, LineChange> | null;
   /** Changed source lines per workspace package; empty in a repository that declares none */
@@ -51,31 +41,10 @@ interface BranchStats {
 }
 
 /** A kind as the tables name it. */
-const kindLabel = (kind: ChangeKind) => (kind === 'test' ? 'tests' : kind);
-
-const docExtensions = new Set(['md', 'mdx']);
-
-/** Lock files are written by the package manager, whatever their extension */
-const lockFiles = new Set(['pnpm-lock.yaml', 'package-lock.json', 'yarn.lock', 'bun.lock', 'bun.lockb']);
+const kindLabel = (kind: FileKind) => (kind === 'test' ? 'tests' : kind);
 
 /** Code and style extensions whose lines are split into code, comments and blank */
 const codeExtensions = [...sourceExtensions].filter((ext) => !ext.startsWith('json'));
-
-/**
- * Classify a changed file. Every file in a diff counts, so beyond the snapshot's categories this
- * knows docs and a rest group, and reads a lock file as generated.
- */
-export function classifyChange(filePath: string): ChangeKind {
-  const name = filePath.slice(filePath.lastIndexOf('/') + 1);
-  if (lockFiles.has(name)) return 'generated';
-
-  const category = classifyFile(filePath);
-  if (category !== 'other') return category;
-
-  const ext = name.includes('.') ? name.slice(name.lastIndexOf('.') + 1) : '';
-  if (docExtensions.has(ext)) return 'docs';
-  return sourceExtensions.has(ext) ? 'source' : 'other';
-}
 
 /**
  * Classify one source line. A diff shows changed lines only, so a comment is recognized by how the
@@ -101,7 +70,7 @@ export function parseNumstat(output: string): FileChange[] {
     // A binary file reports `-` for both counts
     files.push({
       path,
-      kind: classifyChange(path),
+      kind: classifyFile(path),
       added: Number.parseInt(added, 10) || 0,
       removed: Number.parseInt(removed, 10) || 0,
     });
@@ -145,7 +114,7 @@ export async function collectBranchStats(repoRoot: string, since: string): Promi
   const kindOf = new Map(files.map((file) => [file.path, file.kind]));
 
   const emptyKind = (): KindChange => ({ files: 0, added: 0, removed: 0 });
-  const kinds: Record<ChangeKind, KindChange> = {
+  const kinds: Record<FileKind, KindChange> = {
     source: emptyKind(),
     test: emptyKind(),
     stories: emptyKind(),
@@ -214,8 +183,8 @@ function signed(n: number): string {
 }
 
 /** Kinds that changed, the one that grew most first. */
-function changedKinds(stats: BranchStats): [ChangeKind, KindChange][] {
-  return (Object.entries(stats.kinds) as [ChangeKind, KindChange][])
+function changedKinds(stats: BranchStats): [FileKind, KindChange][] {
+  return (Object.entries(stats.kinds) as [FileKind, KindChange][])
     .filter(([, change]) => change.files > 0)
     .sort((a, b) => net(b[1]) - net(a[1]));
 }

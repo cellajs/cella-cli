@@ -6,6 +6,7 @@ import { configFile } from '../upstream/managed-files';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, plural, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { errorMessage } from '../utils/errors';
+import { type CodeScan, type DynamicSite, isOpenPattern, patternTest, type Site, scanCode } from './key-uses';
 import {
   type Locales,
   lineOf,
@@ -15,15 +16,6 @@ import {
   sourceLanguage,
   withPluralForms,
 } from './locales';
-import {
-  type CodeScan,
-  type DynamicSite,
-  isOpenPattern,
-  loadTypeScript,
-  patternTest,
-  type Site,
-  scanCode,
-} from './scan';
 
 /** A repository to scan: this app, or a fork named in `cella/cella.config.ts`. */
 interface Repo {
@@ -146,7 +138,6 @@ function classify(defined: Map<string, Site>, scans: CodeScan[]): Map<string, Ke
 async function buildUnused(repoRoot: string): Promise<UnusedReport> {
   const locales = readLocales(repoRoot);
   const defined = definedKeys(locales);
-  const ts = await loadTypeScript(repoRoot);
   const { repos, missingForks } = await reposToScan(repoRoot);
   const namespaces = [...locales.namespaces.keys()];
   const bareKeys = new Set([...defined.keys()].map((key) => key.slice(key.indexOf(':') + 1)));
@@ -160,7 +151,7 @@ async function buildUnused(repoRoot: string): Promise<UnusedReport> {
   for (const repo of repos) {
     const spinner = createSpinner(`scanning ${repo.name}`);
     try {
-      scans.push(scanCode(ts, repo.path, repo.name, namespaces, bareKeys));
+      scans.push(scanCode(repo.path, repo.name, namespaces, bareKeys));
     } finally {
       spinner.stop();
     }

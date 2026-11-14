@@ -1,22 +1,19 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { openRepository } from '../../src/style/repo';
-import { stampFindings } from '../../src/style/stamp-rules';
-import { cliRoot } from '../helpers/style-repo';
-
-beforeAll(() => openRepository(cliRoot));
+import { describe, expect, it } from 'vitest';
+import { stampRules } from '../../src/style/stamp-rules';
+import { check } from '../helpers/style-repo';
 
 const file = 'backend/src/modules/example/operations/update-example.ts';
 const rules = (source: string, path = file) =>
-  stampFindings(path, source).map(({ rule, line, column }) => `${rule} ${line}:${column}`);
+  check(stampRules, path, source).map(({ rule, line, column }) => `${rule} ${line}:${column}`);
 
-describe('stampFindings', () => {
+describe('stamp rules', () => {
   it('finds a hand-written pair in any order, apart, in shorthand or with any writer value', () => {
     const source = [
       "db.update(t).set({ updatedAt: getIsoDate(), status: 'done', updatedBy: actorId });",
       'const updatedAt = getIsoDate(); db.update(t).set({ updatedAt, updatedBy });',
       'db.update(t).set({ deletedBy: ctx.var.user?.id ?? null, deletedAt: new Date().toISOString() });',
     ].join('\n');
-    expect(rules(source)).toEqual(['stamp-clock 3:68', 'stamp-pair 1:20', 'stamp-pair 2:52', 'stamp-pair 3:57']);
+    expect(rules(source)).toEqual(['stamp-pair 1:20', 'stamp-pair 2:52', 'stamp-pair 3:57', 'stamp-clock 3:68']);
   });
 
   it('leaves column definitions, schema masks, read values, the stamp helpers and mock builders alone', () => {

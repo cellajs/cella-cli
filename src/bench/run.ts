@@ -11,7 +11,15 @@ import { type Distribution, type EndpointSummary, Metrics } from './metrics';
 import { compactLine, LiveDisplay, liveLines, type Output, type SummaryView, summaryLines } from './report';
 import { play, roleSequencer, type ScheduleEvent, schedule } from './scheduler';
 import { readSse } from './sse';
-import { type CheckResult, type Phase, type Scenario, splitMetricKey, type Vu, type VuFn } from './types';
+import {
+  type CheckResult,
+  type Phase,
+  type RunOutcome,
+  type Scenario,
+  splitMetricKey,
+  type Vu,
+  type VuFn,
+} from './types';
 
 const defaultIntervalMs = 5000;
 const lagWarnMs = 50;
@@ -33,15 +41,8 @@ interface RunOptions {
   short?: boolean;
   /** One result line at the end, no full summary. */
   quiet?: boolean;
-  /**
-   * The app's own checks of what the run did, after the load stopped. Receives the counters and the runner's checks,
-   * so it can skip work on a run whose responses were already rejected.
-   */
-  afterRun?: (outcome: {
-    counters: Record<string, number>;
-    checks: CheckResult[];
-    short: boolean;
-  }) => Promise<CheckResult[]>;
+  /** The app's own checks of what the run did, after the load stopped. */
+  afterRun?: (outcome: RunOutcome) => Promise<CheckResult[]>;
   /** Where the live display and the summary go; stdout when unset. */
   output?: Output;
 }
@@ -108,22 +109,18 @@ function plan(scenario: AnyScenario, short: boolean): Plan {
   }
   const roles = scenario.roles ?? [{ name: '', weight: 1, vu: scenario.vu }];
   if (roles.some((role) => !(role.weight > 0))) throw new Error('every role needs a weight above 0');
-  const next = roleSequencer(roles);
+  let i = 0;
+  const next = short ? () => roles[i++ % roles.length] : roleSequencer(roles);
   const pick = () => {
     const role = next();
     return { role: scenario.roles ? role.name : null, fn: role.vu };
   };
   if (short) {
-    let i = 0;
     const events: ScheduleEvent[] = [
       { kind: 'phase', at: 0, phase: 0 },
       ...roles.map((): ScheduleEvent => ({ kind: 'arrival', at: 0, phase: 0 })),
     ];
-    const pickEach = () => {
-      const role = roles[i++ % roles.length];
-      return { role: scenario.roles ? role.name : null, fn: role.vu };
-    };
-    return { events, phases: [{ name: 'smoke', duration: 1 }], plannedS: 1, pick: pickEach };
+    return { events, phases: [{ name: 'smoke', duration: 1 }], plannedS: 1, pick };
   }
   const plannedS = scenario.phases.reduce((sum, phase) => sum + phase.duration, 0);
   return { events: schedule(scenario.phases), phases: scenario.phases, plannedS, pick };
@@ -146,94 +143,83 @@ function phaseText(phase: Phase): string {
   return `${rate}/s for ${phase.duration}s`;
 }
 
-/**
- * Runs a scenario: arrivals in an open loop, a live line every interval, then the checks (the scenario's, then the
- * app's `afterRun`), the summary, a baseline comparison, and for a passing full run a new baseline entry. Every
- * interval and the summary go to a JSONL log.
- */
-export async function runScenario(scenario: AnyScenario, options: RunOptions): Promise<RunResult> {
-  const { name, target, dataDir, short = false, quiet = false } = options;
-  const metrics = new Metrics();
-  const output = options.output ?? process.stdout;
-  const display = new LiveDisplay(Boolean(output.isTTY), output);
-  const startedAt = new Date();
-  const logFile = logFileFor(dataDir, name, startedAt);
-  const log = (entry: object) => appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
-  const { events, phases, plannedS, pick } = plan(scenario, short);
-  const declared = new Set<string>(scenario.counters ?? []);
-  const primaryKey = scenario.primary ?? 'http.response_time.p95';
-  const { name: primaryName, stat: primaryStat } = splitMetricKey(primaryKey);
-  const attachments: Record<string, unknown> = {};
+/** What the VUs, the ticker and the drain of one run share. */
+interface RunState {
+  metrics: Metrics;
+  stop: AbortController;
+  display: LiveDisplay;
+  phaseName: string;
+  /** VUs started and not settled. */
+  active: number;
+  /** Called when `active` drops to 0. */
+  onIdle: (() => void) | null;
+  attachments: Record<string, unknown>;
   /** The first message of each error that failed a VU. */
-  const errors: Record<string, { message: string }> = {};
-  const showPhases = !(quiet && output.isTTY);
+  errors: Record<string, { message: string }>;
+}
 
-  const stop = new AbortController();
+/** Starts one VU of `fn`: it counts as created, then completed or failed, and closes its connections when it settles. */
+function launch(
+  state: RunState,
+  fn: VuFn<string, string>,
+  vu: Pick<Vu<string, string>, 'index' | 'role' | 'short'>,
+  target: string,
+): void {
+  const { metrics, stop, display } = state;
+  const client = createHttpClient(target, metrics, stop.signal);
+  const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
+  metrics.counter('vusers.created');
+  state.active++;
+  Promise.resolve()
+    .then(() =>
+      fn({
+        ...vu,
+        signal: stop.signal,
+        http: client,
+        sse: (url, onEvent, sseOptions = {}) => readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal),
+        think: (thinkMs) => delay(thinkMs, undefined, { signal: stop.signal }),
+        counter: (counter, n) => metrics.counter(counter, n),
+        histogram: (histogram, value) => metrics.histogram(histogram, value),
+        log: (text) => display.log(text),
+        attach: (key, data) => {
+          state.attachments[key] = data;
+        },
+      }),
+    )
+    .then(
+      () => metrics.counter('vusers.completed'),
+      (error: unknown) => {
+        metrics.counter('vusers.failed');
+        const code = stop.signal.aborted ? 'aborted' : errorCode(error);
+        if (!(error as { [counted]?: boolean })?.[counted] || stop.signal.aborted) metrics.counter(`errors.${code}`);
+        state.errors[code] ??= { message: error instanceof Error ? error.message : String(error) };
+      },
+    )
+    .finally(async () => {
+      await client.close();
+      state.active--;
+      if (state.active === 0) state.onIdle?.();
+    });
+}
+
+/**
+ * A ticker for the live display: each tick logs the interval and renders its line, and warns once when the
+ * generator's event loop lags. `finish` stops the sampler and returns the worst lag and the warning.
+ */
+function liveTicker(
+  state: RunState,
+  scenario: AnyScenario,
+  { name, plannedS, log }: { name: string; plannedS: number | null; log: (entry: object) => void },
+) {
+  const { metrics, display } = state;
+  const declared = new Set<string>(scenario.counters ?? []);
+  const { name: primaryName } = splitMetricKey(scenario.primary ?? 'http.response_time.p95');
   const lag = monitorEventLoopDelay({ resolution: lagResolutionMs });
   lag.enable();
   let lagP99Max = 0;
   let lagWarning: string | null = null;
-
-  let phaseName = phases[0]?.name ?? '';
-  let active = 0;
-  let index = 0;
-  let onIdle: (() => void) | null = null;
   const started = performance.now();
   let lastTick = started;
-
-  const launch = () => {
-    const { role, fn } = pick();
-    const client = createHttpClient(target, metrics, stop.signal);
-    const sockets: WebSocket[] = [];
-    const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
-    const vu: Vu<string, string> = {
-      index: index++,
-      role,
-      short,
-      signal: stop.signal,
-      http: client,
-      sse: (url, onEvent, sseOptions = {}) => readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal),
-      ws: (url, protocols) =>
-        new Promise((resolve, reject) => {
-          const socket = new WebSocket(resolveUrl(url).replace(/^http/, 'ws'), protocols);
-          sockets.push(socket);
-          socket.addEventListener('open', () => resolve(socket), { once: true });
-          socket.addEventListener(
-            'error',
-            () => reject(Object.assign(new Error(`WebSocket ${url} did not open`), { code: 'EWEBSOCKET' })),
-            {
-              once: true,
-            },
-          );
-        }),
-      think: (thinkMs) => delay(thinkMs, undefined, { signal: stop.signal }),
-      counter: (counter, n) => metrics.counter(counter, n),
-      histogram: (histogram, value) => metrics.histogram(histogram, value),
-      log: (text) => display.log(text),
-      attach: (key, data) => {
-        attachments[key] = data;
-      },
-    };
-    metrics.counter('vusers.created');
-    active++;
-    Promise.resolve()
-      .then(() => fn(vu))
-      .then(
-        () => metrics.counter('vusers.completed'),
-        (error: unknown) => {
-          metrics.counter('vusers.failed');
-          const code = stop.signal.aborted ? 'aborted' : errorCode(error);
-          if (!(error as { [counted]?: boolean })?.[counted] || stop.signal.aborted) metrics.counter(`errors.${code}`);
-          errors[code] ??= { message: error instanceof Error ? error.message : String(error) };
-        },
-      )
-      .finally(async () => {
-        await client.close();
-        for (const socket of sockets) socket.close();
-        active--;
-        if (active === 0) onIdle?.();
-      });
-  };
 
   const tick = () => {
     const now = performance.now();
@@ -252,14 +238,14 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     const primary = primaryName.startsWith('http.') ? undefined : histograms[primaryName];
     const vus = {
       started: counters['vusers.created'] ?? 0,
-      active,
+      active: state.active,
       completed: metrics.get('vusers.completed'),
       failed: metrics.get('vusers.failed'),
     };
     log({
       type: 'interval',
       t: Math.round(elapsedS * 10) / 10,
-      phase: phaseName,
+      phase: state.phaseName,
       vus,
       counters,
       histograms,
@@ -268,7 +254,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     display.render(
       liveLines({
         scenario: name,
-        phase: phaseName,
+        phase: state.phaseName,
         elapsedS,
         plannedS,
         vus,
@@ -281,63 +267,48 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
       }),
     );
   };
-
-  if (!quiet) display.log(`${pc.dim('▸')} running ${name}${short ? ' (short)' : ''}: ${scenario.description}`);
   const ticker = setInterval(tick, defaultIntervalMs);
-
-  await play(
-    events,
-    (event) => {
-      if (event.kind === 'arrival') return launch();
-      phaseName = phases[event.phase].name;
-      if (showPhases && !scenario.run && !short)
-        display.log(`  ${pc.dim('phase')} ${phaseName} · ${phaseText(phases[event.phase])}`);
+  return {
+    finish: () => {
+      clearInterval(ticker);
+      tick();
+      lag.disable();
+      return { lagP99Max, lagWarning, durationS: (performance.now() - started) / 1000 };
     },
-    stop.signal,
-  );
+  };
+}
 
-  if (active > 0) {
-    if (!scenario.run) phaseName = 'drain';
-    const drainS = scenario.drainTimeout ?? (scenario.run ? Number.POSITIVE_INFINITY : defaultDrainTimeoutSeconds);
-    const idle = new Promise<void>((resolve) => {
-      onIdle = resolve;
-    });
-    // The timers are cancelled once the VUs are done: a pending one would keep the process alive.
-    const timers = new AbortController();
-    const wait = (seconds: number) =>
-      delay(seconds * 1000, 'timeout' as const, { signal: timers.signal }).catch(() => null);
-    const timedOut = Number.isFinite(drainS) ? wait(drainS) : new Promise<never>(() => {});
-    if ((await Promise.race([idle, timedOut])) === 'timeout') {
-      display.log(`  ⚠ ${active} VUs still running after ${drainS} s: aborted`);
-      stop.abort();
-      await Promise.race([idle, wait(abortGraceSeconds)]);
-    }
-    timers.abort();
+/** Waits for the VUs in flight after the last arrival; past the scenario's drain timeout it aborts them. */
+async function drain(state: RunState, scenario: AnyScenario): Promise<void> {
+  if (state.active === 0) return;
+  if (!scenario.run) state.phaseName = 'drain';
+  const drainS = scenario.drainTimeout ?? (scenario.run ? Number.POSITIVE_INFINITY : defaultDrainTimeoutSeconds);
+  const idle = new Promise<void>((resolve) => {
+    state.onIdle = resolve;
+  });
+  // The timers are cancelled once the VUs are done: a pending one would keep the process alive.
+  const timers = new AbortController();
+  const wait = (seconds: number) =>
+    delay(seconds * 1000, 'timeout' as const, { signal: timers.signal }).catch(() => null);
+  const timedOut = Number.isFinite(drainS) ? wait(drainS) : new Promise<never>(() => {});
+  if ((await Promise.race([idle, timedOut])) === 'timeout') {
+    state.display.log(`  ⚠ ${state.active} VUs still running after ${drainS} s: aborted`);
+    state.stop.abort();
+    await Promise.race([idle, wait(abortGraceSeconds)]);
   }
-  clearInterval(ticker);
-  tick();
-  lag.disable();
-  const durationS = (performance.now() - started) / 1000;
+  timers.abort();
+}
 
-  const counters = Object.fromEntries(metrics.counters);
-  const distributions = Object.fromEntries(
-    metrics.histogramNames().flatMap((histogram) => {
-      const d = metrics.distribution(histogram);
-      return d ? [[histogram, d]] : [];
-    }),
-  );
-  const checks = evaluateChecks(scenario.checks ?? {}, { counters, distributions, short });
-  if (options.afterRun) {
-    display.render([`${name} ${pc.dim('· checking what the app recorded')}`]);
-    checks.push(...(await options.afterRun({ counters, checks: [...checks], short })));
-  }
-  display.clear();
-  const ok = checks.every((check) => check.ok);
-
+/** This run's numbers in baseline shape. */
+function baselineEntry(
+  metrics: Metrics,
+  distributions: Record<string, Distribution>,
+  { name, startedAt, durationS, primaryKey }: { name: string; startedAt: Date; durationS: number; primaryKey: string },
+): BaselineEntry {
   const requests = metrics.get('http.requests');
-  const http = distributions['http.response_time'] ?? null;
-  const endpoints = metrics.endpointSummaries();
-  const current: BaselineEntry = {
+  const http = distributions['http.response_time'];
+  const { name: primaryName, stat: primaryStat } = splitMetricKey(primaryKey);
+  return {
     runner: runnerEpoch,
     timestamp: startedAt.toISOString(),
     scenario: name,
@@ -347,12 +318,12 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     p50: http?.p50 ?? 0,
     p95: http?.p95 ?? 0,
     p99: http?.p99 ?? 0,
-    errors: Object.entries(counters).reduce((sum, [counter, n]) => (counter.startsWith('errors.') ? sum + n : sum), 0),
+    errors: [...metrics.counters].reduce((sum, [counter, n]) => (counter.startsWith('errors.') ? sum + n : sum), 0),
     vusersCreated: metrics.get('vusers.created'),
     vusersFailed: metrics.get('vusers.failed'),
     primary: { metric: primaryKey, value: primaryStat ? (distributions[primaryName]?.[primaryStat] ?? 0) : 0 },
     endpoints: Object.fromEntries(
-      Object.entries(endpoints).map(([label, e]) => [
+      Object.entries(metrics.endpointSummaries()).map(([label, e]) => [
         label,
         {
           requests: e.requests,
@@ -365,11 +336,72 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
       ]),
     ),
   };
+}
 
+/**
+ * Runs a scenario: arrivals in an open loop, a live line every interval, then the checks (the scenario's, then the
+ * app's `afterRun`), the summary, a baseline comparison, and for a passing full run a new baseline entry. Every
+ * interval and the summary go to a JSONL log.
+ */
+export async function runScenario(scenario: AnyScenario, options: RunOptions): Promise<RunResult> {
+  const { name, target, dataDir, short = false, quiet = false } = options;
+  const output = options.output ?? process.stdout;
+  const startedAt = new Date();
+  const logFile = logFileFor(dataDir, name, startedAt);
+  const log = (entry: object) => appendFileSync(logFile, `${JSON.stringify(entry)}\n`);
+  const { events, phases, plannedS, pick } = plan(scenario, short);
+  const primaryKey = scenario.primary ?? 'http.response_time.p95';
+  const showPhases = !(quiet && output.isTTY);
+  const state: RunState = {
+    metrics: new Metrics(),
+    stop: new AbortController(),
+    display: new LiveDisplay(Boolean(output.isTTY), output),
+    phaseName: phases[0]?.name ?? '',
+    active: 0,
+    onIdle: null,
+    attachments: {},
+    errors: {},
+  };
+  const { metrics, display } = state;
+
+  if (!quiet) display.log(`${pc.dim('▸')} running ${name}${short ? ' (short)' : ''}: ${scenario.description}`);
+  const ticker = liveTicker(state, scenario, { name, plannedS, log });
+  let index = 0;
+  await play(
+    events,
+    (event) => {
+      if (event.kind === 'arrival') {
+        const { role, fn } = pick();
+        return launch(state, fn, { index: index++, role, short }, target);
+      }
+      state.phaseName = phases[event.phase].name;
+      if (showPhases && !scenario.run && !short)
+        display.log(`  ${pc.dim('phase')} ${state.phaseName} · ${phaseText(phases[event.phase])}`);
+    },
+    state.stop.signal,
+  );
+  await drain(state, scenario);
+  const { lagP99Max, lagWarning, durationS } = ticker.finish();
+
+  const counters = Object.fromEntries(metrics.counters);
+  const distributions = Object.fromEntries(
+    metrics.histogramNames().flatMap((histogram) => {
+      const d = metrics.distribution(histogram);
+      return d ? [[histogram, d]] : [];
+    }),
+  );
+  const checks = evaluateChecks(scenario.checks ?? {}, { counters, distributions, short });
+  if (options.afterRun) {
+    display.render([`${name} ${pc.dim('· checking what the app recorded')}`]);
+    const rejected = checks.some((check) => check.id === 'responses' && !check.ok);
+    checks.push(...(await options.afterRun({ counters, checks: [...checks], rejected, short })));
+  }
+  display.clear();
+  const ok = checks.every((check) => check.ok);
+
+  const current = baselineEntry(metrics, distributions, { name, startedAt, durationS, primaryKey });
   const { baseline, older } = short ? { baseline: null, older: 0 } : loadBaseline(dataDir, name);
   const saved = !short && ok ? saveBaseline(dataDir, current) : null;
-
-  const builtin = /^(vusers|http|errors)\./;
   const summary: RunSummary = {
     type: 'summary',
     runner: runnerEpoch,
@@ -378,10 +410,10 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     durationS,
     short,
     vus: { created: current.vusersCreated, completed: metrics.get('vusers.completed'), failed: current.vusersFailed },
-    requests,
+    requests: current.requests,
     requestRate: current.requestRate,
-    http,
-    endpoints,
+    http: distributions['http.response_time'] ?? null,
+    endpoints: metrics.endpointSummaries(),
     histograms: Object.fromEntries(
       Object.entries(distributions).filter(([histogram]) => !histogram.startsWith('http.')),
     ),
@@ -389,19 +421,19 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     errors: Object.fromEntries(
       Object.entries(counters).flatMap(([counter, n]) =>
         counter.startsWith('errors.')
-          ? [[counter.slice(7), { count: n, message: errors[counter.slice(7)]?.message ?? '' }]]
+          ? [[counter.slice(7), { count: n, message: state.errors[counter.slice(7)]?.message ?? '' }]]
           : [],
       ),
     ),
     checks,
     generatorLagP99MaxMs: lagP99Max,
-    attachments,
+    attachments: state.attachments,
   };
   log(summary);
 
   const view: SummaryView = {
     ...summary,
-    counters: Object.entries(counters).filter(([counter]) => !builtin.test(counter)),
+    counters: Object.entries(counters).filter(([counter]) => !/^(vusers|http|errors)\./.test(counter)),
     compared: !short && ok,
     baseline,
     olderBaselines: older,

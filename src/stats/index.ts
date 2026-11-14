@@ -1,6 +1,6 @@
 import type { Command } from '../command';
-import { runBranchStats } from './since';
-import { runStats } from './snapshot';
+import { runBranchStats } from './branch-count';
+import { runStats } from './repository-count';
 
 interface StatsOptions {
   /** Count what the current branch changed since it left this ref; the whole repository when unset */

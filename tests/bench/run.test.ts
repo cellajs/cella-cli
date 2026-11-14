@@ -43,7 +43,7 @@ describe('runScenario', () => {
       description: 'two requests per VU',
       phases: [{ name: 'hold', duration: 1, arrivalRate: 10 }],
       counters: ['loops'],
-      checks: { maxErrorRate: 0, thresholds: { 'http.response_time.p95': 1000 }, expect: ['loops'] },
+      checks: { maxErrorShare: 0, thresholds: { 'http.response_time.p95': 1000 }, expect: ['loops'] },
       async vu(vu) {
         for (let i = 0; i < 2; i++) {
           await vu.http.get('/ok', { name: 'GET /ok' });
@@ -73,11 +73,11 @@ describe('runScenario', () => {
     expect(lines.some((line) => line.type === 'interval')).toBe(true);
   });
 
-  it('fails a VU on a timeout, counts it once, and fails the error-rate and response checks', async () => {
+  it('fails a VU on a timeout, counts it once, and fails the error-share and response checks', async () => {
     const scenario = defineScenario({
       description: 'one timeout, one 401',
       phases: [{ name: 'one', duration: 1, arrivalCount: 1 }],
-      checks: { maxErrorRate: 0 },
+      checks: { maxErrorShare: 0 },
       async vu(vu) {
         await vu.http.get('/denied');
         await vu.http.get('/hang', { timeout: 100 });
@@ -91,7 +91,7 @@ describe('runScenario', () => {
     expect(result.summary.vus).toEqual({ created: 1, completed: 0, failed: 1 });
     expect(result.summary.checks.filter((check) => !check.ok).map((check) => check.id)).toEqual([
       'responses',
-      'errorRate',
+      'errorShare',
     ]);
     expect(existsSync(baselineFile(dataDir, 'failing'))).toBe(false);
   });

@@ -1,5 +1,7 @@
-import { extname } from 'node:path';
-import { ts } from './repo';
+import { basename, extname } from 'node:path';
+import { ts } from 'ts-morph';
+import { isGeneratedFile } from '../utils/repo-files';
+import { parseSource } from './rule';
 
 /** One comment of a source file, with its delimiters. */
 export interface Comment {
@@ -12,15 +14,19 @@ export interface Comment {
 
 /** Extensions of the script files, whose comments come from the TypeScript parse. */
 export const scriptExtensions = new Set(['.cjs', '.js', '.jsx', '.mjs', '.ts', '.tsx']);
+const sourceExtensions = new Set([...scriptExtensions, '.css', '.json', '.jsonc', '.scss', '.sql', '.yaml', '.yml']);
 
-let lastParsed: ts.SourceFile | undefined;
-
-/** The TypeScript parse of a script file; the checks of one file share it. */
-export function parseSource(file: string, source: string): ts.SourceFile {
-  if (lastParsed?.fileName === file && lastParsed.text === source) return lastParsed;
-  const kind = ['.tsx', '.jsx'].includes(extname(file)) ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
-  lastParsed = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, kind);
-  return lastParsed;
+/** Source files whose comments the rules read: migrations, the alignment folders and generated code are history. */
+export function isCommentSource(file: string): boolean {
+  if (['backend/drizzle/', 'cella/alignments/'].some((prefix) => file.startsWith(prefix)) || isGeneratedFile(file))
+    return false;
+  const name = basename(file);
+  return (
+    sourceExtensions.has(extname(name)) ||
+    name.startsWith('Dockerfile') ||
+    name === 'Caddyfile' ||
+    name.startsWith('.env')
+  );
 }
 
 /**
@@ -113,7 +119,7 @@ function yamlTrailingComments(source: string): Comment[] {
  * CSS and SCSS, block then line comments for SQL, and `#` lines for YAML (with the comments after a value, in document
  * order), Dockerfile, Caddyfile and env files. JSON has none.
  */
-export function sourceComments(file: string, source: string): Comment[] {
+function sourceComments(file: string, source: string): Comment[] {
   const extension = extname(file);
   if (scriptExtensions.has(extension)) return scriptComments(file, source);
   if (extension === '.jsonc') return jsoncComments(source);
@@ -133,4 +139,33 @@ export function sourceComments(file: string, source: string): Comment[] {
   );
   if (extension !== '.yaml' && extension !== '.yml') return comments;
   return [...comments, ...yamlTrailingComments(source)].sort((a, b) => a.offset - b.offset);
+}
+
+/** Joins runs of `//` comments on consecutive lines: a sentence wrapped over them reads whole. */
+function groupedComments(comments: Comment[], source: string): Comment[] {
+  const groups: Comment[] = [];
+  for (const comment of comments) {
+    const previous = groups.at(-1);
+    if (
+      comment.text.startsWith('//') &&
+      previous?.text.startsWith('//') &&
+      /^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, comment.offset))
+    ) {
+      previous.end = comment.end;
+      previous.text = source.slice(previous.offset, comment.end);
+      continue;
+    }
+    groups.push({ ...comment });
+  }
+  return groups;
+}
+
+let lastComments: { file: string; source: string; comments: Comment[] } | undefined;
+
+/** The comments of one source file, `//` runs joined; the rules of one file share them. */
+export function fileComments(file: string, source: string): Comment[] {
+  if (lastComments?.file !== file || lastComments.source !== source) {
+    lastComments = { file, source, comments: groupedComments(sourceComments(file, source), source) };
+  }
+  return lastComments.comments;
 }

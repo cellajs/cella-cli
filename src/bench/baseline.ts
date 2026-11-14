@@ -1,8 +1,11 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
-/** Marks the entries this runner wrote: an entry without it (Artillery's) stays in the file and is never compared. */
-export const runnerEpoch = 'cella-bench@1';
+/**
+ * Marks the entries this runner wrote: an entry of another epoch (Artillery's has none) stays in the file and is never
+ * compared. A new epoch starts when a measurement changes what it times.
+ */
+export const runnerEpoch = 'cella-bench@2';
 
 interface EndpointBaseline {
   requests: number;

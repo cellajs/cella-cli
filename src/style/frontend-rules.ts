@@ -1,9 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { extname, join } from 'node:path';
-import { type Finding, isFrontendSource, lineColumn, repoRoot, ts } from './repo';
-import { parseSource } from './source-comments';
+import { join } from 'node:path';
+import { ts } from 'ts-morph';
+import { type Finding, isFrontendSource, lineColumn, parseSource, type Rule, type StyleRun } from './rule';
 
-type Report = (node: ts.Node, rule: string, message: string) => void;
+type Report = (node: ts.Node, message: string) => void;
 
 function containsJsx(node: ts.Node): boolean {
   return (
@@ -26,19 +26,14 @@ function importsOf(sourceFile: ts.SourceFile) {
 }
 
 /** A component is a named function declaration, and a helper such as `memo` wraps a function expression of its name. */
-function checkVariableStatement(sourceFile: ts.SourceFile, node: ts.VariableStatement, report: Report): void {
-  if (extname(sourceFile.fileName) !== '.tsx') return;
+function checkVariableStatement(node: ts.VariableStatement, report: Report): void {
   for (const declaration of node.declarationList.declarations) {
     const name = ts.isIdentifier(declaration.name) ? declaration.name.text : null;
     const initializer = declaration.initializer;
     if (!name || !/^[A-Z]/.test(name) || !initializer || !containsJsx(initializer)) continue;
 
     if (ts.isArrowFunction(initializer)) {
-      report(
-        declaration,
-        'component-declaration',
-        `${name} is an ordinary component; use a named function declaration`,
-      );
+      report(declaration, `${name} is an ordinary component; use a named function declaration`);
       continue;
     }
 
@@ -48,11 +43,7 @@ function checkVariableStatement(sourceFile: ts.SourceFile, node: ts.VariableStat
         (ts.isArrowFunction(argument) || ts.isFunctionExpression(argument)) && containsJsx(argument),
     );
     if (!wrappedRender || (ts.isFunctionExpression(wrappedRender) && wrappedRender.name?.text === name)) continue;
-    report(
-      wrappedRender,
-      'component-declaration',
-      `${name} is wrapped by a component helper; use a named function expression`,
-    );
+    report(wrappedRender, `${name} is wrapped by a component helper; use a named function expression`);
   }
 }
 
@@ -78,18 +69,18 @@ function collectStores(sourceFile: ts.SourceFile, stores: Set<string>): void {
 }
 
 /** A store is read through a selector: called with no argument, it renders the component again on every field change. */
-function checkStoreSelector(node: ts.Node, stores: Set<string>, report: Report): void {
+function checkStoreSelector(node: ts.Node, report: Report, _sourceFile: ts.SourceFile, { stores }: StyleRun): void {
   if (!ts.isCallExpression(node) || node.arguments.length > 0 || !ts.isIdentifier(node.expression)) return;
   const name = node.expression.text;
   if (!stores.has(name)) return;
-  report(node, 'store-selector', `${name}() subscribes to every field; select the values this component reads`);
+  report(node, `${name}() subscribes to every field; select the values this component reads`);
 }
 
 /**
  * Route context is rebuilt on every navigation, search-only ones included, so a component that reads it whole renders
  * again on each one. `select` narrows the read to a value that stays equal between navigations.
  */
-function checkRouteContextSelector(sourceFile: ts.SourceFile, node: ts.Node, report: Report): void {
+function checkRouteContextSelector(node: ts.Node, report: Report, sourceFile: ts.SourceFile): void {
   if (!ts.isCallExpression(node)) return;
   const callee = node.expression;
   const name = ts.isPropertyAccessExpression(callee)
@@ -104,7 +95,6 @@ function checkRouteContextSelector(sourceFile: ts.SourceFile, node: ts.Node, rep
   if (options?.properties.some((property) => property.name?.getText(sourceFile) === 'select')) return;
   report(
     node,
-    'route-context-selector',
     'useRouteContext() renders again on every navigation; pass `select` and return the id or flag this component reads',
   );
 }
@@ -113,7 +103,7 @@ function checkRouteContextSelector(sourceFile: ts.SourceFile, node: ts.Node, rep
  * A Button's press nudge is a `transform` (`active:press`). `active:translate-y-0` sets `translate`, another property,
  * so it compiles and leaves the nudge in place; `press={false}` turns the nudge off.
  */
-function checkButtonPressCancel(sourceFile: ts.SourceFile, node: ts.Node, report: Report): void {
+function checkButtonPressCancel(node: ts.Node, report: Report, sourceFile: ts.SourceFile): void {
   if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return;
   if (node.tagName.getText(sourceFile) !== 'Button') return;
   for (const attribute of node.attributes.properties) {
@@ -122,7 +112,6 @@ function checkButtonPressCancel(sourceFile: ts.SourceFile, node: ts.Node, report
     if (!/(?<![\w-])!?active:translate-y-0!?(?![\w-])/.test(attribute.initializer.getText(sourceFile))) continue;
     report(
       attribute,
-      'button-press-cancel',
       'active:translate-y-0 does not cancel the press nudge, which is a transform; pass press={false} to the Button',
     );
   }
@@ -132,7 +121,7 @@ function checkButtonPressCancel(sourceFile: ts.SourceFile, node: ts.Node, report
  * A form react-hook-form validates shows why a field is refused under that field. Without `noValidate` the browser
  * refuses an email or web address first, in a bubble of its own and in the browser's language.
  */
-function checkFormNoValidate(sourceFile: ts.SourceFile, node: ts.Node, report: Report): void {
+function checkFormNoValidate(node: ts.Node, report: Report, sourceFile: ts.SourceFile): void {
   if (
     (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) ||
     node.tagName.getText(sourceFile) !== 'form'
@@ -142,20 +131,14 @@ function checkFormNoValidate(sourceFile: ts.SourceFile, node: ts.Node, report: R
   const onSubmit = attributes.find((attribute) => attribute.name.getText(sourceFile) === 'onSubmit');
   if (!onSubmit?.initializer?.getText(sourceFile).includes('handleSubmit(')) return;
   if (attributes.some((attribute) => attribute.name.getText(sourceFile) === 'noValidate')) return;
-  report(
-    node,
-    'form-no-validate',
-    'a form react-hook-form validates takes noValidate, so its fields say what is wrong, not the browser',
-  );
+  report(node, 'a form react-hook-form validates takes noValidate, so its fields say what is wrong, not the browser');
 }
 
 /**
  * A drag grip renders through `ReorderHandle` or `reorderColumn`, which give it the arrow keys and the move menu. A drag
- * preview (`*-preview.tsx`) only pictures the grip, and the editor's block handle moves blocks from its own menu.
+ * preview (`*-preview.tsx`) only pictures the grip.
  */
-function checkReorderGrip(file: string, sourceFile: ts.SourceFile, report: Report): void {
-  if (file.endsWith('-preview.tsx') || file === 'frontend/src/modules/common/blocknote/custom-side-menu/side-menu.tsx')
-    return;
+function checkReorderGrip(sourceFile: ts.SourceFile, report: Report): void {
   let grip: ts.Node | undefined;
   let hasHandle = false;
   for (const { module, names } of importsOf(sourceFile)) {
@@ -167,7 +150,6 @@ function checkReorderGrip(file: string, sourceFile: ts.SourceFile, report: Repor
   if (grip && !hasHandle) {
     report(
       grip,
-      'reorder-grip',
       'render a drag grip through ReorderHandle or reorderColumn, so the keyboard and a pointer that cannot drag move it too',
     );
   }
@@ -203,7 +185,6 @@ function checkMemoDependencies(node: ts.Node, report: Report): void {
     if (!ts.isIdentifier(root) || read.has(root.text)) continue;
     report(
       dependency,
-      'memo-dependency-unread',
       `${root.text} is a dependency the callback never reads, so the compiled memo ignores it; read it or derive the result from it`,
     );
   }
@@ -240,10 +221,10 @@ function markCalls(sourceFile: ts.SourceFile) {
 const productModuleFolders = new Map<string, boolean>();
 
 /** Whether `file` lies in a module folder whose `query.ts` registers a range fetch. */
-function inProductModule(file: string): boolean {
+function inProductModule(root: string, file: string): boolean {
   const folder = /^frontend\/src\/modules\/[^/]+\//.exec(file)?.[0];
   if (!folder) return false;
-  const queryFile = join(repoRoot, `${folder}query.ts`);
+  const queryFile = join(root, `${folder}query.ts`);
   if (!productModuleFolders.has(queryFile)) {
     const source = existsSync(queryFile) ? readFileSync(queryFile, 'utf8') : '';
     productModuleFolders.set(
@@ -255,50 +236,79 @@ function inProductModule(file: string): boolean {
 }
 
 /** Query code and the module of a synced product write and cancel through the helpers that keep a query's refetch mark. */
-function checkProductCacheWrite(file: string, sourceFile: ts.SourceFile, report: Report): void {
-  if (file === 'frontend/src/query/basic/cache-mutations.ts') return;
+function checkProductCacheWrite(sourceFile: ts.SourceFile, report: Report, { root }: StyleRun): void {
+  const file = sourceFile.fileName;
   const { calls, registersRangeFetch } = markCalls(sourceFile);
-  if (!calls.length || !(file.startsWith('frontend/src/query/') || registersRangeFetch || inProductModule(file)))
+  if (!calls.length || !(file.startsWith('frontend/src/query/') || registersRangeFetch || inProductModule(root, file)))
     return;
   for (const { node, name } of calls) {
-    report(
-      node,
-      'product-cache-write',
-      `${name} clears the refetch mark; call ${markKeepers[name]} from ~/query/basic/cache-mutations`,
-    );
+    report(node, `${name} clears the refetch mark; call ${markKeepers[name]} from ~/query/basic/cache-mutations`);
   }
 }
 
 /** The zustand stores the frontend creates, read from every frontend file so a path-limited run still knows them. */
-export function frontendStores(files: string[]): Set<string> {
+export function frontendStores(root: string, files: string[]): Set<string> {
   const stores = new Set<string>();
   for (const file of files.filter(isFrontendSource)) {
-    const source = readFileSync(join(repoRoot, file), 'utf8');
+    const source = readFileSync(join(root, file), 'utf8');
     if (source.includes('zustand')) collectStores(parseSource(file, source), stores);
   }
   return stores;
 }
 
-/** Convention findings in one frontend file; `stores` comes from `frontendStores`. */
-export function frontendFindings(file: string, source: string, stores: Set<string>): Finding[] {
-  if (!isFrontendSource(file)) return [];
-  const sourceFile = parseSource(file, source);
-  const findings: Finding[] = [];
-  const report: Report = (node, rule, message) =>
-    findings.push({ file, ...lineColumn(source, node.getStart(sourceFile)), rule, message });
-
-  for (const statement of sourceFile.statements) {
-    if (ts.isVariableStatement(statement)) checkVariableStatement(sourceFile, statement, report);
-  }
-  checkReorderGrip(file, sourceFile, report);
-  checkProductCacheWrite(file, sourceFile, report);
-  sourceFile.forEachChild(function visit(node) {
-    checkStoreSelector(node, stores, report);
-    checkRouteContextSelector(sourceFile, node, report);
-    checkButtonPressCancel(sourceFile, node, report);
-    checkFormNoValidate(sourceFile, node, report);
-    checkMemoDependencies(node, report);
-    node.forEachChild(visit);
-  });
-  return findings;
+/** A rule whose `inspect` reports nodes of a frontend file's parse. */
+function frontendRule(
+  id: string,
+  inspect: (sourceFile: ts.SourceFile, report: Report, run: StyleRun) => void,
+  reads: (file: string) => boolean = isFrontendSource,
+): Rule {
+  return {
+    id,
+    reads,
+    check: (file, source, run) => {
+      const sourceFile = parseSource(file, source);
+      const findings: Finding[] = [];
+      const report: Report = (node, message) =>
+        findings.push({ file, ...lineColumn(source, node.getStart(sourceFile)), rule: id, message });
+      inspect(sourceFile, report, run);
+      return findings;
+    },
+  };
 }
+
+/** A frontend rule that judges every node of the file's parse. */
+function nodeRule(
+  id: string,
+  visit: (node: ts.Node, report: Report, sourceFile: ts.SourceFile, run: StyleRun) => void,
+): Rule {
+  return frontendRule(id, (sourceFile, report, run) =>
+    sourceFile.forEachChild(function walk(node) {
+      visit(node, report, sourceFile, run);
+      node.forEachChild(walk);
+    }),
+  );
+}
+
+/** The convention rules of frontend code. */
+export const frontendRules: Rule[] = [
+  frontendRule(
+    'component-declaration',
+    (sourceFile, report) => {
+      for (const statement of sourceFile.statements.filter(ts.isVariableStatement))
+        checkVariableStatement(statement, report);
+    },
+    (file) => isFrontendSource(file) && file.endsWith('.tsx'),
+  ),
+  frontendRule('reorder-grip', checkReorderGrip, (file) => isFrontendSource(file) && !file.endsWith('-preview.tsx')),
+  // The helpers that keep the mark write through the plain calls
+  frontendRule(
+    'product-cache-write',
+    checkProductCacheWrite,
+    (file) => isFrontendSource(file) && file !== 'frontend/src/query/basic/cache-mutations.ts',
+  ),
+  nodeRule('store-selector', checkStoreSelector),
+  nodeRule('route-context-selector', checkRouteContextSelector),
+  nodeRule('button-press-cancel', checkButtonPressCancel),
+  nodeRule('form-no-validate', checkFormNoValidate),
+  nodeRule('memo-dependency-unread', checkMemoDependencies),
+];

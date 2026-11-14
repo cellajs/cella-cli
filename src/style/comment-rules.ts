@@ -1,41 +1,9 @@
-import { basename, extname } from 'node:path';
-import { isProseExempt, proseRules, ruleFindings } from './prose-rules';
-import { type Finding, lineColumn, ts } from './repo';
-import { type Comment, parseSource, scriptExtensions, sourceComments } from './source-comments';
+import { extname } from 'node:path';
+import { ts } from 'ts-morph';
+import { type Comment, fileComments, isCommentSource, scriptExtensions } from './comments';
+import { type Finding, lineColumn, parseSource, type Rule } from './rule';
 
-const sourceExtensions = new Set([...scriptExtensions, '.css', '.json', '.jsonc', '.scss', '.sql', '.yaml', '.yml']);
-const textRules = proseRules.filter((rule) => rule.text);
-const commentRules = proseRules.filter((rule) => !rule.text);
 const placementAdvice = 'move shared context to a README or attach a concise local constraint to a declaration';
-
-function isSource(file: string): boolean {
-  if (isProseExempt(file, 'source')) return false;
-  const name = basename(file);
-  return (
-    sourceExtensions.has(extname(name)) ||
-    name.startsWith('Dockerfile') ||
-    name === 'Caddyfile' ||
-    name.startsWith('.env')
-  );
-}
-
-function groupedComments(comments: Comment[], source: string): Comment[] {
-  const groups: Comment[] = [];
-  for (const comment of comments) {
-    const previous = groups.at(-1);
-    if (
-      comment.text.startsWith('//') &&
-      previous?.text.startsWith('//') &&
-      /^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, comment.offset))
-    ) {
-      previous.end = comment.end;
-      previous.text = source.slice(previous.offset, comment.end);
-      continue;
-    }
-    groups.push({ ...comment });
-  }
-  return groups;
-}
 
 function proseLineCount(text: string): number {
   return text
@@ -86,28 +54,23 @@ function hasDirectDeclarationOwner(file: string, source: string, comment: Commen
   return /^\s*$/.test(gap) && !/\r?\n[\t ]*\r?\n/.test(gap);
 }
 
-/** Rule findings in one source file, `text` rules over its whole text and the rest over its comments, and placement findings. */
-export function commentFindings(file: string, source: string): Finding[] {
-  if (!isSource(file)) return [];
-  const comments = groupedComments(sourceComments(file, source), source);
-  const findings: Finding[] = [
-    ...textRules.flatMap((rule) => ruleFindings(rule, file, source, (index) => lineColumn(source, index))),
-    ...comments.flatMap((comment) =>
-      commentRules.flatMap((rule) =>
-        ruleFindings(rule, file, comment.text, (index) => lineColumn(source, comment.offset + index)),
-      ),
-    ),
-  ];
-
-  for (const comment of comments) {
-    const lineCount = proseLineCount(comment.text);
-    if (lineCount <= 3 || isRequiredHeader(comment.text) || hasDirectDeclarationOwner(file, source, comment)) continue;
-    findings.push({
-      file,
-      ...lineColumn(source, comment.offset),
-      rule: 'detached-long-comment',
-      message: `${lineCount} prose lines; ${placementAdvice}`,
-    });
-  }
-  return findings;
-}
+/** A comment of more than three prose lines that documents no declaration directly below or around it. */
+export const detachedCommentRule: Rule = {
+  id: 'detached-long-comment',
+  reads: isCommentSource,
+  check: (file, source) => {
+    const findings: Finding[] = [];
+    for (const comment of fileComments(file, source)) {
+      const lineCount = proseLineCount(comment.text);
+      if (lineCount <= 3 || isRequiredHeader(comment.text) || hasDirectDeclarationOwner(file, source, comment))
+        continue;
+      findings.push({
+        file,
+        ...lineColumn(source, comment.offset),
+        rule: 'detached-long-comment',
+        message: `${lineCount} prose lines; ${placementAdvice}`,
+      });
+    }
+    return findings;
+  },
+};

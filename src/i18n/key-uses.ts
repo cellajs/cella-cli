@@ -1,7 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import type * as TS from 'typescript';
-import { importFromWorkspace } from '../utils/app';
+import { Project, ts } from 'ts-morph';
 import { isGeneratedFile, listRepoFiles } from '../utils/repo-files';
 
 /** A place in a repository's code. */
@@ -58,19 +57,7 @@ export function listCodeFiles(repoPath: string): string[] {
   return listRepoFiles(repoPath).filter((path) => codeFile.test(path) && !skipped(path));
 }
 
-/**
- * The app's own TypeScript, which parses the code and types the parts of a built key.
- * @throws when the repository root has no `typescript` with the compiler API
- */
-export async function loadTypeScript(repoRoot: string): Promise<typeof TS> {
-  const ts = await importFromWorkspace<typeof TS>(repoRoot, '.', 'typescript');
-  if (typeof ts.createSourceFile !== 'function') {
-    throw new Error('cella i18n reads the code with the TypeScript compiler API: the root `typescript` has none');
-  }
-  return ts;
-}
-
-const scriptKind = (ts: typeof TS, path: string) =>
+const scriptKind = (path: string) =>
   path.endsWith('.tsx')
     ? ts.ScriptKind.TSX
     : path.endsWith('.jsx')
@@ -80,7 +67,7 @@ const scriptKind = (ts: typeof TS, path: string) =>
         : ts.ScriptKind.TS;
 
 /** Whether a node is what `t()` or `i18nKey` reads as the key: the first argument, or a fallback in its key array. */
-function isKeyArgument(ts: typeof TS, node: TS.Node): boolean {
+function isKeyArgument(node: ts.Node): boolean {
   const parent = ts.isArrayLiteralExpression(node.parent) ? node.parent : node;
   const call = parent.parent;
   if (call && ts.isCallExpression(call) && call.arguments[0] === parent) {
@@ -96,8 +83,8 @@ function isKeyArgument(ts: typeof TS, node: TS.Node): boolean {
 }
 
 /** Whether a node is the key of a `t()` call whose options object has a `context` property. */
-function readsContext(ts: typeof TS, node: TS.Node): boolean {
-  if (!isKeyArgument(ts, node)) return false;
+function readsContext(node: ts.Node): boolean {
+  if (!isKeyArgument(node)) return false;
   const call = (ts.isArrayLiteralExpression(node.parent) ? node.parent : node).parent;
   const options = ts.isCallExpression(call) ? call.arguments[1] : undefined;
   return (
@@ -116,7 +103,7 @@ const add = (map: Map<string, Site[]>, key: string, site: Site) => {
 };
 
 /** The string values a type closes to, or undefined when any member is open (`string`, a template type). */
-function literalValues(ts: typeof TS, checker: TS.TypeChecker, type: TS.Type): string[] | undefined {
+function literalValues(checker: ts.TypeChecker, type: ts.Type): string[] | undefined {
   const values: string[] = [];
   for (const member of type.isUnion() ? type.types : [type]) {
     if (member.isStringLiteral()) values.push(member.value);
@@ -146,7 +133,7 @@ interface PendingSite {
  * Types the parts of each built key with the program of the file's nearest `tsconfig.json`, rooted at the files that
  * build keys only: a checker types lazily, so this reads far less than a typecheck.
  */
-function resolveTemplates(ts: typeof TS, repoPath: string, pending: Map<string, PendingSite[]>): void {
+function resolveTemplates(repoPath: string, pending: Map<string, PendingSite[]>): void {
   const byConfig = new Map<string, string[]>();
   for (const file of pending.keys()) {
     const config = ts.findConfigFile(dirname(join(repoPath, file)), ts.sys.fileExists) ?? '';
@@ -156,15 +143,18 @@ function resolveTemplates(ts: typeof TS, repoPath: string, pending: Map<string, 
     const parsed = config
       ? ts.getParsedCommandLineOfConfigFile(config, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })
       : undefined;
-    const program = ts.createProgram({
-      rootNames: files.map((file) => join(repoPath, file)),
-      options: { ...parsed?.options, noEmit: true, incremental: false, skipLibCheck: true },
+    // ts-morph's project serves the lib files its TypeScript ships without on disk
+    const project = new Project({
+      compilerOptions: { ...parsed?.options, noEmit: true, incremental: false, skipLibCheck: true },
+      skipAddingFilesFromTsConfig: true,
     });
+    for (const file of files) project.addSourceFileAtPath(join(repoPath, file));
+    const program = project.getProgram().compilerObject;
     const checker = program.getTypeChecker();
-    const keysOf = (node: TS.TemplateExpression): string[] | undefined => {
+    const keysOf = (node: ts.TemplateExpression): string[] | undefined => {
       const parts: { values: string[]; tail: string }[] = [];
       for (const span of node.templateSpans) {
-        const values = literalValues(ts, checker, checker.getTypeAtLocation(span.expression));
+        const values = literalValues(checker, checker.getTypeAtLocation(span.expression));
         if (!values) return undefined;
         parts.push({ values, tail: span.literal.text });
       }
@@ -174,7 +164,7 @@ function resolveTemplates(ts: typeof TS, repoPath: string, pending: Map<string, 
       const sourceFile = program.getSourceFile(join(repoPath, file));
       if (!sourceFile) continue;
       const starts = new Map((pending.get(file) ?? []).map((entry) => [entry.start, entry.site]));
-      const visit = (node: TS.Node): void => {
+      const visit = (node: ts.Node): void => {
         const site = ts.isTemplateExpression(node) ? starts.get(node.getStart(sourceFile)) : undefined;
         if (site && ts.isTemplateExpression(node)) site.keys = keysOf(node);
         ts.forEachChild(node, visit);
@@ -190,13 +180,7 @@ function resolveTemplates(ts: typeof TS, repoPath: string, pending: Map<string, 
  * @param namespaces - the runtime namespaces a literal may name before its `:`
  * @param keys - every key of every namespace, to recognize a literal without its namespace
  */
-export function scanCode(
-  ts: typeof TS,
-  repoPath: string,
-  repo: string,
-  namespaces: string[],
-  keys: Set<string>,
-): CodeScan {
+export function scanCode(repoPath: string, repo: string, namespaces: string[], keys: Set<string>): CodeScan {
   const started = performance.now();
   const prefix = new RegExp(`^(${namespaces.map(RegExp.escape).join('|')}):`);
   const scan: CodeScan = { repo, files: 0, ms: 0, literals: new Map(), bare: new Map(), dynamic: [] };
@@ -213,20 +197,20 @@ export function scanCode(
       continue;
     }
     scan.files++;
-    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, scriptKind(ts, file));
-    const lineOf = (node: TS.Node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
+    const sourceFile = ts.createSourceFile(file, text, ts.ScriptTarget.Latest, true, scriptKind(file));
+    const lineOf = (node: ts.Node) => sourceFile.getLineAndCharacterOfPosition(node.getStart(sourceFile)).line + 1;
 
-    const visit = (node: TS.Node): void => {
+    const visit = (node: ts.Node): void => {
       if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) {
-        const site = () => ({ file, line: lineOf(node), context: readsContext(ts, node) || undefined });
+        const site = () => ({ file, line: lineOf(node), context: readsContext(node) || undefined });
         if (prefix.test(node.text)) add(scan.literals, node.text, site());
-        else if (keys.has(node.text)) add(scan.bare, node.text, { ...site(), keyArgument: isKeyArgument(ts, node) });
+        else if (keys.has(node.text)) add(scan.bare, node.text, { ...site(), keyArgument: isKeyArgument(node) });
       } else if (ts.isTemplateExpression(node)) {
         const match = prefix.exec(node.head.text);
-        if (match || isKeyArgument(ts, node)) {
+        if (match || isKeyArgument(node)) {
           const source = node.getText(sourceFile).slice(1, -1);
           const pattern = `${node.head.text}${node.templateSpans.map((span) => `*${span.literal.text}`).join('')}`;
-          const context = readsContext(ts, node) || undefined;
+          const context = readsContext(node) || undefined;
           const site: DynamicSite = { file, line: lineOf(node), namespace: match?.[1], source, pattern, context };
           scan.dynamic.push(site);
           pending.set(file, [...(pending.get(file) ?? []), { site, start: node.getStart(sourceFile) }]);
@@ -237,7 +221,7 @@ export function scanCode(
     visit(sourceFile);
   }
 
-  if (pending.size > 0) resolveTemplates(ts, repoPath, pending);
+  if (pending.size > 0) resolveTemplates(repoPath, pending);
   scan.ms = Math.round(performance.now() - started);
   return scan;
 }

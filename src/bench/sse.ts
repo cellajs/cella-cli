@@ -51,7 +51,8 @@ export function createSseParser(onEvent: (event: SseEvent) => void): (chunk: str
 
 /**
  * Reads an event stream with `fetch` until it ends or a signal aborts. The connect counts as a request of its endpoint
- * (status, time to headers); a transport error rejects, a non-2xx status resolves at once.
+ * (status, and the time from the call to the headers in `sse.connect_time`); a transport error rejects, a non-2xx
+ * status resolves at once.
  */
 export async function readSse(
   url: string,
@@ -91,7 +92,7 @@ export async function readSse(
     throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), { [counted]: true });
   }
   clearTimeout(timer);
-  metrics.response(label, res.status, performance.now() - started);
+  metrics.response(label, res.status, 'sse.connect_time', performance.now() - started);
   if (!res.ok || !res.body) {
     await res.body?.cancel();
     return res.status;

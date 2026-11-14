@@ -12,7 +12,7 @@ export interface Phase {
 /** The statistics a threshold or a primary latency names after a histogram's name. */
 const stats = ['p50', 'p95', 'p99', 'max', 'min', 'mean'] as const;
 export type Stat = (typeof stats)[number];
-export type BuiltinHistogram = 'http.response_time' | 'http.total_time';
+export type BuiltinHistogram = 'http.response_time' | 'http.total_time' | 'sse.connect_time';
 /** A histogram statistic by name, such as `http.response_time.p95`. */
 export type MetricKey<H extends string> = `${BuiltinHistogram | H}.${Stat}`;
 
@@ -27,7 +27,7 @@ export function splitMetricKey(key: string): { name: string; stat: Stat | null }
 export interface Checks<C extends string, H extends string> {
   thresholds?: Partial<Record<MetricKey<H>, number>>;
   /** Highest share of VUs that may fail: created minus completed, over created. */
-  maxErrorRate?: number;
+  maxErrorShare?: number;
   /** Highest share of responses that may be other than 2xx; 1 when unset. */
   maxRejectedShare?: number;
   /** Counters that must have counted (full runs only: a short run plays each role once). */
@@ -57,10 +57,8 @@ export interface HttpResponse {
 
 /** Requests over one keep-alive connection per VU. Resolves for every status; rejects on a transport error or timeout. */
 export interface HttpClient {
-  request(method: string, url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
   get(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
   post(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
-  put(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
   patch(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
   delete(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
 }
@@ -86,10 +84,8 @@ export interface Vu<C extends string = string, H extends string = string> {
   /** Aborts when the run stops before this VU is done. */
   signal: AbortSignal;
   http: HttpClient;
-  /** Reads an event stream until it ends or `signal` aborts; resolves to the response status. */
+  /** Reads an event stream until it ends or `signal` aborts; resolves to the response status. Its time to headers is `sse.connect_time`. */
   sse(url: string, onEvent: (event: SseEvent) => void, options?: SseOptions): Promise<number>;
-  /** An open WebSocket, closed when the VU ends. */
-  ws(url: string, protocols?: string | string[]): Promise<WebSocket>;
   think(ms: number): Promise<void>;
   counter(name: C, n?: number): void;
   histogram(name: H, value: number): void;
@@ -135,4 +131,14 @@ export interface CheckResult {
   id: string;
   ok: boolean;
   text: string;
+}
+
+/** What a scenario's run left for the app to check. */
+export interface RunOutcome {
+  counters: Record<string, number>;
+  /** The runner's checks. */
+  checks: CheckResult[];
+  /** More responses than `maxRejectedShare` allows were other than 2xx: the run timed rejections, which the app's checks may skip. */
+  rejected: boolean;
+  short: boolean;
 }

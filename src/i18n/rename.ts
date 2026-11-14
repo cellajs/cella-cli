@@ -3,8 +3,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import pc from '../utils/colors';
 import { checkMark, plural, warningMark, writeStdout } from '../utils/display';
+import { isOpenPattern, listCodeFiles, patternTest, scanCode } from './key-uses';
 import { type LocaleFile, type Locales, type RawEntry, readLocales, withPluralForms, writeLocaleFile } from './locales';
-import { isOpenPattern, listCodeFiles, loadTypeScript, patternTest, scanCode } from './scan';
 
 export interface RenameOptions {
   from: string;
@@ -122,8 +122,6 @@ export async function rename(repoRoot: string, options: RenameOptions): Promise<
   const from = parseKey(options.from, locales);
   const to = parseKey(options.to, locales);
   if (options.from === options.to) throw new Error('the new name is the old one');
-  // Loaded before any write: a throw here leaves the files as they were
-  const ts = await loadTypeScript(repoRoot);
 
   const localeFiles = renameInLocales(repoRoot, locales, from, to);
   const codeFiles = renameInCode(repoRoot, options.from, options.to);
@@ -131,7 +129,7 @@ export async function rename(repoRoot: string, options: RenameOptions): Promise<
 
   // What no literal rewrite reaches: a key without its namespace in `t()`, a template that builds the old key. An
   // error type is typed, so the typecheck finds it
-  const scan = scanCode(ts, repoRoot, '', [...locales.namespaces.keys()], new Set([from.key]));
+  const scan = scanCode(repoRoot, '', [...locales.namespaces.keys()], new Set([from.key]));
   const check = [
     ...(scan.bare.get(from.key) ?? [])
       .filter((site) => site.keyArgument)

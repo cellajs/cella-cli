@@ -24,7 +24,8 @@ interface BenchOptions {
   isolated: boolean;
 }
 
-async function runBench(repoRoot: string, options: BenchOptions): Promise<number> {
+/** Runs the app's `bench/run.ts` with the request in its environment. */
+async function launchBench(repoRoot: string, options: BenchOptions): Promise<number> {
   if (!existsSync(join(repoRoot, benchDir, 'run.ts'))) {
     throw new Error(`${benchDir}/run.ts is missing: upgrade the app from cella first`);
   }
@@ -74,5 +75,5 @@ export const benchCommand: Command<BenchOptions> = {
       isolated: opts.isolated === true,
     };
   },
-  run: runBench,
+  run: launchBench,
 };

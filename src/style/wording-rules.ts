@@ -1,10 +1,10 @@
-import { isGeneratedFile } from '../utils/repo-files';
-import { blankOut, type Finding } from './repo';
+import { fileComments, isCommentSource } from './comments';
+import { isDoc, markdownProse } from './doc-rules';
+import { blankOut, type Finding, lineColumn, type Rule } from './rule';
 
 /** A wording rule, read in every source comment. */
-interface ProseRule {
-  /** The rule id each finding prints in brackets. */
-  name: string;
+interface WordingRule {
+  id: string;
   pattern: RegExp;
   /** The advice printed after the matched term. */
   message: string;
@@ -12,82 +12,63 @@ interface ProseRule {
   docs?: boolean;
   /** Read in the whole text of a source file, strings and JSON values included, not only in its comments. */
   text?: boolean;
-  /** Repo-relative paths the rule skips. */
-  exclude?: RegExp;
-  /** Reported only on lines the branch added or changed since its merge base with `origin/main`, uncommitted edits included. */
-  changedLines?: boolean;
+  changedLines?: true;
   /** A match inside a sentence of at most this many words passes: a short pair states one idea. */
   maxSentenceWords?: number;
 }
 
-/** Agent-associated wording, skipped in infra/ and in alignments, which address app maintainers. */
-const agentWording = { docs: true, exclude: /^(?:cella\/alignments\/|infra\/)/ } as const;
-
-/**
- * Files no prose rule reads, on top of a rule's own `exclude` and the app's `proseExclude`: in source, migrations,
- * the alignment folders and generated code; in docs, the changelogs release-please writes from commit messages.
- */
-export function isProseExempt(file: string, kind: 'source' | 'doc'): boolean {
-  if (kind === 'doc') return file.endsWith('CHANGELOG.md');
-  return ['backend/drizzle/', 'cella/alignments/'].some((prefix) => file.startsWith(prefix)) || isGeneratedFile(file);
-}
-
-/** The rules the comment and doc checks apply; each gets its line in the README. */
-export const proseRules: ProseRule[] = [
+/** The wording rules; each gets its line in the README. */
+const wordingTable: WordingRule[] = [
   {
-    name: 'em-dash',
+    id: 'em-dash',
     pattern: /\u2014/,
     message: 'split the sentence, use a colon, or drop the clause',
     docs: true,
     text: true,
   },
   {
-    name: 'contrast-phrase',
+    id: 'contrast-phrase',
     pattern: /\b(?:instead|rather than|as opposed to)\b/i,
     message: 'state the current behavior or local constraint directly',
   },
   {
-    name: 'concrete-language',
+    id: 'concrete-language',
     pattern: /\binvariants?\b/i,
     message: 'name the precise rule, constraint, guarantee, requirement, contract, precondition, or assumption',
     docs: true,
   },
   {
-    name: 'change-history',
+    id: 'change-history',
     pattern: /\b(?:previously|formerly|used to|originally)\b/i,
     message: 'move evolution history to the commit or an alignment',
   },
   {
-    name: 'review-conversation',
+    id: 'review-conversation',
     pattern: /\b(?:maybe|perhaps|we (?:should|could|might)|(?:was|were) considered)\b/i,
     message: 'resolve the question or track it outside the source comment',
   },
   {
-    name: 'load-bearing',
+    id: 'load-bearing',
     pattern: /\bload(?:-| )bearing\b/i,
-    ...agentWording,
+    docs: true,
     message: 'name the dependency, requirement, or failure consequence directly',
   },
   {
-    name: 'authoritative',
+    id: 'authoritative',
     pattern: /\bauthoritative(?:ly)?\b/i,
-    ...agentWording,
+    docs: true,
     message: 'say who decides or which value counts: the backend decides, the stored row, the exact count',
   },
   {
-    name: 'consequence-tail',
+    id: 'consequence-tail',
     pattern: /,\s+so\s(?!\s*that\b)/,
     message:
       'make the reason and its consequence two sentences, the one the reader needs first going first, or drop the half that restates the code or the mechanism',
     docs: true,
     changedLines: true,
     maxSentenceWords: 15,
-    exclude: /^(?:cella\/alignments\/|backend\/drizzle\/)/,
   },
 ];
-
-/** The rules reported only on changed lines, by name. */
-export const changedLineRules = new Set(proseRules.filter((rule) => rule.changedLines).map((rule) => rule.name));
 
 /** `text` with the comment markers that open a line (`//`, `/*`, `*`, `#`, `--`) or close a block blanked. */
 function blankCommentMarkers(text: string): string {
@@ -107,13 +88,12 @@ function sentenceWords(prose: string, index: number): number {
 }
 
 /** A finding for every match of `rule` in `text`; `locate` maps an index in `text` to its line and column in `file`. */
-export function ruleFindings(
-  rule: ProseRule,
+function matchFindings(
+  rule: WordingRule,
   file: string,
   text: string,
   locate: (index: number) => { line: number; column: number },
 ): Finding[] {
-  if (rule.exclude?.test(file)) return [];
   const prose = /\.mdx?$/i.test(file) ? text : blankCommentMarkers(text);
   if (!rule.pattern.test(prose)) return [];
   const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);
@@ -123,8 +103,25 @@ export function ruleFindings(
   return matches.map((match) => ({
     file,
     ...locate(match.index),
-    rule: rule.name,
+    rule: rule.id,
     term: match[0].replace(/\s+/g, ' '),
     message: rule.message,
   }));
 }
+
+/** The wording rules: in Markdown, the prose outside code; in source, the comments, or the whole text with `text`. */
+export const wordingRules: Rule[] = wordingTable.map((rule) => ({
+  id: rule.id,
+  reads: (file) => isCommentSource(file) || (rule.docs === true && isDoc(file)),
+  changedLines: rule.changedLines,
+  check: (file, source) => {
+    if (isDoc(file)) {
+      const prose = markdownProse(source);
+      return matchFindings(rule, file, prose, (index) => lineColumn(prose, index));
+    }
+    if (rule.text) return matchFindings(rule, file, source, (index) => lineColumn(source, index));
+    return fileComments(file, source).flatMap((comment) =>
+      matchFindings(rule, file, comment.text, (index) => lineColumn(source, comment.offset + index)),
+    );
+  },
+}));

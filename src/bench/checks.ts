@@ -48,15 +48,15 @@ export function evaluateChecks(
     });
   }
 
-  if (checks.maxErrorRate !== undefined) {
+  if (checks.maxErrorShare !== undefined) {
     const created = counters['vusers.created'] ?? 0;
     const completed = counters['vusers.completed'] ?? 0;
-    const rate = created === 0 ? 0 : ((created - completed) / created) * 100;
-    const ok = rate <= checks.maxErrorRate;
+    const share = created === 0 ? 0 : ((created - completed) / created) * 100;
+    const ok = share <= checks.maxErrorShare;
     results.push({
-      id: 'errorRate',
+      id: 'errorShare',
       ok,
-      text: `VU failures ${pct(rate)} ${ok ? '≤' : '>'} ${checks.maxErrorRate}% (${count(created - completed)} of ${count(created)})`,
+      text: `VU failures ${pct(share)} ${ok ? '≤' : '>'} ${checks.maxErrorShare}% (${count(created - completed)} of ${count(created)})`,
     });
   }
 

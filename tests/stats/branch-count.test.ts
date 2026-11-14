@@ -10,13 +10,13 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import {
-  classifyChange,
   classifyLine,
   collectBranchStats,
   countLineContent,
   formatMarkdown,
   parseNumstat,
-} from '../../src/stats/since';
+} from '../../src/stats/branch-count';
+import { classifyFile } from '../../src/stats/file-kinds';
 
 function exec(cmd: string, cwd: string): string {
   return execSync(cmd, { cwd, encoding: 'utf-8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
@@ -31,7 +31,7 @@ function commit(dir: string, message: string): void {
   exec(`git add -A && git commit -m "${message}"`, dir);
 }
 
-describe('classifyChange', () => {
+describe('classifyFile', () => {
   it('reads each kind of file from its path', () => {
     const kinds = Object.fromEntries(
       [
@@ -48,7 +48,7 @@ describe('classifyChange', () => {
         'frontend/src/content/intro.mdx',
         '.github/workflows/ci.yml',
         'Dockerfile',
-      ].map((file) => [file, classifyChange(file)]),
+      ].map((file) => [file, classifyFile(file)]),
     );
 
     expect(kinds).toEqual({

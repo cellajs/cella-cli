@@ -12,18 +12,10 @@ import { acquireLock } from './lock';
 import { type SuiteRow, suiteLines } from './report';
 import { type BenchRequest, benchRequestEnv } from './request';
 import { runScenario } from './run';
-import type { CheckResult, Scenario } from './types';
+import type { CheckResult, RunOutcome, Scenario } from './types';
 
 /** After a saturating scenario, a 5 s pause left sse-fanout's p95 ten times higher. */
 const defaultCooldownSeconds = 15;
-
-/** What a scenario's run left for the app to check. */
-export interface RunOutcome {
-  counters: Record<string, number>;
-  /** The runner's checks: a run whose responses were rejected may skip the app's. */
-  checks: CheckResult[];
-  short: boolean;
-}
 
 export interface AppChecks {
   checks: CheckResult[];
@@ -40,7 +32,7 @@ export interface Bench<State = undefined> {
   /** Writes the data the scenarios read, unless `--skip-seed`. */
   seed?: () => Promise<void>;
   /** After the seed, and with `--skip-seed` too: a throw stops the run before anything is measured. */
-  beforeAll?: (options: { skipSeed: boolean }) => Promise<void>;
+  beforeAll?: () => Promise<void>;
   /** Before each scenario; what it returns reaches `afterEach`. */
   beforeEach?: (scenario: string) => Promise<State>;
   /** The app's checks of what the stack did with a scenario's load. `state` is undefined without `beforeEach`. */
@@ -114,12 +106,13 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
     );
   }
 
-  if (bench.seed && !request.skipSeed) {
+  if (bench.seed && request.skipSeed) printStep('seed', pc.dim('skipped: the scenarios read the last seeded data'));
+  else if (bench.seed) {
     createSpinner('seeding the bench data');
     await bench.seed();
     printStep('seeded', pc.dim('bench data written again'));
   }
-  await bench.beforeAll?.({ skipSeed: request.skipSeed });
+  await bench.beforeAll?.();
 
   const cooldownS = request.all && !request.short ? (bench.cooldownSeconds ?? defaultCooldownSeconds) : 0;
   const rows: SuiteRow[] = [];

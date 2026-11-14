@@ -58,12 +58,12 @@ describe('evaluateChecks', () => {
     expect(evaluateChecks({}, { counters: { 'vusers.created': 1 }, distributions: {}, short: false })).toEqual([]);
   });
 
-  it('computes the VU error rate as ensure did: created minus completed, over created', () => {
+  it('computes the VU error share as ensure did: created minus completed, over created', () => {
     const counters = { 'vusers.created': 200, 'vusers.completed': 197, 'vusers.failed': 3 };
-    expect(failed(evaluateChecks({ maxErrorRate: 1 }, { counters, distributions: {}, short: false }))).toEqual([
+    expect(failed(evaluateChecks({ maxErrorShare: 1 }, { counters, distributions: {}, short: false }))).toEqual([
       'VU failures 1.5% > 1% (3 of 200)',
     ]);
-    expect(failed(evaluateChecks({ maxErrorRate: 2 }, { counters, distributions: {}, short: false }))).toEqual([]);
+    expect(failed(evaluateChecks({ maxErrorShare: 2 }, { counters, distributions: {}, short: false }))).toEqual([]);
   });
 
   it('compares thresholds with any recorded histogram, and skips them in a short run', () => {

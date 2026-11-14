@@ -1,5 +1,6 @@
 import { alignmentId, alignmentsDir, bodyLines, caughtBy, isCodemodFile, splitList } from '../upstream/alignments';
-import { type Finding, isUnder } from './repo';
+import type { BranchChanges } from './branch';
+import { type Finding, isUnder, type Rule } from './rule';
 
 const alignmentsPrefix = `${alignmentsDir}/`;
 
@@ -56,86 +57,65 @@ export function checkAlignmentReadme(source: string): ReadmeCheck {
 }
 
 /**
- * Findings for every alignment folder among `files`: folder name, README shape and `roots` exactly beside a codemod,
- * the shape `pnpm cella align` reads.
+ * The shape `pnpm cella align` reads in an alignment folder: its name and README on the folder's first file, the README's
+ * shape and `roots` exactly beside a codemod on the README.
  */
-export function alignmentFindings(files: string[], read: (file: string) => string): Finding[] {
-  const folders = new Map<string, string[]>();
-  for (const file of files) {
-    if (!file.startsWith(alignmentsPrefix)) continue;
+export const alignmentRule: Rule = {
+  id: 'alignment',
+  reads: (file) => file.startsWith(alignmentsPrefix) && file.slice(alignmentsPrefix.length).includes('/'),
+  check: (file, source, { files }) => {
     const [folder, ...rest] = file.slice(alignmentsPrefix.length).split('/');
-    if (rest.length === 0) continue;
-    folders.set(folder, [...(folders.get(folder) ?? []), rest.join('/')]);
-  }
-
-  const findings: Finding[] = [];
-  const finding = (file: string, message: string, line?: number) =>
-    findings.push({ file, rule: 'alignment', message, ...(line === undefined ? {} : { line, column: 1 }) });
-  for (const [folder, names] of folders) {
-    const readme = `${alignmentsPrefix}${folder}/README.md`;
-    if (!alignmentId.test(folder))
-      finding(`${alignmentsPrefix}${folder}`, 'alignment folders are named <YYYYMMDDThhmm>-<slug>');
-    if (!names.includes('README.md')) {
-      finding(`${alignmentsPrefix}${folder}`, 'alignment folder has no README.md');
-      continue;
+    const folderPath = `${alignmentsPrefix}${folder}`;
+    const names = files
+      .filter((other) => other.startsWith(`${folderPath}/`))
+      .map((other) => other.slice(folderPath.length + 1));
+    const findings: Finding[] = [];
+    const finding = (path: string, message: string, line?: number) =>
+      findings.push({ file: path, rule: 'alignment', message, ...(line === undefined ? {} : { line, column: 1 }) });
+    if (names[0] === rest.join('/')) {
+      if (!alignmentId.test(folder)) finding(folderPath, 'alignment folders are named <YYYYMMDDThhmm>-<slug>');
+      if (!names.includes('README.md')) finding(folderPath, 'alignment folder has no README.md');
     }
-    const { roots, errors } = checkAlignmentReadme(read(readme));
-    for (const error of errors) finding(readme, error, 1);
+    if (rest.join('/') !== 'README.md') return findings;
+    const { roots, errors } = checkAlignmentReadme(source);
+    for (const error of errors) finding(file, error, 1);
     const codemods = names.filter((name) => !name.includes('/') && isCodemodFile(name));
-    if (codemods.length > 1) finding(readme, `one codemod per alignment, found ${codemods.join(', ')}`, 1);
-    if (roots.length > 0 && codemods.length === 0) finding(readme, 'roots is only for an alignment with a codemod', 1);
+    if (codemods.length > 1) finding(file, `one codemod per alignment, found ${codemods.join(', ')}`, 1);
+    if (roots.length > 0 && codemods.length === 0) finding(file, 'roots is only for an alignment with a codemod', 1);
     if (roots.length === 0 && codemods.length > 0)
-      finding(readme, 'a codemod needs roots: the folders `pnpm cella align run` scans by default', 1);
-  }
-  return findings;
-}
+      finding(file, 'a codemod needs roots: the folders `pnpm cella align run` scans by default', 1);
+    return findings;
+  },
+};
 
-/**
- * App-owned paths with nothing template code depends on: content, brand files and generated output. `shared/config` is
- * here too, because the config type already reports a key an app's config lacks.
- */
-const alignmentExempt = [
-  'README.md',
-  '.github/',
-  'cella/a11y-ledger.json',
-  'frontend/public/',
-  'frontend/src/content',
-  'frontend/src/routes/routeTree.gen.ts',
-  'frontend/src/styling/gradients.css',
-  'infra/',
-  'sdk/gen',
-  'shared/config',
-  'shared/json/',
-  'shared/locales/',
-];
-
-/** What a branch changes against its base: every changed path, the paths it adds, and its commit messages. */
-export interface BranchChanges {
-  changed: string[];
-  added: string[];
-  messages: string;
-}
-
-/**
- * The finding for a branch that changes an app-owned path template code reads from (a pinned file, `logo-art.tsx`,
- * `backend/drizzle`) without adding an alignment. Such a change never reaches an app's copy, so the app's template code
- * breaks until someone tells it what to add. An `Alignment: none, <reason>` line in a commit message waives it.
- * `ownedPaths` are the `ignored` and `pinned` entries of the CLI config.
- */
-export function owedAlignmentFindings({ changed, added, messages }: BranchChanges, ownedPaths: string[]): Finding[] {
-  const owned = ownedPaths.filter((entry) => !alignmentExempt.some((exempt) => isUnder(entry, exempt)));
-  // A Markdown file inside an owned folder is read by people, never by template code
-  const touched = changed.filter((file) => !file.endsWith('.md') && owned.some((entry) => isUnder(file, entry)));
-  if (touched.length === 0) return [];
+/** Whether the branch adds an alignment README, or a commit message waives one with `Alignment: none, <reason>`. */
+function meetsAlignment({ added, messages }: BranchChanges): boolean {
   const addsAlignment = added.some((file) => {
     const [folder, name, ...rest] = file.slice(alignmentsPrefix.length).split('/');
     return file.startsWith(alignmentsPrefix) && alignmentId.test(folder) && name === 'README.md' && rest.length === 0;
   });
-  if (addsAlignment || /^Alignment: none\b.*\w/m.test(messages)) return [];
-  return touched.map((file) => ({
-    file,
-    rule: 'alignment',
-    message:
-      'apps own this path and their template code reads from it: add an alignment under cella/alignments/ in this branch, or put `Alignment: none, <reason>` in a commit message',
-  }));
+  return addsAlignment || /^Alignment: none\b.*\w/m.test(messages);
 }
+
+/**
+ * A changed app-owned path template code reads from (a pinned file, `logo-art.tsx`, `backend/drizzle`) on a branch that
+ * adds no alignment. Such a change never reaches an app's copy, so the app's template code breaks until someone tells
+ * it what to add.
+ */
+export const owedAlignmentRule: Rule = {
+  id: 'owed-alignment',
+  branch: true,
+  // A Markdown file inside an owned folder is read by people, never by template code
+  reads: (file) => !file.endsWith('.md'),
+  check: (file, _source, { branch, owned }) =>
+    branch && owned.some((entry) => isUnder(file, entry)) && !meetsAlignment(branch)
+      ? [
+          {
+            file,
+            rule: 'owed-alignment',
+            message:
+              'apps own this path and their template code reads from it: add an alignment under cella/alignments/ in this branch, or put `Alignment: none, <reason>` in a commit message',
+          },
+        ]
+      : [],
+};

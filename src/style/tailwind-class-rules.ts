@@ -3,14 +3,8 @@ import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { importFromWorkspace } from '../utils/app';
 import { isGeneratedFile } from '../utils/repo-files';
-import { splitToken, type Token } from './class-tokens';
-import { type Finding, lineColumn, repoRoot, ts } from './repo';
-import { parseSource } from './source-comments';
-
-/** Class names no frontend stylesheet, script or class string selects, each with the reason it stays. */
-const markerClasses: Record<string, string> = {
-  'is-selected': 'BoardPanel state for apps whose board selects items (hasSelection), a hook for their styles',
-};
+import { classTexts, classTokens, splitToken } from './class-strings';
+import { type Finding, lineColumn, parseSource, type Rule } from './rule';
 
 /** Third-party class prefixes: the library's own stylesheet or DOM code reads them. */
 const libraryPrefixes: Record<string, string> = {
@@ -18,10 +12,6 @@ const libraryPrefixes: Record<string, string> = {
   rdg: 'data grid rows, cells and states',
 };
 
-/** Calls whose arguments are class values; object keys are class names and object values conditions, as in clsx. */
-const classFunctions = new Set(['clsx', 'cn', 'cx', 'tw', 'twJoin', 'twMerge']);
-const classNamePattern =
-  /^(?:class|classes|className|classNames|classList)$|[a-z](?:Class|Classes|Class[Nn]ames?|ClassList)$/;
 const groupPattern = /^(?:group|peer)(?:\/[\w-]+)?$/;
 const tailwindImport = /@import\s+['"]tailwindcss(?:\/[\w.-]+)?['"]/;
 
@@ -34,7 +24,7 @@ interface TailwindNode {
 }
 
 /** The loaded design system plus the class names that stylesheets, scripts and arbitrary selectors use. */
-interface TailwindContext {
+export interface TailwindContext {
   /** Repo-relative stylesheet that imports Tailwind. */
   entry: string;
   /** Absent when loading failed, as on an `@apply` of an unknown class; `loadError` then holds Tailwind's message. */
@@ -44,20 +34,6 @@ interface TailwindContext {
   knownClasses: Set<string>;
   /** Every candidate sent to Tailwind so far, and whether it compiled to CSS. */
   compiles: Map<string, boolean>;
-}
-
-type Mode = 'class' | 'clsx';
-
-/** Text of one string or template piece in a class position; `open*` marks a side that touches a `${...}` placeholder. */
-interface ClassText {
-  /** Offset of `raw` in the source file. */
-  start: number;
-  /** The value, escapes resolved. */
-  text: string;
-  /** The source text of the value, which `start` locates. */
-  raw: string;
-  openStart: boolean;
-  openEnd: boolean;
 }
 
 function isFrontendScript(file: string): boolean {
@@ -74,12 +50,12 @@ export function isClassSource(file: string): boolean {
 }
 
 /** `@tailwindcss/node` from the frontend package, directly or through `@tailwindcss/vite`, which depends on it. */
-export async function loadTailwindNode(): Promise<TailwindNode> {
+export async function loadTailwindNode(root: string): Promise<TailwindNode> {
   try {
-    return await importFromWorkspace<TailwindNode>(repoRoot, 'frontend', '@tailwindcss/node');
+    return await importFromWorkspace<TailwindNode>(root, 'frontend', '@tailwindcss/node');
   } catch {
-    const plugin = createRequire(join(repoRoot, 'frontend/package.json')).resolve('@tailwindcss/vite');
-    return importFromWorkspace<TailwindNode>(repoRoot, relative(repoRoot, dirname(plugin)), '@tailwindcss/node');
+    const plugin = createRequire(join(root, 'frontend/package.json')).resolve('@tailwindcss/vite');
+    return importFromWorkspace<TailwindNode>(root, relative(root, dirname(plugin)), '@tailwindcss/node');
   }
 }
 
@@ -88,14 +64,14 @@ function addMatches(target: Set<string>, text: string, pattern: RegExp): void {
 }
 
 /** Class names a stylesheet selects, a script queries or toggles, or an arbitrary selector such as `group-[.x]` names. */
-function usedClassNames(files: string[]): Set<string> {
+function usedClassNames(root: string, files: string[]): Set<string> {
   const names = new Set<string>();
   for (const file of files.filter(isFrontendStylesheet)) {
-    const css = readFileSync(join(repoRoot, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+    const css = readFileSync(join(root, file), 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
     addMatches(names, css, /(?<!\\)\.(-?[_a-zA-Z][\w-]*)/g);
   }
   for (const file of files.filter(isFrontendScript)) {
-    const source = readFileSync(join(repoRoot, file), 'utf8');
+    const source = readFileSync(join(root, file), 'utf8');
     // Arbitrary selectors (`group-[.x]`, `[&_.x]`); a bracket after a name, `)`, `]` or `?.` indexes code.
     for (const [chunk] of source.matchAll(/(?<![\w$)\]?.])\[[^\s'"`]*/g))
       addMatches(names, chunk, /(?<![a-zA-Z0-9$.)\]?!])\.(-?[_a-zA-Z][\w-]*)/g);
@@ -115,226 +91,29 @@ function usedClassNames(files: string[]): Set<string> {
 
 /** The design system from the frontend stylesheet that imports Tailwind; undefined in a repo without one. */
 export async function tailwindContext(
+  root: string,
   files: string[],
-  appMarkerClasses: Record<string, string> = {},
+  markerClasses: string[],
 ): Promise<TailwindContext | undefined> {
   const entry = files
     .filter(isFrontendStylesheet)
-    .find((file) => tailwindImport.test(readFileSync(join(repoRoot, file), 'utf8')));
+    .find((file) => tailwindImport.test(readFileSync(join(root, file), 'utf8')));
   if (!entry) return undefined;
-  const path = join(repoRoot, entry);
-  const knownClasses = usedClassNames(files);
-  for (const name of Object.keys({ ...markerClasses, ...appMarkerClasses })) knownClasses.add(name);
+  const path = join(root, entry);
+  const knownClasses = usedClassNames(root, files);
+  for (const name of markerClasses) knownClasses.add(name);
   const context: TailwindContext = { entry, knownClasses, compiles: new Map() };
   try {
-    context.designSystem = await (await loadTailwindNode()).__unstable__loadDesignSystem(readFileSync(path, 'utf8'), {
-      base: dirname(path),
-    });
+    context.designSystem = await (await loadTailwindNode(root)).__unstable__loadDesignSystem(
+      readFileSync(path, 'utf8'),
+      {
+        base: dirname(path),
+      },
+    );
   } catch (error) {
     context.loadError = error instanceof Error ? error.message : String(error);
   }
   return context;
-}
-
-function propertyName(name: ts.PropertyName | ts.BindingName | undefined): string | undefined {
-  return name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name))
-    ? name.text
-    : undefined;
-}
-
-function isClassNamed(...names: (string | undefined)[]): boolean {
-  return names.some((name) => name !== undefined && classNamePattern.test(name));
-}
-
-/** Strings in class positions: class attributes, class helper calls, cva, `tw` templates and class-named values. */
-export function classTexts(sourceFile: ts.SourceFile): ClassText[] {
-  const texts: ClassText[] = [];
-  const add = (node: ts.StringLiteralLike | ts.TemplateLiteralLikeNode, openStart = false, openEnd = false) => {
-    const start = node.getStart(sourceFile) + 1;
-    const end = node.end - (ts.isTemplateHead(node) || ts.isTemplateMiddle(node) ? 2 : 1);
-    texts.push({ start, text: node.text, raw: sourceFile.text.slice(start, end), openStart, openEnd });
-  };
-  const addKey = (name: ts.Node) => {
-    if (ts.isStringLiteral(name)) add(name);
-    else if (ts.isIdentifier(name))
-      texts.push({
-        start: name.getStart(sourceFile),
-        text: name.text,
-        raw: name.text,
-        openStart: false,
-        openEnd: false,
-      });
-    else walk(name);
-  };
-
-  function collectTemplate(node: ts.TemplateExpression): void {
-    add(node.head, false, true);
-    let before = node.head.text;
-    for (const [index, span] of node.templateSpans.entries()) {
-      const last = index === node.templateSpans.length - 1;
-      // A placeholder holds whole classes only when whitespace or the string edge separates it from the text around it.
-      const leftClosed = /\s$/.test(before) || (index === 0 && before === '');
-      const rightClosed = /^\s/.test(span.literal.text) || (last && span.literal.text === '');
-      if (leftClosed && rightClosed) collect(span.expression, 'class');
-      else walk(span.expression);
-      add(span.literal, true, !last);
-      before = span.literal.text;
-    }
-  }
-
-  function collectObject(node: ts.ObjectLiteralExpression, mode: Mode): void {
-    for (const property of node.properties) {
-      if (mode === 'clsx' && (ts.isPropertyAssignment(property) || ts.isShorthandPropertyAssignment(property))) {
-        addKey(property.name);
-        if (ts.isPropertyAssignment(property)) walk(property.initializer);
-      } else if (ts.isPropertyAssignment(property)) {
-        walk(property.name);
-        collect(property.initializer, 'class');
-      } else walk(property);
-    }
-  }
-
-  function collectCva(node: ts.CallExpression): void {
-    const [base, config, ...rest] = node.arguments;
-    collect(base, 'class');
-    for (const argument of rest) walk(argument);
-    if (!config || !ts.isObjectLiteralExpression(config)) {
-      walk(config);
-      return;
-    }
-    for (const property of config.properties) {
-      if (
-        !ts.isPropertyAssignment(property) ||
-        propertyName(property.name) !== 'variants' ||
-        !ts.isObjectLiteralExpression(property.initializer)
-      ) {
-        walk(property);
-        continue;
-      }
-      for (const variant of property.initializer.properties) {
-        if (ts.isPropertyAssignment(variant) && ts.isObjectLiteralExpression(variant.initializer))
-          collectObject(variant.initializer, 'class');
-        else walk(variant);
-      }
-    }
-  }
-
-  function calleeName(node: ts.CallExpression): string | undefined {
-    const callee = node.expression;
-    return ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : undefined;
-  }
-
-  /** Whether `node` starts a class position, collecting it when it does. */
-  function collectCall(node: ts.CallExpression, mode?: Mode): boolean {
-    const name = calleeName(node);
-    if (name === 'cva') collectCva(node);
-    else if (name && classFunctions.has(name)) {
-      walk(node.expression);
-      for (const argument of node.arguments) collect(argument, 'clsx');
-    } else if (mode && (name === 'join' || name === 'filter') && ts.isPropertyAccessExpression(node.expression)) {
-      collect(node.expression.expression, mode);
-      for (const argument of node.arguments) walk(argument);
-    } else return false;
-    return true;
-  }
-
-  function collectReturns(node: ts.FunctionLikeDeclaration, mode: Mode): void {
-    for (const parameter of node.parameters) walk(parameter);
-    if (node.body && !ts.isBlock(node.body)) collect(node.body, mode);
-    else walk(node.body, mode);
-  }
-
-  function collect(node: ts.Node | undefined, mode: Mode): void {
-    if (!node) return;
-    if (ts.isStringLiteral(node) || ts.isNoSubstitutionTemplateLiteral(node)) add(node);
-    else if (ts.isTemplateExpression(node)) collectTemplate(node);
-    else if (
-      ts.isParenthesizedExpression(node) ||
-      ts.isAsExpression(node) ||
-      ts.isSatisfiesExpression(node) ||
-      ts.isNonNullExpression(node) ||
-      ts.isSpreadElement(node) ||
-      ts.isJsxExpression(node)
-    )
-      collect(node.expression, mode);
-    else if (ts.isConditionalExpression(node)) {
-      walk(node.condition);
-      collect(node.whenTrue, mode);
-      collect(node.whenFalse, mode);
-    } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
-      walk(node.left);
-      collect(node.right, mode);
-    } else if (
-      ts.isBinaryExpression(node) &&
-      [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)
-    ) {
-      collect(node.left, mode);
-      collect(node.right, mode);
-    } else if (ts.isArrayLiteralExpression(node)) {
-      for (const element of node.elements) collect(element, mode);
-    } else if (ts.isObjectLiteralExpression(node)) collectObject(node, mode);
-    else if (ts.isElementAccessExpression(node)) {
-      collect(node.expression, mode);
-      walk(node.argumentExpression);
-    } else if (ts.isArrowFunction(node) || ts.isFunctionExpression(node)) collectReturns(node, mode);
-    else if (!ts.isCallExpression(node) || !collectCall(node, mode)) walk(node);
-  }
-
-  /** Collects `node` when it starts a class position; `returns` is set inside a class-named function. */
-  function collectStart(node: ts.Node, returns?: Mode): boolean {
-    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && isClassNamed(node.name.text))
-      collect(node.initializer, 'class');
-    else if (ts.isCallExpression(node)) return collectCall(node);
-    else if (ts.isTaggedTemplateExpression(node) && ts.isIdentifier(node.tag) && node.tag.text === 'tw')
-      collect(node.template, 'class');
-    else if (ts.isReturnStatement(node) && returns) collect(node.expression, returns);
-    // Storybook argTypes describe controls (`className: { control: 'text' }`), never classes.
-    else if (ts.isPropertyAssignment(node) && propertyName(node.name) === 'argTypes') return true;
-    else if (
-      (ts.isVariableDeclaration(node) ||
-        ts.isPropertyAssignment(node) ||
-        ts.isPropertyDeclaration(node) ||
-        ts.isParameter(node)) &&
-      node.initializer &&
-      isClassNamed(propertyName(node.name))
-    ) {
-      walk(node.name);
-      collect(node.initializer, 'class');
-    } else if (
-      ts.isBindingElement(node) &&
-      node.initializer &&
-      isClassNamed(propertyName(node.name), propertyName(node.propertyName))
-    ) {
-      collect(node.initializer, 'class');
-    } else if (
-      (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) &&
-      isClassNamed(propertyName(node.name))
-    ) {
-      collectReturns(node, 'class');
-    } else return false;
-    return true;
-  }
-
-  /** Visits `node` and its children looking for class positions. */
-  function walk(node: ts.Node | undefined, returns?: Mode): void {
-    if (!node || ts.isTypeNode(node) || collectStart(node, returns)) return;
-    const inner = ts.isFunctionLike(node) ? undefined : returns;
-    ts.forEachChild(node, (child) => walk(child, inner));
-  }
-
-  walk(sourceFile);
-  return texts;
-}
-
-/** Whole tokens of `text` with their offsets; a token touching an open side is part of a dynamic class and skipped. */
-export function classTokens({ start, text, raw, openStart, openEnd }: ClassText): Token[] {
-  const result: Token[] = [];
-  for (const match of text.matchAll(/\S+/g)) {
-    const end = match.index + match[0].length;
-    if ((openStart && match.index === 0) || (openEnd && end === text.length)) continue;
-    result.push({ token: match[0], offset: start + (raw === text ? match.index : Math.max(0, raw.indexOf(match[0]))) });
-  }
-  return result;
 }
 
 /** Compiles the candidates `context.compiles` does not hold yet, in one call, and records each result there. */
@@ -352,31 +131,33 @@ function problem(context: TailwindContext, token: string): string | undefined {
   if (base !== token && (context.knownClasses.has(base) || groupPattern.test(base))) {
     return `${base} is a plain CSS class, so variants and ! do not apply to it; define it with @utility`;
   }
-  return 'Tailwind compiles no CSS for it and no stylesheet or script selects it; fix the name, or list it under markerClasses in shared/config/vocabulary-allowlist.ts';
+  return 'Tailwind compiles no CSS for it and no stylesheet or script selects it; fix the name, or list it under markerClasses in shared/config/style-exceptions.ts';
 }
 
 /**
- * Class names in one frontend file that compile to no CSS; `context` comes from `tailwindContext`. Tailwind itself
- * rejects an `@apply` of an unknown class while loading, which this reports on the entry stylesheet.
+ * Class names in one frontend file that compile to no CSS. Tailwind itself rejects an `@apply` of an unknown class
+ * while loading, which this reports on the entry stylesheet.
  */
-export function tailwindFindings(file: string, source: string, context: TailwindContext | undefined): Finding[] {
-  if (!context) return [];
-  const { designSystem, loadError } = context;
-  if (!designSystem)
-    return file === context.entry
-      ? [{ file, rule: 'tailwind-class', message: `Tailwind cannot load this stylesheet: ${loadError}` }]
-      : [];
-  if (!isClassSource(file)) return [];
-  const sourceFile = parseSource(file, source);
-  const found = classTexts(sourceFile).flatMap(classTokens);
-  compileCandidates(
-    context,
-    designSystem,
-    found.map(({ token }) => token),
-  );
-  return found.flatMap(({ token, offset }) => {
-    const message = problem(context, token);
-    if (!message) return [];
-    return [{ file, ...lineColumn(source, offset), rule: 'tailwind-class', term: token, message }];
-  });
-}
+export const tailwindClassRule: Rule = {
+  id: 'tailwind-class',
+  reads: (file) => isClassSource(file) || isFrontendStylesheet(file),
+  check: (file, source, { tailwind }) => {
+    if (!tailwind) return [];
+    const { designSystem, loadError } = tailwind;
+    if (!designSystem)
+      return file === tailwind.entry
+        ? [{ file, rule: 'tailwind-class', message: `Tailwind cannot load this stylesheet: ${loadError}` }]
+        : [];
+    if (!isClassSource(file)) return [];
+    const found = classTexts(parseSource(file, source)).flatMap(classTokens);
+    compileCandidates(
+      tailwind,
+      designSystem,
+      found.map(({ token }) => token),
+    );
+    return found.flatMap(({ token, offset }): Finding[] => {
+      const message = problem(tailwind, token);
+      return message ? [{ file, ...lineColumn(source, offset), rule: 'tailwind-class', term: token, message }] : [];
+    });
+  },
+};

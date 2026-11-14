@@ -1,4 +1,4 @@
-import { type Finding, lineColumn } from './repo';
+import { type Finding, lineColumn, type Rule } from './rule';
 
 const themeFile = 'frontend/src/styling/tailwind.css';
 
@@ -85,8 +85,7 @@ function ratio(one: Oklch, other: Oklch): number {
 }
 
 /** Findings for token pairs below their ratio. A token the dark block leaves out keeps its light value there. */
-export function tokenContrastFindings(file: string, source: string): Finding[] {
-  if (file !== themeFile) return [];
+function tokenContrastFindings(file: string, source: string): Finding[] {
   const light = themeDeclarations(source, ':root');
   if (light.size === 0)
     return [{ file, rule: 'token-contrast', message: 'no :root block declares --background, so no token is measured' }];
@@ -133,3 +132,9 @@ export function tokenContrastFindings(file: string, source: string): Finding[] {
   }
   return findings;
 }
+
+export const tokenContrastRule: Rule = {
+  id: 'token-contrast',
+  reads: (file) => file === themeFile,
+  check: tokenContrastFindings,
+};

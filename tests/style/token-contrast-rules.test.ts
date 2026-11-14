@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { tokenContrastFindings } from '../../src/style/token-contrast-rules';
+import { tokenContrastRule } from '../../src/style/token-contrast-rules';
+import { check } from '../helpers/style-repo';
 
 const file = 'frontend/src/styling/tailwind.css';
 const theme = (light: string[], dark: string[]) =>
@@ -17,7 +18,7 @@ const theme = (light: string[], dark: string[]) =>
     '}',
   ].join('\n');
 
-describe('tokenContrastFindings', () => {
+describe('token-contrast', () => {
   it('passes tokens that carry their text and read as text on the page', () => {
     const source = theme(
       [
@@ -33,12 +34,12 @@ describe('tokenContrastFindings', () => {
         '--edge-raised: oklch(0.54 0.011 285);',
       ],
     );
-    expect(tokenContrastFindings(file, source)).toEqual([]);
+    expect(check([tokenContrastRule], file, source)).toEqual([]);
   });
 
   it('reports a fill whose text is too faint, with the mode and both tokens', () => {
     const source = theme(['--success: oklch(0.59 0.2 142.5);', '--success-foreground: oklch(0.985 0 0);'], []);
-    const messages = tokenContrastFindings(file, source).map(({ message }) => message);
+    const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
     expect(messages).toContainEqual(
       expect.stringMatching(
         /^text on its fill is 3\.\d\d:1 in light mode, below 4\.5:1 \(--success-foreground on --success\)$/,
@@ -48,7 +49,7 @@ describe('tokenContrastFindings', () => {
 
   it('judges dark mode with the light value of a token the dark block leaves out', () => {
     const source = theme(['--destructive: oklch(0.51 0.21 29);'], []);
-    const dark = tokenContrastFindings(file, source).filter(({ message }) => message.includes('dark mode'));
+    const dark = check([tokenContrastRule], file, source).filter(({ message }) => message.includes('dark mode'));
     expect(dark.map(({ message }) => message)).toContainEqual(expect.stringContaining('status color as text'));
   });
 
@@ -61,7 +62,7 @@ describe('tokenContrastFindings', () => {
       ],
       ['--foreground: oklch(0.35 0.01 285);', '--secondary: oklch(0.31 0.01 285);'],
     );
-    const messages = tokenContrastFindings(file, source).map(({ message }) => message);
+    const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
     expect(messages).toContainEqual(
       expect.stringMatching(/in dark mode, below 4\.5:1 \(--secondary-foreground on --secondary\)$/),
     );
@@ -70,7 +71,7 @@ describe('tokenContrastFindings', () => {
 
   it('finds the light block when --background is not its first declaration', () => {
     const source = theme(['--foreground: oklch(0.95 0 0);'], []).replace(':root {', ':root {\n    --radius: 0.5rem;');
-    const messages = tokenContrastFindings(file, source).map(({ message }) => message);
+    const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
     expect(messages).toContainEqual(
       expect.stringMatching(/in light mode, below 4\.5:1 \(--foreground on --background\)$/),
     );
@@ -78,7 +79,7 @@ describe('tokenContrastFindings', () => {
 
   it('reports a raised control edge below 3:1', () => {
     const source = theme(['--edge-raised: oklch(0.88 0.005 285);'], ['--edge-raised: oklch(0.54 0.011 285);']);
-    const findings = tokenContrastFindings(file, source);
+    const findings = check([tokenContrastRule], file, source);
     expect(findings).toHaveLength(1);
     expect(findings[0]).toMatchObject({ rule: 'token-contrast', term: '--edge-raised', line: 4 });
   });
@@ -88,11 +89,11 @@ describe('tokenContrastFindings', () => {
       ['--input: oklch(0.88 0.005 285);', '--border: oklch(0.92 0.004 285);', '--edge-raised: oklch(0.64 0.005 285);'],
       ['--edge-raised: oklch(0.54 0.011 285);'],
     );
-    expect(tokenContrastFindings(file, source)).toEqual([]);
+    expect(check([tokenContrastRule], file, source)).toEqual([]);
   });
 
   it('reports a theme that drops the raised token, which would leave nothing to measure', () => {
-    const messages = tokenContrastFindings(file, theme(['--input: oklch(0.88 0.005 285);'], [])).map(
+    const messages = check([tokenContrastRule], file, theme(['--input: oklch(0.88 0.005 285);'], [])).map(
       ({ message }) => message,
     );
     expect(messages).toContainEqual(expect.stringContaining('no --edge-raised in light mode'));
@@ -100,7 +101,7 @@ describe('tokenContrastFindings', () => {
 
   it('ignores every other file', () => {
     expect(
-      tokenContrastFindings('frontend/src/styling/other.css', theme(['--edge-raised: oklch(0.99 0 0);'], [])),
+      check([tokenContrastRule], 'frontend/src/styling/other.css', theme(['--edge-raised: oklch(0.99 0 0);'], [])),
     ).toEqual([]);
   });
 });

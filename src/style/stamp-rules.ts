@@ -1,5 +1,5 @@
-import { type Finding, lineColumn, ts } from './repo';
-import { parseSource } from './source-comments';
+import { ts } from 'ts-morph';
+import { type Finding, lineColumn, parseSource, type Rule } from './rule';
 
 /** Backend sources outside the two helpers, tests and mock builders. */
 function isStampedSource(file: string): boolean {
@@ -65,15 +65,19 @@ function stampPairFindings(file: string, source: string): Finding[] {
   return findings;
 }
 
-/** Stamp findings in one backend file: the clock read by hand, and a writer pair written by hand. */
-export function stampFindings(file: string, source: string): Finding[] {
-  if (!isStampedSource(file)) return [];
-  const clock = [...source.matchAll(/new Date\(\)\.toISOString\(\)/g)].map((match) => ({
-    file,
-    ...lineColumn(source, match.index),
-    rule: 'stamp-clock',
-    term: match[0],
-    message: 'use getIsoDate() for the current moment',
-  }));
-  return [...clock, ...stampPairFindings(file, source)];
-}
+/** The stamp rules of a backend file: the clock read by hand, and a writer pair written by hand. */
+export const stampRules: Rule[] = [
+  {
+    id: 'stamp-clock',
+    reads: isStampedSource,
+    check: (file, source) =>
+      [...source.matchAll(/new Date\(\)\.toISOString\(\)/g)].map((match) => ({
+        file,
+        ...lineColumn(source, match.index),
+        rule: 'stamp-clock',
+        term: match[0],
+        message: 'use getIsoDate() for the current moment',
+      })),
+  },
+  { id: 'stamp-pair', reads: isStampedSource, check: stampPairFindings },
+];
