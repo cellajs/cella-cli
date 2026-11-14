@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.5](https://github.com/cellajs/cella-cli/compare/cli-0.7.4...cli-0.7.5) (2026-11-14)
+
+
+### 🐞 Bug fixes
+
+* **upgrade:** ignored images an app does not keep leave the kept-fork-version list ([#92](https://github.com/cellajs/cella-cli/issues/92)) ([5be4dc8](https://github.com/cellajs/cella-cli/commit/5be4dc8b2cde342e98f96f892e720c13255b64f6))
+
 ## [0.7.4](https://github.com/cellajs/cella-cli/compare/cli-0.7.3...cli-0.7.4) (2026-11-13)
 
 
