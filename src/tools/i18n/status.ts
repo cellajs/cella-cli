@@ -2,6 +2,7 @@ import pc from '../../utils/colors';
 import { checkMark, warningMark, writeStdout } from '../../utils/display';
 import { type Locales, namespaceTexts, pluralForm, readLocales, SOURCE_LANGUAGE, textsOf } from './locales';
 import {
+  categoriesOf,
   compare,
   englishFor,
   isPluralOf,
@@ -56,7 +57,7 @@ function overridesOf(locales: Locales, language: string, files: string[]): { key
 }
 
 function measure(english: Record<string, string>, texts: Record<string, string>, language: string): LanguageStatus {
-  const categories = new Intl.PluralRules(language).resolvedOptions().pluralCategories;
+  const categories = categoriesOf(language, false);
   // A plural form for a category this language never uses is no missing key: the plural gaps report it
   const expected = Object.keys(english).filter((key) => {
     const form = pluralForm(key);

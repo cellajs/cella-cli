@@ -51,7 +51,7 @@ interface Decision {
   exclude?: string;
 }
 
-const readOr = (path: string, fallback = ''): string => (existsSync(path) ? readFileSync(path, 'utf8') : fallback);
+const readOr = <T>(path: string, fallback: T): string | T => (existsSync(path) ? readFileSync(path, 'utf8') : fallback);
 
 const count = (n: number, noun: string, plural = `${noun}s`): string => `${n} ${n === 1 ? noun : plural}`;
 
@@ -97,7 +97,9 @@ async function resolveStaging(
 ): Promise<{ lock: string } | { error: string }> {
   writeFileSync(join(staging, WORKSPACE_FILE), writeAuditSettings(workspaceYaml, settings));
   const result = await runPnpm(['install', '--lockfile-only', '--no-frozen-lockfile', '--ignore-scripts'], staging);
-  return result.ok ? { lock: readOr(join(staging, LOCK_FILE)) } : { error: `${result.stdout}${result.stderr}`.trim() };
+  return result.ok
+    ? { lock: readOr(join(staging, LOCK_FILE), '') }
+    : { error: `${result.stdout}${result.stderr}`.trim() };
 }
 
 /** The versions of a package that a lockfile holds. */
@@ -247,8 +249,7 @@ export async function runSecurityPass(
   options: { apply: boolean; releaseAgeMinutes: number; edits?: WorkspaceEdits },
 ): Promise<boolean> {
   const { releaseAgeMinutes, edits = NO_EDITS } = options;
-  const workspaceYaml = readOr(join(forkPath, WORKSPACE_FILE));
-  const workspaceLock = readOr(join(forkPath, LOCK_FILE));
+  const workspaceYaml = readOr(join(forkPath, WORKSPACE_FILE), '');
   let previous: AuditSettings;
   try {
     previous = readAuditSettings(workspaceYaml);
@@ -377,14 +378,18 @@ export async function runSecurityPass(
     if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
 
     const written = { ...edits.files, ...edits.manifests, [WORKSPACE_FILE]: nextYaml, [LOCK_FILE]: staged.lock };
-    const before = Object.fromEntries(Object.keys(written).map((file) => [file, readOr(join(forkPath, file))]));
-    before[WORKSPACE_FILE] = workspaceYaml;
-    before[LOCK_FILE] = workspaceLock;
+    // Undefined for a file that does not exist yet, which the rollback removes
+    const before = Object.fromEntries(
+      Object.keys(written).map((file) => [file, readOr(join(forkPath, file), undefined)] as const),
+    );
     for (const [file, content] of Object.entries(written)) writeFileSync(join(forkPath, file), content);
     const install = spawnSync('pnpm', ['install'], { cwd: forkPath, stdio: 'inherit' });
     console.info();
     if (install.status !== 0) {
-      for (const [file, content] of Object.entries(before)) writeFileSync(join(forkPath, file), content);
+      for (const [file, content] of Object.entries(before)) {
+        if (content === undefined) rmSync(join(forkPath, file), { force: true });
+        else writeFileSync(join(forkPath, file), content);
+      }
       console.error(`${pc.red('✗')} pnpm install failed (exit code ${install.status})`);
       console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
       console.info();

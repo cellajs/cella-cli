@@ -313,6 +313,9 @@ manifest, it also asks a branch that changes an app-owned path template code rea
 | `alignment` | an alignment folder off its shape; in the template, a changed app-owned path with no alignment or waiver | `cella/alignments/`; the branch against `origin/main` |
 | `path-argument` | a path argument that matches no file | the paths `pnpm cella style` takes |
 
+A checkout without a merge base with `origin/main` cannot tell which lines a branch changed: the gate then names the
+checks it skipped on stderr.
+
 `@cellajs/cli/style` also exports the class-string helpers the template's skill scripts read with, behind
 `openRepository(<repo root>)`.
 

@@ -2,6 +2,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
+import process from 'node:process';
 import { pathToFileURL } from 'node:url';
 import { z } from 'zod';
 import { setEnv } from './env';
@@ -27,12 +28,19 @@ export interface LocalDatabases {
   composeEnv: () => Record<string, string>;
 }
 
-/** Node strips the types of a file outside node_modules, so the app's own TS loads without a build or tsx. */
-export async function importFromApp(forkPath: string, file: string): Promise<Record<string, unknown>> {
+/**
+ * Node strips the types of a file outside node_modules, so the app's own TS loads without a build or tsx.
+ * @param mode the app config's mode. The config reads it once, at its first import in this process, and the dev port
+ * offset applies in development mode only.
+ */
+export async function importFromApp(
+  forkPath: string,
+  file: string,
+  mode: 'development' | 'production' = 'development',
+): Promise<Record<string, unknown>> {
   const path = join(forkPath, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
-  // The app's config reads the mode once, at its first import, and the dev port offset applies in development mode only
-  setEnv('NODE_ENV', 'development');
+  setEnv('NODE_ENV', mode);
   return import(pathToFileURL(path).href);
 }
 
@@ -94,7 +102,7 @@ export async function importFromWorkspace<T>(forkPath: string, workspace: string
 
 /**
  * A Docker image as a tool runs it, pinned by digest (`name[:tag]@sha256:…`) so every run scans with the same code.
- * Pulls it on first use; the pull shows Docker's own progress.
+ * Pulls it on first use; the pull shows Docker's own progress on stderr, and stdout stays free for a `--json` payload.
  * @throws when the reference has no digest, Docker does not answer, or the pull fails
  */
 export function resolveImage(reference: string): string {
@@ -103,7 +111,7 @@ export function resolveImage(reference: string): string {
     throw new Error('Docker does not answer: start Docker (or OrbStack) first');
   }
   if (spawnSync('docker', ['image', 'inspect', reference], { stdio: 'ignore' }).status === 0) return reference;
-  if (spawnSync('docker', ['pull', reference], { stdio: ['ignore', 'inherit', 'inherit'] }).status !== 0) {
+  if (spawnSync('docker', ['pull', reference], { stdio: ['ignore', process.stderr, 'inherit'] }).status !== 0) {
     throw new Error(`could not pull ${reference}`);
   }
   return reference;

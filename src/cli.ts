@@ -309,7 +309,9 @@ function buildProgram(
 }
 
 function parseCommandLine(argv: string[]): CliServiceSelection {
-  if (argv.length <= 2) {
+  // A bare `cella` opens the menu, which needs a terminal to answer it
+  const menu = argv.length <= 2;
+  if (menu && process.stdin.isTTY && process.stdout.isTTY) {
     return { options: readOptions({}) };
   }
 
@@ -322,6 +324,7 @@ function parseCommandLine(argv: string[]): CliServiceSelection {
     () => {},
   );
 
+  if (menu) program.help();
   program.parse(argv);
   return selection;
 }

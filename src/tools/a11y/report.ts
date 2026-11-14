@@ -2,6 +2,7 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { printStep } from '../../utils/display';
+import { onShutdown } from '../../utils/signals';
 import { loadPlaywright } from '../drive';
 import { manualSteps, screenReaderSteps } from './criteria';
 import { automated, type LedgerRow, readLedger, rootPackage, type Status } from './ledger';
@@ -274,7 +275,8 @@ ${failing
   const pdfPath = join(resultsDir, 'conformance-report.pdf');
   writeFileSync(join(resultsDir, 'conformance-report.html'), html);
   const { chromium } = await loadPlaywright(forkPath);
-  const browser = await chromium.launch();
+  const browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
+  const forget = onShutdown(() => browser.close());
   try {
     const page = await browser.newPage();
     await page.setContent(html);
@@ -287,6 +289,7 @@ ${failing
     });
   } finally {
     await browser.close();
+    forget();
   }
 
   if (publish) {

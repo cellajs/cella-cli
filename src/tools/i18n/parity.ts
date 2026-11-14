@@ -54,14 +54,15 @@ export interface PluralGap {
   extra: string[];
 }
 
-const categoriesOf = (language: string, ordinal: boolean): string[] => {
+/** The plural categories `language` uses, or English's when `Intl` refuses the locale folder's name. */
+export function categoriesOf(language: string, ordinal: boolean): string[] {
   try {
     return new Intl.PluralRules(language, { type: ordinal ? 'ordinal' : 'cardinal' }).resolvedOptions()
       .pluralCategories;
   } catch {
     return ['one', 'other'];
   }
-};
+}
 
 const groupKey = (base: string, ordinal: boolean) => `${base}${ordinal ? '_ordinal' : ''}`;
 

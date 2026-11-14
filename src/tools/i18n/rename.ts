@@ -122,6 +122,8 @@ export async function rename(forkPath: string, options: RenameOptions): Promise<
   const from = parseKey(options.from, locales);
   const to = parseKey(options.to, locales);
   if (options.from === options.to) throw new Error('the new name is the old one');
+  // Loaded before any write: a throw here leaves the files as they were
+  const ts = await loadTypeScript(forkPath);
 
   const localeFiles = renameInLocales(forkPath, locales, from, to);
   const codeFiles = renameInCode(forkPath, options.from, options.to);
@@ -129,7 +131,6 @@ export async function rename(forkPath: string, options: RenameOptions): Promise<
 
   // What no literal rewrite reaches: a key without its namespace in `t()`, a template that builds the old key. An
   // error type is typed, so the typecheck finds it
-  const ts = await loadTypeScript(forkPath);
   const scan = scanCode(ts, forkPath, '', [...locales.namespaces.keys()], new Set([from.key]));
   const check = [
     ...(scan.bare.get(from.key) ?? [])

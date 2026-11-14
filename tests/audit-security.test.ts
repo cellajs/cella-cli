@@ -4,7 +4,7 @@
  * then the parent's own pick), and `audit` reports what that leaves vulnerable.
  */
 
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -43,12 +43,11 @@ const lockOf = (versions: Record<string, string>) =>
     .map(([name, version]) => `  ${name}@${version}:\n`)
     .join('')}`;
 
-const lockedIn = (dir: string): Record<string, string> =>
-  Object.fromEntries(
-    [...readFileSync(join(dir, 'pnpm-lock.yaml'), 'utf8').matchAll(/^ {2}(.+)@(\d[^:]*):$/gm)].map(
-      ([, name, version]) => [name, version],
-    ),
-  );
+const lockedIn = (dir: string): Record<string, string> => {
+  const lock = join(dir, 'pnpm-lock.yaml');
+  const text = existsSync(lock) ? readFileSync(lock, 'utf8') : '';
+  return Object.fromEntries([...text.matchAll(/^ {2}(.+)@(\d[^:]*):$/gm)].map(([, name, version]) => [name, version]));
+};
 
 vi.mock('../src/utils/audit-utils', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../src/utils/audit-utils')>()),
@@ -190,6 +189,16 @@ describe('runSecurityPass', () => {
     expect(file('pnpm-lock.yaml')).toBe(LOCK);
     expect(file('package.json')).toBe(MANIFEST);
     expect(file('Dockerfile')).toBe(DOCKERFILE);
+  });
+
+  it('removes the lockfile a failed install wrote where there was none', async () => {
+    rmSync(join(repo, 'pnpm-lock.yaml'));
+    world.installStatus = 1;
+
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
+
+    expect(existsSync(join(repo, 'pnpm-lock.yaml'))).toBe(false);
+    expect(file('package.json')).toBe(MANIFEST);
   });
 
   it('leaves the workspace alone when the audit gives no answer', async () => {

@@ -16,10 +16,12 @@ export interface GhPullRequest {
   url: string;
 }
 
-/** Result of a `gh` invocation: whether it exited 0, plus its combined stdout+stderr. */
+/** Result of a `gh` invocation: whether it exited 0, its stdout, and why it failed. */
 interface GhResult {
   ok: boolean;
   output: string;
+  /** gh's stderr when the call failed, empty when it succeeded. */
+  error: string;
 }
 
 /** Whether the GitHub CLI is available on PATH. */
@@ -27,11 +29,12 @@ export function ghAvailable(): boolean {
   return spawnSync('gh', ['--version'], { stdio: 'ignore' }).status === 0;
 }
 
-/** Run `gh` in `cwd`, capturing stdout+stderr. Never throws. */
+/** Run `gh` in `cwd`, capturing stdout and stderr apart. Never throws. */
 function runGh(cwd: string, args: string[]): GhResult {
   const result = spawnSync('gh', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
-  const output = `${result.stdout ?? ''}${result.stderr ?? ''}`.trim();
-  return { ok: result.status === 0, output };
+  const ok = result.status === 0;
+  const error = ok ? '' : (result.stderr || result.error?.message || '').trim();
+  return { ok, output: (result.stdout ?? '').trim(), error };
 }
 
 /**
