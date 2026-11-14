@@ -1,5 +1,5 @@
 import type { ElementHandle, Page } from 'playwright';
-import type { Check } from '../findings';
+import type { PageCheck } from '../findings';
 import { writePacketFile } from '../review-packet';
 import { overlaySelector } from '../scope';
 import { devOnlySelectors } from '../session';
@@ -117,7 +117,7 @@ const shot = (page: Page, clip: { x: number; y: number; width: number; height: n
  * (3.2.1), never get stuck and close overlays with Escape (2.1.2), and stay inside an open overlay (2.4.3). Escape
  * closes the state's overlay, so this runs last among the checks that need it open.
  */
-export const keyboardWalk: Check = async (page, state, run) => {
+export const keyboardWalk: PageCheck = async (page, state, run) => {
   const startUrl = page.url();
   const invisible: string[] = [];
   const obscured: string[] = [];
@@ -215,9 +215,9 @@ export const keyboardWalk: Check = async (page, state, run) => {
 
   writePacketFile(run, state.id, 'tab-order.json', `${JSON.stringify(stops, null, 2)}\n`);
 
-  const probe = { check: 'probe:keyboard' };
+  const probe = { check: 'probe:keyboard' } as const;
   const unique = (list: string[]) => [...new Set(list)];
-  const findings: Awaited<ReturnType<Check>> = [
+  const findings: Awaited<ReturnType<PageCheck>> = [
     {
       ...probe,
       criteria: ['2.4.7'],

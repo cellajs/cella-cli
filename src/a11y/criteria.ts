@@ -1,8 +1,26 @@
+/** The browser probes. A criterion names one as `probe:<name>`, and the probe's findings carry that name. */
+const probes = [
+  'autocomplete',
+  'control-contrast',
+  'form-errors',
+  'keyboard',
+  'landmarks',
+  'language',
+  'orientation',
+  'reflow',
+  'resize',
+  'text-contrast',
+  'text-spacing',
+  'titles',
+] as const;
+
+export type ProbeCheck = `probe:${(typeof probes)[number]}`;
+
 /**
- * How a criterion gets its evidence: `axe` rules tagged with it, a named browser `probe`, a `code` check over the
- * repository, or a `manual` pass by a person. The audit decides a row only when none of its checks is `manual`.
+ * How a criterion gets its evidence: `axe` rules tagged with it, a browser probe, a `code` check over the repository,
+ * or a `manual` pass by a person. The audit decides a row only when none of its checks is `manual`.
  */
-type CheckName = 'axe' | `probe:${string}` | `code:${string}` | 'manual';
+type CheckName = 'axe' | ProbeCheck | `code:${string}` | 'manual';
 
 export interface Criterion {
   id: string;

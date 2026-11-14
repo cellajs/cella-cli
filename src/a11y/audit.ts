@@ -3,14 +3,13 @@ import { join } from 'node:path';
 import type { TestbedHandle } from '../testbed';
 import pc from '../utils/colors';
 import { printStep, warningMark } from '../utils/display';
-import { onShutdown } from '../utils/signals';
 import { type AxeScan, summarizeAxe } from './axe-scan';
 import { runCodeChecks } from './code-checks';
-import { type AuditRun, EvidenceSet, type Finding } from './findings';
+import { type AuditRun, EvidenceSet, type StateFinding } from './findings';
 import { ledgerFile, writeLedger } from './ledger';
 import { acrossStates } from './probes/page-structure';
 import type { Scope } from './scope';
-import { endAudit, startAudit } from './session';
+import { startAudit } from './session';
 import { visitState } from './visit';
 
 export interface AuditOptions {
@@ -24,30 +23,25 @@ export interface AuditOptions {
 const seconds = (since: number) => `${((Date.now() - since) / 1000).toFixed(1)}s`;
 
 /**
- * Audits the testbed against WCAG 2.2 A and AA and writes the conformance ledger, or `ledger-partial.json` in the
- * results folder when the run covered part of the scope or skipped a visit: an incomplete run never replaces the
- * ledger. Resolves to the exit code: 1 when a visit was skipped.
+ * Audits the testbed against WCAG 2.2 A and AA on the scope's states, which the caller narrowed to `options.states`,
+ * and writes the conformance ledger, or `ledger-partial.json` in the results folder when the run covered part of the
+ * scope or skipped a visit: an incomplete run never replaces the ledger. Resolves to the exit code: 1 when a visit
+ * was skipped.
  */
 export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHandle, options: AuditOptions) {
   const startedAt = Date.now();
-  const email = options.email ?? testbed.env.ADMIN_EMAIL;
-  if (!email) throw new Error('no audit user: pass --email, or set ADMIN_EMAIL in .env');
-
   // A build is as old as its last `vite build`: say so, since a stale one audits old code without a sign
   const builtAt = statSync(join(run.repoRoot, 'frontend/dist/index.html'), { throwIfNoEntry: false })?.mtime;
   printStep('auditing', `${testbed.frontendUrl}, frontend build of ${builtAt?.toLocaleString() ?? 'unknown date'}`);
 
-  const states =
-    options.states.length > 0 ? scope.states.filter((state) => options.states.includes(state.id)) : scope.states;
-  const session = await startAudit(run.repoRoot, scope, { email, env: testbed.env });
-  const forget = onShutdown(() => endAudit(session));
+  const session = await startAudit(run.repoRoot, scope, { email: options.email, env: testbed.env });
 
-  const findings: Finding[] = [];
+  const findings: StateFinding[] = [];
   const scans: AxeScan[] = [];
   const errors: Record<string, string> = {};
 
   /** One visit: a state in a color mode. Dark visits measure contrast only. */
-  const visits = (['light', 'dark'] as const).flatMap((mode) => states.map((state) => ({ state, mode })));
+  const visits = (['light', 'dark'] as const).flatMap((mode) => scope.states.map((state) => ({ state, mode })));
 
   /** Takes visits from the shared queue until it is empty. */
   const worker = async () => {
@@ -70,8 +64,7 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
   try {
     await Promise.all(Array.from({ length: options.workers }, worker));
   } finally {
-    await endAudit(session);
-    forget();
+    await session.close();
   }
 
   // Visits finish in any order; scope order keeps the ledger stable between runs
@@ -98,7 +91,7 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
   const ledger = writeLedger(
     run.repoRoot,
     evidence.byCriterion,
-    states.map((state) => state.id),
+    scope.states.map((state) => state.id),
     target,
   );
 

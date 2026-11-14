@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import type { Check } from '../findings';
+import type { PageCheck } from '../findings';
 
 /** Text nodes measured per visit; nodes that share tag and classes share their colours, so one of each kind is measured. */
 const maxTextNodes = 60;
@@ -16,7 +16,7 @@ interface Measured {
  * text colour is compared with what lies behind each text pixel.
  */
 export const textContrast =
-  (targets: string[]): Check =>
+  (targets: string[]): PageCheck =>
   async (page) => {
     if (!targets.length) return [];
     const measured: Measured[] = [];
@@ -215,7 +215,7 @@ async function edgeContrast(page: Page, edge: Edge) {
  * wrapper that draws the edge (an input group) is judged by the wrapper; one with no edge drawn at all is left out,
  * since the criterion asks for contrast of the edge that is there, not for an edge.
  */
-export const controlContrast: Check = async (page) => {
+export const controlContrast: PageCheck = async (page) => {
   const kinds = new Set<string>();
   const problems: string[] = [];
   let lowest = Number.POSITIVE_INFINITY;

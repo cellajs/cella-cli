@@ -1,3 +1,4 @@
+export type { Page } from 'playwright';
 export {
   type Device,
   defineScreenshotsApp,
@@ -6,8 +7,6 @@ export {
   type ScreenshotsApp,
   type ScreenshotsBase,
   type Shot,
-  type Suppress,
 } from '../screenshots/adapter';
-export type { Placeholders, Prepare, SignedIn } from '../utils/app-adapter';
-export type { Page } from '../utils/drive';
-export { settle } from '../utils/drive';
+export type { Opener, Placeholders, Prepare, Suppress } from '../utils/app-adapter';
+export type { Session } from '../utils/drive';

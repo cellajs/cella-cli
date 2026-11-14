@@ -1,6 +1,6 @@
 import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import type { AuditRun, Check } from './findings';
+import type { AuditRun, PageCheck } from './findings';
 import { devOnlySelectors } from './session';
 
 /** Where the audit leaves, per state, what a reviewer (a person or an agent) needs to judge the criteria no tool decides. */
@@ -90,7 +90,7 @@ function pageFacts() {
  * Saves the state's review packet: a screenshot, the accessibility tree a screen reader works from, and facts about
  * the page. It decides nothing; the `a11y-review` skill describes how a reviewer uses it.
  */
-export const reviewPacket: Check = async (page, state, run) => {
+export const reviewPacket: PageCheck = async (page, state, run) => {
   // Development-only tools are not part of the product
   const hidden = await page.addStyleTag({ content: `${devOnlySelectors.join(', ')} { display: none !important; }` });
   writePacketFile(

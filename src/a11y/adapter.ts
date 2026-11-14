@@ -1,8 +1,6 @@
+import type { BrowserContextOptions } from 'playwright';
 import { z } from 'zod';
-import { fn, type Placeholders, type Prepare, placeholdersSchema } from '../utils/app-adapter';
-import type { BrowserContextOptions, Page } from '../utils/drive';
-
-type Opener = (page: Page) => Promise<void>;
+import { type Opener, openerSchema, pathSchema, type SignInFields, signInShape } from '../utils/app-adapter';
 
 /** A form probe a state runs on its page. */
 export type FormCheck =
@@ -29,23 +27,15 @@ export interface A11yState {
 }
 
 /** `cella/a11y.ts`: the template's scope, kept in step with the UI it describes. */
-export interface A11yBase {
-  /** Brings the audit user into the state the pages expect, before the first visit. */
-  prepare?: Prepare;
-  /** Values for the `{name}` placeholders of the paths, read as the audit user before the first visit. */
-  placeholders?: Placeholders;
+export interface A11yBase extends SignInFields {
   /** What the code checks search, as `git grep` pathspecs from the app's root. */
   sources: string[];
   /** The sample of pages and states the audit covers (WCAG-EM steps 2 and 3), in report order. */
-  scope: A11yState[];
+  states: A11yState[];
 }
 
 /** `cella/a11y.app.ts`, optional: what an app adds to the base, removes from it or overrides. */
-export interface A11yApp {
-  /** Runs after the base's. */
-  prepare?: Prepare;
-  /** Joins the base's; a name in both takes this one. */
-  placeholders?: Placeholders;
+export interface A11yApp extends SignInFields {
   /** Base state ids the app does not have. */
   remove?: string[];
   /** States of the app's own; one with a base state's id replaces it in place. */
@@ -54,24 +44,22 @@ export interface A11yApp {
 
 const stateSchema = z.strictObject({
   id: z.string().min(1),
-  path: z.string().startsWith('/').or(z.string().startsWith('{')),
+  path: pathSchema,
   auth: z.boolean(),
-  open: fn<Opener>().optional(),
+  open: openerSchema.optional(),
   overlay: z.literal(true).optional(),
   context: z.custom<BrowserContextOptions>((value) => typeof value === 'object' && value !== null).optional(),
   forms: z.array(z.enum(['required', 'personal', 'sign-in'])).optional(),
 }) satisfies z.ZodType<A11yState>;
 
 export const baseSchema = z.strictObject({
-  prepare: fn<Prepare>().optional(),
-  placeholders: placeholdersSchema.optional(),
+  ...signInShape,
   sources: z.array(z.string()).min(1),
-  scope: z.array(stateSchema).min(1),
+  states: z.array(stateSchema).min(1),
 }) satisfies z.ZodType<A11yBase>;
 
 export const appSchema = z.strictObject({
-  prepare: fn<Prepare>().optional(),
-  placeholders: placeholdersSchema.optional(),
+  ...signInShape,
   remove: z.array(z.string()).optional(),
   add: z.array(stateSchema).optional(),
 }) satisfies z.ZodType<A11yApp>;

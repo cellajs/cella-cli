@@ -1,14 +1,15 @@
 import type { Page } from 'playwright';
 import type { A11yState } from './adapter';
+import type { ProbeCheck } from './criteria';
 import type { Evidence } from './ledger';
 import type { AppConfig } from './scope';
 
-/** What one check found on one state. Empty `problems` and no `review` means the state passes. */
-export interface Finding {
+/** What one probe found on one state. Empty `problems` and no `review` means the state passes. */
+export interface StateFinding {
   /** The state it was found on; a check may narrow it, such as `sign-in (nl)`. */
   state: string;
   criteria: string[];
-  check: string;
+  check: ProbeCheck;
   /** What the check asserts, as it reads in the report. */
   what: string;
   problems: string[];
@@ -29,7 +30,7 @@ export interface AuditRun {
 }
 
 /** A check inspects one open page. It returns nothing where it does not apply. */
-export type Check = (page: Page, state: A11yState, run: AuditRun) => Promise<Omit<Finding, 'state'>[]>;
+export type PageCheck = (page: Page, state: A11yState, run: AuditRun) => Promise<Omit<StateFinding, 'state'>[]>;
 
 /** Collects evidence per criterion. */
 export class EvidenceSet {
@@ -40,8 +41,8 @@ export class EvidenceSet {
   }
 
   /** Turns findings into one evidence entry per check and criterion: failing states fail it, review notes leave it open. */
-  addFindings(findings: Finding[]) {
-    const groups = new Map<string, Finding[]>();
+  addFindings(findings: StateFinding[]) {
+    const groups = new Map<string, StateFinding[]>();
     for (const finding of findings) {
       const key = [finding.check, finding.criteria.join(','), finding.what].join('|');
       groups.set(key, [...(groups.get(key) ?? []), finding]);

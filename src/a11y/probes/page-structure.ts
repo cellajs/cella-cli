@@ -2,17 +2,19 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { localesDir } from '../../i18n/locales';
 import { settle } from '../../utils/drive';
-import type { Check, Finding } from '../findings';
+import type { PageCheck, StateFinding } from '../findings';
 
-const titles = { criteria: ['2.4.2'], check: 'probe:titles', what: 'A distinct, descriptive page title' };
-const language = {
+type Claim = Pick<StateFinding, 'criteria' | 'check' | 'what'>;
+
+const titles: Claim = { criteria: ['2.4.2'], check: 'probe:titles', what: 'A distinct, descriptive page title' };
+const language: Claim = {
   criteria: ['3.1.1'],
   check: 'probe:language',
   what: 'The page language follows the language the user picks',
 };
 
 /** Title (2.4.2), a main landmark or skip link (2.4.1) and the declared language (3.1.1) of a page. */
-export const pageStructure: Check = async (page, state, { app }) => {
+export const pageStructure: PageCheck = async (page, state, { app }) => {
   if (state.open) return [];
   const title = await page.title();
   const lang = await page.evaluate(() => document.documentElement.lang);
@@ -45,12 +47,12 @@ export const pageStructure: Check = async (page, state, { app }) => {
  * Picks every other language with the app's own switcher and reads the declared page language. It changes the stored
  * language, so it runs last in a visit. Pages without a switcher return nothing.
  */
-export const languageSwitch: Check = async (page, state, { app, repoRoot }) => {
+export const languageSwitch: PageCheck = async (page, state, { app, repoRoot }) => {
   if (state.open) return [];
   const names: Record<string, string> = JSON.parse(
     readFileSync(join(repoRoot, localesDir, app.defaultLanguageCode, 'common.json'), 'utf8'),
   );
-  const findings: Awaited<ReturnType<Check>> = [];
+  const findings: Awaited<ReturnType<PageCheck>> = [];
 
   for (const other of app.languageCodes.filter((lng) => lng !== app.defaultLanguageCode)) {
     const button = page.getByRole('button', { name: /change language/i }).first();
@@ -74,7 +76,7 @@ export const languageSwitch: Check = async (page, state, { app, repoRoot }) => {
 };
 
 /** Checks that compare states with each other: a title shared by two pages, and whether any page offered a language switch. */
-export function acrossStates(findings: Finding[]): Finding[] {
+export function acrossStates(findings: StateFinding[]): StateFinding[] {
   const titled = findings.filter((finding) => finding.check === titles.check);
   for (const finding of titled) {
     const twins = titled

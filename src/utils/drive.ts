@@ -1,12 +1,9 @@
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import process from 'node:process';
-import type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playwright';
+import type { Page } from 'playwright';
 import { importFromWorkspace } from './app';
 
-export type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playwright';
-
-export type Playwright = typeof import('playwright');
+type Playwright = typeof import('playwright');
 
 /** A signed-in user of the app: where it answers and the cookie that signs a browser or a request in. */
 export interface Session {
@@ -34,17 +31,6 @@ export interface MintOptions {
 /** Playwright as the app's frontend installed it, so the CLI ships none. */
 export function loadPlaywright(repoRoot = process.cwd()): Promise<Playwright> {
   return importFromWorkspace<Playwright>(repoRoot, 'frontend', 'playwright');
-}
-
-/**
- * Checks that Playwright has its Chromium, before anything slow starts.
- * @throws with the install command when it has none
- */
-export async function requireChromium(repoRoot = process.cwd()): Promise<void> {
-  const { chromium } = await loadPlaywright(repoRoot);
-  if (!existsSync(chromium.executablePath())) {
-    throw new Error('Playwright has no Chromium yet: run `pnpm --filter frontend exec playwright install chromium`');
-  }
 }
 
 /**
@@ -83,43 +69,6 @@ export async function signOut(session: Session | null | undefined): Promise<void
   await fetch(`${session.backendUrl}/auth/sign-out`, { method: 'POST', headers }).catch(() => {});
 }
 
-export interface ContextOptions extends BrowserContextOptions {
-  /** Signs the context in. */
-  session?: Session;
-  /**
-   * Fields written into the app's persisted UI store (`<slug>-ui`) before any page script runs, so the first paint is
-   * already in the mode they set. Merged into what the store holds: a list joins the stored one, any other value wins.
-   */
-  uiStore?: { slug: string; state: Record<string, unknown> };
-}
-
-/** A browser context, signed in and with its UI store seeded when asked. */
-export async function newContext(
-  browser: Browser,
-  { session, uiStore, ...options }: ContextOptions = {},
-): Promise<BrowserContext> {
-  const context = await browser.newContext(options);
-  // tsx and esbuild's keepNames wrap named functions in an `__name` helper that a page script does not have
-  await context.addInitScript({ content: 'window.__name = (fn) => fn;' });
-  if (session) await context.addCookies([session.cookie]);
-  if (uiStore) {
-    await context.addInitScript(
-      ([key, fields]) => {
-        const stored = JSON.parse(localStorage.getItem(key) ?? '{}');
-        const state = { ...stored.state };
-        for (const [name, value] of Object.entries(fields)) {
-          const before = state[name];
-          state[name] = Array.isArray(value) && Array.isArray(before) ? [...new Set([...before, ...value])] : value;
-        }
-        // A fresh entry needs the store's own version, or zustand drops it as written by an older build
-        localStorage.setItem(key, JSON.stringify({ version: 1, ...stored, state }));
-      },
-      [`${uiStore.slug}-ui`, uiStore.state] as const,
-    );
-  }
-  return context;
-}
-
 /**
  * Resolves once the page has stopped adding or changing content for `quiet` ms, or after `cap` ms. Lazy sections, query
  * results and opening overlays all show up as DOM changes; the network never goes idle in development.
@@ -146,19 +95,4 @@ export async function settle(page: Page, { quiet = 400, cap = 3000 } = {}): Prom
   );
   // A navigation during the wait tears down the page's script context
   await waited.catch(() => page.waitForTimeout(quiet));
-}
-
-/**
- * Opens `url` in a new page and settles once the route has rendered its content.
- * @throws when the route redirects: a check or a shot would judge another page under this one's name
- */
-export async function openPage(context: BrowserContext, url: string, { timeout = 30_000 } = {}): Promise<Page> {
-  const page = await context.newPage();
-  await page.goto(url, { waitUntil: 'domcontentloaded', timeout });
-  await page.locator('main, [role="main"], #accessibility-content, form, h1, footer').first().waitFor({ timeout });
-  await settle(page);
-  const landed = new URL(page.url()).pathname;
-  const asked = new URL(url).pathname;
-  if (landed !== asked) throw new Error(`${asked} redirected to ${landed}`);
-  return page;
 }

@@ -2,12 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { localesDir } from '../i18n/locales';
+import { loadAppConfig } from '../utils/app';
+import { launchBrowser } from '../utils/browser';
 import { printStep } from '../utils/display';
-import { loadPlaywright } from '../utils/drive';
-import { onShutdown } from '../utils/signals';
 import { manualSteps, screenReaderSteps } from './criteria';
-import { automated, type LedgerRow, readLedger, rootPackage, type Status } from './ledger';
-import { loadAppConfig } from './scope';
+import { automated, type Ledger, type LedgerRow, readLedger, rootPackage, type Status } from './ledger';
+import { type AppConfig, appConfigSchema } from './scope';
 
 const statusLabel: Record<Status, string> = {
   supports: 'Supports',
@@ -82,35 +82,25 @@ function toHtml(markdown: string, title: string) {
   return `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>${title}</title><style>${style}</style></head><body>${body.join('\n')}</body></html>`;
 }
 
-/**
- * Renders the ledger as a VPAT® 2.5Rev WCAG report (Markdown, HTML and a tagged PDF), plus the checklist for the manual
- * pass, in the results folder. While rows are open or decided by an agent only, the report is a draft and says so.
- * `publish` puts the PDF where the app serves it and prints what the accessibility statement needs; it refuses a draft
- * unless `draft` is set, and the statement then calls the results provisional.
- * @throws when the app has no ledger yet, or `publish` meets a draft without `draft`
- */
-export async function runReport(
-  repoRoot: string,
-  resultsDir: string,
-  { publish, draft }: { publish: boolean; draft: boolean },
-): Promise<number> {
-  const ledger = readLedger(repoRoot);
-  const { name: product, version } = rootPackage(repoRoot);
-  if (!ledger) throw new Error(`no ledger for ${product} yet: run \`pnpm cella a11y\` first`);
-  // The report describes the production app
-  const app = await loadAppConfig(repoRoot, 'production');
+/** The ledger's rows as the report and the checklist group them; an open row or an agent's decision keeps it a draft. */
+function groupRows({ criteria }: Ledger) {
+  const open = criteria.filter((r) => !r.status);
+  const byAgent = criteria.flatMap((r) => (r.decidedBy === 'agent' ? [r] : []));
+  const byPerson = criteria.filter((r) => r.decidedBy === 'human');
+  const failing = criteria.filter((r) => r.status === 'partially-supports' || r.status === 'does-not-support');
+  return { open, byAgent, byPerson, failing, unconfirmed: open.length + byAgent.length };
+}
 
+type Rows = ReturnType<typeof groupRows>;
+
+/** The VPAT® 2.5Rev WCAG report, in Markdown. */
+function vpatText(ledger: Ledger, app: AppConfig, version: string, { open, byAgent, byPerson, unconfirmed }: Rows) {
   const table = (level: 'A' | 'AA') =>
     [
       '| Criteria | Conformance Level | Remarks and Explanations |',
       '| --- | --- | --- |',
       ...ledger.criteria.filter((r) => r.level === level).map(row),
     ].join('\n');
-
-  const open = ledger.criteria.filter((r) => !r.status);
-  const byAgent = ledger.criteria.flatMap((r) => (r.decidedBy === 'agent' ? [r] : []));
-  const byPerson = ledger.criteria.filter((r) => r.decidedBy === 'human');
-  const unconfirmed = open.length + byAgent.length;
 
   /** What keeps the report a draft, for its reader. */
   const draftNote = [
@@ -120,7 +110,7 @@ export async function runReport(
     .filter(Boolean)
     .join(' ');
 
-  const vpat = `# ${app.name} Accessibility Conformance Report
+  return `# ${app.name} Accessibility Conformance Report
 
 WCAG Edition (Based on VPAT® Version 2.5Rev)
 
@@ -179,33 +169,36 @@ Not evaluated.
 
 This report describes the product as tested on the report date. Accessibility can change as the product changes.
 `;
+}
 
-  /** Files a reviewer's evidence names that changed after the day of the decision: the decision may describe old code. */
-  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', localesDir], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  }).stdout.split('\n');
-  function changedSince(r: LedgerRow) {
+/** Decided rows whose evidence names files that changed after the day of the decision: it may describe old code. */
+function staleDecisions(repoRoot: string, ledger: Ledger) {
+  const git = (args: string[]) => spawnSync('git', args, { cwd: repoRoot, encoding: 'utf8' }).stdout;
+  const tracked = git(['ls-files', 'frontend/src', 'backend/src', localesDir]).split('\n');
+  const changedSince = (r: LedgerRow) => {
     const review = r.evidence.find((e) => e.check === `review:${r.decidedBy}`);
     if (!review?.date) return [];
     const cited = new Set(review.summary.match(/[\w./-]+\.(?:tsx?|css|json)\b/g) ?? []);
     const files = [...cited].flatMap((name) => tracked.filter((file) => file.endsWith(`/${name}`)).slice(0, 1));
     return files.filter((file) =>
-      spawnSync('git', ['log', '-1', `--since=${review.date}T23:59:59`, '--format=%h', '--', file], {
-        cwd: repoRoot,
-        encoding: 'utf8',
-      }).stdout.trim(),
+      git(['log', '-1', `--since=${review.date}T23:59:59`, '--format=%h', '--', file]).trim(),
     );
-  }
-  const stale = ledger.criteria
+  };
+  return ledger.criteria
     .filter((r) => r.decidedBy === 'agent' || r.decidedBy === 'human')
     .map((r) => ({ row: r, files: changedSince(r) }))
     .filter(({ files }) => files.length);
+}
 
-  const failing = ledger.criteria.filter((r) => r.status === 'partially-supports' || r.status === 'does-not-support');
+/** The checklist for the person who does the manual pass. */
+function manualPass(
+  { open, byAgent, failing }: Rows,
+  stale: ReturnType<typeof staleDecisions>,
+  resultsDir: string,
+): string {
   const step = (id: string) => manualSteps[id] ?? (id.startsWith('1.2.') ? manualSteps['1.2.1'] : undefined);
 
-  const checklist = `# Manual accessibility pass
+  return `# Manual accessibility pass
 
 Record a decision with \`pnpm cella a11y decide --id <criterion> --status <status> --by human --evidence "<what you checked>"\`
 (add \`--remarks\` for the report reader unless the status is supports). Test with VoiceOver and Safari on macOS and with
@@ -266,23 +259,16 @@ ${failing
   })
   .join('\n')}
 `;
+}
 
-  mkdirSync(resultsDir, { recursive: true });
-  writeFileSync(join(resultsDir, 'vpat-draft.md'), vpat);
-  writeFileSync(join(resultsDir, 'manual-pass.md'), checklist);
-
-  // The same report as a document and as a tagged PDF with an outline, which a screen reader can navigate by heading and table
-  const html = toHtml(vpat, `${app.name} Accessibility Conformance Report`);
-  const pdfPath = join(resultsDir, 'conformance-report.pdf');
-  writeFileSync(join(resultsDir, 'conformance-report.html'), html);
-  const { chromium } = await loadPlaywright(repoRoot);
-  const browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
-  const forget = onShutdown(() => browser.close());
+/** Prints `html` to `path` as a tagged PDF with an outline, which a screen reader can navigate by heading and table. */
+async function writePdf(repoRoot: string, html: string, path: string): Promise<void> {
+  const browser = await launchBrowser(repoRoot);
   try {
     const page = await browser.newPage();
     await page.setContent(html);
     await page.pdf({
-      path: pdfPath,
+      path,
       format: 'A4',
       tagged: true,
       outline: true,
@@ -290,43 +276,82 @@ ${failing
     });
   } finally {
     await browser.close();
-    forget();
   }
+}
 
-  if (publish) {
-    // Only what a person confirmed is published as final: an open row has no answer, and an agent's answer is provisional
-    if (unconfirmed && !draft) {
-      const ids = [...open, ...byAgent].map((r) => r.id).join(', ');
-      throw new Error(
-        `not published: ${open.length} criteria are open and ${byAgent.length} are decided by an agent only (${ids}). See ${join(resultsDir, 'manual-pass.md')}, or add --draft to publish it as a draft`,
-      );
-    }
-    // Under static/common: that folder is the app's own, so one product's report never merges into another
-    const publicPath = 'frontend/public/static/common/accessibility-conformance-report.pdf';
-    mkdirSync(dirname(join(repoRoot, publicPath)), { recursive: true });
-    copyFileSync(pdfPath, join(repoRoot, publicPath));
-    const count = (status: LedgerRow['status']) => ledger.criteria.filter((r) => r.status === status).length;
-    const review = {
-      standard: ledger.standard,
-      reviewedAt: ledger.auditedAt,
-      ...(unconfirmed ? { provisional: true } : {}),
-      results: {
-        pagesAndStates: ledger.scope.length,
-        supports: count('supports'),
-        partiallySupports: count('partially-supports'),
-        doesNotSupport: count('does-not-support'),
-        notApplicable: count('not-applicable'),
-        notEvaluated: open.map((r) => `${r.id} ${r.name}`),
-      },
-      limitations: failing.map((r) => ({ description: remarksOf(r), criteria: [r.id] })),
-      report: { edition: ledger.edition, date: ledger.auditedAt, pdfUrl: publicPath.replace('frontend/public', '') },
-    };
-    console.info(
-      `Published ${publicPath}${unconfirmed ? ' as a draft' : ''}.\nPut this in frontend/src/modules/auth/legal/legal-config.ts, and shorten each description for the statement's reader:\n`,
+/**
+ * Copies the PDF to where the app serves it and prints the `accessibilityReview` its statement needs.
+ * @throws for a draft without `draft`: only what a person confirmed is published as final
+ */
+function publishReport(
+  repoRoot: string,
+  ledger: Ledger,
+  { open, byAgent, failing, unconfirmed }: Rows,
+  { pdfPath, resultsDir, draft }: { pdfPath: string; resultsDir: string; draft: boolean },
+): void {
+  // An open row has no answer, and an agent's answer is provisional
+  if (unconfirmed && !draft) {
+    const ids = [...open, ...byAgent].map((r) => r.id).join(', ');
+    throw new Error(
+      `not published: ${open.length} criteria are open and ${byAgent.length} are decided by an agent only (${ids}). See ${join(resultsDir, 'manual-pass.md')}, or add --draft to publish it as a draft`,
     );
-    console.info(`export const accessibilityReview: AccessibilityReview = ${JSON.stringify(review, null, 2)};\n`);
   }
-  printStep('report', `${open.length} criteria open, ${byAgent.length} decided by an agent`);
+  // Under static/common: that folder is the app's own, so one product's report never merges into another
+  const publicPath = 'frontend/public/static/common/accessibility-conformance-report.pdf';
+  mkdirSync(dirname(join(repoRoot, publicPath)), { recursive: true });
+  copyFileSync(pdfPath, join(repoRoot, publicPath));
+  const count = (status: LedgerRow['status']) => ledger.criteria.filter((r) => r.status === status).length;
+  const review = {
+    standard: ledger.standard,
+    reviewedAt: ledger.auditedAt,
+    ...(unconfirmed ? { provisional: true } : {}),
+    results: {
+      pagesAndStates: ledger.scope.length,
+      supports: count('supports'),
+      partiallySupports: count('partially-supports'),
+      doesNotSupport: count('does-not-support'),
+      notApplicable: count('not-applicable'),
+      notEvaluated: open.map((r) => `${r.id} ${r.name}`),
+    },
+    limitations: failing.map((r) => ({ description: remarksOf(r), criteria: [r.id] })),
+    report: { edition: ledger.edition, date: ledger.auditedAt, pdfUrl: publicPath.replace('frontend/public', '') },
+  };
+  console.info(
+    `Published ${publicPath}${unconfirmed ? ' as a draft' : ''}.\nPut this in frontend/src/modules/auth/legal/legal-config.ts, and shorten each description for the statement's reader:\n`,
+  );
+  console.info(`export const accessibilityReview: AccessibilityReview = ${JSON.stringify(review, null, 2)};\n`);
+}
+
+/**
+ * Renders the ledger as a VPAT® 2.5Rev WCAG report (Markdown, HTML and a tagged PDF), plus the checklist for the manual
+ * pass, in the results folder. While rows are open or decided by an agent only, the report is a draft and says so.
+ * `publish` puts the PDF where the app serves it and prints what the accessibility statement needs; it refuses a draft
+ * unless `draft` is set, and the statement then calls the results provisional.
+ * @throws when the app has no ledger yet, or `publish` meets a draft without `draft`
+ */
+export async function runReport(
+  repoRoot: string,
+  resultsDir: string,
+  { publish, draft }: { publish: boolean; draft: boolean },
+): Promise<number> {
+  const ledger = readLedger(repoRoot);
+  const { name: product, version } = rootPackage(repoRoot);
+  if (!ledger) throw new Error(`no ledger for ${product} yet: run \`pnpm cella a11y\` first`);
+  // The report describes the production app
+  const app = await loadAppConfig(repoRoot, appConfigSchema, 'production');
+  const rows = groupRows(ledger);
+
+  const vpat = vpatText(ledger, app, version, rows);
+  mkdirSync(resultsDir, { recursive: true });
+  writeFileSync(join(resultsDir, 'vpat-draft.md'), vpat);
+  writeFileSync(join(resultsDir, 'manual-pass.md'), manualPass(rows, staleDecisions(repoRoot, ledger), resultsDir));
+  const html = toHtml(vpat, `${app.name} Accessibility Conformance Report`);
+  writeFileSync(join(resultsDir, 'conformance-report.html'), html);
+  const pdfPath = join(resultsDir, 'conformance-report.pdf');
+  await writePdf(repoRoot, html, pdfPath);
+
+  if (publish) publishReport(repoRoot, ledger, rows, { pdfPath, resultsDir, draft });
+  printStep('report', `${rows.open.length} criteria open, ${rows.byAgent.length} decided by an agent`);
   printStep('results', `${resultsDir}: vpat-draft.md, conformance-report.html and .pdf, manual-pass.md`);
   return 0;
 }

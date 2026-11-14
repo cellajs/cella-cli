@@ -1,6 +1,6 @@
 import type { Page } from 'playwright';
 import { settle } from '../../utils/drive';
-import type { Check } from '../findings';
+import type { PageCheck } from '../findings';
 import { ensureOpen } from '../scope';
 import { defaultViewport } from '../session';
 
@@ -97,9 +97,9 @@ const textLength = (page: Page) =>
  * 200% zoom as a 640px viewport (1.4.4), reflow at 320px (1.4.10), both orientations (1.3.4) and text spacing (1.4.12).
  * The open page is resized, as it is for a user who zooms, and left at the state's own viewport with no extra styles.
  */
-export const layout: Check = async (page, state) => {
+export const layout: PageCheck = async (page, state) => {
   const ownViewport = page.viewportSize() ?? defaultViewport;
-  const findings: Awaited<ReturnType<Check>> = [];
+  const findings: Awaited<ReturnType<PageCheck>> = [];
   const resize = async (viewport: { width: number; height: number }) => {
     await page.setViewportSize(viewport);
     await settle(page);

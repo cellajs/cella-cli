@@ -1,11 +1,12 @@
 import type { Command } from '../command';
 import { withTestbed } from '../testbed';
-import { toolDir } from '../utils/app';
-import { requireChromium } from '../utils/drive';
+import { loadAppConfig, toolDir } from '../utils/app';
+import { selectEntries } from '../utils/app-adapter';
+import { requireChromium } from '../utils/browser';
 import { type AuditOptions, runAudit } from './audit';
 import { type DecideOptions, runDecide } from './decide';
 import { runReport } from './report';
-import { loadAppConfig, loadScope } from './scope';
+import { appConfigSchema, loadScope } from './scope';
 
 type A11yOptions =
   | { job: 'audit'; audit: AuditOptions }
@@ -35,13 +36,11 @@ async function runA11y(repoRoot: string, options: A11yOptions): Promise<number> 
 
   // Before the testbed starts: a scope that does not fit this CLI, or a missing browser, fails in seconds
   const scope = await loadScope(repoRoot);
-  const unknown = options.audit.states.filter((id) => !scope.states.some((state) => state.id === id));
-  if (unknown.length > 0) {
-    throw new Error(`no state ${unknown.join(', ')} in the scope: ${scope.states.map((state) => state.id).join(', ')}`);
-  }
+  const states = selectEntries(scope.states, options.audit.states, 'state');
   await requireChromium(repoRoot);
-  const app = await loadAppConfig(repoRoot, 'development');
-  return withTestbed(repoRoot, (testbed) => runAudit({ repoRoot, app, resultsDir }, scope, testbed, options.audit));
+  const app = await loadAppConfig(repoRoot, appConfigSchema);
+  const run = { repoRoot, app, resultsDir };
+  return withTestbed(repoRoot, (testbed) => runAudit(run, { ...scope, states }, testbed, options.audit));
 }
 
 export const a11yCommand: Command<A11yOptions, A11yOptions['job']> = {

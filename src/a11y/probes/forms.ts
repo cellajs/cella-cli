@@ -1,5 +1,5 @@
 import type { Page } from 'playwright';
-import type { Check } from '../findings';
+import type { PageCheck } from '../findings';
 
 /** Submits the first form empty; every invalid field must be marked and described by visible error text. */
 function submitEmpty(page: Page) {
@@ -56,7 +56,7 @@ function inputPurpose(page: Page) {
 }
 
 /** Error identification (3.3.1). Submitting changes the page, so this runs late in a visit. */
-export const formErrors: Check = async (page, state) => {
+export const formErrors: PageCheck = async (page, state) => {
   if (!state.forms?.includes('required')) return [];
   const problems = await submitEmpty(page);
   // A failed submit may raise a toast, which would lie over other controls during the next check
@@ -74,12 +74,12 @@ export const formErrors: Check = async (page, state) => {
 };
 
 /** Input purpose (1.3.5), and autofill and paste into the sign-in fields (3.3.8). */
-export const inputs: Check = async (page, state) => {
+export const inputs: PageCheck = async (page, state) => {
   const personal = state.forms?.includes('personal');
   const signIn = state.forms?.includes('sign-in');
   if (!personal && !signIn) return [];
   const { purpose, paste } = await inputPurpose(page);
-  const findings: Awaited<ReturnType<Check>> = [];
+  const findings: Awaited<ReturnType<PageCheck>> = [];
   if (personal) {
     findings.push({
       criteria: ['1.3.5'],

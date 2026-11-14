@@ -1,14 +1,10 @@
 import type { Page } from 'playwright';
 import { z } from 'zod';
-import { importFromApp } from '../utils/app';
-import { applyDelta, loadAdapter, type Placeholders, type Prepare } from '../utils/app-adapter';
+import { applyDelta, loadAdapter, mergeSignIn, type SignInSetup } from '../utils/app-adapter';
 import { type A11yState, appSchema, baseSchema } from './adapter';
 
 /** The audit scope with the app's delta applied. */
-export interface Scope {
-  /** The base's, then the delta's. */
-  prepare: Prepare[];
-  placeholders: Placeholders;
+export interface Scope extends SignInSetup {
   sources: string[];
   states: A11yState[];
 }
@@ -16,14 +12,14 @@ export interface Scope {
 export async function loadScope(repoRoot: string): Promise<Scope> {
   const { base, app } = await loadAdapter(repoRoot, 'a11y', baseSchema, appSchema);
   return {
-    prepare: [base.prepare, app?.prepare].filter((step) => step !== undefined),
-    placeholders: { ...base.placeholders, ...app?.placeholders },
+    ...mergeSignIn(base, app),
     sources: base.sources,
-    states: app ? applyDelta(base.scope, app, 'cella/a11y.app.ts') : base.scope,
+    states: applyDelta(base.states, app, 'cella/a11y.app.ts'),
   };
 }
 
-const appConfigSchema = z.object({
+/** The part of the app's config the audit and the report read. */
+export const appConfigSchema = z.object({
   name: z.string(),
   slug: z.string(),
   description: z.string(),
@@ -35,16 +31,7 @@ const appConfigSchema = z.object({
   enabledAuthStrategies: z.array(z.string()),
 });
 
-/** The part of the app's config the audit and the report read. */
 export type AppConfig = z.infer<typeof appConfigSchema>;
-
-/** The app's config in `mode`: the report describes the production app, the audit runs against development builds. */
-export async function loadAppConfig(repoRoot: string, mode: 'development' | 'production'): Promise<AppConfig> {
-  const parsed = appConfigSchema.safeParse((await importFromApp(repoRoot, 'shared/index.ts', mode)).appConfig);
-  if (!parsed.success)
-    throw new Error(`shared/index.ts exports no appConfig the audit can read: ${parsed.error.message}`);
-  return parsed.data;
-}
 
 /** Overlays that hold focus while open. Toasts render as dialogs but never take focus. */
 export const overlaySelector =

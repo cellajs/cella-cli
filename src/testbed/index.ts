@@ -4,8 +4,9 @@ import { constants } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
 import { parseEnv } from 'node:util';
+import { z } from 'zod';
 import type { Command } from '../command';
-import { loadAppFacts, loadLocalDatabases, toolDir } from '../utils/app';
+import { loadAppConfig, loadLocalDatabases, toolDir } from '../utils/app';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
 import { getEnvSnapshot } from '../utils/env';
@@ -20,6 +21,17 @@ const stopTimeoutMs = 10_000;
 /** The database's name in `shared/src/local-database.ts` and its service in `backend/compose.yaml`. */
 const database = 'testbed';
 const databaseService = 'db_testbed';
+
+/** The part of the app's development config a testbed reads. */
+const appConfigSchema = z.object({
+  frontendUrl: z.string(),
+  backendUrl: z.string(),
+  devPortOffset: z.number(),
+  services: z.record(
+    z.string(),
+    z.object({ enabled: z.boolean(), port: z.number(), internalPort: z.number().optional() }),
+  ),
+});
 
 /**
  * What a testbed's database holds: the app's own seed (`pnpm seed`), or the curated `showcase.json` its marketing
@@ -90,7 +102,10 @@ const shiftPort = (url: string) => {
 };
 
 async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed'): Promise<Testbed> {
-  const [facts, databases] = await Promise.all([loadAppFacts(repoRoot), loadLocalDatabases(repoRoot)]);
+  const [facts, databases] = await Promise.all([
+    loadAppConfig(repoRoot, appConfigSchema),
+    loadLocalDatabases(repoRoot),
+  ]);
   const databasePort = databases.port(database);
   if (!Number.isInteger(databasePort)) {
     throw new Error('shared/src/local-database.ts names no testbed database: upgrade the app from cella first');

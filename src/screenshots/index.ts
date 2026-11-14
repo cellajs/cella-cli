@@ -1,15 +1,13 @@
 import type { Command } from '../command';
 import { hasShowcase, withTestbed } from '../testbed';
-import { requireChromium } from '../utils/drive';
+import { selectEntries } from '../utils/app-adapter';
+import { requireChromium } from '../utils/browser';
 import { loadShotList, requireEncoder, type ShootOptions, shoot } from './shoot';
 
 async function runShoot(repoRoot: string, options: ShootOptions): Promise<number> {
   // Before the testbed starts: an adapter that does not fit, an unknown id or a missing encoder fails in seconds
-  const list = await loadShotList(repoRoot);
-  const unknown = options.ids.filter((id) => !list.shots.some((shot) => shot.id === id));
-  if (unknown.length > 0) {
-    throw new Error(`no shot ${unknown.join(', ')}: this app shoots ${list.shots.map((shot) => shot.id).join(', ')}`);
-  }
+  const all = await loadShotList(repoRoot);
+  const list = { ...all, shots: selectEntries(all.shots, options.ids, 'shot') };
   requireEncoder(list);
   await requireChromium(repoRoot);
   // An app with a showcase shoots its curated data, on a database no other tool writes to

@@ -1,7 +1,7 @@
 import type { Page } from 'playwright';
 import type { A11yState } from './adapter';
 import { type AxeScan, axeScan } from './axe-scan';
-import type { AuditRun, Check, Finding } from './findings';
+import type { AuditRun, PageCheck, StateFinding } from './findings';
 import { controlContrast, textContrast } from './probes/contrast';
 import { formErrors, inputs } from './probes/forms';
 import { keyboardWalk } from './probes/keyboard';
@@ -11,7 +11,7 @@ import { packetDir, removePacketFile, reviewPacket, writePacketFile } from './re
 import { type AuditSession, auditContext, type Mode, openStatePath } from './session';
 
 interface Visit {
-  findings: Finding[];
+  findings: StateFinding[];
   scan: AxeScan;
 }
 
@@ -50,9 +50,9 @@ export async function visitState(run: AuditRun, session: AuditSession, state: A1
     const opened = page;
     const where = `${state.id} (${mode})`;
 
-    const findings: Finding[] = [];
+    const findings: StateFinding[] = [];
     // `name` for a check built by a call, which has no name of its own
-    const runCheck = async (check: Check, name = check.name) => {
+    const runCheck = async (check: PageCheck, name = check.name) => {
       step = name;
       for (const finding of await check(opened, state, run)) {
         findings.push({ ...finding, state: mode === 'dark' ? where : state.id });

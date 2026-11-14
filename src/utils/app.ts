@@ -1,24 +1,10 @@
-import { execFileSync, spawnSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
-import process from 'node:process';
 import { pathToFileURL } from 'node:url';
-import { z } from 'zod';
+import type { z } from 'zod';
 import { setEnv } from './env';
-
-const appConfigSchema = z.object({
-  frontendUrl: z.string(),
-  backendUrl: z.string(),
-  devPortOffset: z.number(),
-  services: z.record(
-    z.string(),
-    z.object({ enabled: z.boolean(), port: z.number(), internalPort: z.number().optional() }),
-  ),
-});
-
-/** The part of the app's development config the develop commands read. */
-type AppFacts = z.infer<typeof appConfigSchema>;
 
 /** The app's local database helpers (`shared/src/local-database.ts`), as the develop commands call them. */
 interface LocalDatabases {
@@ -33,7 +19,7 @@ interface LocalDatabases {
  * @param mode the app config's mode. The config reads it once, at its first import in this process, and the dev port
  * offset applies in development mode only.
  */
-export async function importFromApp(
+async function importFromApp(
   repoRoot: string,
   file: string,
   mode: 'development' | 'production' = 'development',
@@ -45,11 +31,16 @@ export async function importFromApp(
 }
 
 /**
- * The app's config in development mode, from its own `shared` package. In a linked worktree the import claims that
- * worktree's port slot, as `pnpm dev` would.
+ * The part of the app's config that `schema` reads, from its own `shared` package in `mode`. In a linked worktree a
+ * development import claims that worktree's port slot, as `pnpm dev` would.
+ * @throws when the config does not fit `schema`
  */
-export async function loadAppFacts(repoRoot: string): Promise<AppFacts> {
-  const parsed = appConfigSchema.safeParse((await importFromApp(repoRoot, 'shared/index.ts')).appConfig);
+export async function loadAppConfig<T>(
+  repoRoot: string,
+  schema: z.ZodType<T>,
+  mode: 'development' | 'production' = 'development',
+): Promise<T> {
+  const parsed = schema.safeParse((await importFromApp(repoRoot, 'shared/index.ts', mode)).appConfig);
   if (!parsed.success)
     throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
   return parsed.data;
@@ -94,23 +85,6 @@ export async function importFromWorkspace<T>(repoRoot: string, workspace: string
   } catch {
     throw new Error(`${name} is not installed in ${workspace}: run \`pnpm --filter ${workspace} add -D ${name}\``);
   }
-}
-
-/**
- * A Docker image as a tool runs it, pinned by digest (`name[:tag]@sha256:…`) so every run scans with the same code.
- * Pulls it on first use; the pull shows Docker's own progress on stderr, and stdout stays free for a `--json` payload.
- * @throws when the reference has no digest, Docker does not answer, or the pull fails
- */
-export function resolveImage(reference: string): string {
-  if (!/@sha256:[0-9a-f]{64}$/.test(reference)) throw new Error(`${reference} is not pinned by digest`);
-  if (spawnSync('docker', ['info'], { stdio: 'ignore' }).status !== 0) {
-    throw new Error('Docker does not answer: start Docker (or OrbStack) first');
-  }
-  if (spawnSync('docker', ['image', 'inspect', reference], { stdio: 'ignore' }).status === 0) return reference;
-  if (spawnSync('docker', ['pull', reference], { stdio: ['ignore', process.stderr, 'inherit'] }).status !== 0) {
-    throw new Error(`could not pull ${reference}`);
-  }
-  return reference;
 }
 
 /**

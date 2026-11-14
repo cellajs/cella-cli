@@ -39,7 +39,7 @@ export type LedgerRow = Verdict & {
   evidence: Evidence[];
 };
 
-interface Ledger {
+export interface Ledger {
   /** Name of the app the results are about. A ledger of another app (a fresh scaffold carries the template's) is never read. */
   product: string;
   edition: string;
