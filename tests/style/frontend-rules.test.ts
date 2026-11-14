@@ -1,7 +1,7 @@
 import { rmSync } from 'node:fs';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { frontendFindings } from '../../src/tools/style/frontend-rules';
-import { openRepository } from '../../src/tools/style/repo';
+import { frontendFindings } from '../../src/style/frontend-rules';
+import { openRepository } from '../../src/style/repo';
 import { makeRepo } from '../helpers/style-repo';
 
 // The attachment module's query.ts registers a range fetch, as a synced product's does

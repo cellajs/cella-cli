@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { openRepository } from '../../src/tools/style/repo';
-import { stampFindings } from '../../src/tools/style/stamp-rules';
+import { openRepository } from '../../src/style/repo';
+import { stampFindings } from '../../src/style/stamp-rules';
 import { cliRoot } from '../helpers/style-repo';
 
 beforeAll(() => openRepository(cliRoot));

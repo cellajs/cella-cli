@@ -11,7 +11,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConfig } from '../../src/config/types';
-import { runUpgradeCommand } from '../../src/services/upgrade';
+import { runUpgradeCommand } from '../../src/upstream/upgrade';
 import { fastForwardBranch, getBranchWorktree, getUpstreamStatus, merge, mergeInProgress } from '../../src/utils/git';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv } from '../helpers/test-env';
 

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { commentFindings } from '../../src/tools/style/comment-rules';
-import { docFindings } from '../../src/tools/style/doc-rules';
-import { openRepository } from '../../src/tools/style/repo';
+import { commentFindings } from '../../src/style/comment-rules';
+import { docFindings } from '../../src/style/doc-rules';
+import { openRepository } from '../../src/style/repo';
 import { cliRoot } from '../helpers/style-repo';
 
 const singular = ['invar', 'iant'].join('');

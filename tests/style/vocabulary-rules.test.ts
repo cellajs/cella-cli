@@ -2,7 +2,7 @@ import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { loadAllowlist, productNameFindings, vocabularyFindings } from '../../src/tools/style/vocabulary-rules';
+import { loadAllowlist, productNameFindings, vocabularyFindings } from '../../src/style/vocabulary-rules';
 
 const legacyTerm = ['fo', 'rk'].join('');
 

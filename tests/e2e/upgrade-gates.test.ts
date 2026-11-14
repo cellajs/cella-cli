@@ -11,8 +11,8 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { UpstreamConfigChangedError } from '../../src/services/merge-engine';
-import { runUpgradeCommand } from '../../src/services/upgrade';
+import { UpstreamConfigChangedError } from '../../src/upstream/merge-engine';
+import { runUpgradeCommand } from '../../src/upstream/upgrade';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv, tagUpstream } from '../helpers/test-env';
 
 vi.mock('node:child_process', async (importOriginal) => {

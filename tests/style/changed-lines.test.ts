@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { changedLinesFromDiff, onChangedLines } from '../../src/tools/style/changed-lines';
+import { changedLinesFromDiff, onChangedLines } from '../../src/style/changed-lines';
 
 const diff = [
   'diff --git a/docs/a.md b/docs/a.md',

@@ -7,11 +7,12 @@ import { resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
+import { CONFIG_FILE, isManagedFile } from '../upstream/managed-files';
 import pc from './colors';
 import { getEnv } from './env';
 import { splitPrNumber } from './git';
 import { fitText, padVisible, shortAge, terminalColumns } from './layout';
-import { CONFIG_FILE, isGeneratedFile, isManagedFile } from './managed-files';
+import { isGeneratedFile } from './repo-files';
 
 /** Version from package.json */
 export const VERSION = packageJson.version;

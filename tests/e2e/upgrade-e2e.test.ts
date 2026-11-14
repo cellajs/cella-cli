@@ -6,10 +6,10 @@
  */
 import { execSync } from 'node:child_process';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runAnalyze } from '../../src/services/analyze';
-import { reviewSections } from '../../src/services/review-page';
-import { runSync } from '../../src/services/upgrade';
-import { gitDiffFile } from '../../src/utils/diff';
+import { runAnalyze } from '../../src/upstream/analyze';
+import { gitDiffFile } from '../../src/upstream/diff-page';
+import { reviewSections } from '../../src/upstream/review-page';
+import { runSync } from '../../src/upstream/upgrade';
 import {
   commitSquash,
   fetchUpstreamTags,

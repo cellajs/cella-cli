@@ -4,7 +4,7 @@ import {
   checkAlignmentReadme,
   owedAlignmentFindings,
   ownedPaths,
-} from '../../src/tools/style/alignment-rules';
+} from '../../src/style/alignment-rules';
 
 const lines = (...rows: string[]) => rows.join('\n');
 const alignment = lines(

@@ -1,0 +1,221 @@
+/**
+ * Unit tests for override matching utilities.
+ *
+ * Tests isIgnored, isPinned, and isUnderAnyFolder with the
+ * shared path-or-folder-prefix model, the grouping of protected paths by entry, and the config
+ * validation warnings.
+ */
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import type { CellaCliConfig } from '../../src/config/types';
+import { CONFIG_FILE, isManagedFile } from '../../src/upstream/managed-files';
+import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from '../../src/upstream/protection';
+import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from '../helpers/test-env';
+
+/** Helper to build a minimal config with overrides */
+function buildConfig(overrides: { pinned?: string[]; ignored?: string[] }): CellaCliConfig {
+  return {
+    settings: {
+      upstreamUrl: 'test',
+      upstreamBranch: 'main',
+    },
+    overrides: {
+      pinned: overrides.pinned ?? [],
+      ignored: overrides.ignored ?? [],
+    },
+  };
+}
+
+describe('overrides', () => {
+  describe('isUnderAnyFolder', () => {
+    it('matches files nested under a folder', () => {
+      expect(isUnderAnyFolder('docs/guide.md', ['docs'])).toBe(true);
+      expect(isUnderAnyFolder('docs/api/ref.md', ['docs'])).toBe(true);
+    });
+
+    it('matches an exact path entry', () => {
+      expect(isUnderAnyFolder('README.md', ['README.md'])).toBe(true);
+      expect(isUnderAnyFolder('READMExmd', ['README.md'])).toBe(false);
+    });
+
+    it('tolerates trailing slashes on entries', () => {
+      expect(isUnderAnyFolder('bench/run.ts', ['bench/'])).toBe(true);
+    });
+
+    it('does not match unrelated or prefix-only paths', () => {
+      expect(isUnderAnyFolder('src/index.ts', ['docs'])).toBe(false);
+      expect(isUnderAnyFolder('docs-extra/file.ts', ['docs'])).toBe(false);
+    });
+  });
+
+  describe('isIgnored', () => {
+    it('matches files inside ignored folders', () => {
+      const config = buildConfig({ ignored: ['docs', 'test'] });
+      expect(isIgnored('docs/guide.md', config)).toBe(true);
+      expect(isIgnored('docs/api/ref.md', config)).toBe(true);
+      expect(isIgnored('test/unit.ts', config)).toBe(true);
+      expect(isIgnored('src/index.ts', config)).toBe(false);
+    });
+
+    it('returns false with empty ignored list', () => {
+      const config = buildConfig({ ignored: [] });
+      expect(isIgnored('any/file.ts', config)).toBe(false);
+    });
+
+    it('handles exact path in ignored folders', () => {
+      const config = buildConfig({ ignored: ['cella/cella.config.ts'] });
+      expect(isIgnored('cella/cella.config.ts', config)).toBe(true);
+      expect(isIgnored('other.config.ts', config)).toBe(false);
+    });
+  });
+
+  describe('isPinned', () => {
+    it('matches exact pinned files', () => {
+      const config = buildConfig({ pinned: ['backend/src/index.ts', 'frontend/src/app.tsx'] });
+      expect(isPinned('backend/src/index.ts', config)).toBe(true);
+      expect(isPinned('frontend/src/app.tsx', config)).toBe(true);
+      expect(isPinned('backend/src/utils.ts', config)).toBe(false);
+    });
+
+    it('matches files nested under pinned folders', () => {
+      const config = buildConfig({ pinned: ['frontend/src/modules/home'] });
+      expect(isPinned('frontend/src/modules/home/home-page.tsx', config)).toBe(true);
+      expect(isPinned('frontend/src/modules/home/onboarding/onboarding-config.ts', config)).toBe(true);
+      expect(isPinned('frontend/src/modules/marketing/logo.tsx', config)).toBe(false);
+    });
+
+    it('auto-pins managed files', () => {
+      const config = buildConfig({ pinned: [] });
+      expect(isPinned('package.json', config)).toBe(true);
+      expect(isPinned('frontend/package.json', config)).toBe(true);
+      expect(isPinned('pnpm-lock.yaml', config)).toBe(true);
+      expect(isPinned('cella/cella.config.ts', config)).toBe(true);
+    });
+
+    it('identifies managed files', () => {
+      expect(isManagedFile('package.json')).toBe(true);
+      expect(isManagedFile('frontend/package.json')).toBe(true);
+      expect(isManagedFile('pnpm-lock.yaml')).toBe(true);
+      expect(isManagedFile('cella/cella.config.ts')).toBe(true);
+      expect(isManagedFile('frontend/src/index.ts')).toBe(false);
+    });
+
+    it('returns false with empty pinned list', () => {
+      const config = buildConfig({ pinned: [] });
+      expect(isPinned('any/file.ts', config)).toBe(false);
+    });
+
+    it('returns false with undefined overrides', () => {
+      const config: CellaCliConfig = {
+        settings: {
+          upstreamUrl: 'test',
+          upstreamBranch: 'main',
+        },
+      };
+      expect(isPinned('any/file.ts', config)).toBe(false);
+      expect(isIgnored('any/file.ts', config)).toBe(false);
+    });
+  });
+
+  describe('validateOverrides', () => {
+    let env: TestEnv;
+
+    beforeEach(() => {
+      env = createTestEnv();
+      // Upstream has a ledger and a docs folder the fork keeps out, plus a folder the fork keeps
+      makeCommit(env.upstreamPath, {
+        files: { 'json/ledger.json': '{}\n', 'docs/guide.md': '# Guide\n', 'kept/file.ts': 'export {};\n' },
+        message: 'feat: ledger and docs',
+      });
+      fetchUpstream(env.forkPath);
+      makeCommit(env.forkPath, { files: { 'kept/file.ts': 'export {};\n' }, message: 'feat: kept' });
+    });
+
+    afterEach(() => {
+      env.cleanup();
+    });
+
+    const ignored = ['json/ledger.json', 'docs/', 'kept', 'never/existed'];
+
+    it('warns about an ignored entry only when the path is in neither the fork nor upstream', async () => {
+      const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
+      expect(warnings).toEqual(['ignored entry not found: never/existed']);
+    });
+
+    it('warns once upstream no longer has the path either', async () => {
+      deleteFileAndCommit(env.upstreamPath, 'json/ledger.json', 'chore: drop ledger');
+      fetchUpstream(env.forkPath);
+
+      const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
+      expect(warnings).toEqual(['ignored entry not found: json/ledger.json', 'ignored entry not found: never/existed']);
+    });
+
+    it('warns about every ignored entry missing from the fork while no upstream ref resolves', async () => {
+      const missing = ['json/ledger.json', 'docs/', 'never/existed'].map(
+        (entry) => `ignored entry not found: ${entry}`,
+      );
+      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/unfetched')).toEqual(
+        missing,
+      );
+      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath)).toEqual(missing);
+    });
+
+    it('warns about a pin only when the path is in neither the fork nor upstream, and about globs', async () => {
+      const config = buildConfig({ pinned: ['json/ledger.json', 'never/was.json', 'src/*.ts'], ignored: ['docs/*'] });
+      // json/ledger.json is upstream's: the merge brings it as the fork's first copy, so no warning.
+      const warnings = await validateOverrides(config, env.forkPath, 'cella-upstream/main');
+      expect(warnings).toEqual([
+        expect.stringMatching(/^pin not found: never\/was\.json$/),
+        expect.stringMatching(/^pin uses glob .*: src\/\*\.ts$/),
+        expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
+      ]);
+      // Without a resolved upstream only the fork-side check runs, so both missing pins warn.
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toContainEqual(
+        'pin not found: json/ledger.json',
+      );
+    });
+
+    it('never warns about a missing generated path: it appears with its build step', async () => {
+      const config = buildConfig({ ignored: ['shared/locales/resources.gen.d.ts', 'frontend/gen'] });
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([]);
+    });
+
+    it('warns about pins that do nothing: ignored, gone from upstream, or identical to upstream', async () => {
+      makeCommit(env.forkPath, {
+        files: {
+          'own/file.ts': 'export const own = 1;\n',
+          'changed/file.ts': 'export const fork = 1;\n',
+          'json/x.json': '{}\n',
+        },
+        message: 'feat: own files',
+      });
+      makeCommit(env.upstreamPath, { files: { 'changed/file.ts': 'export {};\n' }, message: 'feat: changed' });
+      deleteFileAndCommit(env.upstreamPath, 'README.md', 'chore: drop readme');
+      fetchUpstream(env.forkPath);
+      const config = buildConfig({
+        pinned: ['kept/', 'own/file.ts', 'README.md', 'changed', 'json/x.json'],
+        ignored: ['json'],
+      });
+
+      // The warning said "no longer has it" for a path upstream never had
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([
+        'pin does nothing, upstream has no such file: own/file.ts',
+        'pin does nothing, upstream no longer has it: README.md',
+        "pin does nothing, 'json' is ignored: json/x.json",
+        "pin is identical to upstream, it only drops upstream's next change: kept/",
+      ]);
+      // A pin upstream's own config lists is the template's file for the app to fill in
+      makeCommit(env.upstreamPath, {
+        files: { [CONFIG_FILE]: "export default { overrides: { pinned: ['kept/'], ignored: [] } };\n" },
+        message: 'chore: upstream pins kept',
+      });
+      fetchUpstream(env.forkPath);
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).not.toContainEqual(
+        expect.stringContaining('pin is identical'),
+      );
+      // Before the first fetch only the fork-side checks run
+      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toEqual([
+        "pin does nothing, 'json' is ignored: json/x.json",
+      ]);
+    });
+  });
+});

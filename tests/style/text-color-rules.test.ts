@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
-import { openRepository } from '../../src/tools/style/repo';
-import { textColorFindings } from '../../src/tools/style/text-color-rules';
+import { openRepository } from '../../src/style/repo';
+import { textColorFindings } from '../../src/style/text-color-rules';
 import { cliRoot } from '../helpers/style-repo';
 
 beforeAll(() => openRepository(cliRoot));

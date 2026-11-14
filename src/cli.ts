@@ -6,6 +6,7 @@
 import process from 'node:process';
 import { select } from '@inquirer/prompts';
 import { Command } from 'commander';
+import { isUpstreamRepo, resolveUpstream } from './config/load';
 import type {
   AnalyzeScope,
   CellaCliConfig,
@@ -15,11 +16,10 @@ import type {
   SyncService,
   ToolCommand,
 } from './config/types';
-import { toolCommands } from './tools';
+import { toolCommands } from './tool-commands';
+import { validateOverrides } from './upstream/protection';
 import pc from './utils/colors';
-import { isUpstreamRepo, resolveUpstream } from './utils/config';
 import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
-import { validateOverrides } from './utils/overrides';
 
 /** A tool command and the options it parsed for itself. */
 export type ToolSelection = { tool: ToolCommand; options: unknown };

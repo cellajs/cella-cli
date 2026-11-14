@@ -3,14 +3,14 @@
  * sync-point tracking and merge-base recovery machinery.
  */
 
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { CommitRangeEntry } from '../config/types';
+import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from '../upstream/manifest';
 import { getEnvSnapshot } from './env';
-import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from './manifest';
 import { onShutdown } from './signals';
 
 const execFileAsync = promisify(execFile);
@@ -37,19 +37,6 @@ interface GitCommandOptions {
   ignoreErrors?: boolean;
   /** Additional environment variables for the git command */
   env?: Record<string, string>;
-}
-
-/**
- * Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, each once, in
- * `git ls-files` order.
- */
-export function listRepoFiles(repoPath: string): string[] {
-  const output = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
-    cwd: repoPath,
-    encoding: 'utf8',
-    maxBuffer: MAX_BUFFER,
-  });
-  return [...new Set(output.split('\0'))].filter((file) => file && existsSync(join(repoPath, file)));
 }
 
 /** Executes a git command and returns trimmed stdout. */

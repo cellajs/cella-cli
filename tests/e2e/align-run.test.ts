@@ -10,8 +10,8 @@ import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runAlign } from '../../src/services/align';
-import { runSync } from '../../src/services/upgrade';
+import { runAlign } from '../../src/upstream/align';
+import { runSync } from '../../src/upstream/upgrade';
 import { commitSquash, stageAll } from '../../src/utils/git';
 import {
   buildRuntimeConfig,

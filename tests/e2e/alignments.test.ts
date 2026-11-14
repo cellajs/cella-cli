@@ -7,9 +7,9 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runAlign } from '../../src/services/align';
-import { runAnalyze } from '../../src/services/analyze';
-import { runSync, runUpgradeCommand } from '../../src/services/upgrade';
+import { runAlign } from '../../src/upstream/align';
+import { runAnalyze } from '../../src/upstream/analyze';
+import { runSync, runUpgradeCommand } from '../../src/upstream/upgrade';
 import {
   buildRuntimeConfig,
   createTestEnv,
