@@ -99,7 +99,7 @@ function fromShape07(value: unknown, configPath: string): unknown {
   const { settings = {}, overrides = {}, ...rest } = parsed.data;
   const mixed = Object.keys(rest).filter((key) => key !== 'forks');
   if (mixed.length > 0) {
-    throw new Error(`${configPath} mixes the 0.7 shape (settings, overrides) with top-level ${mixed.join(', ')}`);
+    throw new Error(`${configFile} mixes the 0.7 shape (settings, overrides) with top-level ${mixed.join(', ')}`);
   }
 
   const { releaseBase, mergePackageJson, ...kept } = settings;
@@ -114,7 +114,7 @@ function fromShape07(value: unknown, configPath: string): unknown {
   ];
   if (!warnedPaths.has(configPath)) {
     console.warn(
-      `${warningMark} ${configPath} has the 0.7 shape, which the CLI reads until 1.0: ${changes.join(', ')}.`,
+      `${warningMark} ${configFile} has the 0.7 shape, which the CLI reads until 1.0: ${changes.join(', ')}.`,
     );
   }
   warnedPaths.add(configPath);
