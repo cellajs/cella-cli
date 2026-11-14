@@ -30,7 +30,7 @@ export function fitText(text: string, width: number): string {
 }
 
 /** Steps git's relative dates use (`--date=relative`), in seconds, with the unit each prints in. */
-const AGE_STEPS: Array<[below: number, unit: number, suffix: string]> = [
+const ageSteps: Array<[below: number, unit: number, suffix: string]> = [
   [90 * 60, 60, 'm'],
   [36 * 3600, 3600, 'h'],
   [14 * 86400, 86400, 'd'],
@@ -42,7 +42,7 @@ const AGE_STEPS: Array<[below: number, unit: number, suffix: string]> = [
 export function shortAge(epochSeconds: number, nowMs = Date.now()): string {
   const seconds = Math.max(0, Math.round(nowMs / 1000 - epochSeconds));
   if (seconds < 60) return 'now';
-  for (const [below, unit, suffix] of AGE_STEPS) {
+  for (const [below, unit, suffix] of ageSteps) {
     if (seconds < below) return `${Math.max(1, Math.round(seconds / unit))}${suffix}`;
   }
   return `${Math.floor(seconds / (365 * 86400))}y`;

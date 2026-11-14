@@ -1,5 +1,5 @@
 /**
- * Reads and edits the settings in `pnpm-workspace.yaml` that the audit service manages. Edits go
+ * Reads and edits the settings in `pnpm-workspace.yaml` that the audit command manages. Edits go
  * through a parsed document, so comments, quoting and every other setting stay as they are.
  */
 
@@ -80,7 +80,7 @@ function mapAt(doc: Document, path: string[]): YAMLMap {
 }
 
 /** Make the map at `path` hold exactly `entries`: untouched pairs keep their node, position and comments. */
-function syncMap(doc: Document, path: string[], entries: Record<string, string>): void {
+function mergeMap(doc: Document, path: string[], entries: Record<string, string>): void {
   if (!isMap(doc.getIn(path)) && Object.keys(entries).length === 0) return;
 
   const map = mapAt(doc, path);
@@ -92,7 +92,7 @@ function syncMap(doc: Document, path: string[], entries: Record<string, string>)
 }
 
 /** Make the list at `path` hold exactly `entries`: kept items stay in place, new ones go last. */
-function syncList(doc: Document, path: string[], entries: string[]): void {
+function mergeList(doc: Document, path: string[], entries: string[]): void {
   const current = doc.getIn(path);
   if (!isSeq(current)) {
     if (entries.length === 0) return;
@@ -114,9 +114,9 @@ function syncList(doc: Document, path: string[], entries: string[]): void {
  */
 export function writeAuditSettings(content: string, next: AuditSettings): string {
   const doc = parseDocument(content);
-  syncMap(doc, ['overrides'], next.overrides);
-  syncList(doc, ['minimumReleaseAgeExclude'], next.releaseAgeExcludes);
-  syncList(doc, ['auditConfig', 'ignoreGhsas'], next.ignoredGhsas);
+  mergeMap(doc, ['overrides'], next.overrides);
+  mergeList(doc, ['minimumReleaseAgeExclude'], next.releaseAgeExcludes);
+  mergeList(doc, ['auditConfig', 'ignoreGhsas'], next.ignoredGhsas);
 
   const auditConfig = doc.getIn(['auditConfig']);
   if (isMap(auditConfig) && auditConfig.items.length === 0) doc.deleteIn(['auditConfig']);

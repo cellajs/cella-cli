@@ -60,7 +60,9 @@ afterAll(() => {
   for (const root of [dirty, clean]) rmSync(root, { recursive: true, force: true });
 });
 
-const OK = '[style] OK, terminology, documentation, comments and frontend code follow the required style.';
+const ok = '[style] OK, terminology, documentation, comments and frontend code follow the required style.';
+/** A test repository has no commits and no `origin/main` to measure changed lines from. */
+const noBase = '[style] skipped the changed-line rules (consequence-tail): HEAD has no merge base with origin/main';
 const placement =
   '  backend/src/long.ts:1:1 [detached-long-comment] 4 prose lines; move shared context to a README or attach a concise local constraint to a declaration';
 const storeRead =
@@ -89,13 +91,13 @@ describe('style check', () => {
   it('reports every required finding in file order, changelogs and infra wording excluded', () => {
     expect(run(dirty)).toEqual({
       status: 1,
-      stdout: '',
-      stderr: lines(`[style] ${required.length} finding(s):`, ...required),
+      stdout: lines(`[style] ${required.length} finding(s):`, ...required),
+      stderr: lines(noBase),
     });
   });
 
   it('limits the files checked to the requested paths and still knows every store', () => {
-    expect(run(dirty, 'backend/src/long.ts', 'frontend/src/comp.tsx').stderr).toBe(
+    expect(run(dirty, 'backend/src/long.ts', 'frontend/src/comp.tsx').stdout).toBe(
       lines(
         '[style] 4 finding(s):',
         placement,
@@ -107,21 +109,21 @@ describe('style check', () => {
   });
 
   it('prints one line when clean', () => {
-    expect(run(clean)).toEqual({ status: 0, stdout: lines(OK), stderr: '' });
+    expect(run(clean)).toEqual({ status: 0, stdout: lines(ok), stderr: lines(noBase) });
   });
 });
 
-describe('app-owned prose exclusions', () => {
-  it('skip the listed path prefixes in comments and docs', () => {
+describe('app-owned exceptions', () => {
+  it('exempt the listed paths from a rule, in comments and docs', () => {
     const root = makeRepo({
-      'shared/config/vocabulary-allowlist.ts':
-        "export const vocabularyAllowlist = { files: [], prefixes: [], proseExclude: ['reference/'] };\n",
+      'shared/config/style-exceptions.ts':
+        "export const styleExceptions = { exempt: { 'em-dash': ['reference/'] } };\n",
       'reference/old.ts': `// ${dash}\n`,
       'reference/README.md': `${dash}\n`,
       'src/new.ts': `// ${dash}\n`,
     });
     try {
-      expect(run(root).stderr).toBe(
+      expect(run(root).stdout).toBe(
         lines(
           '[style] 1 finding(s):',
           `  src/new.ts:1:4 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
@@ -192,7 +194,7 @@ describe('tailwind classes', () => {
   );
 
   const deadMessage =
-    'Tailwind compiles no CSS for it and no stylesheet or script selects it; fix the name, or list it under markerClasses in shared/config/vocabulary-allowlist.ts';
+    'Tailwind compiles no CSS for it and no stylesheet or script selects it; fix the name, or list it under markerClasses in shared/config/style-exceptions.ts';
   const dead = (at: string, className: string) =>
     `  frontend/src/view.tsx:${at} [tailwind-class] "${className}": ${deadMessage}`;
 
@@ -201,8 +203,8 @@ describe('tailwind classes', () => {
     try {
       expect(run(root)).toEqual({
         status: 1,
-        stdout: '',
-        stderr: lines(
+        stderr: lines(noBase),
+        stdout: lines(
           '[style] 13 finding(s):',
           dead('4:32', 'bad-base'),
           dead('5:32', 'bad-variant'),
@@ -229,8 +231,8 @@ describe('tailwind classes', () => {
     try {
       expect(run(root, 'frontend/src/styling/app.css')).toEqual({
         status: 1,
-        stdout: '',
-        stderr: lines(
+        stderr: lines(noBase),
+        stdout: lines(
           '[style] 1 finding(s):',
           '  frontend/src/styling/app.css [tailwind-class] Tailwind cannot load this stylesheet: Cannot apply unknown utility class `bad-apply`',
         ),

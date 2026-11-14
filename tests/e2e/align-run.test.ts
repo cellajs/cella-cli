@@ -1,17 +1,17 @@
 /**
- * E2E tests for `cella align --run <id>`: the alignment's codemod runs from its extracted copy with
- * `tsx`, and files that were identical to the last synced upstream commit get their upstream
+ * E2E tests for `cella align run <id>`: the alignment's codemod runs from its extracted copy with
+ * `tsx`, and files that were identical to the last upgraded upstream commit get their upstream
  * content back when the codemod changed them.
  *
- * `pnpm exec tsx` is replaced by this repo's own `tsx` (the temp fork has no node_modules), so the
- * codemod really runs, from the fork root, with the arguments the service hands it.
+ * `pnpm exec tsx` is replaced by this repo's own `tsx` (the temp app has no node_modules), so the
+ * codemod really runs, from the app root, with the arguments the command hands it.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { runAlign } from '../../src/services/align';
-import { runSync } from '../../src/services/upgrade';
+import { runAlign } from '../../src/upstream/align';
+import { runUpgrade } from '../../src/upstream/upgrade';
 import { commitSquash, stageAll } from '../../src/utils/git';
 import {
   buildRuntimeConfig,
@@ -22,7 +22,7 @@ import {
   type TestEnv,
 } from '../helpers/test-env';
 
-/** Every `pnpm exec tsx` the service spawned: where, and with which arguments. */
+/** Every `pnpm exec tsx` the command spawned: where, and with which arguments. */
 const { codemodRuns } = vi.hoisted(() => ({ codemodRuns: [] as Array<{ cwd: string; args: string[] }> }));
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -37,9 +37,9 @@ vi.mock('node:child_process', async (importOriginal) => {
   return { ...actual, spawnSync };
 });
 
-const CODEMOD_ID = '20261001T2116-icon-classes';
-const MANUAL = '20261002T0000-manual-alignment';
-const EXTRACTED = `node_modules/.cache/cella/alignments/${CODEMOD_ID}/icon-classes.ts`;
+const codemodId = '20261001T2116-icon-classes';
+const manual = '20261002T0000-manual-alignment';
+const extracted = `node_modules/.cache/cella/alignments/${codemodId}/icon-classes.ts`;
 
 const readme = (title: string, roots?: string) =>
   `---\nbreaking: true\nclientCacheBump: false\n${roots ? `roots: ${roots}\n` : ''}---\n\n# ${title}\n\nWhat the app changes.\n`;
@@ -48,7 +48,7 @@ const readme = (title: string, roots?: string) =>
  * A codemod in the shape upstream ships: `<inventory|rewrite> <roots…>`, here turning `icon-xs`
  * into `size-3`. `crash` rewrites, deletes a file and exits 3, like a codemod that fails halfway.
  */
-const CODEMOD = `import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+const codemod = `import { readdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 type Mode = 'inventory' | 'rewrite' | 'crash';
@@ -79,19 +79,19 @@ if (mode === 'crash') {
 console.log(\`\${mode}: \${count} file(s)\`);
 `;
 
-describe('align --run e2e', () => {
+describe('align run e2e', () => {
   let env: TestEnv;
   let lines: string[];
   let upstreamCommit: string;
 
-  const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
-  const run = (options: { run: string; runArgs?: string[] }) =>
-    runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), ...options });
+  const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.repoRoot, encoding: 'utf8' }).trim();
+  const run = (id: string, codemodArgs: string[] = []) =>
+    runAlign(buildRuntimeConfig(env), { job: 'run', id, codemodArgs });
 
   /**
    * The app has its own file and its own edit of a template file. Upstream then ships the alignments,
    * plus template files that still hold the class the codemod rewrites: upstream changed them
-   * after writing the codemod. The sync that brings those in is staged, not committed.
+   * after writing the codemod. The upgrade that brings those in is staged, not committed.
    */
   beforeEach(async () => {
     env = createTestEnv();
@@ -102,9 +102,9 @@ describe('align --run e2e', () => {
       files: { 'frontend/src/shared.ts': 'export const shared = "icon-xs";\n' },
       message: 'feat: shared',
     });
-    fetchUpstream(env.forkPath);
+    fetchUpstream(env.repoRoot);
     git('merge -q --ff-only cella-upstream/main');
-    makeCommit(env.forkPath, {
+    makeCommit(env.repoRoot, {
       files: {
         'frontend/src/app-only.ts': 'export const mine = "icon-xs";\n',
         'frontend/src/shared.ts': 'export const shared = "icon-xs app";\n',
@@ -119,19 +119,19 @@ describe('align --run e2e', () => {
         'backend/src/template.ts': 'export const backend = "icon-xs";\n',
         'mcp/src/[id].ts': 'export const route = "icon-xs";\n',
         'mcp/src/i.ts': 'export const index = "icon-xs";\n',
-        [`cella/alignments/${CODEMOD_ID}/README.md`]: readme('Icon classes', 'frontend/src'),
-        [`cella/alignments/${CODEMOD_ID}/icon-classes.ts`]: CODEMOD,
-        [`cella/alignments/${CODEMOD_ID}/icon-classes.test.ts`]: 'export {};\n',
-        [`cella/alignments/${MANUAL}/README.md`]: readme('Manual alignment'),
+        [`cella/alignments/${codemodId}/README.md`]: readme('Icon classes', 'frontend/src'),
+        [`cella/alignments/${codemodId}/icon-classes.ts`]: codemod,
+        [`cella/alignments/${codemodId}/icon-classes.test.ts`]: 'export {};\n',
+        [`cella/alignments/${manual}/README.md`]: readme('Manual alignment'),
       },
       message: 'feat: alignments and template files',
     });
-    fetchUpstream(env.forkPath);
+    fetchUpstream(env.repoRoot);
 
     vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
-    await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+    await runUpgrade(buildRuntimeConfig(env));
     lines.length = 0;
   });
 
@@ -141,15 +141,15 @@ describe('align --run e2e', () => {
   });
 
   it('passes the arguments after -- as given, rewrites app files and restores files identical to upstream', async () => {
-    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'frontend/src'] });
+    await run(codemodId, ['rewrite', 'frontend/src']);
 
-    expect(codemodRuns).toEqual([{ cwd: env.forkPath, args: [EXTRACTED, 'rewrite', 'frontend/src'] }]);
+    expect(codemodRuns).toEqual([{ cwd: env.repoRoot, args: [extracted, 'rewrite', 'frontend/src'] }]);
     // App-owned content is rewritten
-    expect(readRepoFile(env.forkPath, 'frontend/src/app-only.ts')).toBe('export const mine = "size-3";\n');
-    expect(readRepoFile(env.forkPath, 'frontend/src/shared.ts')).toBe('export const shared = "size-3 app";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/app-only.ts')).toBe('export const mine = "size-3";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/shared.ts')).toBe('export const shared = "size-3 app";\n');
     // Template files identical to the incoming upstream commit keep upstream's content
-    expect(readRepoFile(env.forkPath, 'frontend/src/template.ts')).toBe('export const template = "icon-xs";\n');
-    expect(readRepoFile(env.forkPath, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/template.ts')).toBe('export const template = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
     expect(git(`diff --name-only ${upstreamCommit} -- frontend/src/template.ts frontend/src/removed.ts`)).toBe('');
 
     const out = lines.join('\n');
@@ -159,65 +159,63 @@ describe('align --run e2e', () => {
     expect(out).not.toContain('frontend/src/app-only.ts');
   });
 
-  it('measures against the committed sync point once the sync is committed', async () => {
-    await stageAll(env.forkPath);
-    await commitSquash(env.forkPath, 'chore: sync upstream cella');
-    makeCommit(env.forkPath, {
+  it('measures against the committed upgrade point once the upgrade is committed', async () => {
+    await stageAll(env.repoRoot);
+    await commitSquash(env.repoRoot, 'chore: upgrade upstream cella');
+    makeCommit(env.repoRoot, {
       files: { 'frontend/src/template.ts': 'export const template = "icon-xs app";\n' },
       message: 'feat: app edit of a template file',
     });
 
-    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'frontend/src'] });
+    await run(codemodId, ['rewrite', 'frontend/src']);
 
     // No longer identical to upstream: the app owns the edit, so the rewrite stays
-    expect(readRepoFile(env.forkPath, 'frontend/src/template.ts')).toBe('export const template = "size-3 app";\n');
-    expect(readRepoFile(env.forkPath, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/template.ts')).toBe('export const template = "size-3 app";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
     expect(lines.join('\n')).toContain(`restored 1 file(s) to upstream ${upstreamCommit.slice(0, 9)}`);
   });
 
   it('covers the roots named after --, whichever they are', async () => {
-    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'backend/src'] });
+    await run(codemodId, ['rewrite', 'backend/src']);
 
-    expect(readRepoFile(env.forkPath, 'backend/src/template.ts')).toBe('export const backend = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'backend/src/template.ts')).toBe('export const backend = "icon-xs";\n');
     expect(lines.join('\n')).toContain('restored 1 file(s)');
   });
 
   it("defaults to a report-only run over the alignment's roots", async () => {
-    await run({ run: CODEMOD_ID });
+    await run(codemodId);
 
-    expect(codemodRuns[0].args).toEqual([EXTRACTED, 'inventory', 'frontend/src']);
-    expect(readRepoFile(env.forkPath, 'frontend/src/app-only.ts')).toBe('export const mine = "icon-xs";\n');
+    expect(codemodRuns[0].args).toEqual([extracted, 'inventory', 'frontend/src']);
+    expect(readRepoFile(env.repoRoot, 'frontend/src/app-only.ts')).toBe('export const mine = "icon-xs";\n');
     const out = lines.join('\n');
     expect(out).toContain(`no file identical to upstream ${upstreamCommit.slice(0, 9)} was changed`);
-    expect(out).toContain(`report only. to apply: pnpm cella align --run ${CODEMOD_ID} -- rewrite frontend/src`);
+    expect(out).toContain(`report only. to apply: pnpm cella align run ${codemodId} -- rewrite frontend/src`);
   });
 
-  it('restores what a failing codemod changed or deleted, then fails', async () => {
-    await expect(run({ run: CODEMOD_ID, runArgs: ['crash', 'frontend/src'] })).rejects.toThrow(
-      'the codemod exited with code 3',
-    );
+  it('restores what a failing codemod changed or deleted, then exits 1', async () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    expect(await run(codemodId, ['crash', 'frontend/src'])).toBe(1);
+    expect(error.mock.calls.join('\n')).toContain('the codemod exited with code 3');
 
-    expect(readRepoFile(env.forkPath, 'frontend/src/template.ts')).toBe('export const template = "icon-xs";\n');
-    expect(readRepoFile(env.forkPath, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/template.ts')).toBe('export const template = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'frontend/src/removed.ts')).toBe('export const removed = "icon-xs";\n');
     expect(lines.join('\n')).toContain('restored 2 file(s)');
   });
 
   it('refuses an alignment without a script, and an unknown alignment', async () => {
-    await expect(run({ run: MANUAL })).rejects.toThrow(
-      `alignment '${MANUAL}' ships no codemod script: its steps are manual`,
-    );
-    await expect(run({ run: '20260101T0000-unknown' })).rejects.toThrow(/no alignment/);
+    await expect(run(manual)).rejects.toThrow(`alignment '${manual}' ships no codemod script: its steps are manual`);
+    await expect(run('20260101T0000-unknown')).rejects.toThrow(/no alignment/);
     expect(codemodRuns).toEqual([]);
   });
 
   it('restores a file whose name holds glob characters, and only that file', async () => {
     // As a pattern, `[id].ts` also names `i.ts`, which the app changed: its rewrite has to stay
-    fs.writeFileSync(path.join(env.forkPath, 'mcp/src/i.ts'), 'export const index = "icon-xs app";\n');
+    fs.writeFileSync(path.join(env.repoRoot, 'mcp/src/i.ts'), 'export const index = "icon-xs app";\n');
 
-    await run({ run: CODEMOD_ID, runArgs: ['rewrite', 'mcp/src'] });
+    await run(codemodId, ['rewrite', 'mcp/src']);
 
-    expect(readRepoFile(env.forkPath, 'mcp/src/[id].ts')).toBe('export const route = "icon-xs";\n');
-    expect(readRepoFile(env.forkPath, 'mcp/src/i.ts')).toBe('export const index = "size-3 app";\n');
+    expect(readRepoFile(env.repoRoot, 'mcp/src/[id].ts')).toBe('export const route = "icon-xs";\n');
+    expect(readRepoFile(env.repoRoot, 'mcp/src/i.ts')).toBe('export const index = "size-3 app";\n');
     expect(lines.join('\n')).toContain('restored 1 file(s)');
   });
 });

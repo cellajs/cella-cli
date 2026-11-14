@@ -1,8 +1,8 @@
 /**
  * Tests for running `cella upgrade` from a linked git worktree.
  *
- * Git refuses to switch to a branch another worktree has checked out, so the sync never checks
- * the trunk out: it compares refs to bring the trunk up to date, cuts the sync branch from where
+ * Git refuses to switch to a branch another worktree has checked out, so the upgrade never checks
+ * the trunk out: it compares refs to bring the trunk up to date, cuts the upgrade branch from where
  * the run started, and detaches at the trunk after shipping when the main checkout holds it.
  * Covers the worktree-aware git helpers and full `runUpgradeCommand` runs, with `pnpm` (install +
  * check) stubbed and `gh` reported missing.
@@ -11,8 +11,8 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { RuntimeConfig } from '../../src/config/types';
-import { runUpgradeCommand } from '../../src/services/upgrade';
-import { fastForwardBranch, getBranchWorktree, getUpstreamStatus, merge, mergeInProgress } from '../../src/utils/git';
+import { runUpgradeCommand } from '../../src/upstream/upgrade';
+import { fastForwardBranch, getBranchWorktree, getTrackingStatus, merge, mergeInProgress } from '../../src/utils/git';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv } from '../helpers/test-env';
 
 vi.mock('node:child_process', async (importOriginal) => {
@@ -21,35 +21,35 @@ vi.mock('node:child_process', async (importOriginal) => {
 });
 
 /**
- * Fork with an `origin` (bare clone) that `main` tracks, plus a linked worktree at `<testDir>/wt`.
+ * App with an `origin` (bare clone) that `main` tracks, plus a linked worktree at `<testDir>/wt`.
  * `worktreeArgs` picks what the worktree checks out (default: a new `work` branch off main).
  */
-function setupForkWithWorktree(env: TestEnv, worktreeArgs = '-b work'): string {
+function setupAppWithWorktree(env: TestEnv, worktreeArgs = '-b work'): string {
   const originPath = path.join(env.testDir, 'origin.git');
-  exec(`git clone -q --bare ${env.forkPath} ${originPath}`, env.testDir);
-  exec(`git remote add origin ${originPath}`, env.forkPath);
-  exec('git fetch -q origin && git branch -q -u origin/main main', env.forkPath);
+  exec(`git clone -q --bare ${env.repoRoot} ${originPath}`, env.testDir);
+  exec(`git remote add origin ${originPath}`, env.repoRoot);
+  exec('git fetch -q origin && git branch -q -u origin/main main', env.repoRoot);
 
   const worktreePath = path.join(env.testDir, 'wt');
-  exec(`git worktree add -q ${worktreeArgs} ${worktreePath} main`, env.forkPath);
+  exec(`git worktree add -q ${worktreeArgs} ${worktreePath} main`, env.repoRoot);
   return worktreePath;
 }
 
 /**
- * Move `origin/main` one commit past the fork's local `main` (a teammate pushed), a merge commit
+ * Move `origin/main` one commit past the app's local `main` (a teammate pushed), a merge commit
  * when `merge` is set. Returns the new tip.
  */
 function pushTeammateCommit(env: TestEnv, { merge = false } = {}): string {
-  if (merge) exec('git switch -q -c topic', env.forkPath);
-  makeCommit(env.forkPath, { files: { 'team.ts': 'export const t = 1;\n' }, message: 'feat: team' });
-  if (merge) exec('git switch -q main && git merge -q --no-ff topic -m "Merge topic"', env.forkPath);
-  const pushed = exec('git rev-parse HEAD', env.forkPath);
-  exec('git push -q origin main && git reset -q --hard HEAD~1', env.forkPath);
+  if (merge) exec('git switch -q -c topic', env.repoRoot);
+  makeCommit(env.repoRoot, { files: { 'team.ts': 'export const t = 1;\n' }, message: 'feat: team' });
+  if (merge) exec('git switch -q main && git merge -q --no-ff topic -m "Merge topic"', env.repoRoot);
+  const pushed = exec('git rev-parse HEAD', env.repoRoot);
+  exec('git push -q origin main && git reset -q --hard HEAD~1', env.repoRoot);
   return pushed;
 }
 
-function syncConfig(env: TestEnv, forkPath: string): RuntimeConfig {
-  return { ...buildRuntimeConfig(env, { service: 'upgrade' }), forkPath };
+function upgradeConfig(env: TestEnv, repoRoot: string): RuntimeConfig {
+  return { ...buildRuntimeConfig(env), repoRoot };
 }
 
 describe('upgrade from a linked worktree', () => {
@@ -67,57 +67,57 @@ describe('upgrade from a linked worktree', () => {
 
   describe('worktree-aware git helpers', () => {
     it('finds the worktree that has a branch checked out', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+      const worktreePath = setupAppWithWorktree(env);
 
       expect(fs.realpathSync(String(await getBranchWorktree(worktreePath, 'main')))).toBe(
-        fs.realpathSync(env.forkPath),
+        fs.realpathSync(env.repoRoot),
       );
-      expect(fs.realpathSync(String(await getBranchWorktree(env.forkPath, 'work')))).toBe(
+      expect(fs.realpathSync(String(await getBranchWorktree(env.repoRoot, 'work')))).toBe(
         fs.realpathSync(worktreePath),
       );
-      exec('git branch idle', env.forkPath);
-      expect(await getBranchWorktree(env.forkPath, 'idle')).toBeNull();
+      exec('git branch idle', env.repoRoot);
+      expect(await getBranchWorktree(env.repoRoot, 'idle')).toBeNull();
     });
 
     it('compares a branch with its upstream without checking it out', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+      const worktreePath = setupAppWithWorktree(env);
       pushTeammateCommit(env);
 
-      expect(await getUpstreamStatus(worktreePath, 'main')).toEqual({ upstream: 'origin/main', ahead: 0, behind: 1 });
-      expect(await getUpstreamStatus(worktreePath)).toEqual({ upstream: null, ahead: 0, behind: 0 });
+      expect(await getTrackingStatus(worktreePath, 'main')).toEqual({ tracking: 'origin/main', ahead: 0, behind: 1 });
+      expect(await getTrackingStatus(worktreePath)).toEqual({ tracking: null, ahead: 0, behind: 0 });
     });
 
     it('fast-forwards a branch by ref only when no worktree has it checked out', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+      const worktreePath = setupAppWithWorktree(env);
       const pushed = pushTeammateCommit(env);
 
       await expect(fastForwardBranch(worktreePath, 'main', 'origin/main')).rejects.toThrow();
 
-      exec('git switch -q -c parked', env.forkPath);
+      exec('git switch -q -c parked', env.repoRoot);
       await fastForwardBranch(worktreePath, 'main', 'origin/main');
-      expect(exec('git rev-parse main', env.forkPath)).toBe(pushed);
+      expect(exec('git rev-parse main', env.repoRoot)).toBe(pushed);
     });
 
     it('sees a merge in progress in a linked worktree', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+      const worktreePath = setupAppWithWorktree(env);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
       exec('git fetch -q cella-upstream', worktreePath);
 
       expect(await mergeInProgress(worktreePath)).toBe(false);
       await merge(worktreePath, 'cella-upstream/main');
       expect(await mergeInProgress(worktreePath)).toBe(true);
-      expect(await mergeInProgress(env.forkPath)).toBe(false);
+      expect(await mergeInProgress(env.repoRoot)).toBe(false);
     });
   });
 
   describe('runUpgradeCommand', () => {
-    it('cuts the sync branch from origin when the main checkout holds a stale trunk', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+    it('cuts the upgrade branch from origin when the main checkout holds a stale trunk', async () => {
+      const worktreePath = setupAppWithWorktree(env);
       const pushed = pushTeammateCommit(env);
-      const localMain = exec('git rev-parse main', env.forkPath);
+      const localMain = exec('git rev-parse main', env.repoRoot);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
 
-      await runUpgradeCommand(syncConfig(env, worktreePath));
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
 
       expect(exec('git rev-parse --abbrev-ref HEAD', worktreePath)).toMatch(/^cella\/upgrade\//);
       expect(fs.existsSync(path.join(worktreePath, 'upstream.ts'))).toBe(true);
@@ -126,63 +126,49 @@ describe('upgrade from a linked worktree', () => {
       expect(exec('git log -1 --format=%s', worktreePath)).toMatch(/^chore: upgrade cella to/);
       expect(exec('git status --porcelain', worktreePath)).toBe('');
       // The main checkout and its trunk are left alone
-      expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toBe('main');
-      expect(exec('git rev-parse main', env.forkPath)).toBe(localMain);
-      expect(exec('git status --porcelain', env.forkPath)).toBe('');
+      expect(exec('git rev-parse --abbrev-ref HEAD', env.repoRoot)).toBe('main');
+      expect(exec('git rev-parse main', env.repoRoot)).toBe(localMain);
+      expect(exec('git status --porcelain', env.repoRoot)).toBe('');
     });
 
     it('ships from the worktree and detaches at the trunk the main checkout holds', async () => {
-      const worktreePath = setupForkWithWorktree(env);
-      // A merge commit between the stale trunk and origin's must not read as part of the sync branch
+      const worktreePath = setupAppWithWorktree(env);
+      // A merge commit between the stale trunk and origin's must not read as part of the upgrade branch
       const pushed = pushTeammateCommit(env, { merge: true });
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(syncConfig(env, worktreePath));
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
       const branch = exec('git rev-parse --abbrev-ref HEAD', worktreePath);
       const committed = exec('git rev-parse HEAD', worktreePath);
 
-      await runUpgradeCommand(syncConfig(env, worktreePath));
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
 
-      // Pushed as committed: one sync commit on top of origin's trunk, nothing flattened into it
+      // Pushed as committed: one upgrade commit on top of origin's trunk, nothing flattened into it
       expect(exec(`git ls-remote --heads origin ${branch}`, worktreePath).split(/\s+/)[0]).toBe(committed);
       expect(exec(`git log -1 --format=%P ${committed}`, worktreePath)).toBe(pushed);
       expect(exec('git rev-parse --abbrev-ref HEAD', worktreePath)).toBe('HEAD');
-      expect(exec('git rev-parse HEAD', worktreePath)).toBe(exec('git rev-parse main', env.forkPath));
-      expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toBe('main');
+      expect(exec('git rev-parse HEAD', worktreePath)).toBe(exec('git rev-parse main', env.repoRoot));
+      expect(exec('git rev-parse --abbrev-ref HEAD', env.repoRoot)).toBe('main');
     });
 
-    it('ships a branch CLI 0.5 cut under cella/sync/, so a cycle started before the rename finishes', async () => {
-      const worktreePath = setupForkWithWorktree(env);
+    it('titles the PR after the upgrade commit when drift-triage commits sit on top', async () => {
+      const worktreePath = setupAppWithWorktree(env);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(syncConfig(env, worktreePath));
-      exec('git branch -q -m cella/sync/20260101-0000', worktreePath);
-      const committed = exec('git rev-parse HEAD', worktreePath);
-
-      await runUpgradeCommand(syncConfig(env, worktreePath));
-
-      expect(exec('git ls-remote --heads origin cella/sync/20260101-0000', worktreePath).split(/\s+/)[0]).toBe(
-        committed,
-      );
-    });
-
-    it('titles the PR after the sync commit when drift-triage commits sit on top', async () => {
-      const worktreePath = setupForkWithWorktree(env);
-      makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(syncConfig(env, worktreePath));
-      const syncSubject = exec('git log -1 --format=%s', worktreePath);
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
+      const upgradeSubject = exec('git log -1 --format=%s', worktreePath);
       makeCommit(worktreePath, { files: { 'triage.ts': 'export const t = 1;\n' }, message: 'fix: drift triage' });
 
-      await runUpgradeCommand(syncConfig(env, worktreePath));
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
 
-      expect(syncSubject).toMatch(/^chore: upgrade cella to \S+/);
+      expect(upgradeSubject).toMatch(/^chore: upgrade cella to \S+/);
       const printed = vi.mocked(console.info).mock.calls.map((args) => args.join(' '));
-      expect(printed.some((line) => line.includes(`--title "${syncSubject}"`))).toBe(true);
+      expect(printed.some((line) => line.includes(`--title "${upgradeSubject}"`))).toBe(true);
     });
 
-    it('returns a detached worktree to its start commit when there is nothing to sync', async () => {
-      const worktreePath = setupForkWithWorktree(env, '--detach');
+    it('returns a detached worktree to its start commit when there is nothing to upgrade', async () => {
+      const worktreePath = setupAppWithWorktree(env, '--detach');
       const start = exec('git rev-parse HEAD', worktreePath);
 
-      await runUpgradeCommand(syncConfig(env, worktreePath));
+      await runUpgradeCommand(upgradeConfig(env, worktreePath));
 
       expect(exec('git rev-parse --abbrev-ref HEAD', worktreePath)).toBe('HEAD');
       expect(exec('git rev-parse HEAD', worktreePath)).toBe(start);
@@ -190,17 +176,17 @@ describe('upgrade from a linked worktree', () => {
     });
 
     it('fast-forwards a trunk no worktree holds and cuts from it, in a single checkout', async () => {
-      setupForkWithWorktree(env);
-      exec(`git worktree remove ${path.join(env.testDir, 'wt')}`, env.forkPath);
+      setupAppWithWorktree(env);
+      exec(`git worktree remove ${path.join(env.testDir, 'wt')}`, env.repoRoot);
       const pushed = pushTeammateCommit(env);
-      exec('git switch -q work', env.forkPath);
+      exec('git switch -q work', env.repoRoot);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
 
-      await runUpgradeCommand(syncConfig(env, env.forkPath));
+      await runUpgradeCommand(upgradeConfig(env, env.repoRoot));
 
-      expect(exec('git rev-parse main', env.forkPath)).toBe(pushed);
-      expect(exec('git log -1 --format=%P', env.forkPath)).toBe(pushed);
-      expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toMatch(/^cella\/upgrade\//);
+      expect(exec('git rev-parse main', env.repoRoot)).toBe(pushed);
+      expect(exec('git log -1 --format=%P', env.repoRoot)).toBe(pushed);
+      expect(exec('git rev-parse --abbrev-ref HEAD', env.repoRoot)).toMatch(/^cella\/upgrade\//);
     });
   });
 });

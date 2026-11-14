@@ -11,12 +11,14 @@
   "homepage": "https://cellajs.com",
   "author": "CellaJS <info@cellajs.com>",
   "engines": {
-    "node": "26.x"
+    "node": ">=26"
   },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "type": "module",
-  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
@@ -55,9 +57,6 @@
   "bin": {
     "cella": "index.js"
   },
-  "imports": {
-    "#/*": "./src/*"
-  },
   "scripts": {
     "start": "tsx index.ts",
     "clean": "rimraf ./dist",
@@ -79,6 +78,7 @@
     "@pierre/diffs": "^1.6.4",
     "axe-core": "^4.14.0",
     "commander": "^15.1.0",
+    "semver": "^7.8.6",
     "ts-morph": "^28.0.0",
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
@@ -90,6 +90,7 @@
     "@evilmartians/lefthook": "^2.2.2",
     "@tailwindcss/node": "^4.3.5",
     "@types/node": "26.6.6",
+    "@types/semver": "^7.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "playwright": "^1.65.0",
     "rimraf": "^6.1.4",
@@ -106,7 +107,7 @@
     "cella",
     "cellajs",
     "cli",
-    "sync",
+    "upgrade",
     "template"
   ],
   "packageManager": "pnpm@11.28.7",

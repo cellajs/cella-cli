@@ -1,19 +1,17 @@
 import { rmSync } from 'node:fs';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { frontendFindings } from '../../src/tools/style/frontend-rules';
-import { openRepository } from '../../src/tools/style/repo';
-import { makeRepo } from '../helpers/style-repo';
+import { afterAll, describe, expect, it } from 'vitest';
+import { frontendRules } from '../../src/style/frontend-rules';
+import { check, makeRepo } from '../helpers/style-repo';
 
 // The attachment module's query.ts registers a range fetch, as a synced product's does
 const root = makeRepo({
   'frontend/src/modules/attachment/query.ts': "registerEntityQueryKeys('attachment', keys, rangeFetch);\n",
 });
-beforeAll(() => openRepository(root));
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const file = 'frontend/src/modules/example/use-example.ts';
 const rules = (source: string) =>
-  frontendFindings(file, source, new Set()).map(({ rule, message }) => `${rule}: ${message}`);
+  check(frontendRules, file, source, { root }).map(({ rule, message }) => `${rule}: ${message}`);
 
 describe('memo-dependency-unread', () => {
   it('reports a dependency the callback never reads', () => {
@@ -60,7 +58,7 @@ describe('route-context-selector', () => {
 
 describe('form-no-validate', () => {
   const component = 'frontend/src/modules/example/example-form.tsx';
-  const found = (source: string) => frontendFindings(component, source, new Set()).map(({ rule }) => rule);
+  const found = (source: string) => check(frontendRules, component, source, { root }).map(({ rule }) => rule);
 
   it('reports a form react-hook-form validates without noValidate', () => {
     const source = [
@@ -88,7 +86,7 @@ describe('form-no-validate', () => {
 
 describe('button-press-cancel', () => {
   const component = 'frontend/src/modules/example/example.tsx';
-  const found = (source: string) => frontendFindings(component, source, new Set()).map(({ rule }) => rule);
+  const found = (source: string) => check(frontendRules, component, source, { root }).map(({ rule }) => rule);
 
   it('reports a Button that cancels the press nudge with a translate class, plain, important or conditional', () => {
     const source = [
@@ -122,7 +120,8 @@ describe('button-press-cancel', () => {
 
 describe('reorder-grip', () => {
   const component = 'frontend/src/modules/example/example.tsx';
-  const found = (source: string, path = component) => frontendFindings(path, source, new Set()).map(({ rule }) => rule);
+  const found = (source: string, path = component) =>
+    check(frontendRules, path, source, { root }).map(({ rule }) => rule);
   const gripImport = "import { GripVerticalIcon } from 'lucide-react';";
 
   it('reports a grip icon in a file that renders no reorder handle', () => {
@@ -141,7 +140,7 @@ describe('reorder-grip', () => {
 });
 
 describe('product-cache-write', () => {
-  const found = (path: string, source: string) => frontendFindings(path, source, new Set()).map(({ rule }) => rule);
+  const found = (path: string, source: string) => check(frontendRules, path, source, { root }).map(({ rule }) => rule);
   const write = 'queryClient.setQueryData(keys.detail.byId(id), row);';
   const cancel = 'await queryClient.cancelQueries({ queryKey: keys.list.org(organizationId) });';
   const registration = (args: string) => `registerEntityQueryKeys(${args});\n${write}`;

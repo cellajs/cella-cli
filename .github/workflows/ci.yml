@@ -14,7 +14,6 @@ jobs:
   # Lint the PR title as a Conventional Commit. We squash-merge, so the PR title
   # becomes the commit message on main that release-please reads.
   pr-title:
-    if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -82,13 +81,6 @@ jobs:
         with:
           node-version: 26
           cache: "pnpm"
-
-      # The e2e test scaffolds a project and runs `git commit`, which needs an
-      # author identity the runner doesn't have by default.
-      - name: Configure git identity
-        run: |
-          git config --global user.email "ci@cellajs.com"
-          git config --global user.name "cella CI"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

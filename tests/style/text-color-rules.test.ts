@@ -1,14 +1,11 @@
-import { beforeAll, describe, expect, it } from 'vitest';
-import { openRepository } from '../../src/tools/style/repo';
-import { textColorFindings } from '../../src/tools/style/text-color-rules';
-import { cliRoot } from '../helpers/style-repo';
-
-beforeAll(() => openRepository(cliRoot));
+import { describe, expect, it } from 'vitest';
+import { textColorRule } from '../../src/style/text-color-rules';
+import { check } from '../helpers/style-repo';
 
 const file = 'frontend/src/modules/example/example.tsx';
-const findings = (source: string, path = file) => textColorFindings(path, source).map(({ term }) => term);
+const findings = (source: string, path = file) => check([textColorRule], path, source).map(({ term }) => term);
 
-describe('textColorFindings', () => {
+describe('text-color', () => {
   it('fails a modified text token and a palette gray, in any class string and under any variant but a disabled one', () => {
     const source = [
       "const a = cn('text-muted-foreground/70', active && 'hover:text-foreground/80');",

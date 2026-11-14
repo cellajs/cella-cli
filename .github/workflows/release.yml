@@ -75,7 +75,7 @@ jobs:
         run: pnpm build
 
       # Prefer OIDC trusted publishing (tokenless). Configure the npm Trusted
-      # Publisher for cellajs/create-cella + this workflow. NPM_TOKEN is a
+      # Publisher for cellajs/cella-cli + this workflow. NPM_TOKEN is a
       # fallback if trusted publishing is not yet set up.
       - name: Publish to npm
         run: pnpm publish --no-git-checks --access public --provenance

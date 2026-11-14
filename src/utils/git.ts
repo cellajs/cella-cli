@@ -1,21 +1,14 @@
-/**
- * Git command helpers: typed wrappers around common git operations, plus the
- * sync-point tracking and merge-base recovery machinery.
- */
-
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import type { CommitRangeEntry } from '../config/types';
 import { getEnvSnapshot } from './env';
-import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from './manifest';
 
 const execFileAsync = promisify(execFile);
 
 /** Maximum stdout buffer for subprocess output (50MB). */
-export const MAX_BUFFER = 50 * 1024 * 1024;
+export const maxBuffer = 50 * 1024 * 1024;
 
 /**
  * Replace the userinfo part of URLs in text (embedded tokens or passwords) with `***`.
@@ -38,16 +31,20 @@ interface GitCommandOptions {
   env?: Record<string, string>;
 }
 
-/** Executes a git command and returns trimmed stdout. */
+/**
+ * Executes a git command and returns trimmed stdout. Pathspecs are literal, so a file name with glob
+ * characters (`[id].tsx`) names that file alone; a caller that globs sets `GIT_LITERAL_PATHSPECS: '0'`.
+ */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
     ...getEnvSnapshot(),
+    GIT_LITERAL_PATHSPECS: '1',
     ...(options.skipEditor ? { GIT_EDITOR: 'true' } : {}),
     ...options.env,
   };
 
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer: MAX_BUFFER });
+    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer });
     return stdout.trim();
   } catch (error) {
     if (options.ignoreErrors) return '';
@@ -100,7 +97,7 @@ export async function branchExists(cwd: string, branch: string): Promise<boolean
  * callers that would switch to a shared branch such as the trunk check here first.
  */
 export async function getBranchWorktree(cwd: string, branch: string): Promise<string | null> {
-  const output = await git(['worktree', 'list', '--porcelain'], cwd, { ignoreErrors: true });
+  const output = await git(['worktree', 'list', '--porcelain'], cwd);
   let worktree: string | null = null;
   for (const line of output.split('\n')) {
     if (line.startsWith('worktree ')) worktree = line.slice('worktree '.length);
@@ -124,18 +121,15 @@ export async function deleteBranch(cwd: string, branch: string): Promise<void> {
   await git(['branch', '-D', branch], cwd, { ignoreErrors: true });
 }
 
-/**
- * Fast-forward the current branch from its upstream tracking branch.
- * Best-effort: ignores errors (e.g. no origin, offline, or nothing to pull).
- */
+/** Fast-forward the current branch from its upstream tracking branch. */
 export async function pullFastForward(cwd: string): Promise<void> {
-  await git(['pull', '--ff-only'], cwd, { ignoreErrors: true, skipEditor: true });
+  await git(['pull', '--ff-only'], cwd, { skipEditor: true });
 }
 
 /** How the current branch compares to its upstream tracking branch. */
-interface UpstreamStatus {
+interface TrackingStatus {
   /** Upstream tracking ref (e.g. `origin/main`), or null when none is configured. */
-  upstream: string | null;
+  tracking: string | null;
   /** Commits the local branch has that its upstream doesn't. */
   ahead: number;
   /** Commits the upstream has that the local branch doesn't. */
@@ -146,36 +140,26 @@ interface UpstreamStatus {
  * A branch's upstream tracking ref (e.g. `origin/main`), or null when none is configured.
  * `branch` defaults to the current one.
  */
-export async function getBranchUpstream(cwd: string, branch = ''): Promise<string | null> {
-  const upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`], cwd, {
+export async function getTrackingBranch(cwd: string, branch = ''): Promise<string | null> {
+  const tracking = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`], cwd, {
     ignoreErrors: true,
   });
-  return upstream || null;
+  return tracking || null;
 }
 
 /**
- * Fetch a branch's upstream, then report how far ahead/behind the branch is.
- *
- * `branch` defaults to the current one. A named branch is compared by ref, without checking it
- * out, so this also works for a branch another worktree has checked out.
- *
- * The fetch is best-effort so an offline/no-remote run still returns whatever is already local.
- * Returns `upstream: null` when the branch has no tracking branch configured (local-only repo).
+ * How far ahead/behind a branch is of its tracking branch, as last fetched. `branch` defaults to the
+ * current one. A named branch is compared by ref, without checking it out, so this also works for a
+ * branch another worktree has checked out. `tracking` is null when the branch has none (local-only repo).
  */
-export async function getUpstreamStatus(cwd: string, branch?: string): Promise<UpstreamStatus> {
+export async function getTrackingStatus(cwd: string, branch?: string): Promise<TrackingStatus> {
   const local = branch ? `refs/heads/${branch}` : 'HEAD';
-  const upstream = await getBranchUpstream(cwd, branch);
-  if (!upstream) return { upstream: null, ahead: 0, behind: 0 };
+  const tracking = await getTrackingBranch(cwd, branch);
+  if (!tracking) return { tracking: null, ahead: 0, behind: 0 };
 
-  // Refresh the remote-tracking ref so the comparison reflects the remote's latest state.
-  const remote = upstream.split('/')[0];
-  await git(['fetch', remote], cwd, { ignoreErrors: true, skipEditor: true });
-
-  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${upstream}`], cwd, {
-    ignoreErrors: true,
-  });
+  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${tracking}`], cwd);
   const [ahead, behind] = counts.split(/\s+/).map((n) => Number.parseInt(n, 10) || 0);
-  return { upstream, ahead: ahead ?? 0, behind: behind ?? 0 };
+  return { tracking, ahead: ahead ?? 0, behind: behind ?? 0 };
 }
 
 /**
@@ -201,7 +185,7 @@ export async function pushBranch(
  * exist inside a merged-in history (e.g. upstream's internal merges) don't count.
  */
 export async function listBranchMergeCommits(cwd: string, baseRef: string): Promise<string[]> {
-  const out = await git(['rev-list', '--merges', '--first-parent', `${baseRef}..HEAD`], cwd, { ignoreErrors: true });
+  const out = await git(['rev-list', '--merges', '--first-parent', `${baseRef}..HEAD`], cwd);
   return out ? out.split('\n').filter(Boolean) : [];
 }
 
@@ -222,7 +206,7 @@ export async function flattenBranch(cwd: string, baseRef: string, message: strin
 /**
  * Commit the staged changes as a single-parent commit, discarding any in-progress merge state.
  *
- * A normal commit with `MERGE_HEAD` present records a two-parent merge commit. Because the fork
+ * A normal commit with `MERGE_HEAD` present records a two-parent merge commit. Because the app
  * doesn't share pushed ancestry with upstream (the local `git replace` graft that makes merges
  * incremental is never pushed), such a merge commit makes the PR list the upstream branch's
  * entire history. Removing the merge state first collapses the staged delta into one clean
@@ -284,93 +268,29 @@ export async function fetchRemote(cwd: string, remoteName: string): Promise<void
   await git(['fetch', remoteName], cwd);
 }
 
-/**
- * Fetch upstream tags into a remote-scoped namespace (`refs/<remoteName>/tags/*`),
- * never the local `refs/tags/*`. This keeps cella's release tags from
- * colliding with the fork's own release tags (forks run their own release-please).
- * `--no-tags` prevents git from also writing them into `refs/tags/*`.
- */
-export async function fetchUpstreamTags(cwd: string, remoteName: string): Promise<void> {
-  await git(['fetch', remoteName, '--no-tags', `+refs/tags/*:refs/${remoteName}/tags/*`], cwd);
+/** A remote's URL, empty when the repository has no such remote. */
+export async function readRemoteUrl(cwd: string, remoteName: string): Promise<string> {
+  return git(['remote', 'get-url', remoteName], cwd, { ignoreErrors: true });
 }
 
 /**
- * A template release tag is a version, with or without the `v` prefix (`0.18.1`, `v0.5.0`).
- * Component tags (`create-cella-0.2.3`) and other namespaces (`archive/pre-release`) start with a name.
+ * A GitHub repository from a remote URL (SSH `git@github.com:owner/repo.git` or HTTPS) or an
+ * `owner/repo` slug: its slug and base URL. Undefined for anything else, such as a local path.
  */
-const releaseTagPattern = /^v?\d[\w.+-]*$/;
-
-/**
- * Resolve the latest upstream release tag (the highest version tag) from the
- * remote-scoped tag namespace. Returns the short tag name and its full ref, or null
- * when no release exists.
- */
-export async function resolveLatestReleaseTag(
-  cwd: string,
-  remoteName: string,
-): Promise<{ tag: string; ref: string } | null> {
-  const prefix = `refs/${remoteName}/tags/`;
-  const output = await git(['for-each-ref', '--sort=-version:refname', '--format=%(refname)', prefix], cwd, {
-    ignoreErrors: true,
-  });
-  if (!output) return null;
-  for (const line of output.split('\n')) {
-    const ref = line.trim();
-    if (!ref) continue;
-    const tag = ref.slice(prefix.length);
-    if (releaseTagPattern.test(tag)) return { tag, ref };
-  }
-  return null;
+export function gitHubRepo(remote: string): { slug: string; url: string } | undefined {
+  const match = remote.match(/^(?:.*github\.com[:/])?([\w-]+)\/([\w.-]+?)(?:\.git)?$/);
+  if (!match) return undefined;
+  const slug = `${match[1]}/${match[2]}`;
+  return { slug, url: `https://github.com/${slug}` };
 }
 
-/**
- * Resolve a ref named for upstream (`--ref`) to a commit: a branch on the upstream remote, then a
- * tag from the remote-scoped tag namespace, then the ref as given (a sha). Upstream names come
- * first, so `main` means upstream's main and `1.0.0` upstream's release, never the fork's own.
- * Revision suffixes work too (`main~2`). Returns the commit sha, plus the release tag when the
- * ref is a release tag name itself (`1.2.3`, not `1.2.3~1`); null when nothing resolves.
- */
-export async function resolveUpstreamCommit(
-  cwd: string,
-  remoteName: string,
-  ref: string,
-): Promise<{ sha: string; release?: { tag: string; ref: string } } | null> {
-  if (ref.startsWith('-')) return null;
-  const tagRef = `refs/${remoteName}/tags/${ref}`;
-  for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
-    const sha = await revParse(cwd, `${candidate}^{commit}`);
-    if (!sha) continue;
-    const release = candidate === tagRef && releaseTagPattern.test(ref) ? { tag: ref, ref: tagRef } : undefined;
-    return { sha, release };
-  }
-  return null;
-}
-
-/**
- * Whether upstream published `sha`: reachable from the upstream branch (`branchRef`, e.g.
- * `cella-upstream/main`) or from an upstream release tag (remote-scoped namespace).
- */
-export async function isPublishedUpstream(
-  cwd: string,
-  remoteName: string,
-  branchRef: string,
-  sha: string,
-): Promise<boolean> {
-  const containing = await git(
-    [
-      'for-each-ref',
-      '--count=1',
-      '--format=%(refname)',
-      '--contains',
-      sha,
-      `refs/remotes/${branchRef}`,
-      `refs/${remoteName}/tags/[0-9]*`,
-      `refs/${remoteName}/tags/v[0-9]*`,
-    ],
-    cwd,
-    { ignoreErrors: true },
-  );
-  return containing !== '';
+/** One commit of a log: its full hash, subject and relative date. */
+export interface CommitRangeEntry {
+  hash: string;
+  message: string;
+  date: string;
+  /** Unix epoch seconds of the commit */
+  timestamp?: number;
 }
 
 export async function getCommitInfo(cwd: string, ref: string): Promise<CommitRangeEntry> {
@@ -476,13 +396,13 @@ export async function merge(cwd: string, ref: string): Promise<{ success: boolea
 }
 
 export async function getConflictedFiles(cwd: string): Promise<string[]> {
-  const output = await git(['diff', '--name-only', '--diff-filter=U'], cwd, { ignoreErrors: true });
+  const output = await git(['diff', '--name-only', '--diff-filter=U'], cwd);
   if (!output) return [];
   return output.split('\n').filter(Boolean);
 }
 
 export async function mergeAbort(cwd: string): Promise<void> {
-  await git(['merge', '--abort'], cwd, { ignoreErrors: true });
+  await git(['merge', '--abort'], cwd);
 }
 
 export async function fileExistsAtRef(cwd: string, ref: string, filePath: string): Promise<boolean> {
@@ -506,15 +426,12 @@ export async function restoreWorktreeFromRef(cwd: string, ref: string, filePath:
   await git(['restore', `--source=${ref}`, '--worktree', '--', filePath], cwd);
 }
 
-/**
- * Restore paths from a ref into the working tree only, in batches, leaving the index untouched.
- * Paths are taken literally, so a file name with glob characters (`[id].tsx`) restores that file.
- */
+/** Restore paths from a ref into the working tree only, in batches, leaving the index untouched. */
 export async function batchRestoreWorktreeFromRef(cwd: string, ref: string, filePaths: string[]): Promise<void> {
   const batchSize = 200;
   for (let i = 0; i < filePaths.length; i += batchSize) {
     const batch = filePaths.slice(i, i + batchSize);
-    await git(['--literal-pathspecs', 'restore', `--source=${ref}`, '--worktree', '--', ...batch], cwd);
+    await git(['restore', `--source=${ref}`, '--worktree', '--', ...batch], cwd);
   }
 }
 
@@ -534,7 +451,7 @@ export async function listIdenticalToRef(cwd: string, ref: string): Promise<Set<
 
 /** Tracked paths under `paths` whose working tree copy differs from `ref` (renames not detected). */
 export async function listChangedSinceRef(cwd: string, ref: string, paths: string[]): Promise<string[]> {
-  const out = await git(['--literal-pathspecs', 'diff', '--name-only', '--no-renames', '-z', ref, '--', ...paths], cwd);
+  const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--', ...paths], cwd);
   return out.split('\0').filter(Boolean);
 }
 
@@ -558,15 +475,17 @@ export interface FileChange {
  * Files changed between two refs (`git diff-tree -r -M90%`), as filePath -> FileChange.
  * Status codes: A=added, D=deleted, M=modified, T=type-changed, R=renamed (90% similarity
  * threshold). A rename is keyed by its NEW path, with `oldPath` stored in the value.
+ *
+ * The upgrade's classifier pairs moves here: which protected copies move with upstream (strict on
+ * purpose, as a wrong pair puts a pinned file at an unrelated path) and the report's labels. git's
+ * merge follows moves at its own 50%, so a move it follows may be labelled a deletion plus an addition.
  */
 export async function getFileChanges(
   cwd: string,
   baseRef: string,
   targetRef: string,
 ): Promise<Map<string, FileChange>> {
-  const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd, {
-    ignoreErrors: true,
-  });
+  const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd);
   const changes = new Map<string, FileChange>();
 
   // diff-tree prints the all-zero hash for a missing side (added/deleted files).
@@ -643,43 +562,27 @@ export async function getFileHashesAtRef(cwd: string, ref: string): Promise<Map<
 }
 
 /**
- * Tracked delete (`git rm -f`), recording a deletion in the merge result. With `cached`, the paths
- * leave the index only and the working tree is untouched. Best-effort: never throws.
+ * Tracked delete (`git rm -f`), recording a deletion in the merge result. A path the index lacks is
+ * skipped, which git otherwise refuses for the whole batch. With `cached`, the paths leave the index
+ * only and the working tree is untouched.
  */
 export async function gitRm(cwd: string, paths: string[], options: { cached?: boolean } = {}): Promise<void> {
-  await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--', ...paths], cwd, { ignoreErrors: true });
-}
-
-/** Files staged as new additions vs HEAD (diff-filter=A): absent at HEAD, brought in by a merge. */
-export async function getStagedNewFiles(cwd: string): Promise<string[]> {
-  const output = await git(['diff', '--cached', '--name-only', '--diff-filter=A'], cwd, { ignoreErrors: true });
-  return output ? output.split('\n').filter(Boolean) : [];
-}
-
-/** Move a file (`git mv -f`), creating parent directories as needed. */
-export async function gitMv(cwd: string, oldPath: string, newPath: string): Promise<void> {
-  const newDir = dirname(join(cwd, newPath));
-  await mkdir(newDir, { recursive: true });
-
-  await git(['mv', '-f', oldPath, newPath], cwd);
+  await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--ignore-unmatch', '--', ...paths], cwd);
 }
 
 /**
  * Moves the copy of `from` that `ref` holds to `to`, staged in the index and written to the worktree, and removes
- * `from`. Any merge stages at `to` give way to it; the blob is copied by id, so binary files stay intact.
+ * `from`. Any merge stages at `to` give way to it; the blob is copied by id, so binary files stay intact. `from` goes
+ * first: on a case-insensitive file system a move by case alone names one file.
  */
 export async function moveFromRef(cwd: string, ref: string, from: string, to: string): Promise<void> {
   const [mode, , blob] = (await git(['ls-tree', ref, '--', from], cwd)).split(/\s+/);
   if (!blob) throw new Error(`${ref} holds no ${from}`);
+  await removeFilesFully(cwd, [from]);
   await gitRm(cwd, [to], { cached: true });
   await git(['update-index', '--add', '--cacheinfo', `${mode},${blob},${to}`], cwd);
   await mkdir(dirname(join(cwd, to)), { recursive: true });
   await git(['checkout-index', '-f', '--', to], cwd);
-  await removeFileFully(cwd, from);
-}
-
-export async function fileExistsInWorktree(cwd: string, filePath: string): Promise<boolean> {
-  return existsSync(join(cwd, filePath));
 }
 
 /**
@@ -697,12 +600,12 @@ export async function removeFileFromWorktree(cwd: string, filePath: string): Pro
 }
 
 /**
- * Fully remove a file: tracked delete from the index (git rm) plus filesystem removal
+ * Fully remove files: tracked delete from the index (git rm) plus filesystem removal
  * for cases git rm leaves behind (e.g. during a merge), including empty parent dirs.
  */
-export async function removeFileFully(cwd: string, filePath: string): Promise<void> {
-  await gitRm(cwd, [filePath]);
-  await removeFileFromWorktree(cwd, filePath);
+export async function removeFilesFully(cwd: string, paths: string[]): Promise<void> {
+  await gitRm(cwd, paths);
+  for (const path of paths) await removeFileFromWorktree(cwd, path);
 }
 
 /**
@@ -724,299 +627,22 @@ async function cleanupEmptyParentDirs(cwd: string, relativePath: string): Promis
   }
 }
 
-// Sync ref tracking and merge-base recovery.
-
-/** The local ref holding the upstream commit of the last upgrade, and `<ref>-head` the fork HEAD then. */
-const LAST_UPGRADE_REF = 'refs/cella/last-upgrade';
-
-/** Where CLI 0.5 kept the same two refs; read while a fork has not upgraded under 0.6. */
-const LEGACY_LAST_UPGRADE_REF = 'refs/cella/last-sync';
-
-/**
- * Store the upstream commit hash after a successful upgrade merge.
- * Used to recover correct merge-base when squash strategy creates single-parent commits.
- *
- * Also records the fork HEAD at store time as `refs/cella/last-upgrade-head`. The last-upgrade
- * ref is written while the merge is still staged (before the user commits), so it cannot be
- * trusted on its own: if the user runs `git merge --abort`, HEAD never advances and the ref
- * is left pointing at an upstream commit that was never actually integrated. Recording HEAD
- * lets `getEffectiveMergeBase` detect that an aborted/uncommitted merge produced a stale ref.
- */
-export async function storeLastSyncRef(cwd: string, upstreamHash: string): Promise<void> {
-  await git(['update-ref', LAST_UPGRADE_REF, upstreamHash], cwd);
-  const head = await revParse(cwd, 'HEAD');
-  if (head) await git(['update-ref', `${LAST_UPGRADE_REF}-head`, head], cwd);
-}
-
 /** Stage a single path (git add). Best-effort: never throws. */
 export async function stagePath(cwd: string, path: string): Promise<void> {
   await git(['add', '--', path], cwd, { ignoreErrors: true });
 }
 
-/** The stored last-upgrade ref and its HEAD, under the 0.5 names when the 0.6 ones are absent. */
-async function readStoredSyncRefs(cwd: string): Promise<{ ref: string; head: string | null } | null> {
-  for (const name of [LAST_UPGRADE_REF, LEGACY_LAST_UPGRADE_REF]) {
-    const ref = await revParse(cwd, name);
-    if (ref) return { ref, head: await revParse(cwd, `${name}-head`) };
-  }
-  return null;
-}
-
-/** The stored last-upgrade upstream ref, or null when no upgrade has been recorded. */
-export async function getStoredSyncRef(cwd: string): Promise<string | null> {
-  return (await readStoredSyncRefs(cwd))?.ref ?? null;
-}
-
 /**
- * Read the sync manifest committed at a specific ref.
- *
- * This intentionally reads from git, not the working tree: a staged/aborted sync can leave the
- * worktree manifest ahead of the committed trunk, and that must not validate a sync point.
+ * Whether `ancestor` is an ancestor of `descendant`.
+ * @throws when git cannot answer, such as for a commit this clone lacks.
  */
-export async function readManifestAtRef(cwd: string, ref: string): Promise<SyncManifest | null> {
-  const raw = await git(['show', `${ref}:${MANIFEST_FILE}`], cwd, { ignoreErrors: true });
-  if (!raw) return null;
-  return parseSyncManifest(raw);
-}
-
-/** The upstream base commit SHA from the manifest committed at `ref`, or null. */
-export async function readManifestBaseAtRef(cwd: string, ref: string): Promise<string | null> {
-  const manifest = await readManifestAtRef(cwd, ref);
-  return manifest ? manifest.upstream.commit.toLowerCase() : null;
-}
-
-/**
- * Read the `version` field of the root `package.json` committed at a ref.
- * Returns null when the file is absent or unparsable.
- */
-export async function readPackageVersionAtRef(cwd: string, ref: string): Promise<string | null> {
-  const raw = await git(['show', `${ref}:package.json`], cwd, { ignoreErrors: true });
-  if (!raw) return null;
-
-  try {
-    const version = (JSON.parse(raw) as { version?: unknown }).version;
-    return typeof version === 'string' && version ? version : null;
-  } catch {
-    return null;
-  }
-}
-
-/** Whether a commit object is present in the local object store. */
-async function commitObjectExists(cwd: string, sha: string): Promise<boolean> {
-  return (await revParse(cwd, `${sha}^{commit}`)) !== null;
-}
-
-/** The root (parentless) commit of a ref's history, such as a create-cella scaffold's "Initial commit", or null. */
-async function getRootCommit(cwd: string, ref: string): Promise<string | null> {
-  const out = await git(['rev-list', '--max-parents=0', ref], cwd, { ignoreErrors: true });
-  const roots = out.split('\n').filter(Boolean);
-  return roots.length > 0 ? roots[roots.length - 1] : null;
-}
-
-/**
- * Read the scaffold provenance trailer from the fork's root commit message.
- *
- * create-cella stamps `Cella-Base: <sha>` on the initial commit, recording the exact
- * upstream commit the scaffold snapshot was taken from. Riding in commit history, it
- * travels with push/clone (a local ref does not) and needs no file in the worktree.
- */
-async function readRootTrailerBase(cwd: string, headRef: string): Promise<string | null> {
-  const root = await getRootCommit(cwd, headRef);
-  if (!root) return null;
-  const message = await git(['show', '-s', '--format=%B', root], cwd, { ignoreErrors: true });
-  const match = message.match(/^cella-base:\s*([0-9a-f]{40})$/im);
-  return match ? match[1].toLowerCase() : null;
-}
-
-/**
- * Whether the repository is a shallow clone (created with `git clone --depth`, or otherwise
- * carrying a `.git/shallow` graft). Shallow history is truncated below the graft point, so the
- * real common ancestor with upstream is absent: `git merge-base` finds nothing even when one
- * exists in the full history, and the 3-way file analysis walks an incomplete commit graph.
- */
-async function isShallowRepository(cwd: string): Promise<boolean> {
-  const out = await git(['rev-parse', '--is-shallow-repository'], cwd, { ignoreErrors: true });
-  return out === 'true';
-}
-
-/**
- * Restore full history on a shallow clone by fetching from its own origin, so merge-base and the
- * 3-way analysis see the real commit graph.
- *
- * Throws an actionable error when the history cannot be restored (e.g. no reachable origin),
- * because an upgrade cannot run correctly against truncated history.
- */
-async function unshallowRepository(cwd: string): Promise<void> {
-  try {
-    await git(['fetch', '--unshallow'], cwd, { skipEditor: true });
-  } catch (error) {
-    const detail = error instanceof Error ? `\n\n${error.message}` : '';
-    throw new Error(
-      'this is a shallow clone and its full history could not be restored automatically.\n' +
-        'An upgrade needs the complete history to find the common ancestor with upstream. Restore it with:\n\n' +
-        '  git fetch --unshallow\n\n' +
-        `then re-run the upgrade.${detail}`,
-    );
-  }
-}
-
-/**
- * Ensure a native git merge-base exists between the fork and upstream.
- *
- * A create-cella scaffold has unrelated history with upstream, so `git merge-base` finds nothing
- * and every upgrade fails at the very first step. This bootstraps ancestry non-destructively:
- *   0. If the repo is a shallow clone, restore its full history first: the real ancestor is
- *      truncated away, so no graft can recover it; deepening the history brings it back.
- *   1. If a native merge-base already exists, do nothing (the common case).
- *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
- *      one whose commit actually exists after the upstream fetch wins: the sync-point
- *      record (`refs/cella/last-upgrade` ref, then committed/worktree `cella/cella.manifest.json`),
- *      then the scaffold origin (the root commit's `Cella-Base:` trailer).
- *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native
- *      git operation (merge-base and the 3-way merge itself) sees correct ancestry, and record
- *      the base as `refs/cella/last-upgrade`. The replace ref is local-only and never pushed, so
- *      the fork's own published history stays clean.
- *
- * Throws an actionable error when no valid base can be determined.
- */
-export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
-  if (await isShallowRepository(cwd)) {
-    await unshallowRepository(cwd);
-  }
-
-  const nativeBase = await git(['merge-base', headRef, upstreamRef], cwd, { ignoreErrors: true });
-  if (nativeBase) return;
-
-  const sources: Array<() => Promise<string | null>> = [
-    () => getStoredSyncRef(cwd),
-    () => readManifestBaseAtRef(cwd, headRef),
-    () => readManifestBase(cwd),
-    () => readRootTrailerBase(cwd, headRef),
-  ];
-
-  let baseSha: string | null = null;
-  for (const source of sources) {
-    const sha = await source();
-    if (sha && (await commitObjectExists(cwd, sha))) {
-      baseSha = sha;
-      break;
-    }
-  }
-  if (!baseSha) {
-    throw new Error(
-      `no common ancestor between the fork and '${upstreamRef}', and no upgrade base could be determined.\n\n` +
-        'This fork has unrelated history with upstream (typical for a create-cella scaffold, or after\n' +
-        'upstream squashed its history) and no recorded base commit exists after fetching\n' +
-        'upstream. Seed it manually with the upstream commit the fork was created from, then re-run the upgrade:\n\n' +
-        `  git update-ref ${LAST_UPGRADE_REF} <upstream-sha>\n`,
-    );
-  }
-
-  const root = await getRootCommit(cwd, headRef);
-  if (!root) throw new Error("could not determine the fork's root commit to bootstrap upgrade ancestry");
-
-  await git(['replace', '-f', '--graft', root, baseSha], cwd);
-  await git(['update-ref', LAST_UPGRADE_REF, baseSha], cwd);
-}
-
-/** Whether `ancestor` is an ancestor of `descendant`. */
 export async function isAncestor(cwd: string, ancestor: string, descendant: string): Promise<boolean> {
   try {
     await git(['merge-base', '--is-ancestor', ancestor, descendant], cwd);
     return true;
-  } catch {
-    return false;
-  }
-}
-
-/**
- * Legacy sync point for forks that last upgraded before the manifest was committed: the local
- * last-upgrade ref, discarded while HEAD still sits at the recorded HEAD (an aborted merge,
- * see {@link storeLastSyncRef}).
- */
-async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | null> {
-  const stored = await readStoredSyncRefs(cwd);
-  if (!stored) return null;
-
-  if (stored.head) {
-    const currentHead = await revParse(cwd, headRef);
-    if (currentHead && currentHead === stored.head) return null;
-  }
-
-  return stored.ref;
-}
-
-/**
- * The effective merge-base, preferring the recorded sync point when it's more recent.
- * This handles stale merge-base caused by previous squash syncs (single-parent commits
- * don't update git's merge-base graph).
- *
- * The manifest committed at `headRef` is the authoritative record: it lands iff the sync commit lands
- * and travels with the repo. The local last-upgrade ref is the fallback for forks whose last upgrade predates it.
- *
- * @returns The effective base commit, whether git's base was stale, and the recorded sync point
- */
-export async function getEffectiveMergeBase(
-  cwd: string,
-  headRef: string,
-  upstreamRef: string,
-): Promise<{ base: string; isStale: boolean; storedRef: string | null }> {
-  const gitBase = await getMergeBase(cwd, headRef, upstreamRef);
-
-  const recorded = (await readManifestBaseAtRef(cwd, headRef)) ?? (await getLegacySyncRef(cwd, headRef));
-  if (!recorded) {
-    return { base: gitBase, isStale: false, storedRef: null };
-  }
-
-  // Only prefer the recorded sync point when it is actually newer than git's own answer.
-  const recordedIsNewer = await isAncestor(cwd, gitBase, recorded);
-  if (recordedIsNewer && recorded !== gitBase) {
-    return { base: recorded, isStale: true, storedRef: recorded };
-  }
-
-  return { base: gitBase, isStale: false, storedRef: recorded };
-}
-
-/**
- * Run `fn` with a temporary local graft that makes `baseSha` an ancestor of `headRef`, so
- * native git operations (merge-base resolution and the 3-way merge itself) see the recorded
- * sync point, not a stale historical ancestor.
- *
- * Squash syncs advance the recorded sync point (manifest + `refs/cella/last-upgrade`) without
- * advancing git's commit graph, so a plain `git merge` replays every upstream change since the
- * last true merge ancestor: hunks the fork already integrated (or deliberately resolved away)
- * re-apply as clean auto-merges or re-conflict on every sync. The graft adds `baseSha` as an
- * extra parent of the `headRef` commit via `git replace --graft`; replace refs are local-only
- * and the ref is deleted right after `fn`, so nothing ever leaks into pushed history.
- *
- * Runs `fn` without grafting when the graft is unnecessary or unsafe:
- * - `baseSha` is already an ancestor of `headRef` (git's own merge-base is not stale), or
- * - a replacement object already exists for the `headRef` commit (never clobber, e.g. the
- *   scaffold root graft from {@link ensureSyncBase} when the root commit is HEAD).
- */
-export async function withTemporarySyncBaseGraft<T>(
-  cwd: string,
-  headRef: string,
-  baseSha: string,
-  fn: () => Promise<T>,
-): Promise<T> {
-  const headSha = await revParse(cwd, headRef);
-  if (!headSha || !(await commitObjectExists(cwd, baseSha))) return fn();
-
-  // Native ancestry already covers the base: nothing to graft.
-  if (await isAncestor(cwd, baseSha, headSha)) return fn();
-
-  // Never clobber an existing replacement object for this commit.
-  const existingReplacement = await git(['replace', '-l', headSha], cwd, { ignoreErrors: true });
-  if (existingReplacement) return fn();
-
-  const parentsRaw = await git(['log', '-1', '--format=%P', headSha], cwd, { ignoreErrors: true });
-  const parents = parentsRaw ? parentsRaw.split(/\s+/) : [];
-
-  await git(['replace', '-f', '--graft', headSha, ...parents, baseSha], cwd);
-  try {
-    return await fn();
-  } finally {
-    await git(['replace', '-d', headSha], cwd, { ignoreErrors: true });
+  } catch (error) {
+    // Exit code 1 is git's "no".
+    if (error instanceof Error && 'code' in error && error.code === 1) return false;
+    throw error;
   }
 }

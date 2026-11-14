@@ -1,7 +1,15 @@
 {
   "$schema": "https://biomejs.dev/schemas/2.6.7/schema.json",
   "files": {
-    "includes": ["src/**", "tests/**", "index.js", "tsdown.config.ts", "vitest.config.ts"]
+    "includes": [
+      "src/**",
+      "tests/**",
+      "index.js",
+      "index.ts",
+      "tsdown.config.ts",
+      "vitest.config.ts",
+      "vitest.release.config.ts"
+    ]
   },
   "assist": {
     "enabled": true,
@@ -10,7 +18,7 @@
         "organizeImports": {
           "level": "on",
           "options": {
-            "groups": [[":PACKAGE_WITH_PROTOCOL:", ":PACKAGE:"], ["#/**"], ":PATH:"]
+            "groups": [[":PACKAGE_WITH_PROTOCOL:", ":PACKAGE:"], ":PATH:"]
           }
         }
       }

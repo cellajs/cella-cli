@@ -1,0 +1,506 @@
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { defaultPackageJsonKeys } from '../config/load';
+import type { PackageJsonKey, RuntimeConfig } from '../config/types';
+import pc from '../utils/colors';
+import { createSpinner, plural, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
+import { errorMessage } from '../utils/errors';
+import { git } from '../utils/git';
+import { compareVersions, parseComparableVersion } from '../utils/versions';
+import type { UpstreamContext } from './model';
+import { type AppUsage, loadAppUsage } from './package-usage';
+import { isIgnored } from './protection';
+
+/** A parsed package.json: only `pnpm` is typed, the merged keys are read through the index signature. */
+interface PackageJson {
+  pnpm?: {
+    overrides?: Record<string, string>;
+    patchedDependencies?: Record<string, string>;
+    packageExtensions?: Record<string, Record<string, unknown>>;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+/**
+ * Whether the upstream version is strictly higher than the app's; never downgrades.
+ * For non-parseable values (workspace:*, etc.), false (the app's value stays).
+ */
+function isHigherVersion(upstreamVersion: string, appVersion: string): boolean {
+  if (upstreamVersion === appVersion) return false;
+
+  const upCoerced = parseComparableVersion(upstreamVersion);
+  const appCoerced = parseComparableVersion(appVersion);
+
+  if (!upCoerced || !appCoerced) return false;
+
+  return compareVersions(upCoerced, appCoerced) > 0;
+}
+
+interface RecordMergeResult {
+  merged: Record<string, string>;
+  changed: boolean;
+  added: string[];
+  updated: string[];
+  removed: string[];
+  /** Entries upstream dropped that stay because the app still uses them */
+  kept: { name: string; usedAt: string }[];
+}
+
+interface RecordMergeOptions {
+  /** Let a strictly higher upstream version win over the app's own value (false for scripts, patch paths) */
+  bumpHigher?: boolean;
+  /** Where the app still uses an entry, so upstream dropping it does not remove it */
+  findUse?: (name: string) => string | undefined;
+  /** Order entries as upstream does instead of alphabetically (scripts, which are grouped by hand) */
+  upstreamOrder?: boolean;
+}
+
+/** Keys whose entries are packages the code imports or whose CLIs it runs. */
+const dependencyKeys: readonly PackageJsonKey[] = [
+  'dependencies',
+  'devDependencies',
+  'peerDependencies',
+  'optionalDependencies',
+];
+
+/**
+ * Three-way merge for a Record<string, string> key (dependencies, scripts, overrides, ...).
+ * `baseRecord` is the key at the merge-base: an entry whose app value still equals its base
+ * value was never touched by the app and follows upstream, an update or a removal alike. An
+ * entry the app changed stays, unless `bumpHigher` and upstream carries a strictly higher
+ * version. An entry the app removed (in base, absent in app) is not re-added, and one upstream
+ * dropped stays while `findUse` finds it in use. Without a base every upstream entry is added or
+ * bumped and nothing is removed.
+ * Returns the merged record sorted alphabetically (or in upstream's order, see `orderLikeUpstream`),
+ * plus the keys added, updated, removed and kept.
+ */
+function mergeRecord(
+  appRecord: Record<string, string> | undefined,
+  upstreamRecord: Record<string, string> | undefined,
+  baseRecord: Record<string, string> | undefined,
+  { bumpHigher = true, findUse, upstreamOrder = false }: RecordMergeOptions = {},
+): RecordMergeResult | undefined {
+  if (!upstreamRecord) return undefined;
+
+  const merged = { ...(appRecord || {}) };
+  const base = baseRecord || {};
+  const added: string[] = [];
+  const updated: string[] = [];
+  const removed: string[] = [];
+  const kept: RecordMergeResult['kept'] = [];
+
+  for (const [name, upstreamValue] of Object.entries(upstreamRecord)) {
+    const appValue = merged[name];
+
+    if (appValue === undefined) {
+      // In base but not in the app: the app removed it on purpose
+      if (name in base) continue;
+      merged[name] = upstreamValue;
+      added.push(name);
+    } else if (appValue === upstreamValue) {
+    } else if (base[name] === appValue) {
+      // Untouched by the app: follow upstream, a downgrade or a rewritten script included
+      merged[name] = upstreamValue;
+      updated.push(name);
+    } else if (bumpHigher && isHigherVersion(upstreamValue, appValue)) {
+      // Both sides changed it: a strictly higher upstream version wins (with upstream's range prefix)
+      merged[name] = upstreamValue;
+      updated.push(name);
+    }
+    // Otherwise the app's own value stays
+  }
+
+  // Entries upstream dropped: removed when the app never touched them and does not use them
+  for (const [name, appValue] of Object.entries(merged)) {
+    if (name in upstreamRecord) continue;
+    if (base[name] === undefined || base[name] !== appValue) continue;
+    const usedAt = findUse?.(name);
+    if (usedAt) {
+      kept.push({ name, usedAt });
+      continue;
+    }
+    delete merged[name];
+    removed.push(name);
+  }
+
+  const keys = upstreamOrder
+    ? orderLikeUpstream(Object.keys(merged), Object.keys(upstreamRecord))
+    : Object.keys(merged).sort((a, b) => a.localeCompare(b));
+  const ordered = Object.fromEntries(keys.map((name) => [name, merged[name]]));
+  const changed = added.length + updated.length + removed.length > 0;
+  return { merged: ordered, changed, added, updated, removed, kept };
+}
+
+/**
+ * Order record keys as upstream does. A key only the app has stays right after the key before it
+ * in the app's order, so the app's own entries keep their place among the ones they belong with.
+ */
+function orderLikeUpstream(appKeys: string[], upstreamKeys: string[]): string[] {
+  const upstream = new Set(upstreamKeys);
+  const appOnlyAfter = new Map<string | undefined, string[]>();
+  let anchor: string | undefined;
+  for (const key of appKeys) {
+    if (upstream.has(key)) anchor = key;
+    else appOnlyAfter.set(anchor, [...(appOnlyAfter.get(anchor) ?? []), key]);
+  }
+
+  const present = new Set(appKeys);
+  const ordered = [...(appOnlyAfter.get(undefined) ?? [])];
+  for (const key of upstreamKeys) {
+    if (present.has(key)) ordered.push(key);
+    ordered.push(...(appOnlyAfter.get(key) ?? []));
+  }
+  return ordered;
+}
+
+/** A subpath map (`{ ".": …, "./config": … }`), not a string or a conditions object. */
+function isSubpathMap(value: unknown): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  return Object.keys(value).every((name) => name.startsWith('.'));
+}
+
+/**
+ * Safe merge for the `exports` key: upstream subpaths the app lacks are added, the
+ * app's own never touched. Only merges when both sides are subpath maps: a string or conditions object
+ * can't take extra subpaths, and condition order is significant. Keeps the app's key order.
+ */
+function safeMergeExports(
+  appExports: unknown,
+  upstreamExports: unknown,
+): { merged: Record<string, unknown>; changed: boolean; added: string[] } | undefined {
+  if (!isSubpathMap(upstreamExports)) return undefined;
+  if (appExports !== undefined && !isSubpathMap(appExports)) return undefined;
+
+  const merged = { ...(appExports || {}) };
+  const added = Object.keys(upstreamExports).filter((name) => !(name in merged));
+  for (const name of added) merged[name] = upstreamExports[name];
+
+  return { merged, changed: added.length > 0, added };
+}
+
+/**
+ * Merge for the `pnpm` key: `overrides` and `patchedDependencies` merge three-way like any
+ * record; `packageExtensions` and other sub-keys are add-only.
+ */
+function safeMergePnpm(
+  appPnpm: PackageJson['pnpm'],
+  upstreamPnpm: PackageJson['pnpm'],
+  basePnpm: PackageJson['pnpm'],
+): { merged: PackageJson['pnpm']; changed: boolean } | undefined {
+  if (!upstreamPnpm) return undefined;
+
+  const merged: NonNullable<PackageJson['pnpm']> = { ...(appPnpm || {}) };
+  let changed = false;
+
+  // overrides add, follow and bump like dependencies; patch paths carry no version to compare
+  for (const sub of ['overrides', 'patchedDependencies'] as const) {
+    const result = mergeRecord(merged[sub], upstreamPnpm[sub], basePnpm?.[sub], { bumpHigher: sub === 'overrides' });
+    if (result?.changed) {
+      merged[sub] = result.merged;
+      changed = true;
+    }
+  }
+
+  // pnpm.packageExtensions: new packages and new sub-keys are added, never removed
+  if (upstreamPnpm.packageExtensions) {
+    const appExts = (merged.packageExtensions || {}) as Record<string, Record<string, unknown>>;
+    const upstreamExts = upstreamPnpm.packageExtensions as Record<string, Record<string, unknown>>;
+
+    for (const [pkg, upstreamExt] of Object.entries(upstreamExts)) {
+      if (!(pkg in appExts)) {
+        appExts[pkg] = upstreamExt;
+        changed = true;
+      } else {
+        for (const [subKey, subValue] of Object.entries(upstreamExt)) {
+          if (!(subKey in appExts[pkg])) {
+            appExts[pkg][subKey] = subValue;
+            changed = true;
+          }
+        }
+      }
+    }
+
+    merged.packageExtensions = appExts;
+  }
+
+  // Other pnpm sub-keys are added when missing in the app.
+  for (const [key, value] of Object.entries(upstreamPnpm)) {
+    if (['overrides', 'patchedDependencies', 'packageExtensions'].includes(key)) continue;
+    if (!(key in merged)) {
+      merged[key] = value;
+      changed = true;
+    }
+  }
+
+  return { merged, changed };
+}
+
+/**
+ * Three-way merge for `type`, which decides how Node loads the package's `.js` files, so it merges
+ * whatever `packageJsonKeys` lists. Follows upstream where the app still has the merge-base value
+ * (an update or a removal alike) and keeps a value the app set itself; never version-bumped.
+ * An app without `type` gets upstream's even when the base had one: `type` never merged before,
+ * so a missing one is a missed upstream change, not a removal (to opt out, set "commonjs").
+ * Returns the app's new value and the change, or null when the app's value stays.
+ */
+function mergeModuleType(
+  appType: unknown,
+  upstreamType: unknown,
+  baseType: unknown,
+): { value: string | undefined; change: 'added' | 'updated' | 'removed' } | null {
+  const asString = (value: unknown) => (typeof value === 'string' ? value : undefined);
+  const app = asString(appType);
+  const upstream = asString(upstreamType);
+  if (app === upstream) return null;
+  if (app === undefined) return { value: upstream, change: 'added' };
+  if (app !== asString(baseType)) return null;
+  return { value: upstream, change: upstream === undefined ? 'removed' : 'updated' };
+}
+
+/**
+ * Set a top-level key in place. A key the file already has keeps its position; a new one goes
+ * where cella's own package.json files keep it, after `name`, `version` and `private` (whichever
+ * comes last), else first.
+ */
+function setTopLevelKey(pkg: PackageJson, key: string, value: unknown): void {
+  if (key in pkg) {
+    pkg[key] = value;
+    return;
+  }
+  const entries = Object.entries(pkg);
+  const after = Math.max(...['name', 'version', 'private'].map((name) => entries.findIndex(([k]) => k === name)));
+  entries.splice(after + 1, 0, [key, value]);
+  for (const name of Object.keys(pkg)) delete pkg[name];
+  Object.assign(pkg, Object.fromEntries(entries));
+}
+
+/** The app's package.json at `filePath`, null when there is none; one that does not parse throws. */
+function readPackageJson(filePath: string): PackageJson | null {
+  if (!existsSync(filePath)) return null;
+  try {
+    return JSON.parse(readFileSync(filePath, 'utf8'));
+  } catch (error) {
+    throw new Error(`cannot parse ${filePath}: ${errorMessage(error)}`);
+  }
+}
+
+/** The package.json path of a workspace location ('' is the root). */
+function packageJsonPath(relativePath: string): string {
+  return relativePath ? `${relativePath}/package.json` : 'package.json';
+}
+
+/** A package.json at a git ref, raw and parsed; null when the ref has no such file. */
+async function readPackageJsonAtRef(
+  repoRoot: string,
+  ref: string,
+  relativePath: string,
+): Promise<{ raw: string; data: PackageJson } | null> {
+  try {
+    const raw = await git(['show', `${ref}:${packageJsonPath(relativePath)}`], repoRoot);
+    return { raw, data: JSON.parse(raw) };
+  } catch {
+    return null;
+  }
+}
+
+/** Every package.json location upstream has; the app side is judged per location. */
+async function discoverPackageLocations(repoRoot: string, upstreamRef: string): Promise<string[]> {
+  const stdout = await git(['ls-tree', '-r', '--name-only', upstreamRef], repoRoot, { ignoreErrors: true });
+  return stdout
+    .split('\n')
+    .filter((p) => p.endsWith('/package.json') || p === 'package.json')
+    .map((p) => (p === 'package.json' ? '' : p.replace('/package.json', '')));
+}
+
+/**
+ * Merge a single package.json file three-way (app, upstream, merge-base).
+ *
+ * A location the app lacks is a workspace upstream added since the base: its package.json
+ * lands verbatim when the merge brought the directory (and the location is not ignored). A
+ * package.json the base had and the app removed stays removed.
+ *
+ * Returns the change lines, plus the entries upstream dropped that stay because `usage` found
+ * the app still using them.
+ */
+async function mergePackageJson(
+  config: RuntimeConfig,
+  upstream: Pick<UpstreamContext, 'ref' | 'mergeBase'>,
+  usage: AppUsage,
+  relativePath: string,
+  keysToMerge: PackageJsonKey[],
+): Promise<{ updated: boolean; changes: string[]; kept: string[] }> {
+  const { repoRoot } = config;
+  const changes: string[] = [];
+  const kept: string[] = [];
+  const pkgRelPath = packageJsonPath(relativePath);
+  const pkgPath = join(repoRoot, pkgRelPath);
+
+  const appPkg = readPackageJson(pkgPath);
+  const upstreamFile = await readPackageJsonAtRef(repoRoot, upstream.ref, relativePath);
+  const basePkg = (await readPackageJsonAtRef(repoRoot, upstream.mergeBase, relativePath))?.data;
+
+  if (!upstreamFile) return { updated: false, changes, kept };
+
+  if (!appPkg) {
+    const workspaceArrived = relativePath !== '' && existsSync(join(repoRoot, relativePath));
+    if (basePkg || !workspaceArrived || isIgnored(pkgRelPath, config)) return { updated: false, changes, kept };
+    writeFileSync(pkgPath, upstreamFile.raw.endsWith('\n') ? upstreamFile.raw : `${upstreamFile.raw}\n`, 'utf8');
+    return { updated: true, changes: ['copied from upstream (new workspace)'], kept };
+  }
+
+  const upstreamPkg = upstreamFile.data;
+  let updated = false;
+
+  const type = mergeModuleType(appPkg.type, upstreamPkg.type, basePkg?.type);
+  if (type) {
+    if (type.value === undefined) delete appPkg.type;
+    else setTopLevelKey(appPkg, 'type', type.value);
+    updated = true;
+    changes.push(`type: ${type.change}`);
+  }
+
+  for (const key of keysToMerge) {
+    if (key === 'pnpm') {
+      const result = safeMergePnpm(appPkg.pnpm, upstreamPkg.pnpm, basePkg?.pnpm);
+      if (result?.changed) {
+        appPkg.pnpm = result.merged;
+        updated = true;
+        changes.push('pnpm: merged');
+      }
+      continue;
+    }
+
+    if (key === 'packageManager') {
+      // A string, merged as a one-entry record: it adds, follows and bumps like a dependency
+      const asRecord = (pkg?: PackageJson) => (pkg?.[key] ? { [key]: String(pkg[key]) } : undefined);
+      const result = mergeRecord(asRecord(appPkg), asRecord(upstreamPkg), asRecord(basePkg));
+      if (result?.changed) {
+        appPkg[key] = result.merged[key];
+        updated = true;
+        changes.push(`${key}: ${result.added.length > 0 ? 'added' : 'updated'}`);
+      }
+      continue;
+    }
+
+    if (key === 'exports') {
+      // Add-only, subpath maps only: the app gains new upstream subpaths, keeps any it defines
+      // itself, and a subpath it has repointed stays repointed.
+      const result = safeMergeExports(appPkg.exports, upstreamPkg.exports);
+      if (result?.changed) {
+        appPkg.exports = result.merged;
+        updated = true;
+        changes.push(...result.added.map((name) => `exports.${name}: added`));
+      }
+      continue;
+    }
+
+    // All Record<string, string> keys merge three-way; scripts carry no version to compare.
+    const appValue = appPkg[key] as Record<string, string> | undefined;
+    const upstreamValue = upstreamPkg[key] as Record<string, string> | undefined;
+    const baseValue = basePkg?.[key] as Record<string, string> | undefined;
+
+    let findUse: RecordMergeOptions['findUse'];
+    if (key === 'scripts') findUse = (name) => usage.findScript(name);
+    else if (dependencyKeys.includes(key)) findUse = (name) => usage.findPackage(relativePath, name);
+    const isScripts = key === 'scripts';
+    const result = mergeRecord(appValue, upstreamValue, baseValue, {
+      bumpHigher: !isScripts,
+      findUse,
+      upstreamOrder: isScripts,
+    });
+    kept.push(...(result?.kept ?? []).map(({ name, usedAt }) => `${key}.${name}: used in ${usedAt}`));
+    if (result?.changed) {
+      appPkg[key] = result.merged;
+      updated = true;
+      changes.push(
+        ...result.added.map((name) => `${key}.${name}: added`),
+        ...result.updated.map((name) => `${key}.${name}: updated`),
+        ...result.removed.map((name) => `${key}.${name}: removed`),
+      );
+    }
+  }
+
+  if (updated) writeFileSync(pkgPath, `${JSON.stringify(appPkg, null, 2)}\n`, 'utf8');
+
+  return { updated, changes, kept };
+}
+
+/**
+ * Merge the configured keys of every package.json upstream has into the app's, three-way against
+ * the merge base's package.json (upstream as of the previous upgrade):
+ * - Add: entries that are new upstream are added
+ * - Follow: an entry the app never touched (still equal to its base value) follows upstream,
+ *   whether upstream rewrote a script, changed a range, or dropped the entry
+ * - Keep: an entry the app added or changed stays, except that a strictly higher upstream
+ *   version still bumps it; an entry the app removed is not re-added
+ * - Still used: a dependency or script upstream dropped stays while app-authored code still
+ *   imports it, runs its CLI or runs the script (see package-usage.ts)
+ * - Supports nested `pnpm` key (overrides, patchedDependencies, packageExtensions)
+ * - `type` always merges, whatever `packageJsonKeys` lists (see mergeModuleType)
+ * - A workspace package.json upstream added since the base arrives verbatim
+ * Where the base has no such package.json, every upstream entry is added or bumped and nothing is
+ * removed. A package.json in `conflictedFiles` (the upgrade merge left it unmerged) is skipped so its
+ * conflict markers stay; all others still merge.
+ */
+export async function runPackages(
+  config: RuntimeConfig,
+  upstream: Pick<UpstreamContext, 'ref' | 'mergeBase'>,
+  conflictedFiles: string[] = [],
+): Promise<void> {
+  createSpinner('merging package.json files...');
+
+  const keysToMerge = config.packageJsonKeys || defaultPackageJsonKeys;
+  const conflictedSet = new Set(conflictedFiles);
+
+  // Before any package.json is rewritten: the app-authored scripts are judged on the app's own copy
+  const usage = await loadAppUsage(config.repoRoot, upstream.ref, upstream.mergeBase);
+  const locations = await discoverPackageLocations(config.repoRoot, upstream.ref);
+  const reports: { path: string; changes: string[]; kept: string[] }[] = [];
+  const skipped: string[] = [];
+
+  for (const location of locations) {
+    const pkgRelPath = packageJsonPath(location);
+
+    // Skip package.json files that are themselves conflicted from the merge:
+    // writing to them would clobber the conflict markers the user must resolve.
+    if (conflictedSet.has(pkgRelPath)) {
+      skipped.push(pkgRelPath);
+      continue;
+    }
+
+    spinnerText(`merging ${location || 'root'}/package.json...`);
+
+    const { updated, changes, kept } = await mergePackageJson(config, upstream, usage, location, keysToMerge);
+    if (updated || kept.length > 0) reports.push({ path: pkgRelPath, changes, kept });
+  }
+
+  const changedCount = reports.filter(({ changes }) => changes.length > 0).length;
+  spinnerSuccess(
+    'package.json merge complete',
+    `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`,
+  );
+
+  for (const { path, changes } of reports) {
+    if (changes.length === 0) continue;
+    console.info(`  ${path}`);
+    for (const change of changes) console.info(`    ${pc.dim(change)}`);
+  }
+
+  // Entries upstream dropped that the app still uses: the user decides when they can go
+  const kept = reports.flatMap(({ path, kept }) => kept.map((entry) => `${path} ${entry}`));
+  const them = kept.length === 1 ? 'it' : 'them';
+  printWarnList(`kept ${plural(kept.length, 'entry', 'entries')} upstream dropped, the app still uses ${them}:`, kept);
+  printWarnList(
+    `skipped ${skipped.length} conflicted package.json file(s): resolve the conflicts, commit the merge, then rerun \`pnpm cella upgrade\`:`,
+    skipped,
+  );
+}
+
+/** A warning header with one `→ entry` line per entry; silent without entries. */
+function printWarnList(header: string, entries: string[]): void {
+  if (entries.length === 0) return;
+  console.info();
+  console.info(`${warningMark} ${pc.yellow(header)}`);
+  for (const entry of entries) console.info(`    ${pc.dim('→')} ${entry}`);
+}

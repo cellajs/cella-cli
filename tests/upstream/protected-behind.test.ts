@@ -1,0 +1,223 @@
+/**
+ * Tests for protected-but-behind detection.
+ *
+ * A pinned/ignored file wins whole-file on conflict, so when upstream ALSO changed it since the
+ * merge-base, upstream's hunks are dropped silently. `analyzeRefs` flags exactly those files
+ * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehindUpstream` selects them for display,
+ * and `printUpgradeComplete` lists `MergeResult.protectedConflicts` at the end of an upgrade. The diffs
+ * themselves are on the review page, so the list prints no `git diff` lines. The analyze section
+ * is covered in `analyze-report.test.ts`.
+ */
+import fs from 'node:fs';
+import { afterEach, beforeEach, describe, expect, it } from 'vitest';
+import { analyzeRefs } from '../../src/upstream/classify';
+import type { AnalyzedFile, MergeResult } from '../../src/upstream/model';
+import { findProtectedBehindUpstream, printUpgradeComplete } from '../../src/upstream/report';
+import { getMergeBase } from '../../src/utils/git';
+import { captureInfo, createRepo, exec, analyzedFile as file, write } from '../helpers/test-env';
+
+/**
+ * Repo with a `main` (app) and `upstream` branch off one base commit:
+ * - pinned.css:    both changed (upstream +3 −1)      → flagged, 4 lines
+ * - only-app.css: app changed, upstream untouched  → plain ahead
+ * - masking.css:   upstream changed, app untouched  → behind (masking pin, not flagged)
+ * - own/mine.ts:   ignored, both changed             → flagged
+ * - plain.ts:      unprotected, upstream changed     → behind, never flagged
+ * - stale.css:     pinned, app dropped 2 base lines, upstream untouched → ahead, 2 lines absent
+ * - own/stale.ts:  ignored, same shape as stale.css  → ignored, never annotated
+ * - own/shot.webp: ignored binary the app deleted, upstream changed → upstreamOnly, not flagged
+ * - own/logo.png:  ignored binary both changed       → flagged as binary
+ */
+function createScenarioRepo(): string {
+  const dir = createRepo('cella-protected-behind-');
+
+  write(dir, {
+    'pinned.css': 'a\nb\nc\n',
+    'only-app.css': 'a\n',
+    'masking.css': 'a\n',
+    'own/mine.ts': 'a\n',
+    'plain.ts': 'a\n',
+    'stale.css': 'a\nb\nc\n',
+    'own/stale.ts': 'a\nb\n',
+    'own/shot.webp': 'RIFF\0base',
+    'own/logo.png': 'PNG\0base',
+  });
+  exec('git add -A && git commit -q -m base', dir);
+
+  exec('git checkout -q -b upstream', dir);
+  write(dir, {
+    'pinned.css': 'a\nb\nx\ny\nz\n', // c removed, x y z added
+    'masking.css': 'a\nupstream\n',
+    'own/mine.ts': 'a\nupstream\n',
+    'plain.ts': 'a\nupstream\n',
+    'own/shot.webp': 'RIFF\0upstream',
+    'own/logo.png': 'PNG\0upstream',
+  });
+  exec('git add -A && git commit -q -m upstream', dir);
+
+  exec('git checkout -q main', dir);
+  write(dir, {
+    'pinned.css': 'a\nb\nc\nfork\n',
+    'only-app.css': 'a\nfork\n',
+    'own/mine.ts': 'a\nfork\n',
+    'stale.css': 'a\nfork\n', // b, c gone: 2 upstream lines absent
+    'own/stale.ts': 'a\n',
+    'own/logo.png': 'PNG\0fork',
+  });
+  fs.rmSync(`${dir}/own/shot.webp`);
+  exec('git add -A && git commit -q -m app', dir);
+
+  return dir;
+}
+
+describe('analyzeRefs upstreamChanged', () => {
+  let repoPath: string;
+  let byPath: Map<string, AnalyzedFile>;
+
+  beforeEach(async () => {
+    repoPath = createScenarioRepo();
+    const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
+    const files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
+      isIgnored: (p) => p.startsWith('own/'),
+      isPinned: (p) => p.endsWith('.css'),
+    });
+    byPath = new Map(files.map((f) => [f.path, f]));
+  });
+
+  afterEach(() => {
+    fs.rmSync(repoPath, { recursive: true, force: true });
+  });
+
+  it('flags a pinned file both sides changed and counts the upstream lines', () => {
+    const pinned = byPath.get('pinned.css');
+    expect(pinned?.status).toBe('pinned');
+    expect(pinned?.upstreamChanged).toBe(true);
+    expect(pinned?.upstreamChangedLines).toBe(4);
+  });
+
+  it('leaves a pinned file only the app changed as plain ahead', () => {
+    const ahead = byPath.get('only-app.css');
+    expect(ahead?.status).toBe('ahead');
+    expect(ahead?.upstreamChanged).toBeUndefined();
+    expect(ahead?.upstreamChangedLines).toBeUndefined();
+  });
+
+  it('does not flag a masking pin (app copy still equals base)', () => {
+    const masking = byPath.get('masking.css');
+    expect(masking?.status).toBe('behind');
+    expect(masking?.isPinned).toBe(true);
+    expect(masking?.upstreamChanged).toBeUndefined();
+  });
+
+  it('flags an ignored file both sides changed', () => {
+    const ignored = byPath.get('own/mine.ts');
+    expect(ignored?.status).toBe('ignored');
+    expect(ignored?.upstreamChanged).toBe(true);
+    expect(ignored?.upstreamChangedLines).toBe(1);
+  });
+
+  it('reports an ignored file the app does not have as upstream-only, and marks a binary', () => {
+    expect(byPath.get('own/shot.webp')).toMatchObject({ upstreamOnly: true, upstreamBinary: true });
+    expect(byPath.get('own/shot.webp')?.upstreamChanged).toBeUndefined();
+    expect(byPath.get('own/logo.png')).toMatchObject({ upstreamChanged: true, upstreamBinary: true });
+  });
+
+  it('never flags unprotected files', () => {
+    const plain = byPath.get('plain.ts');
+    expect(plain?.status).toBe('behind');
+    expect(plain?.upstreamChanged).toBeUndefined();
+  });
+
+  it('counts upstream lines absent from a pinned ahead file', () => {
+    const stale = byPath.get('stale.css');
+    expect(stale?.status).toBe('ahead');
+    expect(stale?.upstreamLinesAbsent).toBe(2);
+    // app only added lines: nothing absent
+    expect(byPath.get('only-app.css')?.upstreamLinesAbsent).toBe(0);
+  });
+
+  it('never counts absent lines for ignored or unprotected files', () => {
+    expect(byPath.get('own/stale.ts')?.status).toBe('ignored');
+    expect(byPath.get('own/stale.ts')?.upstreamLinesAbsent).toBeUndefined();
+    expect(byPath.get('plain.ts')?.upstreamLinesAbsent).toBeUndefined();
+  });
+});
+
+describe('findProtectedBehindUpstream', () => {
+  it('selects flagged files and skips managed and generated ones', () => {
+    const files = [
+      file({ path: 'frontend/src/styling/tailwind.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
+      file({ path: 'own/a.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'package.json', status: 'pinned', isPinned: true, upstreamChanged: true }),
+      file({ path: 'sdk/gen/types.gen.ts', status: 'ignored', isIgnored: true, upstreamChanged: true }),
+      file({ path: 'ahead.ts', status: 'ahead', isPinned: true }),
+      file({ path: 'plain.ts', status: 'behind' }),
+    ];
+    expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual([
+      'frontend/src/styling/tailwind.css',
+      'own/a.ts',
+    ]);
+  });
+});
+
+describe('printUpgradeComplete protected conflicts', () => {
+  const baseResult = (): MergeResult => ({
+    files: [],
+    conflicts: [],
+    summary: {
+      managed: 0,
+      identical: 0,
+      ahead: 0,
+      local: 0,
+      drifted: 0,
+      behind: 0,
+      diverged: 0,
+      pinned: 0,
+      ignored: 0,
+      deleted: 0,
+      renamed: 0,
+    },
+  });
+
+  const capture = (result: MergeResult) => captureInfo(() => printUpgradeComplete(result));
+
+  it('lists dropped protected files with their upstream line count and the hint', () => {
+    const result = baseResult();
+    result.files = [
+      file({
+        path: 'frontend/src/styling/tailwind.css',
+        status: 'pinned',
+        isPinned: true,
+        upstreamChanged: true,
+        upstreamChangedLines: 21,
+      }),
+    ];
+    result.protectedConflicts = ['frontend/src/styling/tailwind.css'];
+    result.upstreamDiffRange = 'e9a8d485e..a81e3353b';
+
+    const out = capture(result);
+    expect(out).toContain('1 protected file kept the app version');
+    expect(out).toContain('frontend/src/styling/tailwind.css');
+    expect(out).toContain('21 lines changed upstream');
+    expect(out).toContain('adopt what you need');
+    expect(out).not.toContain('git diff');
+  });
+
+  it('counts ignored binaries in one line', () => {
+    const result = baseResult();
+    const shots = ['public/shot-1.webp', 'public/shot-2.webp'];
+    result.files = shots.map((path) =>
+      file({ path, status: 'ignored', isIgnored: true, upstreamChanged: true, upstreamBinary: true }),
+    );
+    result.protectedConflicts = shots;
+
+    const out = capture(result);
+    expect(out).toContain('2 ignored binary files, such as public/shot-1.webp');
+    expect(out).not.toContain('public/shot-2.webp');
+  });
+
+  it('stays silent when nothing was dropped', () => {
+    const out = capture(baseResult());
+    expect(out).not.toContain('protected');
+  });
+});

@@ -3,13 +3,13 @@ import { defineConfig } from 'tsdown';
 export default defineConfig({
   entry: {
     index: 'src/cella-cli.ts',
-    config: 'config.ts',
-    bench: 'src/tools/bench/index.ts',
-    style: 'style.ts',
-    drive: 'src/tools/drive.ts',
-    a11y: 'src/tools/a11y/exports.ts',
-    screenshots: 'src/tools/screenshots/exports.ts',
-    pentest: 'src/tools/pentest/adapter.ts',
+    config: 'src/exports/config.ts',
+    bench: 'src/exports/bench.ts',
+    style: 'src/exports/style.ts',
+    drive: 'src/exports/drive.ts',
+    a11y: 'src/exports/a11y.ts',
+    screenshots: 'src/exports/screenshots.ts',
+    pentest: 'src/exports/pentest.ts',
   },
   // The exports map names .js and .d.ts files
   fixedExtension: false,

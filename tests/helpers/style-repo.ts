@@ -2,6 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { type StyleExceptions, templateExceptions } from '../../src/style/exceptions';
+import { checkFile } from '../../src/style/index';
+import type { Finding, Rule, StyleRun } from '../../src/style/rule';
 
 /** This checkout: its devDependencies stand in for the TypeScript and Tailwind an app installs. */
 export const cliRoot = resolve(__dirname, '../..');
@@ -17,4 +20,15 @@ export function makeRepo(files: Record<string, string>, { frontend = false } = {
   if (frontend) symlinkSync(join(cliRoot, 'node_modules'), join(root, 'frontend/node_modules'));
   execFileSync('git', ['init', '-q'], { cwd: root });
   return root;
+}
+
+/** What `cella style` reports for `file` from `rules`, the template's exceptions or `exceptions` applied. */
+export function check(
+  rules: Rule[],
+  file: string,
+  source: string,
+  run: Partial<StyleRun> = {},
+  exceptions: StyleExceptions = templateExceptions,
+): Finding[] {
+  return checkFile(rules, file, source, { root: cliRoot, files: [], stores: new Set(), owned: [], ...run }, exceptions);
 }

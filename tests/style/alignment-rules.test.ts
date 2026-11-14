@@ -1,10 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import {
-  alignmentFindings,
-  checkAlignmentReadme,
-  owedAlignmentFindings,
-  ownedPaths,
-} from '../../src/tools/style/alignment-rules';
+import { alignmentRule, checkAlignmentReadme, owedAlignmentRule } from '../../src/style/alignment-rules';
+import { check } from '../helpers/style-repo';
 
 const lines = (...rows: string[]) => rows.join('\n');
 const alignment = lines(
@@ -60,10 +56,11 @@ describe('checkAlignmentReadme', () => {
   });
 });
 
-describe('alignmentFindings', () => {
-  const read = (sources: Record<string, string>) => (file: string) => sources[file];
+describe('alignment', () => {
   const messages = (files: string[], sources: Record<string, string>) =>
-    alignmentFindings(files, read(sources)).map(({ file, message }) => `${file}: ${message}`);
+    files
+      .flatMap((file) => check([alignmentRule], file, sources[file] ?? '', { files }))
+      .map(({ file, message }) => `${file}: ${message}`);
 
   it('passes a well-formed alignment and ignores the files beside the folders', () => {
     const files = [
@@ -93,44 +90,25 @@ describe('alignmentFindings', () => {
       'cella/alignments/config-switch/README.md: roots is only for an alignment with a codemod',
       'cella/alignments/20261002T0614-no-readme: alignment folder has no README.md',
       'cella/alignments/20261002T0615-manual/README.md: roots is only for an alignment with a codemod',
-      'cella/alignments/20261002T0616-no-roots/README.md: a codemod needs roots: the folders `pnpm cella align --run` scans by default',
+      'cella/alignments/20261002T0616-no-roots/README.md: a codemod needs roots: the folders `pnpm cella align run` scans by default',
     ]);
   });
 });
 
-describe('owedAlignmentFindings', () => {
-  const config = lines(
-    'export default defineConfig({',
-    '  overrides: {',
-    '    ignored: [',
-    "      'README.md',",
-    "      'shared/config',",
-    "      'backend/drizzle',",
-    '      // App identity',
-    "      'frontend/src/modules/common/logo-art.tsx',",
-    "      'locales/en/app.json',",
-    '    ],',
-    '    pinned: [',
-    "      'backend/src/modules.ts',",
-    "      'json/text-blocks.json',",
-    '    ],',
-    '  },',
-    '});',
-  );
+describe('owed-alignment', () => {
+  const owned = [
+    'README.md',
+    'shared/config',
+    'backend/drizzle',
+    'frontend/src/modules/common/logo-art.tsx',
+    'shared/locales/en/app.json',
+    'backend/src/modules.ts',
+    'shared/json/text-blocks.json',
+  ];
   const rule = (changed: string[], messages = '', added = changed) =>
-    owedAlignmentFindings({ changed, added, messages }, config).map((finding) => finding.file);
-
-  it('reads the ignored and pinned entries of the CLI config', () => {
-    expect(ownedPaths(config)).toEqual([
-      'README.md',
-      'shared/config',
-      'backend/drizzle',
-      'frontend/src/modules/common/logo-art.tsx',
-      'locales/en/app.json',
-      'backend/src/modules.ts',
-      'json/text-blocks.json',
-    ]);
-  });
+    changed
+      .flatMap((file) => check([owedAlignmentRule], file, '', { branch: { changed, added, messages }, owned }))
+      .map((finding) => finding.file);
 
   it('asks for an alignment when a branch changes an app-owned path template code reads from', () => {
     expect(rule(['frontend/src/modules/common/logo-art.tsx', 'frontend/src/modules/auth/auth-layout.tsx'])).toEqual([
@@ -147,8 +125,8 @@ describe('owedAlignmentFindings', () => {
       rule([
         'README.md',
         'shared/config/config.default.ts',
-        'locales/en/app.json',
-        'json/text-blocks.json',
+        'shared/locales/en/app.json',
+        'shared/json/text-blocks.json',
         'backend/drizzle/README.md',
         'backend/src/modules/auth/x.ts',
       ]),
