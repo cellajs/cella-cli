@@ -29,7 +29,7 @@ function groupedComments(comments: Comment[], source: string): Comment[] {
       /^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, comment.offset))
     ) {
       previous.end = comment.end;
-      previous.text += `\n${comment.text}`;
+      previous.text = source.slice(previous.offset, comment.end);
       continue;
     }
     groups.push({ ...comment });
@@ -89,7 +89,7 @@ function hasDirectDeclarationOwner(file: string, source: string, comment: Commen
 /** Rule findings in one source file, `text` rules over its whole text and the rest over its comments, and placement findings. */
 export function commentFindings(file: string, source: string): Finding[] {
   if (!isSource(file)) return [];
-  const comments = sourceComments(file, source);
+  const comments = groupedComments(sourceComments(file, source), source);
   const findings: Finding[] = [
     ...textRules.flatMap((rule) => ruleFindings(rule, file, source, (index) => lineColumn(source, index))),
     ...comments.flatMap((comment) =>
@@ -99,7 +99,7 @@ export function commentFindings(file: string, source: string): Finding[] {
     ),
   ];
 
-  for (const comment of groupedComments(comments, source)) {
+  for (const comment of comments) {
     const lineCount = proseLineCount(comment.text);
     if (lineCount <= 3 || isRequiredHeader(comment.text) || hasDirectDeclarationOwner(file, source, comment)) continue;
     findings.push({

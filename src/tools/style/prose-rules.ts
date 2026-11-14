@@ -1,4 +1,4 @@
-import type { Finding } from './repo';
+import { blankOut, type Finding } from './repo';
 
 /** A wording rule, read in every source comment. */
 export interface ProseRule {
@@ -78,7 +78,7 @@ export const proseRules: ProseRule[] = [
   },
   {
     name: 'consequence-tail',
-    pattern: /, so (?!that\b)/,
+    pattern: /,\s+so\s(?!\s*that\b)/,
     message:
       'make the reason and its consequence two sentences, the one the reader needs first going first, or drop the half that restates the code or the mechanism',
     docs: true,
@@ -91,15 +91,21 @@ export const proseRules: ProseRule[] = [
 /** The rules reported only on changed lines, by name. */
 export const changedLineRules = new Set(proseRules.filter((rule) => rule.changedLines).map((rule) => rule.name));
 
-/** Words in the sentence around `index`: from the previous sentence end or line start to the next sentence end or line end. */
-function sentenceWords(text: string, index: number): number {
-  const before = text.slice(0, index);
-  const ends = [...before.matchAll(/[.!?;:](?=\s)/g)];
-  const start = Math.max(before.lastIndexOf('\n'), ends.length > 0 ? (ends[ends.length - 1].index ?? -1) : -1);
-  const rest = text.slice(index);
-  const end = rest.search(/[.!?](?:\s|$)|\n/);
-  const sentence = text.slice(start + 1, index + (end === -1 ? rest.length : end));
-  return sentence.split(/\s+/).filter(Boolean).length;
+/** `text` with the comment markers that open a line (`//`, `/*`, `*`, `#`, `--`) or close a block blanked. */
+function blankCommentMarkers(text: string): string {
+  return text.replace(/^[\t ]*(?:\/\/+|\/\*+|\*+\/?|#+|--+)|\*\/[\t ]*$/gm, blankOut);
+}
+
+/** Words in the sentence around `index`, across wrapped lines: from the last sentence end or block start to the next. */
+function sentenceWords(prose: string, index: number): number {
+  // A line break opens a block before a blank line, a list item, a table row, a heading, a quote or a JSDoc tag
+  const block = String.raw`\n(?=[\t ]*(?:\n|[-+*>#|@]|\d+[.)]\s))`;
+  const last = [...prose.slice(0, index).matchAll(new RegExp(String.raw`[.!?;:](?=\s)|${block}`, 'g'))].at(-1);
+  const end = prose.slice(index).search(new RegExp(String.raw`[.!?](?:\s|$)|${block}`));
+  return prose
+    .slice(last ? last.index + 1 : 0, end === -1 ? undefined : index + end)
+    .split(/\s+/)
+    .filter(Boolean).length;
 }
 
 /** A finding for every match of `rule` in `text`; `locate` maps an index in `text` to its line and column in `file`. */
@@ -109,16 +115,18 @@ export function ruleFindings(
   text: string,
   locate: (index: number) => { line: number; column: number },
 ): Finding[] {
-  if (rule.exclude?.test(file) || !rule.pattern.test(text)) return [];
+  if (rule.exclude?.test(file)) return [];
+  const prose = /\.mdx?$/i.test(file) ? text : blankCommentMarkers(text);
+  if (!rule.pattern.test(prose)) return [];
   const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);
-  const matches = [...text.matchAll(pattern)].filter(
-    (match) => rule.maxSentenceWords === undefined || sentenceWords(text, match.index) > rule.maxSentenceWords,
+  const matches = [...prose.matchAll(pattern)].filter(
+    (match) => rule.maxSentenceWords === undefined || sentenceWords(prose, match.index) > rule.maxSentenceWords,
   );
   return matches.map((match) => ({
     file,
     ...locate(match.index),
     rule: rule.name,
-    term: match[0],
+    term: match[0].replace(/\s+/g, ' '),
     message: rule.message,
   }));
 }

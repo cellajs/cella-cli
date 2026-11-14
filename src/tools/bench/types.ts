@@ -116,7 +116,10 @@ interface ScenarioBase<C extends string, H extends string> {
   checks?: Checks<NoInfer<C>, NoInfer<H>>;
   /** The latency a baseline compares first; `http.response_time.p95` when unset. */
   primary?: MetricKey<NoInfer<H>>;
-  /** Seconds the run waits for VUs in flight after the last arrival before it aborts them; 120 when unset. */
+  /**
+   * Seconds the run waits for VUs in flight after the last arrival before it aborts them; 300 when unset, and no limit
+   * for a single-run scenario.
+   */
   drainTimeout?: number;
 }
 

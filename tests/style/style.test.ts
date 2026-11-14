@@ -61,6 +61,8 @@ afterAll(() => {
 });
 
 const OK = '[style] OK, terminology, documentation, comments and frontend code follow the required style.';
+/** A test repository has no commits and no `origin/main` to measure changed lines from. */
+const noBase = '[style] skipped the changed-line rules (consequence-tail): HEAD has no merge base with origin/main';
 const placement =
   '  backend/src/long.ts:1:1 [detached-long-comment] 4 prose lines; move shared context to a README or attach a concise local constraint to a declaration';
 const storeRead =
@@ -90,13 +92,14 @@ describe('style check', () => {
     expect(run(dirty)).toEqual({
       status: 1,
       stdout: '',
-      stderr: lines(`[style] ${required.length} finding(s):`, ...required),
+      stderr: lines(noBase, `[style] ${required.length} finding(s):`, ...required),
     });
   });
 
   it('limits the files checked to the requested paths and still knows every store', () => {
     expect(run(dirty, 'backend/src/long.ts', 'frontend/src/comp.tsx').stderr).toBe(
       lines(
+        noBase,
         '[style] 4 finding(s):',
         placement,
         '  frontend/src/comp.tsx:2:14 [component-declaration] Arrow is an ordinary component; use a named function declaration',
@@ -107,7 +110,7 @@ describe('style check', () => {
   });
 
   it('prints one line when clean', () => {
-    expect(run(clean)).toEqual({ status: 0, stdout: lines(OK), stderr: '' });
+    expect(run(clean)).toEqual({ status: 0, stdout: lines(OK), stderr: lines(noBase) });
   });
 });
 
@@ -123,6 +126,7 @@ describe('app-owned prose exclusions', () => {
     try {
       expect(run(root).stderr).toBe(
         lines(
+          noBase,
           '[style] 1 finding(s):',
           `  src/new.ts:1:4 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
         ),
@@ -203,6 +207,7 @@ describe('tailwind classes', () => {
         status: 1,
         stdout: '',
         stderr: lines(
+          noBase,
           '[style] 13 finding(s):',
           dead('4:32', 'bad-base'),
           dead('5:32', 'bad-variant'),
@@ -231,6 +236,7 @@ describe('tailwind classes', () => {
         status: 1,
         stdout: '',
         stderr: lines(
+          noBase,
           '[style] 1 finding(s):',
           '  frontend/src/styling/app.css [tailwind-class] Tailwind cannot load this stylesheet: Cannot apply unknown utility class `bad-apply`',
         ),

@@ -53,8 +53,8 @@ export interface Finding {
 
 /** Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, in `git ls-files` order. */
 export function repoFiles(): string[] {
-  return execFileSync('git', ['ls-files', '-co', '--exclude-standard'], { cwd: repoRoot, encoding: 'utf8' })
-    .split('\n')
+  return execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: repoRoot, encoding: 'utf8' })
+    .split('\0')
     .filter((file) => file && existsSync(join(repoRoot, file)));
 }
 
