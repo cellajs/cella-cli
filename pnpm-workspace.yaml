@@ -1,3 +1,5 @@
+# Reject a dependency version published less than a day ago; the value is minutes. Set here, every pnpm run
+# follows it, the install that `pnpm build` starts included.
 minimumReleaseAge: 1440
 overrides:
   'esbuild@<0.28.1': '>=0.28.1'
