@@ -1,6 +1,6 @@
 /**
- * The file sections of the analyze report, in the order they need you: files that sync on their
- * own first, the upstream changes the sync leaves out last. Each file is a row with its path, a
+ * The file sections of the analyze report, in the order they need you: files that merge on their
+ * own first, the upstream changes the upgrade leaves out last. Each file is a row with its path, a
  * count and an age in columns. Large groups collapse unless `--all` asks for every path.
  */
 
@@ -21,25 +21,25 @@ import { compactCount, padVisible, shortAge, terminalColumns, visibleWidth } fro
 import { isUnderAnyFolder, normalizeEntry } from './protection';
 
 /** Behind files listed one per row up to this count; more collapse to one row per folder. */
-const BEHIND_FLAT_MAX = 15;
+const behindFlatMax = 15;
 
 /** Pinned files listed in full up to this count; more list only the ones missing many upstream lines. */
-const AHEAD_FLAT_MAX = 8;
+const aheadFlatMax = 8;
 
 /** Upstream lines a pinned file must miss to keep its own row once the section is cut short. */
-const ABSENT_SHOWN_MIN = 10;
+const absentShownMin = 10;
 
 /** Rows of one kind under one override entry that collapse to a single row. */
-const ENTRY_COLLAPSE_MIN = 5;
+const entryCollapseMin = 5;
 
 /** Rows a section prints at most. */
-const SECTION_ROWS_MAX = 100;
+const sectionRowsMax = 100;
 
 export interface AnalyzeReportOptions {
   links: LinkOptions;
   /** List every path instead of collapsing large groups (`--all`). */
   all?: boolean;
-  /** The fork config's override entries: protected files collapse by the entry that holds them. */
+  /** The app config's override entries: protected files collapse by the entry that holds them. */
   overrides?: { ignored?: string[]; pinned?: string[] };
   columns?: number;
   nowMs?: number;
@@ -62,12 +62,12 @@ interface Row {
 /** Which change a section dates and links: the `changed*` or `upstream*` fields, and whose repo holds the commit. */
 interface Side {
   fields: 'changed' | 'upstream';
-  repo: 'upstream' | 'fork';
+  repo: 'upstream' | 'app';
 }
 
-const UPSTREAM_CHANGE: Side = { fields: 'changed', repo: 'upstream' };
-const UPSTREAM_SIDE: Side = { fields: 'upstream', repo: 'upstream' };
-const FORK_SIDE: Side = { fields: 'changed', repo: 'fork' };
+const upstreamChange: Side = { fields: 'changed', repo: 'upstream' };
+const upstreamSide: Side = { fields: 'upstream', repo: 'upstream' };
+const appSide: Side = { fields: 'changed', repo: 'app' };
 
 /** `value` padded to `width`, colored when it is not empty; plain spaces otherwise, so lines trim. */
 function cell(value: string | undefined, width: number, color?: (text: string) => string, align?: 'end'): string {
@@ -97,13 +97,10 @@ function formatRows(rows: Row[], caption?: string): string[] {
   return lines;
 }
 
-/** Rows as lines, cut at {@link SECTION_ROWS_MAX} with a count of the rest. */
+/** Rows as lines, cut at {@link sectionRowsMax} with a count of the rest. */
 function formatCappedRows(rows: Row[], caption?: string): string[] {
-  if (rows.length <= SECTION_ROWS_MAX) return formatRows(rows, caption);
-  return [
-    ...formatRows(rows.slice(0, SECTION_ROWS_MAX), caption),
-    pc.dim(`  + ${rows.length - SECTION_ROWS_MAX} more`),
-  ];
+  if (rows.length <= sectionRowsMax) return formatRows(rows, caption);
+  return [...formatRows(rows.slice(0, sectionRowsMax), caption), pc.dim(`  + ${rows.length - sectionRowsMax} more`)];
 }
 
 /** A dim hint line, with a command in the plain color so it stands out. */
@@ -125,16 +122,16 @@ function byPath(a: AnalyzedFile, b: AnalyzedFile): number {
 
 /**
  * Where a row links, per `fileLinkMode`: the file as it is at the analyzed upstream commit, or the
- * commit that last changed it, in the repo that holds that commit (a fork commit 404s upstream).
+ * commit that last changed it, in the repo that holds that commit (an app commit 404s upstream).
  */
 function fileLink(file: AnalyzedFile, side: Side, links: LinkOptions): string | undefined {
-  const { fileLinkMode = 'commit', upstreamGitHubUrl, upstreamSha, forkGitHubUrl } = links;
+  const { fileLinkMode = 'commit', upstreamGitHubUrl, upstreamSha, appGitHubUrl } = links;
   if (fileLinkMode === 'file') {
     if (!upstreamGitHubUrl || !upstreamSha || !file.existsInUpstream) return undefined;
     return `${upstreamGitHubUrl}/blob/${upstreamSha}/${file.path}`;
   }
   const commit = side.fields === 'upstream' ? file.upstreamCommit : file.changedCommit;
-  const repo = side.repo === 'upstream' ? upstreamGitHubUrl : forkGitHubUrl;
+  const repo = side.repo === 'upstream' ? upstreamGitHubUrl : appGitHubUrl;
   return commit && repo ? `${repo}/commit/${commit}` : undefined;
 }
 
@@ -142,14 +139,14 @@ function changeTimestamp(file: AnalyzedFile, side: Side): number | undefined {
   return side.fields === 'upstream' ? file.upstreamChangedTs : file.changedTs;
 }
 
-/** A file added or deleted upstream: `new` (the fork lacks it) or `deleted` (upstream lacks it). */
+/** A file added or deleted upstream: `new` (the app lacks it) or `deleted` (upstream lacks it). */
 function changeKind(file: AnalyzedFile): 'new' | 'deleted' | 'changed' {
-  if (!file.existsInFork) return 'new';
+  if (!file.existsInApp) return 'new';
   if (!file.existsInUpstream) return 'deleted';
   return 'changed';
 }
 
-const KIND_TAG = { new: { tag: 'new', color: pc.green }, deleted: { tag: 'deleted', color: pc.red } } as const;
+const kindTag = { new: { tag: 'new', color: pc.green }, deleted: { tag: 'deleted', color: pc.red } } as const;
 
 function fileRow(file: AnalyzedFile, side: Side, options: AnalyzeReportOptions, extra: Partial<Row> = {}): Row {
   const timestamp = changeTimestamp(file, side);
@@ -158,7 +155,7 @@ function fileRow(file: AnalyzedFile, side: Side, options: AnalyzeReportOptions, 
     label: file.path,
     link: fileLink(file, side, options.links),
     age: timestamp ? shortAge(timestamp, options.nowMs) : undefined,
-    ...(kind === 'changed' ? {} : { tag: KIND_TAG[kind].tag, tagColor: KIND_TAG[kind].color }),
+    ...(kind === 'changed' ? {} : { tag: kindTag[kind].tag, tagColor: kindTag[kind].color }),
     ...extra,
   };
 }
@@ -223,8 +220,8 @@ function printBehind(files: AnalyzedFile[], options: AnalyzeReportOptions, colum
   const behind = filesWithStatus(files, 'behind').sort(byPath);
   if (behind.length === 0) return;
   const title = pc.cyan('↓ behind on upstream');
-  if (options.all || behind.length <= BEHIND_FLAT_MAX) {
-    printSection(title, behind.length, formatCappedRows(behind.map((file) => fileRow(file, UPSTREAM_CHANGE, options))));
+  if (options.all || behind.length <= behindFlatMax) {
+    printSection(title, behind.length, formatCappedRows(behind.map((file) => fileRow(file, upstreamChange, options))));
     return;
   }
   printSection(title, behind.length, formatFolderRows(behind, columns), [
@@ -256,21 +253,21 @@ function describeAbsent(files: AnalyzedFile[]): string {
 }
 
 /**
- * Pinned files the fork changed. A count is upstream content the fork does not have, dropped by
- * an earlier sync or removed on purpose. A long list keeps the files missing the most.
+ * Pinned files the app changed. A count is upstream content the app does not have, dropped by
+ * an earlier upgrade or removed on purpose. A long list keeps the files missing the most.
  */
 function printAhead(files: AnalyzedFile[], options: AnalyzeReportOptions): void {
   const ahead = filesWithStatus(files, 'ahead').sort((a, b) => absentLines(b) - absentLines(a) || byPath(a, b));
   if (ahead.length === 0) return;
 
   let shown = ahead;
-  if (!options.all && ahead.length > AHEAD_FLAT_MAX) {
-    const many = ahead.filter((file) => absentLines(file) >= ABSENT_SHOWN_MIN);
+  if (!options.all && ahead.length > aheadFlatMax) {
+    const many = ahead.filter((file) => absentLines(file) >= absentShownMin);
     shown = many.length > 0 ? many : ahead.slice(0, 5);
   }
   const rest = ahead.slice(shown.length);
   const rows = shown.map((file) =>
-    fileRow(file, FORK_SIDE, options, {
+    fileRow(file, appSide, options, {
       count: absentLines(file) > 0 ? String(absentLines(file)) : undefined,
       countColor: pc.yellow,
     }),
@@ -280,7 +277,7 @@ function printAhead(files: AnalyzedFile[], options: AnalyzeReportOptions): void 
   const hints = ahead.some((file) => absentLines(file) > 0)
     ? [hint('what a merge would bring in: ', 'pnpm cella analyze --unpinned')]
     : [];
-  printSection(pc.blue('↑ protected in fork'), ahead.length, body, hints);
+  printSection(pc.blue('↑ protected in app'), ahead.length, body, hints);
 }
 
 /** A protected file upstream changed, with the override entry that protects it. */
@@ -299,7 +296,7 @@ function entryFinder(overrides: AnalyzeReportOptions['overrides']): (path: strin
   return (path) => entries.find((entry) => isUnderAnyFolder(path, [entry]));
 }
 
-const KIND_ORDER = { new: 0, changed: 1, deleted: 2 };
+const kindOrder = { new: 0, changed: 1, deleted: 2 };
 
 function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Row {
   const [{ file, kind, entry }] = items;
@@ -308,14 +305,14 @@ function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Ro
     ? lines.reduce<number>((sum, count) => sum + (count ?? 0), 0)
     : undefined;
   const sign = kind === 'new' ? '+' : kind === 'deleted' ? '−' : '';
-  const newest = Math.max(0, ...items.map((item) => changeTimestamp(item.file, UPSTREAM_SIDE) ?? 0));
+  const newest = Math.max(0, ...items.map((item) => changeTimestamp(item.file, upstreamSide) ?? 0));
   const row: Row = {
     label: file.path,
-    link: fileLink(file, UPSTREAM_SIDE, options.links),
+    link: fileLink(file, upstreamSide, options.links),
     icon: protectionIcon(file),
     count: total === undefined ? undefined : `${sign}${compactCount(total)}`,
     countColor: kind === 'new' ? pc.green : kind === 'deleted' ? pc.red : pc.yellow,
-    ...(kind === 'changed' ? {} : { tag: KIND_TAG[kind].tag, tagColor: KIND_TAG[kind].color }),
+    ...(kind === 'changed' ? {} : { tag: kindTag[kind].tag, tagColor: kindTag[kind].color }),
     age: newest ? shortAge(newest, options.nowMs) : undefined,
   };
   if (items.length === 1 || !entry) return row;
@@ -331,14 +328,14 @@ function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Ro
 }
 
 /**
- * Protected files upstream changed since the last sync, which the sync leaves as the fork has
+ * Protected files upstream changed since the last upgrade, which the upgrade leaves as the app has
  * them: pinned or ignored files both sides changed, and ignored files only upstream changed,
  * added or deleted. New files first, then by the lines upstream changed. Five or more of one kind
  * under one override entry collapse to a row for the entry.
  */
 function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions): void {
   const findEntry = entryFinder(options.overrides);
-  // Both sides changed reads as a change even where the fork deleted its copy; only upstream's own
+  // Both sides changed reads as a change even where the app deleted its copy; only upstream's own
   // additions and deletions get a tag.
   const items: ProtectedItem[] = findProtectedBehindUpstream(result).map((file) => ({
     file,
@@ -352,14 +349,14 @@ function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions
     const key = options.all || !item.entry ? item.file.path : `${item.kind}\0${item.entry}`;
     groups.set(key, [...(groups.get(key) ?? []), item]);
   }
-  const single = (group: ProtectedItem[]) => group.length < ENTRY_COLLAPSE_MIN;
+  const single = (group: ProtectedItem[]) => group.length < entryCollapseMin;
   const lines = (group: ProtectedItem[]) => group.reduce((sum, item) => sum + (item.file.upstreamChangedLines ?? 0), 0);
   const ordered = [...groups.values()]
     .flatMap((group) => (single(group) ? group.map((item) => [item]) : [group]))
     .sort(
       (a, b) =>
         Number(a.length > 1) - Number(b.length > 1) ||
-        KIND_ORDER[a[0].kind] - KIND_ORDER[b[0].kind] ||
+        kindOrder[a[0].kind] - kindOrder[b[0].kind] ||
         lines(b) - lines(a) ||
         byPath(a[0].file, b[0].file),
     );
@@ -371,24 +368,24 @@ function printProtectedBehind(result: MergeResult, options: AnalyzeReportOptions
       ordered.map((group) => protectedRow(group, options)),
       'lines changed upstream',
     ),
-    [hint('the fork side wins: adopt what you need from the review page')],
+    [hint('the app side wins: adopt what you need from the review page')],
   );
 }
 
 /**
- * Print the analyze file sections: behind, diverged, protected in fork, drifted, and protected but
+ * Print the analyze file sections: behind, diverged, protected in app, drifted, and protected but
  * behind upstream. Every `pinned`-status file is a protected-but-behind one, so there is no
  * separate `pinned` section.
  */
 export function printAnalysisFileGroups(result: MergeResult, options: AnalyzeReportOptions): void {
   const columns = options.columns ?? terminalColumns();
   printBehind(result.files, options, columns);
-  printFlat(filesWithStatus(result.files, 'diverged'), pc.magenta('⇅ diverged'), UPSTREAM_SIDE, options);
+  printFlat(filesWithStatus(result.files, 'diverged'), pc.magenta('⇅ diverged'), upstreamSide, options);
   printAhead(result.files, options);
   printFlat(
     filesWithStatus(result.files, 'drifted'),
     `${warningMark} ${pc.yellow('drifted from upstream')}`,
-    FORK_SIDE,
+    appSide,
     options,
   );
   printProtectedBehind(result, options);

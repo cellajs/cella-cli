@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Marks the entries this runner wrote: an entry without it (Artillery's) stays in the file and is never compared. */
-export const RUNNER_EPOCH = 'cella-bench@1';
+export const runnerEpoch = 'cella-bench@1';
 
 interface EndpointBaseline {
   requests: number;
@@ -15,7 +15,7 @@ interface EndpointBaseline {
 
 /** One passing full run. Latencies in milliseconds, `http.response_time` unless named otherwise. */
 export interface BaselineEntry {
-  runner: typeof RUNNER_EPOCH;
+  runner: typeof runnerEpoch;
   timestamp: string;
   scenario: string;
   requests: number;
@@ -42,7 +42,7 @@ interface Delta {
 }
 
 const isComparable = (entry: unknown): entry is BaselineEntry =>
-  (entry as { runner?: unknown } | null)?.runner === RUNNER_EPOCH;
+  (entry as { runner?: unknown } | null)?.runner === runnerEpoch;
 
 function readEntries(file: string): unknown[] {
   if (!existsSync(file)) return [];

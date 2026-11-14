@@ -7,7 +7,7 @@ import { z } from 'zod';
 
 // Public API for cella/cella.config.ts.
 
-const PACKAGE_JSON_KEYS = [
+const packageJsonKeys = [
   'dependencies',
   'devDependencies',
   'peerDependencies',
@@ -21,13 +21,13 @@ const PACKAGE_JSON_KEYS = [
 ] as const;
 
 /** Valid package.json keys that can merge from upstream */
-export type PackageJsonKey = (typeof PACKAGE_JSON_KEYS)[number];
+export type PackageJsonKey = (typeof packageJsonKeys)[number];
 
 /**
  * Settings: all configurable options for the cella CLI.
  * Hover over each property for documentation.
  */
-export interface SyncSettings {
+export interface UpgradeSettings {
   /** Upstream repository URL (e.g., 'git@github.com:cellajs/cella.git') */
   upstreamUrl: string;
 
@@ -42,7 +42,7 @@ export interface SyncSettings {
    * - 'release' (default): upgrade to a published cella release tag (`0.18.1`, with or without `v`). Stable and
    *   reviewable: each bump maps to a changelog. Uses the latest release.
    * - 'branch': follow the bleeding-edge tip of `upstreamBranch`. For cella
-   *   maintainers and forks doing active development on top of unreleased changes.
+   *   maintainers and apps doing active development on top of unreleased changes.
    */
   upstreamTrack?: 'release' | 'branch';
 
@@ -89,17 +89,17 @@ export interface ForkConfig {
   pullBranch: string;
 }
 
-/** User-configurable sync options for cella/cella.config.ts. */
+/** User-configurable upgrade options for cella/cella.config.ts. */
 export interface CellaCliConfig {
-  /** Core sync settings */
-  settings: SyncSettings;
+  /** Core upgrade settings */
+  settings: UpgradeSettings;
 
   /**
-   * File overrides for controlling sync behavior per folder/file.
+   * File overrides for controlling upgrade behavior per folder/file.
    */
   overrides?: {
     /**
-     * Paths the fork fully owns: never synced (existing or new).
+     * Paths the app fully owns: never merged (existing or new).
      * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
      * everything under it, 'README.md' matches that exact file.
      * Local territory: upstream cannot add, modify, or delete anything under these.
@@ -107,12 +107,12 @@ export interface CellaCliConfig {
     ignored?: string[];
 
     /**
-     * Paths pinned to the fork: the fork copy wins whole-file.
+     * Paths pinned to the app: the app copy wins whole-file.
      * Exact paths or directory prefixes, not globs: 'bench' matches 'bench/' and
      * everything under it, 'README.md' matches that exact file.
      * Upstream changes to a pinned file are dropped, not merged: analyze lists them under
      * "protected but behind upstream" to adopt by hand.
-     * If fork deleted a pinned file, deletion is respected.
+     * If the app deleted a pinned file, deletion is respected.
      */
     pinned?: string[];
   };
@@ -137,7 +137,7 @@ export function defineConfig(config: CellaCliConfig): CellaCliConfig {
  * The TS interfaces above stay the source of truth (and keep their hover docs for
  * config authors). This schema is what's enforced at load time: `.strict()` rejects
  * unknown keys, so a typo like `ignoredFolders` for `ignored` fails closed; a silent
- * fallback would drop sync protection (tsx does not typecheck the config).
+ * fallback would drop upgrade protection (tsx does not typecheck the config).
  *
  * The `satisfies z.ZodType<CellaCliConfig>` assertion keeps schema and interface in
  * lockstep: if either drifts (a renamed/removed/mis-typed field), TypeScript errors here.
@@ -150,7 +150,7 @@ export const cellaConfigSchema = z
         upstreamBranch: z.string().min(1).optional(),
         upstreamTrack: z.enum(['release', 'branch']).optional(),
         releaseBase: z.string().min(1).optional(),
-        packageJsonKeys: z.array(z.enum(PACKAGE_JSON_KEYS)).optional(),
+        packageJsonKeys: z.array(z.enum(packageJsonKeys)).optional(),
         mergePackageJson: z.boolean().optional(),
         fileLinkMode: z.enum(['commit', 'file']).optional(),
       })
@@ -179,8 +179,8 @@ export const cellaConfigSchema = z
 
 // Internal types for the services.
 
-/** Sync services available in the CLI */
-export type SyncService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt';
+/** Services available in the CLI */
+export type CliService = 'analyze' | 'upgrade' | 'align' | 'audit' | 'adopt';
 
 /** A command's `--help` heading and menu place; a gate shows in `--help` only, since scripts and CI run it. */
 export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
@@ -208,7 +208,7 @@ export interface ToolCommand<Options = unknown> {
   /** What the words after `--` are for, in `--help`. */
   passthrough?: CommandOption;
   parse(input: { job?: string; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
-  run(forkPath: string, options: Options): Promise<number>;
+  run(repoRoot: string, options: Options): Promise<number>;
 }
 
 /** Analyze output scope for interactive and machine-readable flows */
@@ -216,14 +216,14 @@ export type AnalyzeScope = 'all' | 'risk' | 'protected';
 
 /** Runtime configuration with all resolved values */
 export interface RuntimeConfig extends CellaCliConfig {
-  /** Resolved fork repository path */
-  forkPath: string;
+  /** The repository the command runs in */
+  repoRoot: string;
 
   /** Full upstream remote ref (e.g., 'cella-upstream/development') */
   upstreamRef: string;
 
-  /** Selected sync service */
-  service: SyncService;
+  /** Selected service */
+  service: CliService;
 
   /** Non-interactive list output (for LLM/agent usage) */
   list: boolean;
@@ -250,15 +250,15 @@ export interface RuntimeConfig extends CellaCliConfig {
   ref?: string;
 
   /**
-   * Merge with the fork's CLI config as it stands (upgrade service). Without it, a new merge stops
+   * Merge with the app's CLI config as it stands (upgrade service). Without it, a new merge stops
    * before anything changes when upstream changed its own `overrides` or `packageJsonKeys` in ways
-   * the fork config does not follow.
+   * the app config does not follow.
    */
   keepConfig?: boolean;
 
   /**
-   * Lift every pinned entry for this run (analyze, sync): managed files stay pinned, and the merge
-   * uses the full upstream history, so upstream changes that earlier syncs dropped come back too.
+   * Lift every pinned entry for this run (analyze, upgrade): managed files stay pinned, and the merge
+   * uses the full upstream history, so upstream changes that earlier upgrades dropped come back too.
    */
   unpinned?: boolean;
 
@@ -284,18 +284,18 @@ export interface RuntimeConfig extends CellaCliConfig {
 /** File status after analysis */
 export type FileStatus =
   | 'identical' // No changes needed
-  | 'ahead' // Fork is ahead, protected (pinned/ignored)
+  | 'ahead' // The app is ahead, protected (pinned/ignored)
   | 'local' // Local file (never existed upstream)
-  | 'drifted' // Fork is ahead, NOT protected (at risk)
-  | 'behind' // Upstream has changes to sync
+  | 'drifted' // The app is ahead, NOT protected (at risk)
+  | 'behind' // Upstream has changes to merge
   | 'diverged' // Both changed, will merge
-  | 'pinned' // Fork wins on conflict
-  | 'ignored' // Excluded from sync entirely
-  | 'deleted' // Fork deleted, will stay deleted
+  | 'pinned' // The app wins on conflict
+  | 'ignored' // Excluded from the upgrade entirely
+  | 'deleted' // The app deleted it, it stays deleted
   | 'renamed'; // Upstream renamed file
 
-/** Statuses the sync applies changes for: a staged sync holds at least one file with one of these. */
-export const SYNC_APPLIED_STATUSES: readonly FileStatus[] = ['behind', 'diverged', 'renamed', 'ignored', 'pinned'];
+/** Statuses the upgrade applies changes for: a staged upgrade holds at least one file with one of these. */
+export const upgradeAppliedStatuses: readonly FileStatus[] = ['behind', 'diverged', 'renamed', 'ignored', 'pinned'];
 
 /** Commit metadata for a single log entry */
 export interface CommitRangeEntry {
@@ -314,8 +314,8 @@ export interface AnalyzedFile {
   isIgnored: boolean;
   /** True if file is in pinned list */
   isPinned: boolean;
-  /** True if file exists in fork */
-  existsInFork: boolean;
+  /** True if the file exists in the app */
+  existsInApp: boolean;
   /** True if file exists in upstream */
   existsInUpstream: boolean;
   /** Relative date when file was last changed (since merge-base) */
@@ -333,8 +333,8 @@ export interface AnalyzedFile {
   /** For renamed files: the original path before rename */
   renamedFrom?: string;
   /**
-   * Protected (pinned/ignored) files only: both sides changed since the merge-base. The fork
-   * side wins whole-file, so upstream's changes to this path are dropped by the sync.
+   * Protected (pinned/ignored) files only: both sides changed since the merge-base. The app
+   * side wins whole-file, so upstream's changes to this path are dropped by the upgrade.
    */
   upstreamChanged?: boolean;
   /** For `upstreamChanged` and `upstreamOnly` files: lines upstream changed since the merge-base (undefined for binary) */
@@ -343,22 +343,22 @@ export interface AnalyzedFile {
   upstreamBinary?: boolean;
   /**
    * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
-   * fork did not touch it. Ignored paths never sync, so without this flag the change stays unseen
+   * app did not touch it. Ignored paths never merge, so without this flag the change stays unseen
    * (new config keys, version bumps). Managed files and generated output (`isGeneratedFile`) are
    * never flagged.
    */
   upstreamOnly?: boolean;
   /**
-   * Pinned `ahead` files only: lines present upstream but absent from the fork (undefined for
-   * binary). Independent of the sync point, so it also shows upstream content dropped by an
-   * earlier sync, or removed on purpose; only a diff can tell.
+   * Pinned `ahead` files only: lines present upstream but absent from the app (undefined for
+   * binary). Independent of the upgrade point, so it also shows upstream content dropped by an
+   * earlier upgrade, or removed on purpose; only a diff can tell.
    */
   upstreamLinesAbsent?: number;
 }
 
 /** Summary counts by status */
 export interface AnalysisSummary {
-  /** Changed package/config files that are handled separately from normal sync categories */
+  /** Changed package/config files that are handled separately from the normal merge categories */
   managed: number;
   identical: number;
   ahead: number;
@@ -385,53 +385,53 @@ export interface MergeResult {
   upstreamGitHubUrl?: string;
   /** Upstream commit info */
   upstreamCommit?: CommitRangeEntry;
-  /** Upstream commits since the last sync point */
+  /** Upstream commits since the upgrade point */
   upstreamCommitCount?: number;
   /** Files that were auto-merged by git (diverged without remaining conflicts) */
   autoMergedFiles?: string[];
   /**
-   * Protected (pinned/ignored) files resolved to the fork side although upstream also changed
+   * Protected (pinned/ignored) files resolved to the app side although upstream also changed
    * them: upstream's hunks were dropped, not merged. Review each against upstream.
    */
   protectedConflicts?: string[];
-  /** `<merge-base>..<upstream>` range of short SHAs: what upstream changed since the last sync, for the review page. */
+  /** `<merge-base>..<upstream>` range of short SHAs: what upstream changed since the last upgrade, for the review page. */
   upstreamDiffRange?: string;
-  /** How upstream's own CLI config changed since the merge-base, where the fork config does not follow. */
+  /** How upstream's own CLI config changed since the merge-base, where the app config does not follow. */
   upstreamOverrides?: UpstreamOverridesReport;
   /** Files flagged `upstreamOnly`, grouped by the `ignored` entry they fall under (config order). */
   ignoredUpstreamChanges?: IgnoredUpstreamGroup[];
   /**
    * Upstream alignments: how many the incoming ref holds, which ones upstream added since the
-   * sync point, and the ones open in the fork after the run. A sync opens the arrivals; a dry run
+   * upgrade point, and the ones open in the app after the run. An upgrade opens the arrivals; a dry run
    * leaves them out of `open`.
    */
   alignments?: { total: number; arrived: string[]; open: string[] };
 }
 
-/** Entries of one CLI config list (`pinned`, `ignored` or `packageJsonKeys`) that the fork config does not mirror. */
+/** Entries of one CLI config list (`pinned`, `ignored` or `packageJsonKeys`) that the app config does not mirror. */
 export interface OverrideListChanges {
-  /** Entries upstream added since the merge-base that the fork list lacks. */
+  /** Entries upstream added since the merge-base that the app list lacks. */
   added: string[];
-  /** Entries upstream removed since the merge-base that the fork list still carries. */
+  /** Entries upstream removed since the merge-base that the app list still carries. */
   removed: string[];
-  /** Entries upstream renamed that the fork never carried under either path: informational, never a stop. */
+  /** Entries upstream renamed that the app never carried under either path: informational, never a stop. */
   moved?: { from: string; to: string }[];
 }
 
 /**
- * Upstream CLI config changes the fork should review. The CLI config is managed (never merged),
- * so new upstream `pinned`/`ignored` entries and `packageJsonKeys` only reach the fork by
+ * Upstream CLI config changes the app should review. The CLI config is managed (never merged),
+ * so new upstream `pinned`/`ignored` entries and `packageJsonKeys` only reach the app by
  * hand. `unreadable` means upstream's config was missing or unparsable at one side (`base` =
  * merge-base, `incoming` = upstream ref), so nothing was compared.
  */
 export type UpstreamOverridesReport =
   | {
-      kind: 'changes';
+      type: 'changes';
       pinned: OverrideListChanges;
       ignored: OverrideListChanges;
       packageJsonKeys: OverrideListChanges;
     }
-  | { kind: 'unreadable'; side: 'base' | 'incoming' };
+  | { type: 'unreadable'; side: 'base' | 'incoming' };
 
 /** Upstream-only changes under one `ignored` entry. */
 export interface IgnoredUpstreamGroup {
@@ -439,8 +439,8 @@ export interface IgnoredUpstreamGroup {
   entry: string;
   /** Changed paths under the entry, sorted. */
   paths: string[];
-  /** Paths the fork lacks (new upstream files). */
+  /** Paths the app lacks (new upstream files). */
   added: number;
-  /** Paths upstream deleted (the fork keeps them). */
+  /** Paths upstream deleted (the app keeps them). */
   deleted: number;
 }

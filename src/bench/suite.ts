@@ -5,17 +5,17 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import { select } from '@inquirer/prompts';
 import pc from '../utils/colors';
-import { createSpinner, MENU_DIVIDER, printStep, spinnerFail, warningMark } from '../utils/display';
+import { createSpinner, menuDivider, printStep, spinnerFail, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
 import { errorMessage } from '../utils/errors';
 import { acquireLock } from './lock';
 import { type SuiteRow, suiteLines } from './report';
-import { BENCH_REQUEST_ENV, type BenchRequest } from './request';
+import { type BenchRequest, benchRequestEnv } from './request';
 import { runScenario } from './run';
 import type { CheckResult, Scenario } from './types';
 
 /** After a saturating scenario, a 5 s pause left sse-fanout's p95 ten times higher. */
-const DEFAULT_COOLDOWN_S = 15;
+const defaultCooldownSeconds = 15;
 
 /** What a scenario's run left for the app to check. */
 export interface RunOutcome {
@@ -50,7 +50,7 @@ export interface Bench<State = undefined> {
 }
 
 function readRequest(): BenchRequest {
-  const raw = getEnv(BENCH_REQUEST_ENV);
+  const raw = getEnv(benchRequestEnv);
   if (!raw) throw new Error('this is the app side of `pnpm cella bench`: run that instead');
   return JSON.parse(raw);
 }
@@ -79,7 +79,7 @@ async function pickScenario(dir: string): Promise<string | undefined> {
     message: 'select a scenario',
     choices: [
       ...choices,
-      { type: 'separator' as const, separator: MENU_DIVIDER },
+      { type: 'separator' as const, separator: menuDivider },
       { value: '', name: pc.red(`${'exit'.padEnd(22)}${pc.dim('quit without running')}`) },
     ],
     loop: false,
@@ -121,7 +121,7 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
   }
   await bench.beforeAll?.({ skipSeed: request.skipSeed });
 
-  const cooldownS = request.all && !request.short ? (bench.cooldownSeconds ?? DEFAULT_COOLDOWN_S) : 0;
+  const cooldownS = request.all && !request.short ? (bench.cooldownSeconds ?? defaultCooldownSeconds) : 0;
   const rows: SuiteRow[] = [];
   for (const [index, [name, scenario]] of scenarios.entries()) {
     lock.update(name);

@@ -4,7 +4,7 @@
  * A pinned/ignored file wins whole-file on conflict, so when upstream ALSO changed it since the
  * merge-base, upstream's hunks are dropped silently. `analyzeRefs` flags exactly those files
  * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehindUpstream` selects them for display,
- * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync. The diffs
+ * and `printUpgradeComplete` lists `MergeResult.protectedConflicts` at the end of an upgrade. The diffs
  * themselves are on the review page, so the list prints no `git diff` lines. The analyze section
  * is covered in `analyze-report.test.ts`.
  */
@@ -12,20 +12,20 @@ import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../../src/config/types';
 import { analyzeRefs } from '../../src/upstream/classify';
-import { findProtectedBehindUpstream, printSyncComplete } from '../../src/utils/display';
+import { findProtectedBehindUpstream, printUpgradeComplete } from '../../src/utils/display';
 import { getMergeBase } from '../../src/utils/git';
 import { captureInfo, createRepo, exec, analyzedFile as file, write } from '../helpers/test-env';
 
 /**
- * Repo with a `main` (fork) and `upstream` branch off one base commit:
+ * Repo with a `main` (app) and `upstream` branch off one base commit:
  * - pinned.css:    both changed (upstream +3 −1)      → flagged, 4 lines
- * - only-fork.css: fork changed, upstream untouched  → plain ahead
- * - masking.css:   upstream changed, fork untouched  → behind (masking pin, not flagged)
+ * - only-app.css: app changed, upstream untouched  → plain ahead
+ * - masking.css:   upstream changed, app untouched  → behind (masking pin, not flagged)
  * - own/mine.ts:   ignored, both changed             → flagged
  * - plain.ts:      unprotected, upstream changed     → behind, never flagged
- * - stale.css:     pinned, fork dropped 2 base lines, upstream untouched → ahead, 2 lines absent
+ * - stale.css:     pinned, app dropped 2 base lines, upstream untouched → ahead, 2 lines absent
  * - own/stale.ts:  ignored, same shape as stale.css  → ignored, never annotated
- * - own/shot.webp: ignored binary the fork deleted, upstream changed → upstreamOnly, not flagged
+ * - own/shot.webp: ignored binary the app deleted, upstream changed → upstreamOnly, not flagged
  * - own/logo.png:  ignored binary both changed       → flagged as binary
  */
 function createScenarioRepo(): string {
@@ -33,7 +33,7 @@ function createScenarioRepo(): string {
 
   write(dir, {
     'pinned.css': 'a\nb\nc\n',
-    'only-fork.css': 'a\n',
+    'only-app.css': 'a\n',
     'masking.css': 'a\n',
     'own/mine.ts': 'a\n',
     'plain.ts': 'a\n',
@@ -58,14 +58,14 @@ function createScenarioRepo(): string {
   exec('git checkout -q main', dir);
   write(dir, {
     'pinned.css': 'a\nb\nc\nfork\n',
-    'only-fork.css': 'a\nfork\n',
+    'only-app.css': 'a\nfork\n',
     'own/mine.ts': 'a\nfork\n',
     'stale.css': 'a\nfork\n', // b, c gone: 2 upstream lines absent
     'own/stale.ts': 'a\n',
     'own/logo.png': 'PNG\0fork',
   });
   fs.rmSync(`${dir}/own/shot.webp`);
-  exec('git add -A && git commit -q -m fork', dir);
+  exec('git add -A && git commit -q -m app', dir);
 
   return dir;
 }
@@ -95,14 +95,14 @@ describe('analyzeRefs upstreamChanged', () => {
     expect(pinned?.upstreamChangedLines).toBe(4);
   });
 
-  it('leaves a pinned file only the fork changed as plain ahead', () => {
-    const ahead = byPath.get('only-fork.css');
+  it('leaves a pinned file only the app changed as plain ahead', () => {
+    const ahead = byPath.get('only-app.css');
     expect(ahead?.status).toBe('ahead');
     expect(ahead?.upstreamChanged).toBeUndefined();
     expect(ahead?.upstreamChangedLines).toBeUndefined();
   });
 
-  it('does not flag a masking pin (fork copy still equals base)', () => {
+  it('does not flag a masking pin (app copy still equals base)', () => {
     const masking = byPath.get('masking.css');
     expect(masking?.status).toBe('behind');
     expect(masking?.isPinned).toBe(true);
@@ -116,7 +116,7 @@ describe('analyzeRefs upstreamChanged', () => {
     expect(ignored?.upstreamChangedLines).toBe(1);
   });
 
-  it('reports an ignored file the fork does not have as upstream-only, and marks a binary', () => {
+  it('reports an ignored file the app does not have as upstream-only, and marks a binary', () => {
     expect(byPath.get('own/shot.webp')).toMatchObject({ upstreamOnly: true, upstreamBinary: true });
     expect(byPath.get('own/shot.webp')?.upstreamChanged).toBeUndefined();
     expect(byPath.get('own/logo.png')).toMatchObject({ upstreamChanged: true, upstreamBinary: true });
@@ -132,8 +132,8 @@ describe('analyzeRefs upstreamChanged', () => {
     const stale = byPath.get('stale.css');
     expect(stale?.status).toBe('ahead');
     expect(stale?.upstreamLinesAbsent).toBe(2);
-    // fork only added lines: nothing absent
-    expect(byPath.get('only-fork.css')?.upstreamLinesAbsent).toBe(0);
+    // app only added lines: nothing absent
+    expect(byPath.get('only-app.css')?.upstreamLinesAbsent).toBe(0);
   });
 
   it('never counts absent lines for ignored or unprotected files', () => {
@@ -160,7 +160,7 @@ describe('findProtectedBehindUpstream', () => {
   });
 });
 
-describe('printSyncComplete protected conflicts', () => {
+describe('printUpgradeComplete protected conflicts', () => {
   const baseResult = (): MergeResult => ({
     files: [],
     conflicts: [],
@@ -179,7 +179,7 @@ describe('printSyncComplete protected conflicts', () => {
     },
   });
 
-  const capture = (result: MergeResult) => captureInfo(() => printSyncComplete(result));
+  const capture = (result: MergeResult) => captureInfo(() => printUpgradeComplete(result));
 
   it('lists dropped protected files with their upstream line count and the hint', () => {
     const result = baseResult();
@@ -196,7 +196,7 @@ describe('printSyncComplete protected conflicts', () => {
     result.upstreamDiffRange = 'e9a8d485e..a81e3353b';
 
     const out = capture(result);
-    expect(out).toContain('1 protected file kept the fork version');
+    expect(out).toContain('1 protected file kept the app version');
     expect(out).toContain('frontend/src/styling/tailwind.css');
     expect(out).toContain('21 lines changed upstream');
     expect(out).toContain('adopt what you need');

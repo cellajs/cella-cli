@@ -22,7 +22,7 @@ export interface Finding {
 
 /** What every check of one run shares: the app, its config and where the run writes its results. */
 export interface AuditRun {
-  forkPath: string;
+  repoRoot: string;
   app: AppConfig;
   /** `<git dir>/cella-a11y/` of the checkout. */
   resultsDir: string;

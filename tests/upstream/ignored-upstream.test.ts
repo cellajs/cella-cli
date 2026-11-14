@@ -1,7 +1,7 @@
 /**
  * Tests for upstream-only changes to ignored paths.
  *
- * Ignored paths never sync. When both sides changed a file, `upstreamChanged` puts it in the
+ * Ignored paths never upgrade. When both sides changed a file, `upstreamChanged` puts it in the
  * protected-but-behind section; when only upstream changed, added or deleted it, `analyzeRefs`
  * flags it `upstreamOnly`, `groupIgnoredUpstreamChanges` groups it by its `ignored` entry, and
  * `printIgnoredUpstreamChanges` prints one line per entry.
@@ -17,7 +17,7 @@ import { getMergeBase } from '../../src/utils/git';
 import { isGeneratedFile } from '../../src/utils/repo-files';
 import { captureInfo, createRepo, exec, write } from '../helpers/test-env';
 
-const IGNORED = [
+const ignored = [
   'own',
   'own/nested',
   'untouched',
@@ -27,12 +27,12 @@ const IGNORED = [
 ];
 
 /**
- * Repo with a `main` (fork) and `upstream` branch off one base commit, `own` and `own/nested` ignored:
- * - own/changed.ts:      upstream changed, fork untouched → upstreamOnly
+ * Repo with a `main` (app) and `upstream` branch off one base commit, `own` and `own/nested` ignored:
+ * - own/changed.ts:      upstream changed, app untouched → upstreamOnly
  * - own/new.ts:          upstream added                   → upstreamOnly, new
- * - own/gone.ts:         upstream deleted, fork untouched → upstreamOnly, deleted
+ * - own/gone.ts:         upstream deleted, app untouched → upstreamOnly, deleted
  * - own/both.ts:         both changed                     → upstreamChanged (existing section)
- * - own/fork-only.ts:    fork changed only                → neither
+ * - own/app-only.ts:    app changed only                → neither
  * - own/package.json:    upstream changed                 → managed, never flagged
  * - own/nested/deep.ts:  upstream changed                 → upstreamOnly, grouped under own/nested
  * - untouched/keep.ts:   nobody changed                   → no group
@@ -47,7 +47,7 @@ function createScenarioRepo(): string {
     'own/changed.ts': 'a\n',
     'own/gone.ts': 'a\n',
     'own/both.ts': 'a\n',
-    'own/fork-only.ts': 'a\n',
+    'own/app-only.ts': 'a\n',
     'own/package.json': '{}\n',
     'own/nested/deep.ts': 'a\n',
     'untouched/keep.ts': 'a\n',
@@ -79,9 +79,9 @@ function createScenarioRepo(): string {
   exec('git checkout -q main', dir);
   write(dir, {
     'own/both.ts': 'a\nfork\n',
-    'own/fork-only.ts': 'a\nfork\n',
+    'own/app-only.ts': 'a\nfork\n',
   });
-  exec('git add -A && git commit -q -m fork', dir);
+  exec('git add -A && git commit -q -m app', dir);
 
   return dir;
 }
@@ -95,7 +95,7 @@ describe('ignored paths only upstream changed', () => {
     repoPath = createScenarioRepo();
     const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
     files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
-      isIgnored: (p) => isUnderAnyFolder(p, IGNORED),
+      isIgnored: (p) => isUnderAnyFolder(p, ignored),
       isPinned: () => false,
     });
     byPath = new Map(files.map((f) => [f.path, f]));
@@ -105,7 +105,7 @@ describe('ignored paths only upstream changed', () => {
     fs.rmSync(repoPath, { recursive: true, force: true });
   });
 
-  it('flags changed, added and deleted files the fork left alone', () => {
+  it('flags changed, added and deleted files the app left alone', () => {
     for (const p of ['own/changed.ts', 'own/new.ts', 'own/gone.ts', 'own/nested/deep.ts']) {
       expect(byPath.get(p)?.status, p).toBe('ignored');
       expect(byPath.get(p)?.upstreamOnly, p).toBe(true);
@@ -120,8 +120,8 @@ describe('ignored paths only upstream changed', () => {
     expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual(['own/both.ts']);
   });
 
-  it('never flags fork-only changes, managed files or unprotected files', () => {
-    expect(byPath.get('own/fork-only.ts')?.upstreamOnly).toBeUndefined();
+  it('never flags app-only changes, managed files or unprotected files', () => {
+    expect(byPath.get('own/app-only.ts')?.upstreamOnly).toBeUndefined();
     expect(byPath.get('own/package.json')?.upstreamOnly).toBeUndefined();
     expect(byPath.get('plain.ts')?.status).toBe('behind');
     expect(byPath.get('plain.ts')?.upstreamOnly).toBeUndefined();
@@ -137,7 +137,7 @@ describe('ignored paths only upstream changed', () => {
   });
 
   it('groups flagged files under the most specific ignored entry, in config order', () => {
-    expect(groupIgnoredUpstreamChanges(files, IGNORED)).toEqual([
+    expect(groupIgnoredUpstreamChanges(files, ignored)).toEqual([
       { entry: 'own', paths: ['own/changed.ts', 'own/gone.ts', 'own/new.ts'], added: 1, deleted: 1 },
       { entry: 'own/nested', paths: ['own/nested/deep.ts'], added: 0, deleted: 0 },
       {

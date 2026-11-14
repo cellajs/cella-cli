@@ -1,13 +1,13 @@
 /**
  * Display utilities: console output formatting, spinners, hyperlinks, and the
- * report blocks analyze and sync print.
+ * report blocks analyze and upgrade print.
  */
 
 import { resolve } from 'node:path';
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import type { AnalysisSummary, AnalyzedFile, CommitRangeEntry, FileStatus, MergeResult } from '../config/types';
-import { CONFIG_FILE, isManagedFile } from '../upstream/managed-files';
+import { configFile, isManagedFile } from '../upstream/managed-files';
 import pc from './colors';
 import { getEnv } from './env';
 import { splitPrNumber } from './git';
@@ -15,7 +15,7 @@ import { fitText, padVisible, shortAge, terminalColumns } from './layout';
 import { isGeneratedFile } from './repo-files';
 
 /** Version from package.json */
-export const VERSION = packageJson.version;
+export const version = packageJson.version;
 
 /** Options for generating links in CLI output */
 export interface LinkOptions {
@@ -23,31 +23,31 @@ export interface LinkOptions {
   upstreamGitHubUrl?: string;
   /** Upstream commit the run analyzed: file links show the file as it is there */
   upstreamSha?: string;
-  /** Base GitHub URL of the fork's `origin`, for links to the fork's own commits */
-  forkGitHubUrl?: string;
+  /** Base GitHub URL of the app's `origin`, for links to the app's own commits */
+  appGitHubUrl?: string;
   /** File link mode: 'commit' links to commit, 'file' links to file in repo */
   fileLinkMode?: 'commit' | 'file';
-  /** Fork repository path for resolving file paths */
-  forkPath?: string;
+  /** Repository path for resolving file paths */
+  repoRoot?: string;
 }
 
 /** Line divider */
-export const DIVIDER = '─'.repeat(60);
+export const divider = '─'.repeat(60);
 
 /** Divider used above the exit entry of interactive menus */
-export const MENU_DIVIDER = '─'.repeat(40);
+export const menuDivider = '─'.repeat(40);
 
-/** Most recent upstream commits listed in the sync PR body */
-export const COMMIT_LIST_MAX = 50;
+/** Most recent upstream commits listed in the upgrade PR body */
+export const commitListMax = 50;
 
 /** Most recent upstream commits listed under the `upstream` step */
-export const COMMIT_STEP_MAX = 10;
+export const commitStepMax = 10;
 
 /** Width of the label column of step lines (`✓ upstream   …`) */
-const STEP_LABEL_WIDTH = 9;
+const stepLabelWidth = 9;
 
 /** Where the detail of a step line starts: the mark, the label column and two spaces */
-const STEP_INDENT = 2 + STEP_LABEL_WIDTH + 2;
+const stepIndent = 2 + stepLabelWidth + 2;
 
 /** Warning mark for non-fatal warnings */
 export const warningMark = pc.yellow('⚠');
@@ -89,13 +89,13 @@ export function writeStdout(text: string): void {
 
 export function printHeader(): void {
   const left = '⧈ cella cli';
-  const version = ` · v${VERSION}`;
+  const versionLabel = ` · v${version}`;
   const right = 'cellajs.com';
   // Padding counts the visible characters only, not the ANSI codes
-  const padding = Math.max(1, DIVIDER.length - `${left}${version}${right}`.length);
+  const padding = Math.max(1, divider.length - `${left}${versionLabel}${right}`.length);
   console.info();
-  console.info(`${pc.cyan(left)}${pc.dim(version)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
-  console.info(DIVIDER);
+  console.info(`${pc.cyan(left)}${pc.dim(versionLabel)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
+  console.info(divider);
   console.info();
 }
 
@@ -130,8 +130,8 @@ export function createSpinner(text: string): Spinner {
 export function printStep(label: string, detail?: string, mark = checkMark): void {
   stopSpinner();
   const [first = '', ...rest] = (detail ?? '').split('\n');
-  console.info(`${mark} ${pc.bold(label.padEnd(STEP_LABEL_WIDTH))}  ${first}`.trimEnd());
-  for (const line of rest) console.info(line ? `${' '.repeat(STEP_INDENT)}${line}` : '');
+  console.info(`${mark} ${pc.bold(label.padEnd(stepLabelWidth))}  ${first}`.trimEnd());
+  for (const line of rest) console.info(line ? `${' '.repeat(stepIndent)}${line}` : '');
 }
 
 /** Stop the spinner and print `message` as a completed step; `detail` adds a dim line and a blank line. */
@@ -191,14 +191,14 @@ export function formatCheckoutStep(checkout: {
   branch: string;
   headSha: string;
   changeCount: number;
-  upstream: { upstream: string | null; ahead: number; behind: number };
+  tracking: { tracking: string | null; ahead: number; behind: number };
 }): string {
-  const { branch, headSha, changeCount, upstream } = checkout;
+  const { branch, headSha, changeCount, tracking } = checkout;
   const parts = [
     changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
   ];
-  if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
-    parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
+  if (tracking.tracking && (tracking.ahead > 0 || tracking.behind > 0)) {
+    parts.push(`${tracking.ahead} ahead, ${tracking.behind} behind ${tracking.tracking}`);
   }
   return `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
 }
@@ -238,7 +238,7 @@ export function formatUpstreamCommits(
   upstreamGitHubUrl?: string,
   options: { columns?: number; max?: number; nowMs?: number } = {},
 ): string[] {
-  const { columns = terminalColumns(), max = COMMIT_STEP_MAX, nowMs } = options;
+  const { columns = terminalColumns(), max = commitStepMax, nowMs } = options;
   const shown = commits.slice(-max).reverse();
   const rows = shown.map((commit) => ({ commit, ...splitPrNumber(commit.message) }));
   const prWidth = Math.max(0, ...rows.map((row) => (row.pr ? `#${row.pr}`.length : 0)));
@@ -246,7 +246,7 @@ export function formatUpstreamCommits(
   const ageWidth = Math.max(0, ...ages.map((age) => age.length));
   const subjectWidth = Math.max(
     20,
-    columns - STEP_INDENT - 7 - 2 - (prWidth ? prWidth + 2 : 0) - (ageWidth ? ageWidth + 2 : 0),
+    columns - stepIndent - 7 - 2 - (prWidth ? prWidth + 2 : 0) - (ageWidth ? ageWidth + 2 : 0),
   );
 
   const lines = rows.map((row, index) => {
@@ -275,16 +275,16 @@ export interface NextStep {
 }
 
 /**
- * The `next steps` section that closes analyze and sync, numbered in the order to take them. The
+ * The `next steps` section that closes analyze and upgrade, numbered in the order to take them. The
  * line and details of each step start at the column the engine's step details do.
  */
 export function printNextSteps(steps: NextStep[]): void {
   if (steps.length === 0) return;
   printSectionHeader(pc.cyan('next steps'));
   for (const [index, step] of steps.entries()) {
-    const label = step.label.padEnd(STEP_INDENT - 5);
+    const label = step.label.padEnd(stepIndent - 5);
     console.info(`  ${pc.dim(String(index + 1))} ${pc.bold(label)} ${step.line}`.trimEnd());
-    for (const detail of step.details ?? []) console.info(`${' '.repeat(STEP_INDENT)}${detail}`);
+    for (const detail of step.details ?? []) console.info(`${' '.repeat(stepIndent)}${detail}`);
   }
 }
 
@@ -292,7 +292,7 @@ export function printNextSteps(steps: NextStep[]): void {
 export function printSectionHeader(title: string): void {
   console.info();
   console.info(title);
-  console.info(DIVIDER);
+  console.info(divider);
   console.info();
 }
 
@@ -311,11 +311,11 @@ export function formatMergeInProgressDetail(
   lines.push('');
   lines.push(`  auto-merged files (${autoMergedFiles.length}):`);
 
-  // Each file opens in VS Code from the fork workspace when the fork path is known
-  const { forkPath } = linkOptions;
+  // Each file opens in VS Code from the app workspace when the app path is known
+  const { repoRoot } = linkOptions;
   const shown = autoMergedFiles.slice(0, maxFiles);
   for (const filePath of shown) {
-    lines.push(`  - ${forkPath ? hyperlink(filePath, `vscode://file${resolve(forkPath, filePath)}`) : filePath}`);
+    lines.push(`  - ${repoRoot ? hyperlink(filePath, `vscode://file${resolve(repoRoot, filePath)}`) : filePath}`);
   }
 
   if (autoMergedFiles.length > shown.length) {
@@ -339,10 +339,10 @@ type SummaryStatus = FileStatus | 'managed';
 const statusConfig: Record<FileStatus, StatusConfig> = {
   behind: { icon: pc.cyan('↓'), label: 'behind', color: pc.cyan, description: 'upstream changed, will update' },
   diverged: { icon: pc.magenta('⇅'), label: 'diverged', color: pc.magenta, description: 'both changed, will merge' },
-  drifted: { icon: pc.yellow('!'), label: 'drifted', color: pc.yellow, description: 'fork changed (at risk)' },
-  ahead: { icon: pc.blue('↑'), label: 'ahead', color: pc.blue, description: 'fork changed (protected)' },
+  drifted: { icon: pc.yellow('!'), label: 'drifted', color: pc.yellow, description: 'app changed (at risk)' },
+  ahead: { icon: pc.blue('↑'), label: 'ahead', color: pc.blue, description: 'app changed (protected)' },
   local: { icon: pc.green('+'), label: 'local', color: pc.green, description: 'local file in cella folders' },
-  pinned: { icon: pc.green('⨀'), label: 'pinned', color: pc.green, description: 'both changed, fork wins' },
+  pinned: { icon: pc.green('⨀'), label: 'pinned', color: pc.green, description: 'both changed, app wins' },
   ignored: { icon: pc.gray('⨂'), label: 'ignored', color: pc.gray },
   identical: { icon: pc.gray('✓'), label: 'identical', color: pc.gray, description: 'no changes' },
   deleted: { icon: pc.red('✗'), label: 'deleted', color: pc.red },
@@ -391,17 +391,17 @@ export function filesWithStatus(files: AnalyzedFile[], status: FileStatus): Anal
 }
 
 /**
- * Protected (pinned/ignored) files that upstream also changed since the last sync. The fork
+ * Protected (pinned/ignored) files that upstream also changed since the last upgrade. The app
  * side wins whole-file on these, so upstream's hunks are dropped: the regression class where
- * a pinned stylesheet misses new upstream utilities that synced components rely on.
+ * a pinned stylesheet misses new upstream utilities that merged components rely on.
  */
 function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
-  // Generated output is rebuilt from the fork's own sources, so upstream's copy has nothing to adopt.
+  // Generated output is rebuilt from the app's own sources, so upstream's copy has nothing to adopt.
   return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path) && !isGeneratedFile(file.path));
 }
 
 /**
- * Every protected file upstream changed since the last sync that the sync leaves as the fork has
+ * Every protected file upstream changed since the last upgrade that the upgrade leaves as the app has
  * it: those both sides changed ({@link findProtectedBehind}) and the ignored files only upstream
  * changed, added or deleted (`MergeResult.ignoredUpstreamChanges`). Analyze lists them as one
  * section, on the terminal and on the review page.
@@ -413,9 +413,9 @@ export function findProtectedBehindUpstream(
   return [...findProtectedBehind(result.files), ...result.files.filter((file) => ignoredOnly.has(file.path))];
 }
 
-/** Hint under the protected files an upgrade kept the fork version of. */
-const PROTECTED_BEHIND_HINT =
-  'pinned/ignored files where upstream also changed since the last upgrade; the fork side wins on conflict, ' +
+/** Hint under the protected files an upgrade kept the app version of. */
+const protectedBehindHint =
+  'pinned/ignored files where upstream also changed since the last upgrade; the app side wins on conflict, ' +
   'so review what upstream changed and adopt what you need.';
 
 /** Icon by protection kind (⨂ ignored, ⨀ pinned) for protected-but-behind lines. */
@@ -423,13 +423,13 @@ export function protectionIcon(file: AnalyzedFile): string {
   return file.isIgnored ? statusConfig.ignored.icon : statusConfig.pinned.icon;
 }
 
-/** Per-file detail: how many lines upstream changed (dropped by the fork-wins resolution). */
+/** Per-file detail: how many lines upstream changed (dropped by the app-wins resolution). */
 function formatUpstreamChangedLines(file: AnalyzedFile): string {
   if (file.upstreamChangedLines === undefined) return '';
   return pc.yellow(` · ${plural(file.upstreamChangedLines, 'line')} changed upstream`);
 }
 
-export function printSyncComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
+export function printUpgradeComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
   const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
   const diverged = result.files.filter((file) => file.status === 'diverged').length;
   const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
@@ -453,7 +453,7 @@ export function printSyncComplete(result: MergeResult, options: { stagedBranch?:
 }
 
 /**
- * List protected files the sync resolved to the fork side although upstream changed them
+ * List protected files the upgrade resolved to the app side although upstream changed them
  * (`MergeResult.protectedConflicts`). Printed right when the drop happens so it is not
  * discovered weeks later as a styling or behavior regression. Silent when empty.
  */
@@ -467,7 +467,7 @@ function printProtectedConflicts(result: MergeResult): void {
   console.info();
   console.info(
     `${warningMark} ${pc.yellow(
-      `${plural(paths.length, 'protected file kept', 'protected files kept')} the fork version, dropping upstream changes:`,
+      `${plural(paths.length, 'protected file kept', 'protected files kept')} the app version, dropping upstream changes:`,
     )}`,
   );
   for (const path of paths) {
@@ -481,7 +481,7 @@ function printProtectedConflicts(result: MergeResult): void {
       `  ${statusConfig.ignored.icon} ${plural(binaries.length, 'ignored binary file')}, such as ${binaries[0]}`,
     );
   }
-  console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
+  console.info(pc.dim(`  ${protectedBehindHint}`));
 }
 
 /** `1 file`, `2 files`: a count with its noun. */
@@ -490,8 +490,8 @@ export function plural(count: number, singular: string, pluralForm = `${singular
 }
 
 /**
- * Ignored paths upstream changed since the last sync while the fork left them untouched
- * (`MergeResult.ignoredUpstreamChanges`). Ignored paths never sync, so this is where new config
+ * Ignored paths upstream changed since the last upgrade while the app left them untouched
+ * (`MergeResult.ignoredUpstreamChanges`). Ignored paths never merge, so this is where new config
  * keys or version bumps under e.g. `shared/config` surface. One line per `ignored` entry with a
  * file count. Silent when empty.
  */
@@ -510,16 +510,14 @@ export function printIgnoredUpstreamChanges(result: MergeResult): void {
     if (group.deleted > 0) counts.push(`${group.deleted} deleted`);
     console.info(`  ${statusConfig.ignored.icon} ${group.entry} ${pc.dim(`· ${counts.join(', ')}`)}`);
   }
-  console.info(
-    pc.dim('  the fork left these untouched and ignored paths never merge: review and adopt what you need.'),
-  );
+  console.info(pc.dim('  the app left these untouched and ignored paths never merge: review and adopt what you need.'));
 }
 
 /**
- * Upstream CLI config entries the fork config does not follow (`MergeResult.upstreamOverrides`):
- * `overrides` entries and `packageJsonKeys` upstream added that the fork lacks, and ones
- * upstream dropped that the fork still has. The CLI config is managed and never merges, so these
- * only reach the fork by hand. Silent when there is nothing to report; one dim line when upstream's
+ * Upstream CLI config entries the app config does not follow (`MergeResult.upstreamOverrides`):
+ * `overrides` entries and `packageJsonKeys` upstream added that the app lacks, and ones
+ * upstream dropped that the app still has. The CLI config is managed and never merges, so these
+ * only reach the app by hand. Silent when there is nothing to report; one dim line when upstream's
  * config was unreadable.
  */
 export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstreamOverrides'>): void {
@@ -527,10 +525,10 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
   if (!report) return;
 
   console.info();
-  if (report.kind === 'unreadable') {
+  if (report.type === 'unreadable') {
     const side = report.side === 'base' ? 'the last upgrade' : 'the incoming ref';
     console.info(
-      pc.dim(`upstream CLI config not compared: upstream ${CONFIG_FILE} is missing or unreadable at ${side}`),
+      pc.dim(`upstream CLI config not compared: upstream ${configFile} is missing or unreadable at ${side}`),
     );
     return;
   }
@@ -549,17 +547,17 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
     `${warningMark} ${pc.yellow(`upstream changed its CLI config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
   );
   for (const line of lines) console.info(line);
-  console.info(pc.dim(`  ${CONFIG_FILE} never merges: add or drop these by hand where they fit your app.`));
+  console.info(pc.dim(`  ${configFile} never merges: add or drop these by hand where they fit your app.`));
 }
 
 /**
- * A pinned file whose fork content is byte-identical to the previous upstream (status
+ * A pinned file whose app content is byte-identical to the previous upstream (status
  * `behind`) never actually diverged: the pin is silently freezing it at the old upstream
- * version and dropping upstream's new changes. Because the fork copy equals the old
+ * version and dropping upstream's new changes. Because the app copy equals the old
  * upstream, this produces no merge conflict and no type error, so it slips through unseen
  * (e.g. a pinned nav-config losing new upstream entries). These are the pins worth a look.
  * Managed files (package.json, the lockfile, the CLI config) are always pinned but stay out:
- * the package sync reconciles their keys, so the pin masks nothing there.
+ * the package merge reconciles their keys, so the pin masks nothing there.
  */
 export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
   return files.filter(
@@ -567,7 +565,7 @@ export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
       file.isPinned &&
       !isManagedFile(file.path) &&
       file.status === 'behind' &&
-      file.existsInFork &&
+      file.existsInApp &&
       file.existsInUpstream,
   );
 }
@@ -586,19 +584,17 @@ export function printMaskingPinWarning(files: AnalyzedFile[]): void {
       `${plural(masking.length, 'pinned file matches', 'pinned files match')} the previous upstream but changed upstream:`,
     )}`,
   );
-  console.info(pc.yellow('  the pin keeps the old fork copy and silently drops those upstream changes:'));
+  console.info(pc.yellow('  the pin keeps the old app copy and silently drops those upstream changes:'));
   for (const file of masking) {
     console.info(pc.dim(`  ⨀ ${file.path}`));
   }
-  console.info(
-    pc.yellow('  if the fork never customized these, unpin them in cella/cella.config.ts to take upstream.'),
-  );
+  console.info(pc.yellow('  if the app never customized these, unpin them in cella/cella.config.ts to take upstream.'));
   console.info();
 }
 
 /**
- * Print the post-engine report block shared by analyze and sync: the summary, then the upstream
- * changes the sync never brings in (ignored paths and upstream's own CLI config), and pins that
+ * Print the post-engine report block shared by analyze and upgrade: the summary, then the upstream
+ * changes the upgrade never brings in (ignored paths and upstream's own CLI config), and pins that
  * silently freeze a file at the old upstream (no conflict, no type error).
  */
 export function printEngineReports(result: MergeResult, title: string): void {

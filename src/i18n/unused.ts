@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { resolveForkBasePath, validateForkPath } from '../config/forks';
 import { loadConfig } from '../config/load';
-import { CONFIG_FILE } from '../upstream/managed-files';
+import { configFile } from '../upstream/managed-files';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, plural, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { errorMessage } from '../utils/errors';
@@ -12,7 +12,7 @@ import {
   namespaceTexts,
   pluralForm,
   readLocales,
-  SOURCE_LANGUAGE,
+  sourceLanguage,
   withPluralForms,
 } from './locales';
 import {
@@ -60,12 +60,12 @@ interface UnusedReport {
  * This app, and the forks of `cella/cella.config.ts` that exist on this machine, their paths relative to the main
  * checkout. The config loads only for this job.
  */
-async function reposToScan(forkPath: string): Promise<{ repos: Repo[]; missingForks: string[] }> {
-  const basePath = await resolveForkBasePath(forkPath);
-  const repos: Repo[] = [{ name: basename(basePath), path: forkPath }];
+async function reposToScan(repoRoot: string): Promise<{ repos: Repo[]; missingForks: string[] }> {
+  const basePath = await resolveForkBasePath(repoRoot);
+  const repos: Repo[] = [{ name: basename(basePath), path: repoRoot }];
   const missingForks: string[] = [];
-  if (!existsSync(join(forkPath, CONFIG_FILE))) return { repos, missingForks };
-  for (const fork of (await loadConfig(forkPath)).forks ?? []) {
+  if (!existsSync(join(repoRoot, configFile))) return { repos, missingForks };
+  for (const fork of (await loadConfig(repoRoot)).forks ?? []) {
     const validated = validateForkPath(fork, basePath);
     if (validated.valid) repos.push({ name: fork.name, path: validated.resolvedPath });
     else missingForks.push(`${fork.name} (${validated.error})`);
@@ -77,10 +77,10 @@ async function reposToScan(forkPath: string): Promise<{ repos: Repo[]; missingFo
 function definedKeys(locales: Locales): Map<string, Site> {
   const keys = new Map<string, Site>();
   for (const [namespace, files] of locales.namespaces) {
-    for (const key of Object.keys(namespaceTexts(locales, SOURCE_LANGUAGE, namespace))) {
+    for (const key of Object.keys(namespaceTexts(locales, sourceLanguage, namespace))) {
       const file = [...files]
         .reverse()
-        .map((name) => locales.files.get(`${SOURCE_LANGUAGE}/${name}`))
+        .map((name) => locales.files.get(`${sourceLanguage}/${name}`))
         .find((entry) => entry?.entries.some((e) => e.key === key));
       if (file) keys.set(`${namespace}:${key}`, { file: file.path, line: lineOf(file, key) });
     }
@@ -143,11 +143,11 @@ function classify(defined: Map<string, Site>, scans: CodeScan[]): Map<string, Ke
   return uses;
 }
 
-async function buildUnused(forkPath: string): Promise<UnusedReport> {
-  const locales = readLocales(forkPath);
+async function buildUnused(repoRoot: string): Promise<UnusedReport> {
+  const locales = readLocales(repoRoot);
   const defined = definedKeys(locales);
-  const ts = await loadTypeScript(forkPath);
-  const { repos, missingForks } = await reposToScan(forkPath);
+  const ts = await loadTypeScript(repoRoot);
+  const { repos, missingForks } = await reposToScan(repoRoot);
   const namespaces = [...locales.namespaces.keys()];
   const bareKeys = new Set([...defined.keys()].map((key) => key.slice(key.indexOf(':') + 1)));
   // Plural forms are found through their base, so a literal of the base alone counts
@@ -191,7 +191,7 @@ async function buildUnused(forkPath: string): Promise<UnusedReport> {
   return report;
 }
 
-const LIST_MAX = 12;
+const listMax = 12;
 
 function printUnused(report: UnusedReport): void {
   const [here, ...forks] = report.repos;
@@ -205,20 +205,20 @@ function printUnused(report: UnusedReport): void {
   for (const fork of report.missingForks) console.info(`${warningMark} fork ${fork}: its uses are unknown`);
   console.info();
 
-  const width = Math.min(48, Math.max(0, ...report.unused.slice(0, LIST_MAX).map(({ key }) => key.length)) + 2);
+  const width = Math.min(48, Math.max(0, ...report.unused.slice(0, listMax).map(({ key }) => key.length)) + 2);
   console.info(`${pc.bold(forks.length > 0 ? 'unused everywhere' : 'unused')} ${pc.dim(String(report.unused.length))}`);
-  for (const { key, file, line } of report.unused.slice(0, LIST_MAX))
+  for (const { key, file, line } of report.unused.slice(0, listMax))
     console.info(`  ${key.padEnd(width)}${pc.dim(`${file}:${line}`)}`);
-  if (report.unused.length > LIST_MAX)
-    console.info(`  ${pc.dim(`… ${report.unused.length - LIST_MAX} more, --json for the list`)}`);
+  if (report.unused.length > listMax)
+    console.info(`  ${pc.dim(`… ${report.unused.length - listMax} more, --json for the list`)}`);
 
   if (forks.length > 0) {
     console.info();
     console.info(`${pc.bold('used only in a fork')} ${pc.dim(`${report.usedOnlyInForks.length} · keep them`)}`);
-    for (const { key, repos } of report.usedOnlyInForks.slice(0, LIST_MAX))
+    for (const { key, repos } of report.usedOnlyInForks.slice(0, listMax))
       console.info(`  ${key.padEnd(width)}${pc.dim(repos.join(' · '))}`);
-    if (report.usedOnlyInForks.length > LIST_MAX)
-      console.info(`  ${pc.dim(`… ${report.usedOnlyInForks.length - LIST_MAX} more`)}`);
+    if (report.usedOnlyInForks.length > listMax)
+      console.info(`  ${pc.dim(`… ${report.usedOnlyInForks.length - listMax} more`)}`);
   }
 
   const byLiteral = report.unverified.filter(({ by }) => by === 'literal').map(({ key }) => key);
@@ -228,16 +228,16 @@ function printUnused(report: UnusedReport): void {
     `${pc.bold('unverified')} ${pc.dim(`${report.unverified.length} · ${byPattern} a template's pattern may build, ${byLiteral.length} only a literal without the namespace names`)}`,
   );
   if (byLiteral.length > 0) {
-    const more = byLiteral.length > LIST_MAX ? `, … ${byLiteral.length - LIST_MAX} more` : '';
-    console.info(`  ${pc.dim(`by a literal: ${byLiteral.slice(0, LIST_MAX).join(', ')}${more}`)}`);
+    const more = byLiteral.length > listMax ? `, … ${byLiteral.length - listMax} more` : '';
+    console.info(`  ${pc.dim(`by a literal: ${byLiteral.slice(0, listMax).join(', ')}${more}`)}`);
   }
   if (report.openSites.length > 0)
     console.info(`  ${pc.dim(`${plural(report.openSites.length, 'template')} that may build any key:`)}`);
-  for (const site of report.openSites.slice(0, LIST_MAX)) {
+  for (const site of report.openSites.slice(0, listMax)) {
     console.info(`  ${pc.dim(`${forks.length > 0 ? `${site.repo} ` : ''}${site.file}:${site.line}`)}  ${site.source}`);
   }
-  if (report.openSites.length > LIST_MAX)
-    console.info(`  ${pc.dim(`… ${report.openSites.length - LIST_MAX} more, --json for the list`)}`);
+  if (report.openSites.length > listMax)
+    console.info(`  ${pc.dim(`… ${report.openSites.length - listMax} more, --json for the list`)}`);
   if (report.unused.length === 0) {
     console.info();
     console.info(`${checkMark} every key is used`);
@@ -245,10 +245,10 @@ function printUnused(report: UnusedReport): void {
 }
 
 /** `cella i18n unused`: keys no code names, in this app and in the forks the config names. */
-export async function runUnused(forkPath: string, json: boolean): Promise<number> {
+export async function runUnused(repoRoot: string, json: boolean): Promise<number> {
   let report: UnusedReport;
   try {
-    report = await buildUnused(forkPath);
+    report = await buildUnused(repoRoot);
   } catch (error) {
     throw new Error(`i18n unused: ${errorMessage(error)}`);
   }

@@ -29,9 +29,9 @@ export const statsCommand: ToolCommand<StatsOptions> = {
     if (md) setJsonMode(true);
     return { since, md, verbose: opts.verbose === true };
   },
-  async run(forkPath, { since, md, verbose }) {
-    if (since) await runBranchStats(forkPath, since, { md, verbose });
-    else await runStats(forkPath, verbose);
+  async run(repoRoot, { since, md, verbose }) {
+    if (since) await runBranchStats(repoRoot, since, { md, verbose });
+    else await runStats(repoRoot, verbose);
     return 0;
   },
 };

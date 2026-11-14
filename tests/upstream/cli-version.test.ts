@@ -1,7 +1,7 @@
 /**
  * Tests for the CLI version check.
  *
- * A sync bumps the fork's CLI with its other packages, so without the check each sync runs on the
+ * An upgrade bumps the app's CLI with its other packages, so without the check each upgrade runs on the
  * previous CLI. `readUpstreamCliRange` reads the range from upstream's root package.json at a ref,
  * and `cliVersionMismatch` blocks only when the running CLI is below the range's lower bound.
  */

@@ -37,7 +37,7 @@ Develop, security and gate commands run without `cella.config.ts`; upstream comm
 
 | Upstream | Description |
 |----------|-------------|
-| `analyze` | Dry run to see what would change on upgrade. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-upgrade` and a graft for the upgrade base |
+| `analyze` | Dry run to see what would change on upgrade. It leaves your files and branches alone but updates git metadata: it fetches upstream and writes `refs/cella/last-upgrade` and a graft for the upgrade point |
 | `upgrade` | Merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR into `main` |
 | `align` | List the upstream alignments this app has not handled yet, read them, run their codemods, record them |
 | `adopt` * | Pull and adopt changes from local forks (see [Adopt](#adopt-from-forks)) |
@@ -254,7 +254,7 @@ outsider is one. The scanners run as Docker images pinned by digest, pulled on f
 they reach the testbed by its own origin. Results stay in `.git/cella-pentest/`, out of the repository, because the
 scanners' output can hold the sessions, which the run signs out at the end.
 
-The app describes itself in `cella/pentest.ts`, synced from the template: the query that picks the seeded users, the
+The app describes itself in `cella/pentest.ts`, which each upgrade brings from the template: the query that picks the seeded users, the
 operations a scan must skip because they end its session or delete what it needs, the guards that mark a route as
 scoped, and what fills each route's ids. `cella/pentest.app.ts` (optional, the app's own) adds the app's own skips and ids
 or overrides the rest. A route whose ids nothing fills is listed as not probed, so the report says what the probe did
@@ -293,7 +293,7 @@ manifest, it also asks a branch that changes an app-owned path template code rea
 | `code-in-link` | inline code in a link label | Markdown and MDX |
 | `long-paragraph` | a prose paragraph of more than 80 words, inline code and link targets uncounted | Markdown and MDX, outside `cella/alignments/` and `cella/skills/` |
 | `consequence-tail` | `, so` joining a reason and its consequence | comments, Markdown and MDX prose, on the lines the branch changed since its merge base with `origin/main`, in an app outside the lines upstream's copy of the file holds; alignments and migration notes exempt |
-| `source-control-term` | the CLI's source-control term | file paths and text, outside the sync markers and the allowlisted files |
+| `source-control-term` | the CLI's source-control term | file paths and text, outside the `fork:` markers and the allowlisted files |
 | `product-name` | `cella_*`, `Cella*`, `_cella-*`, `cellajs.com` | `backend/src`, `shared/src` and `frontend/src`, outside tests, marketing and content |
 | `component-declaration` | a component declared as an arrow function, or a helper such as `memo` wrapping an unnamed render function | frontend `.tsx` sources |
 | `store-selector` | a zustand store called without a selector | frontend sources |
@@ -329,7 +329,7 @@ Upgrade behavior lives in `cella.config.ts` at your monorepo root (a sensible de
 apps). To deviate files or folders from the template:
 
 - **`ignored`**: files completely excluded from upgrades (existing and new)
-- **`pinned`**: full fork control, existing, modified, or deleted files are preserved
+- **`pinned`**: full app control, existing, modified, or deleted files are preserved
 
 An `ignored` entry may name a path your app does not have, to keep it from arriving (a file upstream
 has and your app deleted). Every run warns `ignored entry not found` only when neither your app nor
@@ -346,7 +346,7 @@ The CLI tracks upstream cella one of two ways, set via `settings.upstreamTrack`:
 
 | Mode | Behavior | For |
 |------|----------|-----|
-| `release` (default) | Upgrade to the latest cella release tag. Stable and reviewable: each bump maps to a changelog. | Most forks |
+| `release` (default) | Upgrade to the latest cella release tag. Stable and reviewable: each bump maps to a changelog. | Most apps |
 | `branch` | Follow the bleeding-edge tip of `settings.upstreamBranch`. | cella maintainers, active development |
 
 For a one-off run that ignores the configured mode, pass `--track`:
@@ -406,7 +406,7 @@ upgrade PR.
 When the commit stage runs, the in-progress merge state (`MERGE_HEAD`) is discarded, so the staged delta
 collapses into a **single-parent commit** (`chore: upgrade cella to <sha>`). This keeps the PR
 to one clean commit with the incremental diff; a two-parent merge commit would instead list the
-upstream branch's entire history, because the fork doesn't share pushed ancestry with upstream
+upstream branch's entire history, because the app doesn't share pushed ancestry with upstream
 and the local `git replace` graft that makes merges incremental is never pushed. Ancestry lives
 in the committed `cella.manifest.json` and the local `refs/cella/last-upgrade`, so
 `git merge-base` keeps working across throwaway branches; each is safe to delete once its PR
@@ -516,7 +516,7 @@ too. A codemod run by hand from the `--extract` folder has no such protection.
 
 ## Merge rules
 
-For each file, `upgrade` compares fork and upstream **content** (blob comparison) and resolves it
+For each file, `upgrade` compares app and upstream **content** (blob comparison) and resolves it
 per the table below. Unconfigured files converge on upstream; `ignored` and `pinned` let you opt
 out:
 
@@ -540,13 +540,13 @@ During analysis and upgrade, files are displayed with status indicators:
 |:------:|-------|---------|--------|
 | ◇ | `managed` | Package/config file changed | Handled separately by cella |
 | ⨂ | `ignored` | Protected by ignored config | Excluded from upgrades |
-| ✓ | `identical` | Fork matches upstream | No action needed |
-| ↑ | `ahead` | Fork changed (pinned), upstream did not | Protected, keeping fork |
-| ! | `drifted` | Fork changed, not protected | At risk, consider pinning |
+| ✓ | `identical` | App matches upstream | No action needed |
+| ↑ | `ahead` | App changed (pinned), upstream did not | Protected, keeping app |
+| ! | `drifted` | App changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream has changes | Will update from upstream |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
-| ⨀ | `pinned` | Both changed, fork wins | Protected, keeping fork: review, see below |
-| + | `local` | Only in fork, never in upstream | No action needed |
+| ⨀ | `pinned` | Both changed, app wins | Protected, keeping app: review, see below |
+| + | `local` | Only in app, never in upstream | No action needed |
 
 ### Protected but behind upstream
 
@@ -557,26 +557,26 @@ missing new upstream utilities that merged components rely on), so both commands
 - `analyze` lists them in a `⚠ protected but behind upstream` section (pinned files as ⨀,
   ignored as ⨂) with the number of lines upstream changed, together with the ignored files only
   upstream changed (tagged `new` or `deleted`, see below). New files come first, then the most
-  changed; generated output the fork regenerates itself (`sdk/gen`, `*.gen.*` files) is left out.
+  changed; generated output the app regenerates itself (`sdk/gen`, `*.gen.*` files) is left out.
   `--list`/`--json` include them in `--scope all` and `--scope protected` (`--json` adds
   `upstreamChanged` and `upstreamChangedLines`).
 - `upgrade` prints the same list at the end of its summary, right when the drop happens. Ignored
   images and other binaries, which an app replaces whole, share one line.
 
 ```
-⚠ 5 protected files kept the fork version, dropping upstream changes:
+⚠ 5 protected files kept the app version, dropping upstream changes:
   ⨀ frontend/src/styling/tailwind.css · 21 lines changed upstream
   ⨂ shared/config/default.ts · 4 lines changed upstream
   ⨂ shared/config/staging.ts · 2 lines changed upstream
   ⨂ 2 ignored binary files, such as frontend/public/static/marketing/app-1.webp
-  pinned/ignored files where upstream also changed since the last upgrade; the fork side wins on conflict, so review what upstream changed and adopt what you need.
+  pinned/ignored files where upstream also changed since the last upgrade; the app side wins on conflict, so review what upstream changed and adopt what you need.
 ```
 
 The [review page](#review-page) shows what upstream changed in each of them since the last upgrade.
 The check is relative to the last upgrade: a drop that happened in an earlier upgrade only shows
-up as plain `ahead` afterwards. For that case the `↑ protected in fork` section counts the
-`upstream lines absent` from each pinned file (lines upstream has that the fork lacks, compared at
-the tips, `--json`: `upstreamLinesAbsent`). That is upstream content the fork never received,
+up as plain `ahead` afterwards. For that case the `↑ protected in app` section counts the
+`upstream lines absent` from each pinned file (lines upstream has that the app lacks, compared at
+the tips, `--json`: `upstreamLinesAbsent`). That is upstream content the app never received,
 deliberately or not: the review page shows the difference, so you can decide. Ignored files are
 not annotated.
 
@@ -587,17 +587,17 @@ upgrades dropped come back too. Review the staged merge in your editor and keep 
 
 ### Upstream changes that never merge
 
-Two more kinds of upstream change never reach the fork on their own. `analyze` lists the first in
+Two more kinds of upstream change never reach the app on their own. `analyze` lists the first in
 `protected but behind upstream` and prints the second after its file sections; `upgrade` prints both
 after its merge summary:
 
 - **Ignored paths changed upstream.** Upstream changed, added or deleted a file under an `ignored`
-  entry (app-owned module folders included) and the fork left it untouched or does not have it.
+  entry (app-owned module folders included) and the app left it untouched or does not have it.
   No conflict marks it, so this is where new config keys and version bumps under `shared/config`
   show up. In `upgrade`
   each `ignored` entry gets one line with a file count, and the [review page](#review-page) shows
   the diffs. Files
-  both sides changed stay in the section above, and generated output the fork regenerates itself
+  both sides changed stay in the section above, and generated output the app regenerates itself
   (`sdk/gen`, `*.gen.*` files) is left out. `--list`/`--json` include these
   files in `--scope all` and `--scope protected` (`--json`: `upstreamOnly`).
 - **Upstream CLI config changes.** `cella/cella.config.ts` never merges, so entries upstream adds to
@@ -610,7 +610,7 @@ after its merge summary:
 ```
 ⚠ ignored paths changed upstream · 1 file under 1 entry
   ⨂ frontend/src/modules/marketing · 1 file
-  the fork left these untouched and ignored paths never merge: review and adopt what you need.
+  the app left these untouched and ignored paths never merge: review and adopt what you need.
 
 ⚠ upstream changed its CLI config · 2 entries to review
   + pinned: backend/src/bundle-config.ts
@@ -643,11 +643,11 @@ has files, and list it first under [`next steps`](#analyze-output):
 
 | Section | `analyze` | `upgrade` | The diff shows |
 | --- | --- | --- | --- |
-| protected but behind upstream (upgrade: protected files kept the fork version) | ✓ | ✓ | what upstream changed since the last upgrade |
+| protected but behind upstream (upgrade: protected files kept the app version) | ✓ | ✓ | what upstream changed since the last upgrade |
 | ignored paths changed upstream (analyze: under protected but behind upstream) | ✓ | ✓ | what upstream changed since the last upgrade |
 | pinned files that match the previous upstream | ✓ | ✓ | what upstream changed since the last upgrade |
-| protected in fork, upstream lines absent | ✓ | | the fork against upstream, both as they are now |
-| drifted from upstream | ✓ | | what the fork changed since the last upgrade |
+| protected in app, upstream lines absent | ✓ | | the app against upstream, both as they are now |
+| drifted from upstream | ✓ | | what the app changed since the last upgrade |
 
 `upgrade` opens the page in your browser when it runs in a terminal: the files on it are upstream
 changes the merge did not bring in, and the committed upgrade branch is where you adopt them.
@@ -669,20 +669,20 @@ packageJsonKeys: ['dependencies', 'devDependencies', 'scripts']
 **Supported keys:** `dependencies`, `devDependencies`, `peerDependencies`, `optionalDependencies`, `scripts`, `engines`, `packageManager`, `overrides`, `exports`, `pnpm`
 
 Each section merges three-way against the merge-base package.json (upstream as of your last
-upgrade). An entry your fork never touched follows upstream: it is **added**, **updated** (a rewritten
-script, a changed range) or **removed** when upstream dropped it. An entry your fork added or
+upgrade). An entry your app never touched follows upstream: it is **added**, **updated** (a rewritten
+script, a changed range) or **removed** when upstream dropped it. An entry your app added or
 changed stays as it is; only a strictly higher upstream version still bumps it, and never for
-`scripts`. An entry your fork removed is not re-added. A dependency or script upstream dropped
-stays while your own code still uses it: files that differ from upstream and scripts your fork
+`scripts`. An entry your app removed is not re-added. A dependency or script upstream dropped
+stays while your own code still uses it: files that differ from upstream and scripts your app
 added or changed are searched for an import of the package, a run of its CLI, or a package manager
 command that runs the script. The upgrade lists every change and warns about each entry it kept this
-way, so you can remove it once your code no longer needs it. `exports` are add-only: an entry your fork
+way, so you can remove it once your code no longer needs it. `exports` are add-only: an entry your app
 already defines is never rewritten, and `exports` only merges when both sides are subpath maps
 (`{ ".": …, "./config": … }`). A workspace upstream added since your last upgrade arrives with its
 package.json copied verbatim. A merged section is sorted alphabetically, except `scripts`: they
-keep upstream's order, and a script only your fork has stays after the one it follows.
+keep upstream's order, and a script only your app has stays after the one it follows.
 
-`type` always merges, whatever `packageJsonKeys` lists: it follows upstream where your fork kept the
+`type` always merges, whatever `packageJsonKeys` lists: it follows upstream where your app kept the
 previous value, and a package.json without `type` gets upstream's. Set it yourself (for example
 `"commonjs"`) to keep your own.
 

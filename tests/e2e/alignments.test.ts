@@ -1,5 +1,5 @@
 /**
- * E2E tests for upstream alignments: the sync keeps `cella/alignments/` out of the fork, records
+ * E2E tests for upstream alignments: the upgrade keeps `cella/alignments/` out of the app, records
  * the alignments that arrive as pending, and `cella align --mark` clears them.
  */
 import { execSync } from 'node:child_process';
@@ -9,7 +9,7 @@ import { stripVTControlCharacters } from 'node:util';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAlign } from '../../src/upstream/align';
 import { runAnalyze } from '../../src/upstream/analyze';
-import { runSync, runUpgradeCommand } from '../../src/upstream/upgrade';
+import { runUpgrade, runUpgradeCommand } from '../../src/upstream/upgrade';
 import {
   buildRuntimeConfig,
   createTestEnv,
@@ -18,7 +18,7 @@ import {
   fileExists,
   makeCommit,
   readRepoFile,
-  resetFork,
+  resetApp,
   type TestEnv,
 } from '../helpers/test-env';
 
@@ -30,11 +30,11 @@ vi.mock('node:child_process', async (importOriginal) => {
 
 const readme = (title: string) =>
   `---\nbreaking: true\nclientCacheBump: false\ncaughtBy: compiler\n---\n\n# ${title}\n\nWhat the app changes.\n`;
-const OLD = '20260101T0000-old-alignment';
-const NEW = '20260102T0000-new-alignment';
+const oldId = '20260101T0000-old-alignment';
+const newId = '20260102T0000-new-alignment';
 
-function pending(forkPath: string): unknown {
-  const raw = readRepoFile(forkPath, 'cella/cella.alignments.json');
+function pending(repoRoot: string): unknown {
+  const raw = readRepoFile(repoRoot, 'cella/cella.alignments.json');
   return raw === null ? null : JSON.parse(raw);
 }
 
@@ -46,63 +46,66 @@ describe('alignments e2e', () => {
   });
 
   afterEach(() => {
-    resetFork(env.forkPath);
+    resetApp(env.repoRoot);
     env.cleanup();
   });
 
   it('records arriving alignments as pending and never brings the folder in', async () => {
     makeCommit(env.upstreamPath, {
-      files: { [`cella/alignments/${NEW}/README.md`]: readme('New alignment'), 'feature.ts': 'export const f = 1;\n' },
+      files: {
+        [`cella/alignments/${newId}/README.md`]: readme('New alignment'),
+        'feature.ts': 'export const f = 1;\n',
+      },
       message: 'feat: new alignment',
     });
 
-    fetchUpstream(env.forkPath);
-    const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+    fetchUpstream(env.repoRoot);
+    const result = await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
 
-    expect(fileExists(env.forkPath, 'feature.ts')).toBe(true);
-    expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
-    expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
+    expect(fileExists(env.repoRoot, 'feature.ts')).toBe(true);
+    expect(fileExists(env.repoRoot, 'cella/alignments')).toBe(false);
+    expect(pending(env.repoRoot)).toEqual({ pending: [newId] });
+    expect(result.alignments).toEqual({ total: 1, arrived: [newId], open: [newId] });
   });
 
-  it('removes the copy when the sync stops at conflicts, and the rerun keeps it gone', async () => {
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
+  it('removes the copy when the upgrade stops at conflicts, and the rerun keeps it gone', async () => {
+    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.repoRoot, encoding: 'utf8' }).trim();
     const lines: string[] = [];
     const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
       lines.push(args.map(String).join(' '));
     });
     const printed = () => stripVTControlCharacters(lines.splice(0).join('\n'));
 
-    // An older sync brought the whole folder in
+    // An older upgrade brought the whole folder in
     makeCommit(env.upstreamPath, {
       files: {
         'cella/alignments/README.md': '# Alignments\n',
-        [`cella/alignments/${OLD}/README.md`]: '# Old alignment\n\nWhat the app changes.\n',
-        [`cella/alignments/${OLD}/codemod.ts`]: 'export const codemod = 1;\n',
+        [`cella/alignments/${oldId}/README.md`]: '# Old alignment\n\nWhat the app changes.\n',
+        [`cella/alignments/${oldId}/codemod.ts`]: 'export const codemod = 1;\n',
       },
       message: 'feat: old alignment',
     });
-    fetchUpstream(env.forkPath);
+    fetchUpstream(env.repoRoot);
     git('merge --ff-only cella-upstream/main');
-    // The test fork is a clone of upstream: without this its trunk tracks upstream and fast-forwards to it
+    // The test app is a clone of upstream: without this its trunk tracks upstream and fast-forwards to it
     git('branch --unset-upstream main');
-    makeCommit(env.forkPath, {
-      files: { 'README.md': '# Fork readme\n' },
+    makeCommit(env.repoRoot, {
+      files: { 'README.md': '# App readme\n' },
       message: 'chore: own readme',
     });
 
-    // Upstream, in the sync range: changes existing alignment files, deletes one, adds an alignment, and conflicts elsewhere
+    // Upstream, in the upgrade range: changes existing alignment files, deletes one, adds an alignment, and conflicts elsewhere
     makeCommit(env.upstreamPath, {
       files: {
         'cella/alignments/README.md': '# Alignments\n\nAlignments stay upstream.\n',
-        [`cella/alignments/${OLD}/README.md`]: readme('Old alignment'),
-        [`cella/alignments/${NEW}/README.md`]: readme('New alignment'),
-        [`cella/alignments/${NEW}/codemod.ts`]: 'export const codemod = 2;\n',
+        [`cella/alignments/${oldId}/README.md`]: readme('Old alignment'),
+        [`cella/alignments/${newId}/README.md`]: readme('New alignment'),
+        [`cella/alignments/${newId}/codemod.ts`]: 'export const codemod = 2;\n',
         'README.md': '# Upstream readme\n',
       },
       message: 'feat: new alignment, frontmatter on the old one',
     });
-    deleteFileAndCommit(env.upstreamPath, `cella/alignments/${OLD}/codemod.ts`, 'chore: drop old codemod');
+    deleteFileAndCommit(env.upstreamPath, `cella/alignments/${oldId}/codemod.ts`, 'chore: drop old codemod');
 
     try {
       // First run: stops at the conflict, with the folder already gone
@@ -111,9 +114,9 @@ describe('alignments e2e', () => {
       const branch = git('rev-parse --abbrev-ref HEAD');
       expect(branch).toMatch(/^cella\/upgrade\//);
       expect(git('diff --name-only --diff-filter=U')).toBe('README.md');
-      expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
+      expect(fileExists(env.repoRoot, 'cella/alignments')).toBe(false);
       expect(git('ls-files cella/alignments')).toBe('');
-      expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
+      expect(pending(env.repoRoot)).toEqual({ pending: [newId] });
       // It ends on what to do: resolve the conflict, let a rerun commit, and the alignment that arrived
       const stopped = printed();
       expect(stopped).toMatch(
@@ -122,10 +125,10 @@ describe('alignments e2e', () => {
       expect(stopped).toMatch(/ {2}2 finish {3}pnpm cella upgrade\n/);
       expect(stopped).toMatch(/ {2}\d align {4}1 alignment open · 1 arrived with this upgrade\n/);
       expect(stopped).toContain('○ New alignment · codemod · breaking · caught by compiler');
-      expect(stopped).toContain(`  id ${NEW}`);
+      expect(stopped).toContain(`  id ${newId}`);
 
       // Finishing rerun: commits the resolved merge, and the folder stays gone
-      fs.writeFileSync(path.join(env.forkPath, 'README.md'), '# Fork readme\n');
+      fs.writeFileSync(path.join(env.repoRoot, 'README.md'), '# App readme\n');
       git('add README.md');
       await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
 
@@ -141,8 +144,8 @@ describe('alignments e2e', () => {
       expect(committed).not.toContain('alignments:');
       expect(git('status --porcelain')).toBe('');
       expect(git('ls-tree -r --name-only HEAD -- cella/alignments')).toBe('');
-      expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
-      expect(JSON.parse(git('show HEAD:cella/cella.alignments.json'))).toEqual({ pending: [NEW] });
+      expect(fileExists(env.repoRoot, 'cella/alignments')).toBe(false);
+      expect(JSON.parse(git('show HEAD:cella/cella.alignments.json'))).toEqual({ pending: [newId] });
     } finally {
       info.mockRestore();
     }
@@ -150,10 +153,10 @@ describe('alignments e2e', () => {
 
   it('reports arriving alignments in analyze without writing anything', async () => {
     makeCommit(env.upstreamPath, {
-      files: { [`cella/alignments/${NEW}/README.md`]: readme('New alignment') },
+      files: { [`cella/alignments/${newId}/README.md`]: readme('New alignment') },
       message: 'feat: new alignment',
     });
-    fetchUpstream(env.forkPath);
+    fetchUpstream(env.repoRoot);
 
     const lines: string[] = [];
     const info = vi.spyOn(console, 'info').mockImplementation((...args: unknown[]) => {
@@ -161,13 +164,13 @@ describe('alignments e2e', () => {
     });
     const result = await runAnalyze(buildRuntimeConfig(env, { service: 'analyze' })).finally(() => info.mockRestore());
 
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [] });
-    expect(pending(env.forkPath)).toBeNull();
-    // Arriving, not open: `pnpm cella align` lists it only once the sync lands
+    expect(result.alignments).toEqual({ total: 1, arrived: [newId], open: [] });
+    expect(pending(env.repoRoot)).toBeNull();
+    // Arriving, not open: `pnpm cella align` lists it only once the upgrade lands
     const out = stripVTControlCharacters(lines.join('\n'));
     expect(out).toContain('○ New alignment · manual · breaking · caught by compiler');
     expect(out).toContain('after the upgrade: pnpm cella align');
-    // Only the alignment changed upstream: the sync still records it and moves the sync point
+    // Only the alignment changed upstream: the upgrade still records it and moves the upgrade point
     expect(out).toMatch(
       / {2}1 upgrade {2}pnpm cella upgrade\n {13}commits on a fresh branch, a rerun opens the PR · no file changes\n/,
     );
@@ -176,14 +179,14 @@ describe('alignments e2e', () => {
 
   it('marks an alignment as handled and deletes the file once nothing is pending', async () => {
     makeCommit(env.upstreamPath, {
-      files: { [`cella/alignments/${NEW}/README.md`]: readme('New alignment') },
+      files: { [`cella/alignments/${newId}/README.md`]: readme('New alignment') },
       message: 'feat: new alignment',
     });
-    fetchUpstream(env.forkPath);
-    await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
+    fetchUpstream(env.repoRoot);
+    await runUpgrade(buildRuntimeConfig(env, { service: 'upgrade' }));
 
-    await runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), mark: [NEW] });
+    await runAlign({ ...buildRuntimeConfig(env, { service: 'align' }), mark: [newId] });
 
-    expect(pending(env.forkPath)).toBeNull();
+    expect(pending(env.repoRoot)).toBeNull();
   });
 });

@@ -34,11 +34,11 @@ interface LocalDatabases {
  * offset applies in development mode only.
  */
 export async function importFromApp(
-  forkPath: string,
+  repoRoot: string,
   file: string,
   mode: 'development' | 'production' = 'development',
 ): Promise<Record<string, unknown>> {
-  const path = join(forkPath, file);
+  const path = join(repoRoot, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
   setEnv('NODE_ENV', mode);
   return import(pathToFileURL(path).href);
@@ -48,16 +48,16 @@ export async function importFromApp(
  * The app's config in development mode, from its own `shared` package. In a linked worktree the import claims that
  * worktree's port slot, as `pnpm dev` would.
  */
-export async function loadAppFacts(forkPath: string): Promise<AppFacts> {
-  const parsed = appConfigSchema.safeParse((await importFromApp(forkPath, 'shared/index.ts')).appConfig);
+export async function loadAppFacts(repoRoot: string): Promise<AppFacts> {
+  const parsed = appConfigSchema.safeParse((await importFromApp(repoRoot, 'shared/index.ts')).appConfig);
   if (!parsed.success)
     throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
   return parsed.data;
 }
 
 /** The app's local database helpers. */
-export async function loadLocalDatabases(forkPath: string): Promise<LocalDatabases> {
-  const module = await importFromApp(forkPath, 'shared/src/local-database.ts');
+export async function loadLocalDatabases(repoRoot: string): Promise<LocalDatabases> {
+  const module = await importFromApp(repoRoot, 'shared/src/local-database.ts');
   const { localDatabasePort, localDatabaseUrl, composeEnv } = module;
   if (
     typeof localDatabasePort !== 'function' ||
@@ -78,8 +78,8 @@ export async function loadLocalDatabases(forkPath: string): Promise<LocalDatabas
  * the CLI ships none. The package's ESM entry when it has one, else its CommonJS exports.
  * @throws when the workspace does not have the package installed
  */
-export async function importFromWorkspace<T>(forkPath: string, workspace: string, name: string): Promise<T> {
-  const require = createRequire(join(forkPath, workspace, 'package.json'));
+export async function importFromWorkspace<T>(repoRoot: string, workspace: string, name: string): Promise<T> {
+  const require = createRequire(join(repoRoot, workspace, 'package.json'));
   let manifestPath: string | undefined;
   try {
     manifestPath = require.resolve(`${name}/package.json`);
@@ -117,8 +117,8 @@ export function resolveImage(reference: string): string {
  * Where a tool keeps its results and state: `<git dir>/cella-<tool>/` of this checkout, or of the git directory every
  * worktree shares. Inside the git directory nothing shows in `git status`.
  */
-export function toolDir(forkPath: string, tool: string, scope: 'checkout' | 'repository' = 'checkout'): string {
+export function toolDir(repoRoot: string, tool: string, scope: 'checkout' | 'repository' = 'checkout'): string {
   const flag = scope === 'checkout' ? '--absolute-git-dir' : '--git-common-dir';
-  const gitDir = execFileSync('git', ['rev-parse', flag], { cwd: forkPath, encoding: 'utf8' }).trim();
-  return join(resolve(forkPath, gitDir), `cella-${tool}`);
+  const gitDir = execFileSync('git', ['rev-parse', flag], { cwd: repoRoot, encoding: 'utf8' }).trim();
+  return join(resolve(repoRoot, gitDir), `cella-${tool}`);
 }

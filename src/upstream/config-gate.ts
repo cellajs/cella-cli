@@ -1,14 +1,14 @@
 /**
- * Upstream override changes: the upgrade never merges the fork's config, so this reads upstream's
+ * Upstream override changes: the upgrade never merges the app's config, so this reads upstream's
  * `overrides` lists and `packageJsonKeys` at the merge-base and the incoming ref (ts-morph,
- * syntax only) and reports the entries the fork config does not follow. Report only.
+ * syntax only) and reports the entries the app config does not follow. Report only.
  */
 
 import { Node, type ObjectLiteralExpression, Project, type SourceFile, SyntaxKind } from 'ts-morph';
-import { DEFAULT_PACKAGE_JSON_KEYS } from '../config/load';
+import { defaultPackageJsonKeys } from '../config/load';
 import type { CellaCliConfig, OverrideListChanges, UpstreamOverridesReport } from '../config/types';
 import { git } from '../utils/git';
-import { CONFIG_FILE } from './managed-files';
+import { configFile } from './managed-files';
 import { isUnderAnyFolder, normalizeEntry } from './protection';
 
 /** The lists the comparison reads from a CLI config, as plain string entries. */
@@ -19,7 +19,7 @@ interface OverrideLists {
   packageJsonKeys: string[] | null;
 }
 
-const LIST_KEYS = ['pinned', 'ignored'] as const;
+const listKeys = ['pinned', 'ignored'] as const;
 
 /** Resolve wrappers (`(x)`, `x as T`, `x satisfies T`) and same-file identifiers to the underlying expression. */
 function resolveExpression(node: Node | undefined, sourceFile: SourceFile, depth = 0): Node | undefined {
@@ -85,11 +85,11 @@ function readStringEntries(node: Node): string[] | null {
  */
 function readPackageJsonKeys(config: ObjectLiteralExpression, sourceFile: SourceFile): string[] | null {
   const settings = readProperty(config, 'settings', sourceFile);
-  if (settings === undefined) return [...DEFAULT_PACKAGE_JSON_KEYS];
+  if (settings === undefined) return [...defaultPackageJsonKeys];
   if (!settings || !Node.isObjectLiteralExpression(settings)) return null;
   const current = readProperty(settings, 'packageJsonKeys', sourceFile);
   const keys = current === undefined ? readProperty(settings, 'packageJsonSync', sourceFile) : current;
-  if (keys === undefined) return [...DEFAULT_PACKAGE_JSON_KEYS];
+  if (keys === undefined) return [...defaultPackageJsonKeys];
   return keys ? readStringEntries(keys) : null;
 }
 
@@ -114,7 +114,7 @@ export function parseOverrideLists(source: string): OverrideLists | null {
     if (overrides === undefined) return lists;
     if (!overrides || !Node.isObjectLiteralExpression(overrides)) return null;
 
-    for (const key of LIST_KEYS) {
+    for (const key of listKeys) {
       const list = readProperty(overrides, key, sourceFile);
       if (list === undefined) continue;
       const entries = list ? readStringEntries(list) : null;
@@ -128,29 +128,29 @@ export function parseOverrideLists(source: string): OverrideLists | null {
 }
 
 /**
- * Compare upstream's lists at the merge-base and at the incoming ref against the fork's lists.
+ * Compare upstream's lists at the merge-base and at the incoming ref against the app's lists.
  *
- * - added: new upstream entries the fork list lacks (an exact entry or a parent folder covers it).
- * - removed: entries upstream dropped that the fork list still carries verbatim.
+ * - added: new upstream entries the app list lacks (an exact entry or a parent folder covers it).
+ * - removed: entries upstream dropped that the app list still carries verbatim.
  *
  * `packageJsonKeys` compare by name, and not at all when a side could not be read. Entries
- * upstream had all along are never reported, whether or not the fork has them.
+ * upstream had all along are never reported, whether or not the app has them.
  */
 export function diffOverrideLists(
   base: OverrideLists,
   incoming: OverrideLists,
-  fork: OverrideLists,
-): Record<(typeof LIST_KEYS)[number] | 'packageJsonKeys', OverrideListChanges> {
+  app: OverrideLists,
+): Record<(typeof listKeys)[number] | 'packageJsonKeys', OverrideListChanges> {
   const basenameOf = (entry: string) => entry.slice(entry.lastIndexOf('/') + 1);
-  const diff = (key: (typeof LIST_KEYS)[number]): OverrideListChanges => {
+  const diff = (key: (typeof listKeys)[number]): OverrideListChanges => {
     const baseSet = new Set(base[key].map(normalizeEntry).filter(Boolean));
     const incomingSet = new Set(incoming[key].map(normalizeEntry).filter(Boolean));
-    const forkEntries = fork[key].map(normalizeEntry).filter(Boolean);
-    const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry) && !isUnderAnyFolder(entry, forkEntries));
+    const appEntries = app[key].map(normalizeEntry).filter(Boolean);
+    const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry) && !isUnderAnyFolder(entry, appEntries));
 
-    // A new entry that renames a base entry the fork never carried asks nothing of the fork.
+    // A new entry that renames a base entry the app never carried asks nothing of the app.
     const renameSources = [...baseSet].filter(
-      (entry) => !incomingSet.has(entry) && !forkEntries.includes(entry) && !isUnderAnyFolder(entry, forkEntries),
+      (entry) => !incomingSet.has(entry) && !appEntries.includes(entry) && !isUnderAnyFolder(entry, appEntries),
     );
     const moved: { from: string; to: string }[] = [];
     const added = newEntries.filter((entry) => {
@@ -163,16 +163,16 @@ export function diffOverrideLists(
 
     return {
       added,
-      removed: [...baseSet].filter((entry) => !incomingSet.has(entry) && forkEntries.includes(entry)),
+      removed: [...baseSet].filter((entry) => !incomingSet.has(entry) && appEntries.includes(entry)),
       ...(moved.length > 0 ? { moved } : {}),
     };
   };
   const diffKeys = (): OverrideListChanges => {
-    const [baseKeys, incomingKeys, forkKeys] = [base.packageJsonKeys, incoming.packageJsonKeys, fork.packageJsonKeys];
-    if (!baseKeys || !incomingKeys || !forkKeys) return { added: [], removed: [] };
+    const [baseKeys, incomingKeys, appKeys] = [base.packageJsonKeys, incoming.packageJsonKeys, app.packageJsonKeys];
+    if (!baseKeys || !incomingKeys || !appKeys) return { added: [], removed: [] };
     return {
-      added: [...new Set(incomingKeys)].filter((key) => !baseKeys.includes(key) && !forkKeys.includes(key)),
-      removed: [...new Set(baseKeys)].filter((key) => !incomingKeys.includes(key) && forkKeys.includes(key)),
+      added: [...new Set(incomingKeys)].filter((key) => !baseKeys.includes(key) && !appKeys.includes(key)),
+      removed: [...new Set(baseKeys)].filter((key) => !incomingKeys.includes(key) && appKeys.includes(key)),
     };
   };
   return { pinned: diff('pinned'), ignored: diff('ignored'), packageJsonKeys: diffKeys() };
@@ -180,7 +180,7 @@ export function diffOverrideLists(
 
 /**
  * Report how upstream's `overrides` and `packageJsonKeys` changed between the merge-base and the
- * incoming ref, limited to entries the fork config does not follow (see {@link diffOverrideLists}).
+ * incoming ref, limited to entries the app config does not follow (see {@link diffOverrideLists}).
  * Undefined when there is nothing to report; `unreadable` when the config is missing or unparsable
  * at one side only.
  */
@@ -188,35 +188,35 @@ export async function compareUpstreamOverrides(
   repoPath: string,
   mergeBaseRef: string,
   incomingRef: string,
-  forkConfig: CellaCliConfig,
+  appConfig: CellaCliConfig,
 ): Promise<UpstreamOverridesReport | undefined> {
   // Empty when upstream has no config at that ref.
   const [baseSource, incomingSource] = await Promise.all(
-    [mergeBaseRef, incomingRef].map((ref) => git(['show', `${ref}:${CONFIG_FILE}`], repoPath, { ignoreErrors: true })),
+    [mergeBaseRef, incomingRef].map((ref) => git(['show', `${ref}:${configFile}`], repoPath, { ignoreErrors: true })),
   );
   if (baseSource === incomingSource) return undefined;
 
   const base = baseSource ? parseOverrideLists(baseSource) : null;
-  if (!base) return { kind: 'unreadable', side: 'base' };
+  if (!base) return { type: 'unreadable', side: 'base' };
   const incoming = incomingSource ? parseOverrideLists(incomingSource) : null;
-  if (!incoming) return { kind: 'unreadable', side: 'incoming' };
+  if (!incoming) return { type: 'unreadable', side: 'incoming' };
 
-  const fork: OverrideLists = {
-    pinned: forkConfig.overrides?.pinned ?? [],
-    ignored: forkConfig.overrides?.ignored ?? [],
-    packageJsonKeys: forkConfig.settings.packageJsonKeys ?? DEFAULT_PACKAGE_JSON_KEYS,
+  const app: OverrideLists = {
+    pinned: appConfig.overrides?.pinned ?? [],
+    ignored: appConfig.overrides?.ignored ?? [],
+    packageJsonKeys: appConfig.settings.packageJsonKeys ?? defaultPackageJsonKeys,
   };
-  const changes = diffOverrideLists(base, incoming, fork);
+  const changes = diffOverrideLists(base, incoming, app);
   const count = Object.values(changes).reduce(
     (n, list) => n + list.added.length + list.removed.length + (list.moved?.length ?? 0),
     0,
   );
-  return count > 0 ? { kind: 'changes', ...changes } : undefined;
+  return count > 0 ? { type: 'changes', ...changes } : undefined;
 }
 
-/** Whether the report holds entries the fork must follow by hand; `moved` entries alone never block a merge. */
+/** Whether the report holds entries the app must follow by hand; `moved` entries alone never block a merge. */
 export function hasBlockingOverrideChanges(report: UpstreamOverridesReport): boolean {
-  if (report.kind !== 'changes') return false;
+  if (report.type !== 'changes') return false;
   const lists = [report.pinned, report.ignored, report.packageJsonKeys];
   return lists.some((list) => list.added.length > 0 || list.removed.length > 0);
 }

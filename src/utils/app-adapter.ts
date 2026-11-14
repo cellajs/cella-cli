@@ -50,11 +50,11 @@ interface TsxApi {
  * Imports an adapter file under the app's own tsx and returns its default export. An adapter imports the app's SDK,
  * whose generated files import each other without an extension, and Node's own type stripping resolves no such import.
  */
-export async function importAdapter(forkPath: string, file: string): Promise<unknown> {
+export async function importAdapter(repoRoot: string, file: string): Promise<unknown> {
   // An adapter reads the app config, which takes the development ports and URLs in development mode only
   setEnv('NODE_ENV', 'development');
-  const { tsImport } = await importFromWorkspace<TsxApi>(forkPath, '.', 'tsx/esm/api');
-  const module = await tsImport(pathToFileURL(join(forkPath, file)).href, import.meta.url);
+  const { tsImport } = await importFromWorkspace<TsxApi>(repoRoot, '.', 'tsx/esm/api');
+  const module = await tsImport(pathToFileURL(join(repoRoot, file)).href, import.meta.url);
   return module.default;
 }
 
@@ -65,24 +65,24 @@ function parsed<T>(file: string, schema: z.ZodType<T>, value: unknown): T {
 }
 
 /**
- * A tool's adapter in the app's `cella/` folder: the base `<tool>.ts`, synced from the template, and the optional delta
+ * A tool's adapter in the app's `cella/` folder: the base `<tool>.ts`, which each upgrade brings from the template, and the optional delta
  * `<tool>.app.ts`, pinned to the app, each checked against its schema. A missing delta means the base alone.
  * @throws when the base is missing or a file does not fit its schema
  */
 export async function loadAdapter<Base, App>(
-  forkPath: string,
+  repoRoot: string,
   tool: string,
   baseSchema: z.ZodType<Base>,
   appSchema: z.ZodType<App>,
 ): Promise<{ base: Base; app: App | undefined }> {
   const baseFile = `cella/${tool}.ts`;
   const appFile = `cella/${tool}.app.ts`;
-  if (!existsSync(join(forkPath, baseFile))) {
+  if (!existsSync(join(repoRoot, baseFile))) {
     throw new Error(`${baseFile} is missing: upgrade the app from cella to get the ${tool} adapter`);
   }
-  const base = parsed(baseFile, baseSchema, await importAdapter(forkPath, baseFile));
-  const app = existsSync(join(forkPath, appFile))
-    ? parsed(appFile, appSchema, await importAdapter(forkPath, appFile))
+  const base = parsed(baseFile, baseSchema, await importAdapter(repoRoot, baseFile));
+  const app = existsSync(join(repoRoot, appFile))
+    ? parsed(appFile, appSchema, await importAdapter(repoRoot, appFile))
     : undefined;
   return { base, app };
 }

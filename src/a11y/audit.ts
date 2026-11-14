@@ -34,12 +34,12 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
   if (!email) throw new Error('no audit user: pass --email, or set ADMIN_EMAIL in .env');
 
   // A build is as old as its last `vite build`: say so, since a stale one audits old code without a sign
-  const builtAt = statSync(join(run.forkPath, 'frontend/dist/index.html'), { throwIfNoEntry: false })?.mtime;
+  const builtAt = statSync(join(run.repoRoot, 'frontend/dist/index.html'), { throwIfNoEntry: false })?.mtime;
   printStep('auditing', `${testbed.frontendUrl}, frontend build of ${builtAt?.toLocaleString() ?? 'unknown date'}`);
 
   const states =
     options.states.length > 0 ? scope.states.filter((state) => options.states.includes(state.id)) : scope.states;
-  const session = await startAudit(run.forkPath, scope, { email, env: testbed.env });
+  const session = await startAudit(run.repoRoot, scope, { email, env: testbed.env });
   const forget = onShutdown(() => endAudit(session));
 
   const findings: Finding[] = [];
@@ -94,9 +94,9 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
   // The ledger describes the whole scope, so a run that covered only part of it writes a separate file
   const skipped = Object.keys(errors).length;
   const target =
-    options.states.length > 0 || skipped ? join(run.resultsDir, 'ledger-partial.json') : join(run.forkPath, ledgerFile);
+    options.states.length > 0 || skipped ? join(run.resultsDir, 'ledger-partial.json') : join(run.repoRoot, ledgerFile);
   const ledger = writeLedger(
-    run.forkPath,
+    run.repoRoot,
     evidence.byCriterion,
     states.map((state) => state.id),
     target,

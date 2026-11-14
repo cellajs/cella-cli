@@ -3,11 +3,11 @@
  *
  * Upstream ships one alignment per breaking change in `cella/alignments/<id>/`: a README.md
  * that opens with flat frontmatter, then the title and a summary paragraph, plus at most one codemod
- * (the one non-test `.ts` file). The folder is upstream-only: the sync never brings it into the
- * fork and removes a copy it finds. Alignments are read from upstream commits the sync already fetched.
+ * (the one non-test `.ts` file). The folder is upstream-only: the upgrade never brings it into the
+ * app and removes a copy it finds. Alignments are read from upstream commits the upgrade already fetched.
  *
- * The fork records only the alignments it has not handled yet, in `cella/cella.alignments.json` as
- * `{ "pending": [...] }`. The sync adds the ones that arrive with it; `cella align --mark` removes
+ * The app records only the alignments it has not handled yet, in `cella/cella.alignments.json` as
+ * `{ "pending": [...] }`. The upgrade adds the ones that arrive with it; `cella align --mark` removes
  * them. A missing file means nothing is pending, so a new app needs no seed. Alignments are
  * information, never a gate: nothing blocks on a pending one.
  */
@@ -17,19 +17,19 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import { git, splitPrNumber } from '../utils/git';
 
-/** Upstream folder holding one subfolder per alignment. Upstream-only: never synced into a fork. */
-export const ALIGNMENTS_DIR = 'cella/alignments';
+/** Upstream folder holding one subfolder per alignment. Upstream-only: never merged into an app. */
+export const alignmentsDir = 'cella/alignments';
 
-/** The fork's record of alignments still to handle. */
-export const PENDING_FILE = 'cella/cella.alignments.json';
+/** The app's record of alignments still to handle. */
+export const pendingFile = 'cella/cella.alignments.json';
 
 /** An alignment folder name: `<YYYYMMDDThhmm>-<slug>`, UTC minute precision, so ids sort chronologically. */
-export const ALIGNMENT_ID = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
+export const alignmentId = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** What catches app code the change leaves behind: the typecheck, the tests the app inherits, or nothing. */
 type CaughtBy = 'compiler' | 'tests' | 'nothing';
 
-export const CAUGHT_BY: CaughtBy[] = ['compiler', 'tests', 'nothing'];
+export const caughtBy: CaughtBy[] = ['compiler', 'tests', 'nothing'];
 
 /** One alignment, as read at an upstream ref. */
 export interface Alignment {
@@ -78,9 +78,9 @@ export function splitList(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-/** Whether a path is upstream-only: the sync never brings it in and removes a fork copy. */
+/** Whether a path is upstream-only: the upgrade never brings it in and removes an app copy. */
 export function isUpstreamOnly(filePath: string): boolean {
-  return filePath === ALIGNMENTS_DIR || filePath.startsWith(`${ALIGNMENTS_DIR}/`);
+  return filePath === alignmentsDir || filePath.startsWith(`${alignmentsDir}/`);
 }
 
 /** The lines after the frontmatter, without HTML comment lines (a comment opens at the start of a line). */
@@ -110,7 +110,7 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
     .filter(Boolean);
   const title = /^# (.+)$/.exec(blocks[0] ?? '')?.[1].trim();
   const summary = title && blocks[1] && !/^(#|>|[-*|]|```)/.test(blocks[1]) ? blocks[1].replace(/\s*\n\s*/g, ' ') : '';
-  const caughtBy = CAUGHT_BY.find((value) => value === meta.get('caughtBy')) ?? null;
+  const caughtByValue = caughtBy.find((value) => value === meta.get('caughtBy')) ?? null;
 
   return {
     id,
@@ -118,7 +118,7 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
     summary,
     breaking: meta.get('breaking') === 'true',
     clientCacheBump: meta.get('clientCacheBump') === 'true',
-    caughtBy,
+    caughtBy: caughtByValue,
     generate: meta.get('generate') === 'true',
     grep: splitList(meta.get('grep')),
     roots: splitList(meta.get('roots')),
@@ -128,18 +128,18 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
 
 /** Ids of every alignment at `ref`, oldest first; empty when the ref has no alignments folder. */
 export async function listAlignmentIds(cwd: string, ref: string): Promise<string[]> {
-  const out = await git(['ls-tree', '--name-only', `${ref}:${ALIGNMENTS_DIR}`], cwd, { ignoreErrors: true });
+  const out = await git(['ls-tree', '--name-only', `${ref}:${alignmentsDir}`], cwd, { ignoreErrors: true });
   return out
     .split('\n')
-    .filter((name) => ALIGNMENT_ID.test(name))
+    .filter((name) => alignmentId.test(name))
     .sort();
 }
 
 /** One alignment at `ref`, or null when its README is not there. */
 export async function readAlignment(cwd: string, ref: string, id: string): Promise<Alignment | null> {
-  const source = await git(['show', `${ref}:${ALIGNMENTS_DIR}/${id}/README.md`], cwd, { ignoreErrors: true });
+  const source = await git(['show', `${ref}:${alignmentsDir}/${id}/README.md`], cwd, { ignoreErrors: true });
   if (!source) return null;
-  const files = await git(['ls-tree', '--name-only', `${ref}:${ALIGNMENTS_DIR}/${id}`], cwd, { ignoreErrors: true });
+  const files = await git(['ls-tree', '--name-only', `${ref}:${alignmentsDir}/${id}`], cwd, { ignoreErrors: true });
   return parseAlignment(id, source, files.split('\n').filter(Boolean));
 }
 
@@ -153,7 +153,7 @@ export async function arrivedAlignmentIds(cwd: string, from: string, to: string)
 /** The upstream commit at or before `ref` that added the alignment's README; null when git finds none. */
 export async function readAlignmentSource(cwd: string, ref: string, id: string): Promise<AlignmentSource | null> {
   const out = await git(
-    ['log', '-1', '--diff-filter=A', '--format=%H%x09%s', ref, '--', `${ALIGNMENTS_DIR}/${id}/README.md`],
+    ['log', '-1', '--diff-filter=A', '--format=%H%x09%s', ref, '--', `${alignmentsDir}/${id}/README.md`],
     cwd,
     { ignoreErrors: true },
   );
@@ -175,15 +175,15 @@ export async function readAlignmentSource(cwd: string, ref: string, id: string):
         '-z',
         commit,
         '--',
-        ALIGNMENTS_DIR,
+        alignmentsDir,
       ],
       cwd,
     ),
   ]);
-  const readmeId = new RegExp(`^${ALIGNMENTS_DIR}/([^/]+)/README\\.md$`);
+  const readmeId = new RegExp(`^${alignmentsDir}/([^/]+)/README\\.md$`);
   const sharedCommit = nulSeparated(added)
     .map((path) => readmeId.exec(path)?.[1])
-    .filter((other): other is string => !!other && other !== id && ALIGNMENT_ID.test(other))
+    .filter((other): other is string => !!other && other !== id && alignmentId.test(other))
     .sort();
 
   return { commit, pr, sharedCommit, changedFiles: nulSeparated(changed) };
@@ -226,9 +226,9 @@ export async function grepAlignmentTerms(
   return [...hits.values()].sort((a, b) => a.file.localeCompare(b.file) || a.line - b.line);
 }
 
-/** The fork's pending alignment ids. A missing file is an empty list. */
+/** The app's pending alignment ids. A missing file is an empty list. */
 export async function readPending(cwd: string): Promise<string[]> {
-  const path = join(cwd, PENDING_FILE);
+  const path = join(cwd, pendingFile);
   if (!existsSync(path)) return [];
   const parsed = JSON.parse(await readFile(path, 'utf8')) as { pending?: unknown };
   return Array.isArray(parsed.pending) ? parsed.pending.filter((id): id is string => typeof id === 'string') : [];
@@ -236,7 +236,7 @@ export async function readPending(cwd: string): Promise<string[]> {
 
 /** Write the pending ids, sorted and de-duplicated; an empty list deletes the file. */
 export async function writePending(cwd: string, ids: string[]): Promise<void> {
-  const path = join(cwd, PENDING_FILE);
+  const path = join(cwd, pendingFile);
   const pending = [...new Set(ids)].sort();
   if (pending.length === 0) {
     await rm(path, { force: true });
@@ -248,12 +248,12 @@ export async function writePending(cwd: string, ids: string[]): Promise<void> {
 
 /** GitHub permalink to an alignment's README at a commit, when upstream is on GitHub. */
 export function alignmentUrl(upstreamGitHubUrl: string | undefined, commit: string, id: string): string | undefined {
-  return upstreamGitHubUrl ? `${upstreamGitHubUrl}/blob/${commit}/${ALIGNMENTS_DIR}/${id}/README.md` : undefined;
+  return upstreamGitHubUrl ? `${upstreamGitHubUrl}/blob/${commit}/${alignmentsDir}/${id}/README.md` : undefined;
 }
 
 /**
  * The info line `cella align` ends with, e.g. `alignments: 94 of 97 handled · 3 open: pnpm cella align`.
- * Analyze and sync list the alignments under their `next steps` instead.
+ * Analyze and upgrade list the alignments under their `next steps` instead.
  */
 export function formatAlignmentsLine(total: number, open: number): string {
   const parts = [open === 0 ? `all ${total} handled` : `${Math.max(0, total - open)} of ${total} handled`];

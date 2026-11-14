@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { LOCALES_DIR } from '../../i18n/locales';
+import { localesDir } from '../../i18n/locales';
 import { settle } from '../../utils/drive';
 import type { Check, Finding } from '../findings';
 
@@ -45,10 +45,10 @@ export const pageStructure: Check = async (page, state, { app }) => {
  * Picks every other language with the app's own switcher and reads the declared page language. It changes the stored
  * language, so it runs last in a visit. Pages without a switcher return nothing.
  */
-export const languageSwitch: Check = async (page, state, { app, forkPath }) => {
+export const languageSwitch: Check = async (page, state, { app, repoRoot }) => {
   if (state.open) return [];
   const names: Record<string, string> = JSON.parse(
-    readFileSync(join(forkPath, LOCALES_DIR, app.defaultLanguageCode, 'common.json'), 'utf8'),
+    readFileSync(join(repoRoot, localesDir, app.defaultLanguageCode, 'common.json'), 'utf8'),
   );
   const findings: Awaited<ReturnType<Check>> = [];
 

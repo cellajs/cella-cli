@@ -23,7 +23,7 @@ describe('vocabularyFindings', () => {
     ]);
   });
 
-  it('skips the sync marker comments but not the term elsewhere on the same lines', () => {
+  it('skips the upgrade marker comments but not the term elsewhere on the same lines', () => {
     const source = [
       `const a = 1; // ${legacyTerm}: keeps the app's default`,
       `/* ${legacyTerm}: multi`,

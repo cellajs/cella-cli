@@ -5,16 +5,16 @@
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
-import { CONFIG_FILE } from '../upstream/managed-files';
+import { configFile } from '../upstream/managed-files';
 import { errorMessage } from '../utils/errors';
 import { resolveAppModuleFolders } from './app-modules';
-import { type CellaCliConfig, cellaConfigSchema, type PackageJsonKey, type SyncSettings } from './types';
+import { type CellaCliConfig, cellaConfigSchema, type PackageJsonKey, type UpgradeSettings } from './types';
 
 /** Default git remote name used to point at the upstream repository. */
-export const DEFAULT_UPSTREAM_REMOTE = 'cella-upstream';
+export const defaultUpstreamRemote = 'cella-upstream';
 
 /** Default branch used when a config omits `upstreamBranch` or `releaseBase`; also cella's fork-compare base. */
-export const DEFAULT_BRANCH = 'main';
+export const defaultBranch = 'main';
 
 /**
  * Prefix for the temporary integration branches that `cella upgrade` cuts per run
@@ -23,10 +23,10 @@ export const DEFAULT_BRANCH = 'main';
  * The three-segment shape (`cella/upgrade/<stamp>`) means it can never collide with a real branch
  * named `cella` or `cella/upgrade`.
  */
-export const UPGRADE_BRANCH_PREFIX = 'cella/upgrade';
+export const upgradeBranchPrefix = 'cella/upgrade';
 
 /** The package.json keys that merge when a config omits `packageJsonKeys`. */
-export const DEFAULT_PACKAGE_JSON_KEYS: PackageJsonKey[] = ['dependencies', 'devDependencies'];
+export const defaultPackageJsonKeys: PackageJsonKey[] = ['dependencies', 'devDependencies'];
 
 /** Whether the repo at `repoPath` is upstream cella itself (its root package.json is named 'cella'). */
 export function isUpstreamRepo(repoPath: string): boolean {
@@ -34,15 +34,15 @@ export function isUpstreamRepo(repoPath: string): boolean {
 }
 
 /** Whether `branch` is one of the temporary integration branches `cella upgrade` cuts. */
-export function isTemporarySyncBranch(branch: string): boolean {
-  return branch.startsWith(`${UPGRADE_BRANCH_PREFIX}/`);
+export function isUpgradeBranch(branch: string): boolean {
+  return branch.startsWith(`${upgradeBranchPrefix}/`);
 }
 
 /**
  * Resolve the trunk branch `cella upgrade` cuts the temporary branch from and PRs into.
  */
-export function resolveReleaseBase(settings: SyncSettings): string {
-  return settings.releaseBase ?? DEFAULT_BRANCH;
+export function resolveTrunk(settings: UpgradeSettings): string {
+  return settings.releaseBase ?? defaultBranch;
 }
 
 /**
@@ -50,48 +50,48 @@ export function resolveReleaseBase(settings: SyncSettings): string {
  * `cella/upgrade/20260702-1430`. Cutting a fresh branch per cycle keeps each PR
  * scoped to that upgrade's upstream delta.
  */
-export function buildTemporarySyncBranch(): string {
+export function buildUpgradeBranchName(): string {
   const now = new Date();
   const pad = (n: number) => String(n).padStart(2, '0');
   const stamp = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}-${pad(now.getHours())}${pad(now.getMinutes())}`;
-  return `${UPGRADE_BRANCH_PREFIX}/${stamp}`;
+  return `${upgradeBranchPrefix}/${stamp}`;
 }
 
 /**
- * Resolve the upstream tracking plan from sync settings.
+ * Resolve the upstream tracking plan from upgrade settings.
  *
  * Single source of truth shared by the CLI entry point and the merge engine.
  * The concrete ref for release tracking (latest tag) can only be resolved after
  * fetching, so this returns a plan; the merge engine turns it into a ref.
  *
  * - `track`: 'release' (default) upgrades to the latest release tag; 'branch' follows the tip.
- * - `branchRef`: `<DEFAULT_UPSTREAM_REMOTE>/<branch>`, the branch-track ref and static fallback.
+ * - `branchRef`: `<defaultUpstreamRemote>/<branch>`, the branch-track ref and static fallback.
  */
-export function resolveUpstream(settings: SyncSettings): {
+export function resolveUpstream(settings: UpgradeSettings): {
   track: 'release' | 'branch';
   branchRef: string;
 } {
   const track = settings.upstreamTrack ?? 'release';
-  const branch = settings.upstreamBranch ?? DEFAULT_BRANCH;
-  const branchRef = `${DEFAULT_UPSTREAM_REMOTE}/${branch}`;
+  const branch = settings.upstreamBranch ?? defaultBranch;
+  const branchRef = `${defaultUpstreamRemote}/${branch}`;
   return { track, branchRef };
 }
 
 /**
- * Load cella/cella.config.ts from a fork/repo path.
+ * Load cella/cella.config.ts from a repository path.
  */
-export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
-  const configPath = join(forkPath, CONFIG_FILE);
+export async function loadConfig(repoRoot: string): Promise<CellaCliConfig> {
+  const configPath = join(repoRoot, configFile);
 
   if (!existsSync(configPath)) {
     throw new Error(`config file not found: ${configPath}`);
   }
 
-  // Resolve symlinks and validate path stays within fork directory
+  // Resolve symlinks and validate the path stays within the repository
   const realConfigPath = realpathSync(configPath);
-  const realForkPath = realpathSync(resolve(forkPath));
-  if (!realConfigPath.startsWith(`${realForkPath}/`)) {
-    throw new Error('config path resolves outside fork directory');
+  const realRepoRoot = realpathSync(resolve(repoRoot));
+  if (!realConfigPath.startsWith(`${realRepoRoot}/`)) {
+    throw new Error('config path resolves outside the repository');
   }
 
   let configModule: { default?: unknown };
@@ -99,7 +99,7 @@ export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
     configModule = await import(realConfigPath);
   } catch (error) {
     // Syntax/runtime errors while evaluating the config must fail closed: a config that
-    // cannot be loaded means sync protections (ignored/pinned) are unknown.
+    // cannot be loaded means upgrade protections (ignored/pinned) are unknown.
     throw new Error(`failed to load ${configPath}: ${errorMessage(error)}`);
   }
 
@@ -110,12 +110,12 @@ export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
   }
   const config: CellaCliConfig = result.data;
 
-  // Auto-derive fork-owned module folders (modules declaring `owner: 'app'`) and merge
-  // them into ignored. This keeps app modules as fork territory: upstream never
-  // adds/modifies/deletes them during sync, and the adopt service never offers
+  // Auto-derive app-owned module folders (modules declaring `owner: 'app'`) and merge
+  // them into ignored. This keeps app modules as app territory: upstream never
+  // adds/modifies/deletes them during upgrade, and the adopt service never offers
   // them back upstream. Derived entries always exist (they come from real files), so
   // config validation never warns about them.
-  const appModuleFolders = resolveAppModuleFolders(realForkPath);
+  const appModuleFolders = resolveAppModuleFolders(realRepoRoot);
   if (appModuleFolders.length > 0) {
     const existing = config.overrides?.ignored ?? [];
     config.overrides = {

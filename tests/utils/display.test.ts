@@ -15,11 +15,11 @@ import {
   formatUpstreamStep,
 } from '../../src/utils/display';
 
-const VSCODE_FILE = 'vscode://file';
+const vscodeFile = 'vscode://file';
 
 describe('formatUpstreamCommits', () => {
-  const NOW_MS = 1_800_000_000_000;
-  const at = (minutesAgo: number) => NOW_MS / 1000 - minutesAgo * 60;
+  const nowMs = 1_800_000_000_000;
+  const at = (minutesAgo: number) => nowMs / 1000 - minutesAgo * 60;
   const commit = (hash: string, message: string, minutesAgo: number) => ({
     hash: hash.padEnd(40, '0'),
     message,
@@ -35,7 +35,7 @@ describe('formatUpstreamCommits', () => {
       commit('b374861', 'refactor!: migration notes become alignments, and start empty (#1519)', 0),
     ];
 
-    expect(plain(formatUpstreamCommits(3, commits, undefined, { columns: 80, nowMs: NOW_MS }))).toEqual([
+    expect(plain(formatUpstreamCommits(3, commits, undefined, { columns: 80, nowMs }))).toEqual([
       'b374861  refactor!: migration notes become alignments,…  #1519  now',
       '3dcf39c  chore(db)!: migration snapshots are stored as…  #1515   3h',
       '18add42  chore(main): release 0.23.0                     #1511  13h',
@@ -45,7 +45,7 @@ describe('formatUpstreamCommits', () => {
   it('cuts long subjects to the width and counts the commits it leaves out', () => {
     const commits = Array.from({ length: 3 }, (_, i) => commit(`${i}`, `feat: ${'word '.repeat(30)}${i}`, 10 - i));
 
-    const lines = plain(formatUpstreamCommits(12, commits, undefined, { columns: 80, max: 2, nowMs: NOW_MS }));
+    const lines = plain(formatUpstreamCommits(12, commits, undefined, { columns: 80, max: 2, nowMs }));
 
     expect(lines).toHaveLength(3);
     expect(lines[0]).toMatch(/^2000000 {2}feat: word .*…/);
@@ -80,14 +80,12 @@ describe('formatMergeInProgressDetail', () => {
     expect(out).toContain('... + 1 more');
   });
 
-  it('links auto-merged files to VS Code from the fork path, and prints the bare path without one', () => {
-    expect(formatMergeInProgressDetail(1, ['a.ts'], { forkPath: '/tmp/fork' })).toContain(
-      `${VSCODE_FILE}/tmp/fork/a.ts`,
-    );
+  it('links auto-merged files to VS Code from the app path, and prints the bare path without one', () => {
+    expect(formatMergeInProgressDetail(1, ['a.ts'], { repoRoot: '/tmp/app' })).toContain(`${vscodeFile}/tmp/app/a.ts`);
 
     const bare = formatMergeInProgressDetail(1, ['a.ts'], {});
     expect(bare).toContain('  - a.ts');
-    expect(bare).not.toContain(VSCODE_FILE);
+    expect(bare).not.toContain(vscodeFile);
   });
 });
 
@@ -96,7 +94,7 @@ describe('formatCheckoutStep', () => {
     branch: 'main',
     headSha: 'ac6106a',
     changeCount: 0,
-    upstream: { upstream: 'origin/main', ahead: 0, behind: 0 },
+    tracking: { tracking: 'origin/main', ahead: 0, behind: 0 },
   };
 
   it('says the tree is clean, and leaves out a branch in step with its remote', () => {
@@ -107,7 +105,7 @@ describe('formatCheckoutStep', () => {
     const out = formatCheckoutStep({
       ...checkout,
       changeCount: 1,
-      upstream: { upstream: 'origin/main', ahead: 2, behind: 0 },
+      tracking: { tracking: 'origin/main', ahead: 2, behind: 0 },
     });
 
     expect(stripVTControlCharacters(out)).toBe(
@@ -125,7 +123,7 @@ describe('formatUpstreamStep', () => {
     );
   });
 
-  it('counts the commits since the last sync and marks a pinned ref', () => {
+  it('counts the commits since the last upgrade and marks a pinned ref', () => {
     const out = formatUpstreamStep({
       ...upstream,
       pinned: true,

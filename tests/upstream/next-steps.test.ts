@@ -42,7 +42,7 @@ describe('alignmentsStep', () => {
   let repo: string;
   const ids = Array.from({ length: 7 }, (_, i) => `2026010${i + 1}T0000-alignment-${i + 1}`);
   const config = () =>
-    ({ forkPath: repo, settings: { upstreamUrl: 'git@github.com:cellajs/cella.git' } }) as RuntimeConfig;
+    ({ repoRoot: repo, settings: { upstreamUrl: 'git@github.com:cellajs/cella.git' } }) as RuntimeConfig;
 
   beforeAll(() => {
     repo = createRepo('cella-next-steps-');
@@ -61,7 +61,7 @@ describe('alignmentsStep', () => {
 
   afterAll(() => fs.rmSync(repo, { recursive: true, force: true }));
 
-  it('names the alignments arriving with a dry run, and runs align after the sync', async () => {
+  it('names the alignments arriving with a dry run, and runs align after the upgrade', async () => {
     expect(plain(await alignmentsStep(config(), { ref: 'HEAD', open: [ids[1]], arriving: [ids[0]] }))).toEqual([
       '1 alignment arrives with this upgrade · 1 open',
       '○ Alignment 1 · codemod · breaking · caught by compiler',
@@ -72,7 +72,7 @@ describe('alignmentsStep', () => {
     ]);
   });
 
-  it('counts the ones a sync opened as open and says they arrived', async () => {
+  it('counts the ones an upgrade opened as open and says they arrived', async () => {
     const step = plain(await alignmentsStep(config(), { ref: 'HEAD', open: [ids[0], ids[1]], arrived: [ids[1]] }));
 
     expect(step?.[0]).toBe('2 alignments open · 1 arrived with this upgrade');

@@ -1,7 +1,7 @@
-import { ALIGNMENT_ID, ALIGNMENTS_DIR, bodyLines, CAUGHT_BY, isCodemodFile, splitList } from '../upstream/alignments';
+import { alignmentId, alignmentsDir, bodyLines, caughtBy, isCodemodFile, splitList } from '../upstream/alignments';
 import { type Finding, isUnder } from './repo';
 
-const alignmentsDir = `${ALIGNMENTS_DIR}/`;
+const alignmentsPrefix = `${alignmentsDir}/`;
 
 /** What checking one alignment README finds: the codemod's default scan roots it names and every shape problem. */
 interface ReadmeCheck {
@@ -33,8 +33,8 @@ export function checkAlignmentReadme(source: string): ReadmeCheck {
     if (booleanKeys.includes(key)) {
       if (value !== 'true' && value !== 'false') errors.push(`${key} must be true or false`);
     } else if (key === 'caughtBy') {
-      if (!CAUGHT_BY.some((caughtBy) => caughtBy === value))
-        errors.push(`caughtBy must be one of ${CAUGHT_BY.join(', ')}`);
+      if (!caughtBy.some((caughtBy) => caughtBy === value))
+        errors.push(`caughtBy must be one of ${caughtBy.join(', ')}`);
     } else if (!listKeys.includes(key)) errors.push(`unknown frontmatter key: ${key}`);
   }
   for (const key of requiredBooleanKeys)
@@ -62,8 +62,8 @@ export function checkAlignmentReadme(source: string): ReadmeCheck {
 export function alignmentFindings(files: string[], read: (file: string) => string): Finding[] {
   const folders = new Map<string, string[]>();
   for (const file of files) {
-    if (!file.startsWith(alignmentsDir)) continue;
-    const [folder, ...rest] = file.slice(alignmentsDir.length).split('/');
+    if (!file.startsWith(alignmentsPrefix)) continue;
+    const [folder, ...rest] = file.slice(alignmentsPrefix.length).split('/');
     if (rest.length === 0) continue;
     folders.set(folder, [...(folders.get(folder) ?? []), rest.join('/')]);
   }
@@ -72,11 +72,11 @@ export function alignmentFindings(files: string[], read: (file: string) => strin
   const finding = (file: string, message: string, line?: number) =>
     findings.push({ file, rule: 'alignment', message, ...(line === undefined ? {} : { line, column: 1 }) });
   for (const [folder, names] of folders) {
-    const readme = `${alignmentsDir}${folder}/README.md`;
-    if (!ALIGNMENT_ID.test(folder))
-      finding(`${alignmentsDir}${folder}`, 'alignment folders are named <YYYYMMDDThhmm>-<slug>');
+    const readme = `${alignmentsPrefix}${folder}/README.md`;
+    if (!alignmentId.test(folder))
+      finding(`${alignmentsPrefix}${folder}`, 'alignment folders are named <YYYYMMDDThhmm>-<slug>');
     if (!names.includes('README.md')) {
-      finding(`${alignmentsDir}${folder}`, 'alignment folder has no README.md');
+      finding(`${alignmentsPrefix}${folder}`, 'alignment folder has no README.md');
       continue;
     }
     const { roots, errors } = checkAlignmentReadme(read(readme));
@@ -133,8 +133,8 @@ export function owedAlignmentFindings({ changed, added, messages }: BranchChange
   const touched = changed.filter((file) => !file.endsWith('.md') && owned.some((entry) => isUnder(file, entry)));
   if (touched.length === 0) return [];
   const addsAlignment = added.some((file) => {
-    const [folder, name, ...rest] = file.slice(alignmentsDir.length).split('/');
-    return file.startsWith(alignmentsDir) && ALIGNMENT_ID.test(folder) && name === 'README.md' && rest.length === 0;
+    const [folder, name, ...rest] = file.slice(alignmentsPrefix.length).split('/');
+    return file.startsWith(alignmentsPrefix) && alignmentId.test(folder) && name === 'README.md' && rest.length === 0;
   });
   if (addsAlignment || /^Alignment: none\b.*\w/m.test(messages)) return [];
   return touched.map((file) => ({

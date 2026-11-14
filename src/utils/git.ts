@@ -1,6 +1,6 @@
 /**
  * Git command helpers: typed wrappers around common git operations, plus the
- * sync-point tracking and merge-base recovery machinery.
+ * upgrade point tracking and merge-base recovery machinery.
  */
 
 import { execFile } from 'node:child_process';
@@ -9,14 +9,14 @@ import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import type { CommitRangeEntry } from '../config/types';
-import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from '../upstream/manifest';
+import { manifestFile, parseManifest, readUpgradePoint, type UpgradeManifest } from '../upstream/manifest';
 import { getEnvSnapshot } from './env';
 import { onShutdown } from './signals';
 
 const execFileAsync = promisify(execFile);
 
 /** Maximum stdout buffer for subprocess output (50MB). */
-export const MAX_BUFFER = 50 * 1024 * 1024;
+export const maxBuffer = 50 * 1024 * 1024;
 
 /**
  * Replace the userinfo part of URLs in text (embedded tokens or passwords) with `***`.
@@ -48,7 +48,7 @@ export async function git(args: string[], cwd: string, options: GitCommandOption
   };
 
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer: MAX_BUFFER });
+    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer });
     return stdout.trim();
   } catch (error) {
     if (options.ignoreErrors) return '';
@@ -131,9 +131,9 @@ export async function pullFastForward(cwd: string): Promise<void> {
 }
 
 /** How the current branch compares to its upstream tracking branch. */
-interface UpstreamStatus {
+interface TrackingStatus {
   /** Upstream tracking ref (e.g. `origin/main`), or null when none is configured. */
-  upstream: string | null;
+  tracking: string | null;
   /** Commits the local branch has that its upstream doesn't. */
   ahead: number;
   /** Commits the upstream has that the local branch doesn't. */
@@ -144,11 +144,11 @@ interface UpstreamStatus {
  * A branch's upstream tracking ref (e.g. `origin/main`), or null when none is configured.
  * `branch` defaults to the current one.
  */
-export async function getBranchUpstream(cwd: string, branch = ''): Promise<string | null> {
-  const upstream = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`], cwd, {
+export async function getTrackingBranch(cwd: string, branch = ''): Promise<string | null> {
+  const tracking = await git(['rev-parse', '--abbrev-ref', '--symbolic-full-name', `${branch}@{upstream}`], cwd, {
     ignoreErrors: true,
   });
-  return upstream || null;
+  return tracking || null;
 }
 
 /**
@@ -160,18 +160,18 @@ export async function getBranchUpstream(cwd: string, branch = ''): Promise<strin
  * The fetch is best-effort so an offline/no-remote run still returns whatever is already local.
  * Returns `upstream: null` when the branch has no tracking branch configured (local-only repo).
  */
-export async function getUpstreamStatus(cwd: string, branch?: string): Promise<UpstreamStatus> {
+export async function getTrackingStatus(cwd: string, branch?: string): Promise<TrackingStatus> {
   const local = branch ? `refs/heads/${branch}` : 'HEAD';
-  const upstream = await getBranchUpstream(cwd, branch);
-  if (!upstream) return { upstream: null, ahead: 0, behind: 0 };
+  const tracking = await getTrackingBranch(cwd, branch);
+  if (!tracking) return { tracking: null, ahead: 0, behind: 0 };
 
   // Refresh the remote-tracking ref so the comparison reflects the remote's latest state.
-  const remote = upstream.split('/')[0];
+  const remote = tracking.split('/')[0];
   await git(['fetch', remote], cwd, { ignoreErrors: true, skipEditor: true });
 
-  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${upstream}`], cwd);
+  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${tracking}`], cwd);
   const [ahead, behind] = counts.split(/\s+/).map((n) => Number.parseInt(n, 10) || 0);
-  return { upstream, ahead: ahead ?? 0, behind: behind ?? 0 };
+  return { tracking, ahead: ahead ?? 0, behind: behind ?? 0 };
 }
 
 /**
@@ -218,7 +218,7 @@ export async function flattenBranch(cwd: string, baseRef: string, message: strin
 /**
  * Commit the staged changes as a single-parent commit, discarding any in-progress merge state.
  *
- * A normal commit with `MERGE_HEAD` present records a two-parent merge commit. Because the fork
+ * A normal commit with `MERGE_HEAD` present records a two-parent merge commit. Because the app
  * doesn't share pushed ancestry with upstream (the local `git replace` graft that makes merges
  * incremental is never pushed), such a merge commit makes the PR list the upstream branch's
  * entire history. Removing the merge state first collapses the staged delta into one clean
@@ -283,7 +283,7 @@ export async function fetchRemote(cwd: string, remoteName: string): Promise<void
 /**
  * Fetch upstream tags into a remote-scoped namespace (`refs/<remoteName>/tags/*`),
  * never the local `refs/tags/*`. This keeps cella's release tags from
- * colliding with the fork's own release tags (forks run their own release-please).
+ * colliding with the app's own release tags (apps run their own release-please).
  * `--no-tags` prevents git from also writing them into `refs/tags/*`.
  */
 export async function fetchUpstreamTags(cwd: string, remoteName: string): Promise<void> {
@@ -320,7 +320,7 @@ export async function resolveLatestReleaseTag(
 /**
  * Resolve a ref named for upstream (`--ref`) to a commit: a branch on the upstream remote, then a
  * tag from the remote-scoped tag namespace, then the ref as given (a sha). Upstream names come
- * first, so `main` means upstream's main and `1.0.0` upstream's release, never the fork's own.
+ * first, so `main` means upstream's main and `1.0.0` upstream's release, never the app's own.
  * Revision suffixes work too (`main~2`). Returns the commit sha, plus the release tag when the
  * ref is a release tag name itself (`1.2.3`, not `1.2.3~1`); null when nothing resolves.
  */
@@ -710,14 +710,14 @@ async function cleanupEmptyParentDirs(cwd: string, relativePath: string): Promis
   }
 }
 
-// Sync ref tracking and merge-base recovery.
+// Upgrade point tracking and merge-base recovery.
 
 /** The local ref holding the upstream commit of the last upgrade. */
-const LAST_UPGRADE_REF = 'refs/cella/last-upgrade';
+const lastUpgradeRef = 'refs/cella/last-upgrade';
 
 /** Store the upstream commit hash after a successful upgrade merge. */
-export async function storeLastSyncRef(cwd: string, upstreamHash: string): Promise<void> {
-  await git(['update-ref', LAST_UPGRADE_REF, upstreamHash], cwd);
+export async function storeUpgradePoint(cwd: string, upstreamHash: string): Promise<void> {
+  await git(['update-ref', lastUpgradeRef, upstreamHash], cwd);
 }
 
 /** Stage a single path (git add). Best-effort: never throws. */
@@ -726,24 +726,24 @@ export async function stagePath(cwd: string, path: string): Promise<void> {
 }
 
 /** The stored last-upgrade upstream ref, or null when no upgrade has been recorded. */
-export async function getStoredSyncRef(cwd: string): Promise<string | null> {
-  return revParse(cwd, LAST_UPGRADE_REF);
+export async function readStoredUpgradePoint(cwd: string): Promise<string | null> {
+  return revParse(cwd, lastUpgradeRef);
 }
 
 /**
- * Read the sync manifest committed at a specific ref.
+ * Read the upgrade manifest committed at a specific ref.
  *
- * This intentionally reads from git, not the working tree: a staged/aborted sync can leave the
- * worktree manifest ahead of the committed trunk, and that must not validate a sync point.
+ * This intentionally reads from git, not the working tree: a staged/aborted upgrade can leave the
+ * worktree manifest ahead of the committed trunk, and that must not validate an upgrade point.
  */
-export async function readManifestAtRef(cwd: string, ref: string): Promise<SyncManifest | null> {
-  const raw = await git(['show', `${ref}:${MANIFEST_FILE}`], cwd, { ignoreErrors: true });
+export async function readManifestAtRef(cwd: string, ref: string): Promise<UpgradeManifest | null> {
+  const raw = await git(['show', `${ref}:${manifestFile}`], cwd, { ignoreErrors: true });
   if (!raw) return null;
-  return parseSyncManifest(raw);
+  return parseManifest(raw);
 }
 
-/** The upstream base commit SHA from the manifest committed at `ref`, or null. */
-export async function readManifestBaseAtRef(cwd: string, ref: string): Promise<string | null> {
+/** The upgrade point from the manifest committed at `ref`, or null. */
+export async function readUpgradePointAtRef(cwd: string, ref: string): Promise<string | null> {
   const manifest = await readManifestAtRef(cwd, ref);
   return manifest ? manifest.upstream.commit.toLowerCase() : null;
 }
@@ -777,7 +777,7 @@ async function getRootCommit(cwd: string, ref: string): Promise<string | null> {
 }
 
 /**
- * Read the scaffold provenance trailer from the fork's root commit message.
+ * Read the scaffold provenance trailer from the app's root commit message.
  *
  * create-cella stamps `Cella-Base: <sha>` on the initial commit, recording the exact
  * upstream commit the scaffold snapshot was taken from. Riding in commit history, it
@@ -824,25 +824,25 @@ async function unshallowRepository(cwd: string): Promise<void> {
 }
 
 /**
- * Ensure a native git merge-base exists between the fork and upstream.
+ * Ensure a native git merge-base exists between the app and upstream.
  *
  * A create-cella scaffold has unrelated history with upstream, so `git merge-base` finds nothing
  * and every upgrade fails at the very first step. This bootstraps ancestry non-destructively:
  *   0. If the repo is a shallow clone, restore its full history first: the real ancestor is
  *      truncated away, so no graft can recover it; deepening the history brings it back.
  *   1. If a native merge-base already exists, do nothing (the common case).
- *   2. Otherwise resolve the logical base commit: sources are tried in order and the first
- *      one whose commit actually exists after the upstream fetch wins: the sync-point
- *      record (`refs/cella/last-upgrade` ref, then committed/worktree `cella/cella.manifest.json`),
+ *   2. Otherwise resolve the upgrade point: sources are tried in order and the first
+ *      one whose commit actually exists after the upstream fetch wins: the recorded
+ *      upgrade point (`refs/cella/last-upgrade` ref, then committed/worktree `cella/cella.manifest.json`),
  *      then the scaffold origin (the root commit's `Cella-Base:` trailer).
- *   3. Graft the fork's root commit onto that base with `git replace --graft`, so every native
+ *   3. Graft the app's root commit onto that upgrade point with `git replace --graft`, so every native
  *      git operation (merge-base and the 3-way merge itself) sees correct ancestry, and record
- *      the base as `refs/cella/last-upgrade`. The replace ref is local-only and never pushed, so
- *      the fork's own published history stays clean.
+ *      the upgrade point as `refs/cella/last-upgrade`. The replace ref is local-only and never pushed, so
+ *      the app's own published history stays clean.
  *
- * Throws an actionable error when no valid base can be determined.
+ * Throws an actionable error when no upgrade point can be determined.
  */
-export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
+export async function ensureUpgradePoint(cwd: string, headRef: string, upstreamRef: string): Promise<void> {
   if (await isShallowRepository(cwd)) {
     await unshallowRepository(cwd);
   }
@@ -851,35 +851,35 @@ export async function ensureSyncBase(cwd: string, headRef: string, upstreamRef: 
   if (nativeBase) return;
 
   const sources: Array<() => Promise<string | null>> = [
-    () => getStoredSyncRef(cwd),
-    () => readManifestBaseAtRef(cwd, headRef),
-    () => readManifestBase(cwd),
+    () => readStoredUpgradePoint(cwd),
+    () => readUpgradePointAtRef(cwd, headRef),
+    () => readUpgradePoint(cwd),
     () => readRootTrailerBase(cwd, headRef),
   ];
 
-  let baseSha: string | null = null;
+  let upgradePoint: string | null = null;
   for (const source of sources) {
     const sha = await source();
     if (sha && (await commitObjectExists(cwd, sha))) {
-      baseSha = sha;
+      upgradePoint = sha;
       break;
     }
   }
-  if (!baseSha) {
+  if (!upgradePoint) {
     throw new Error(
-      `no common ancestor between the fork and '${upstreamRef}', and no upgrade base could be determined.\n\n` +
-        'This fork has unrelated history with upstream (typical for a create-cella scaffold, or after\n' +
-        'upstream squashed its history) and no recorded base commit exists after fetching\n' +
-        'upstream. Seed it manually with the upstream commit the fork was created from, then re-run the upgrade:\n\n' +
-        `  git update-ref ${LAST_UPGRADE_REF} <upstream-sha>\n`,
+      `no common ancestor between the app and '${upstreamRef}', and no upgrade point could be determined.\n\n` +
+        'This app has unrelated history with upstream (typical for a create-cella scaffold, or after\n' +
+        'upstream squashed its history) and no recorded upgrade point exists after fetching\n' +
+        'upstream. Seed it manually with the upstream commit the app was created from, then re-run the upgrade:\n\n' +
+        `  git update-ref ${lastUpgradeRef} <upstream-sha>\n`,
     );
   }
 
   const root = await getRootCommit(cwd, headRef);
-  if (!root) throw new Error("could not determine the fork's root commit to bootstrap upgrade ancestry");
+  if (!root) throw new Error("could not determine the app's root commit to bootstrap upgrade ancestry");
 
-  await git(['replace', '-f', '--graft', root, baseSha], cwd);
-  await git(['update-ref', LAST_UPGRADE_REF, baseSha], cwd);
+  await git(['replace', '-f', '--graft', root, upgradePoint], cwd);
+  await git(['update-ref', lastUpgradeRef, upgradePoint], cwd);
 }
 
 /** Whether `ancestor` is an ancestor of `descendant`. */
@@ -893,50 +893,50 @@ export async function isAncestor(cwd: string, ancestor: string, descendant: stri
 }
 
 /**
- * The effective merge-base, preferring the recorded sync point when it's more recent.
- * This handles stale merge-base caused by previous squash syncs (single-parent commits
+ * The effective merge-base, preferring the recorded upgrade point when it's more recent.
+ * This handles stale merge-base caused by previous squash upgrades (single-parent commits
  * don't update git's merge-base graph).
  *
- * The manifest committed at `headRef` records the sync point: it lands iff the sync commit lands
+ * The manifest committed at `headRef` records the upgrade point: it lands iff the upgrade commit lands
  * and travels with the repo.
  */
 export async function getEffectiveMergeBase(cwd: string, headRef: string, upstreamRef: string): Promise<string> {
   const gitBase = await getMergeBase(cwd, headRef, upstreamRef);
-  const recorded = await readManifestBaseAtRef(cwd, headRef);
-  // Only prefer the recorded sync point when it is actually newer than git's own answer.
+  const recorded = await readUpgradePointAtRef(cwd, headRef);
+  // Only prefer the recorded upgrade point when it is actually newer than git's own answer.
   if (recorded && (await isAncestor(cwd, gitBase, recorded))) return recorded;
   return gitBase;
 }
 
 /**
- * Run `fn` with a temporary local graft that makes `baseSha` an ancestor of `headRef`, so
+ * Run `fn` with a temporary local graft that makes `upgradePoint` an ancestor of `headRef`, so
  * native git operations (merge-base resolution and the 3-way merge itself) see the recorded
- * sync point, not a stale historical ancestor.
+ * upgrade point, not a stale historical ancestor.
  *
- * Squash syncs advance the recorded sync point (manifest + `refs/cella/last-upgrade`) without
+ * Squash upgrades advance the recorded upgrade point (manifest + `refs/cella/last-upgrade`) without
  * advancing git's commit graph, so a plain `git merge` replays every upstream change since the
- * last true merge ancestor: hunks the fork already integrated (or deliberately resolved away)
- * re-apply as clean auto-merges or re-conflict on every sync. The graft adds `baseSha` as an
+ * last true merge ancestor: hunks the app already integrated (or deliberately resolved away)
+ * re-apply as clean auto-merges or re-conflict on every upgrade. The graft adds `upgradePoint` as an
  * extra parent of the `headRef` commit via `git replace --graft`; replace refs are local-only
  * and the ref is deleted right after `fn`, or when ctrl-c or a kill ends the CLI during it, so
  * nothing ever leaks into pushed history.
  *
  * Runs `fn` without grafting when the graft is unnecessary or unsafe:
- * - `baseSha` is already an ancestor of `headRef` (git's own merge-base is not stale), or
+ * - `upgradePoint` is already an ancestor of `headRef` (git's own merge-base is not stale), or
  * - a replacement object already exists for the `headRef` commit (never clobber, e.g. the
- *   scaffold root graft from {@link ensureSyncBase} when the root commit is HEAD).
+ *   scaffold root graft from {@link ensureUpgradePoint} when the root commit is HEAD).
  */
-export async function withTemporarySyncBaseGraft<T>(
+export async function withUpgradePointGraft<T>(
   cwd: string,
   headRef: string,
-  baseSha: string,
+  upgradePoint: string,
   fn: () => Promise<T>,
 ): Promise<T> {
   const headSha = await revParse(cwd, headRef);
-  if (!headSha || !(await commitObjectExists(cwd, baseSha))) return fn();
+  if (!headSha || !(await commitObjectExists(cwd, upgradePoint))) return fn();
 
   // Native ancestry already covers the base: nothing to graft.
-  if (await isAncestor(cwd, baseSha, headSha)) return fn();
+  if (await isAncestor(cwd, upgradePoint, headSha)) return fn();
 
   // Never clobber an existing replacement object for this commit.
   const existingReplacement = await git(['replace', '-l', headSha], cwd);
@@ -945,7 +945,7 @@ export async function withTemporarySyncBaseGraft<T>(
   const parentsRaw = await git(['log', '-1', '--format=%P', headSha], cwd);
   const parents = parentsRaw ? parentsRaw.split(/\s+/) : [];
 
-  await git(['replace', '-f', '--graft', headSha, ...parents, baseSha], cwd);
+  await git(['replace', '-f', '--graft', headSha, ...parents, upgradePoint], cwd);
   const removeGraft = async () => {
     await git(['replace', '-d', headSha], cwd, { ignoreErrors: true });
   };

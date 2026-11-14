@@ -13,26 +13,26 @@ import { type AnalyzeReportOptions, printAnalysisFileGroups } from '../../src/up
 import { groupIgnoredUpstreamChanges } from '../../src/upstream/protection';
 import { captureInfo, analyzedFile as file } from '../helpers/test-env';
 
-const NOW_MS = 1_800_000_000_000;
-const NOW = NOW_MS / 1000;
-const HOUR = 3600;
-const DAY = 86400;
+const nowMs = 1_800_000_000_000;
+const now = nowMs / 1000;
+const hour = 3600;
+const day = 86400;
 
-const UPSTREAM = 'https://github.com/cellajs/cella';
-const FORK = 'https://github.com/cellajs/raak';
-const SHA = 'b374861b9a0c';
+const upstream = 'https://github.com/cellajs/cella';
+const app = 'https://github.com/cellajs/raak';
+const sha = 'b374861b9a0c';
 
-const IGNORED = ['backend/drizzle', 'locales/en', 'frontend/src/modules/marketing', 'sdk/gen'];
-const PINNED = ['frontend/src/styling/app.css'];
+const ignored = ['backend/drizzle', 'locales/en', 'frontend/src/modules/marketing', 'sdk/gen'];
+const pinned = ['frontend/src/styling/app.css'];
 
 /** A behind file upstream changed three hours ago; `new` or `deleted` when upstream added or removed it. */
 function behind(path: string, kind?: 'new' | 'deleted'): AnalyzedFile {
   return file({
     path,
     status: 'behind',
-    existsInFork: kind !== 'new',
+    existsInApp: kind !== 'new',
     existsInUpstream: kind !== 'deleted',
-    changedTs: NOW - 3 * HOUR,
+    changedTs: now - 3 * hour,
     changedCommit: 'u1',
   });
 }
@@ -43,7 +43,7 @@ function pinnedAhead(path: string, absent: number, ageSeconds: number): Analyzed
     status: 'ahead',
     isPinned: true,
     upstreamLinesAbsent: absent,
-    changedTs: NOW - ageSeconds,
+    changedTs: now - ageSeconds,
     changedCommit: 'f1',
   });
 }
@@ -55,7 +55,7 @@ function ignoredChanged(path: string, lines: number): AnalyzedFile {
     isIgnored: true,
     upstreamChanged: true,
     upstreamChangedLines: lines,
-    upstreamChangedTs: NOW - 3 * HOUR,
+    upstreamChangedTs: now - 3 * hour,
     upstreamCommit: 'u2',
   });
 }
@@ -79,27 +79,27 @@ function fixture(): MergeResult {
     behind('frontend/src/lib/sw.ts'),
     behind('.gitattributes'),
     behind('package.json'),
-    file({ path: 'knip.jsonc', status: 'diverged', upstreamChangedTs: NOW - 30, upstreamCommit: 'u3' }),
-    file({ path: 'pnpm-workspace.yaml', status: 'diverged', upstreamChangedTs: NOW - 3 * HOUR, upstreamCommit: 'u4' }),
-    pinnedAhead('cella/skills/screenshots/shots-config.mjs', 83, 15 * HOUR),
-    pinnedAhead('frontend/src/alert-config.tsx', 36, 90 * DAY),
-    pinnedAhead('frontend/src/styling/gradients.css', 16, 10 * DAY),
-    pinnedAhead('a11y/scope-config.ts', 13, 2 * DAY),
-    pinnedAhead('backend/src/bundle-config.ts', 1, 2 * DAY),
-    pinnedAhead('backend/src/db/channel-tables.ts', 2, 56 * DAY),
-    pinnedAhead('backend/src/modules.ts', 1, 13 * HOUR),
-    pinnedAhead('frontend/src/routes-config.tsx', 1, 6 * DAY),
-    pinnedAhead('frontend/src/entity-sync-queries.ts', 0, 21 * DAY),
+    file({ path: 'knip.jsonc', status: 'diverged', upstreamChangedTs: now - 30, upstreamCommit: 'u3' }),
+    file({ path: 'pnpm-workspace.yaml', status: 'diverged', upstreamChangedTs: now - 3 * hour, upstreamCommit: 'u4' }),
+    pinnedAhead('cella/skills/screenshots/shots-config.mjs', 83, 15 * hour),
+    pinnedAhead('frontend/src/alert-config.tsx', 36, 90 * day),
+    pinnedAhead('frontend/src/styling/gradients.css', 16, 10 * day),
+    pinnedAhead('a11y/scope-config.ts', 13, 2 * day),
+    pinnedAhead('backend/src/bundle-config.ts', 1, 2 * day),
+    pinnedAhead('backend/src/db/channel-tables.ts', 2, 56 * day),
+    pinnedAhead('backend/src/modules.ts', 1, 13 * hour),
+    pinnedAhead('frontend/src/routes-config.tsx', 1, 6 * day),
+    pinnedAhead('frontend/src/entity-sync-queries.ts', 0, 21 * day),
     file({
       path: 'backend/src/utils/data-encryption.ts',
       status: 'drifted',
-      changedTs: NOW - 2 * DAY,
+      changedTs: now - 2 * day,
       changedCommit: 'f2',
     }),
     file({
       path: 'frontend/src/modules/organization/organization-module.tsx',
       status: 'drifted',
-      changedTs: NOW - 2 * DAY,
+      changedTs: now - 2 * day,
       changedCommit: 'f3',
     }),
     ignoredChanged('locales/en/about.json', 79),
@@ -111,7 +111,7 @@ function fixture(): MergeResult {
       isPinned: true,
       upstreamChanged: true,
       upstreamChangedLines: 4,
-      upstreamChangedTs: NOW - 4 * 60,
+      upstreamChangedTs: now - 4 * 60,
       upstreamCommit: 'u5',
     }),
     ...['0718', '0721', '0723', '0729', '0730', '0814'].map((day) =>
@@ -121,10 +121,10 @@ function fixture(): MergeResult {
       path: 'backend/drizzle/20261025063333_side_effects/migration.sql',
       status: 'ignored',
       isIgnored: true,
-      existsInFork: false,
+      existsInApp: false,
       upstreamOnly: true,
       upstreamChangedLines: 909,
-      upstreamChangedTs: NOW - 3 * HOUR,
+      upstreamChangedTs: now - 3 * hour,
       upstreamCommit: 'u6',
     }),
   ];
@@ -144,37 +144,37 @@ function fixture(): MergeResult {
       renamed: 0,
     },
     conflicts: [],
-    ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, IGNORED),
+    ignoredUpstreamChanges: groupIgnoredUpstreamChanges(files, ignored),
   };
 }
 
-const OPTIONS: AnalyzeReportOptions = {
-  links: { upstreamGitHubUrl: UPSTREAM, upstreamSha: SHA, forkGitHubUrl: FORK },
-  overrides: { ignored: IGNORED, pinned: PINNED },
+const options: AnalyzeReportOptions = {
+  links: { upstreamGitHubUrl: upstream, upstreamSha: sha, appGitHubUrl: app },
+  overrides: { ignored, pinned },
   columns: 80,
-  nowMs: NOW_MS,
+  nowMs,
 };
 
 /** The printed lines without colors or link targets. */
-function report(result: MergeResult, options: Partial<AnalyzeReportOptions> = {}): string[] {
-  return stripVTControlCharacters(captureInfo(() => printAnalysisFileGroups(result, { ...OPTIONS, ...options }))).split(
+function report(result: MergeResult, extra: Partial<AnalyzeReportOptions> = {}): string[] {
+  return stripVTControlCharacters(captureInfo(() => printAnalysisFileGroups(result, { ...options, ...extra }))).split(
     '\n',
   );
 }
 
 /** The raw output, link targets included. */
-function raw(result: MergeResult, options: Partial<AnalyzeReportOptions> = {}): string {
-  return captureInfo(() => printAnalysisFileGroups(result, { ...OPTIONS, ...options }));
+function raw(result: MergeResult, extra: Partial<AnalyzeReportOptions> = {}): string {
+  return captureInfo(() => printAnalysisFileGroups(result, { ...options, ...extra }));
 }
 
-const DIV = '─'.repeat(60);
+const div = '─'.repeat(60);
 
 describe('printAnalysisFileGroups', () => {
   it('prints the sections from behind to protected but behind, large groups collapsed, columns aligned', () => {
     expect(report(fixture())).toEqual([
       '',
       '↓ behind on upstream · 16 files',
-      DIV,
+      div,
       '',
       '  shared/scripts/         5  +check-alignments.ts  −check-migration-notes.ts …',
       '  cella/                  4  +skills/align/SKILL.md  −skills/migrate/SKILL.md …',
@@ -186,13 +186,13 @@ describe('printAnalysisFileGroups', () => {
       '  every path: pnpm cella analyze --all',
       '',
       '⇅ diverged · 2 files',
-      DIV,
+      div,
       '',
       '  knip.jsonc           now',
       '  pnpm-workspace.yaml   3h',
       '',
-      '↑ protected in fork · 9 files',
-      DIV,
+      '↑ protected in app · 9 files',
+      div,
       '',
       '                          upstream lines absent',
       '  cella/skills/screenshots/shots-config.mjs  83  15h',
@@ -204,13 +204,13 @@ describe('printAnalysisFileGroups', () => {
       '  what a merge would bring in: pnpm cella analyze --unpinned',
       '',
       '⚠ drifted from upstream · 2 files',
-      DIV,
+      div,
       '',
       '  backend/src/utils/data-encryption.ts                       2d',
       '  frontend/src/modules/organization/organization-module.tsx  2d',
       '',
       '⚠ protected but behind upstream · 10 files',
-      DIV,
+      div,
       '',
       '                                              lines changed upstream',
       '  ⨂ backend/drizzle/20261025063333_side_effects/migration.sql   +909  new  3h',
@@ -219,7 +219,7 @@ describe('printAnalysisFileGroups', () => {
       '  ⨀ frontend/src/styling/app.css                                   4       4m',
       '  ⨂ backend/drizzle/ · 6 × snapshot.json                       37.4k       3h',
       '',
-      '  the fork side wins: adopt what you need from the review page',
+      '  the app side wins: adopt what you need from the review page',
     ]);
   });
 
@@ -257,38 +257,38 @@ describe('printAnalysisFileGroups', () => {
 
   it('prints nothing when no file needs a section', () => {
     expect(
-      captureInfo(() => printAnalysisFileGroups({ ...fixture(), files: [], ignoredUpstreamChanges: [] }, OPTIONS)),
+      captureInfo(() => printAnalysisFileGroups({ ...fixture(), files: [], ignoredUpstreamChanges: [] }, options)),
     ).toBe('');
   });
 });
 
 describe('analyze row links', () => {
-  it("links fork-side rows to the fork's commits, upstream-side rows to upstream's", () => {
+  it("links app-side rows to the app's commits, upstream-side rows to upstream's", () => {
     const out = raw(fixture(), { all: true });
 
-    expect(out).toContain(`${FORK}/commit/f2`);
-    expect(out).toContain(`${FORK}/commit/f1`);
-    expect(out).toContain(`${UPSTREAM}/commit/u1`);
-    expect(out).toContain(`${UPSTREAM}/commit/u3`);
-    expect(out).not.toContain(`${UPSTREAM}/commit/f`);
+    expect(out).toContain(`${app}/commit/f2`);
+    expect(out).toContain(`${app}/commit/f1`);
+    expect(out).toContain(`${upstream}/commit/u1`);
+    expect(out).toContain(`${upstream}/commit/u3`);
+    expect(out).not.toContain(`${upstream}/commit/f`);
   });
 
-  it('leaves fork commits unlinked without a GitHub origin', () => {
-    const out = raw(fixture(), { all: true, links: { ...OPTIONS.links, forkGitHubUrl: undefined } });
+  it('leaves app commits unlinked without a GitHub origin', () => {
+    const out = raw(fixture(), { all: true, links: { ...options.links, appGitHubUrl: undefined } });
 
     expect(out).not.toContain('/commit/f');
-    expect(out).toContain(`${UPSTREAM}/commit/u1`);
+    expect(out).toContain(`${upstream}/commit/u1`);
   });
 
   it('links files at the analyzed upstream commit in file mode, and not at all when upstream deleted them', () => {
-    const out = raw(fixture(), { all: true, links: { ...OPTIONS.links, fileLinkMode: 'file' } });
+    const out = raw(fixture(), { all: true, links: { ...options.links, fileLinkMode: 'file' } });
 
-    expect(out).toContain(`${UPSTREAM}/blob/${SHA}/shared/scripts/check-style.ts`);
+    expect(out).toContain(`${upstream}/blob/${sha}/shared/scripts/check-style.ts`);
     expect(out).not.toContain('/blob/main/');
     expect(out).not.toContain('check-migration-notes.ts\x07');
   });
 
   it("links a collapsed entry to upstream's folder at the analyzed commit", () => {
-    expect(raw(fixture())).toContain(`${UPSTREAM}/tree/${SHA}/backend/drizzle`);
+    expect(raw(fixture())).toContain(`${upstream}/tree/${sha}/backend/drizzle`);
   });
 });

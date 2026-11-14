@@ -55,8 +55,8 @@ interface Ledger {
 export const ledgerFile = 'cella/a11y-ledger.json';
 
 /** The root package's name and version. The name is the same in every mode, where the config slug is not. */
-export function rootPackage(forkPath: string): { name: string; version: string } {
-  return JSON.parse(readFileSync(join(forkPath, 'package.json'), 'utf8'));
+export function rootPackage(repoRoot: string): { name: string; version: string } {
+  return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 }
 
 /**
@@ -86,11 +86,11 @@ function decideByAudit(criterion: Criterion, evidence: Evidence[]): Verdict & Pi
 }
 
 /** This app's ledger, or null when there is none yet or the file holds another app's results. */
-export function readLedger(forkPath: string): Ledger | null {
-  const path = join(forkPath, ledgerFile);
+export function readLedger(repoRoot: string): Ledger | null {
+  const path = join(repoRoot, ledgerFile);
   if (!existsSync(path)) return null;
   const ledger: Ledger = JSON.parse(readFileSync(path, 'utf8'));
-  return ledger.product === rootPackage(forkPath).name ? ledger : null;
+  return ledger.product === rootPackage(repoRoot).name ? ledger : null;
 }
 
 /** The family a check belongs to: `axe`, `probe`, `code` or `review`. */
@@ -104,8 +104,8 @@ export const automated = (evidence: Evidence[]) => evidence.filter((item) => fam
  * decided keeps that decision, unless the audit now finds a failure on a row the reviewer called Supports or Not
  * Applicable.
  */
-export function writeLedger(forkPath: string, evidenceById: Map<string, Evidence[]>, scope: string[], target: string) {
-  const previous = new Map((readLedger(forkPath)?.criteria ?? []).map((row) => [row.id, row]));
+export function writeLedger(repoRoot: string, evidenceById: Map<string, Evidence[]>, scope: string[], target: string) {
+  const previous = new Map((readLedger(repoRoot)?.criteria ?? []).map((row) => [row.id, row]));
 
   const rows = criteria.map((criterion): LedgerRow => {
     const before = previous.get(criterion.id);
@@ -130,7 +130,7 @@ export function writeLedger(forkPath: string, evidenceById: Map<string, Evidence
   });
 
   const ledger: Ledger = {
-    product: rootPackage(forkPath).name,
+    product: rootPackage(repoRoot).name,
     edition: 'VPAT® 2.5Rev WCAG',
     standard: 'WCAG 2.2 Level AA',
     auditedAt: new Date().toISOString().slice(0, 10),
@@ -176,9 +176,9 @@ export function parseDecision(raw: unknown): Decision {
 }
 
 /** Records reviewers' decisions in the ledger. Refuses what the evidence cannot carry; nothing is written unless all are valid. */
-export function recordDecisions(forkPath: string, decisions: Decision[]) {
-  const ledger = readLedger(forkPath);
-  if (!ledger) throw new Error(`no ledger for ${rootPackage(forkPath).name} yet: run \`pnpm cella a11y\` first`);
+export function recordDecisions(repoRoot: string, decisions: Decision[]) {
+  const ledger = readLedger(repoRoot);
+  if (!ledger) throw new Error(`no ledger for ${rootPackage(repoRoot).name} yet: run \`pnpm cella a11y\` first`);
 
   for (const { id, status, by, remarks = '', evidence, where = [] } of decisions) {
     const row = ledger.criteria.find((candidate) => candidate.id === id);
@@ -215,6 +215,6 @@ export function recordDecisions(forkPath: string, decisions: Decision[]) {
       Object.assign(row, { status: null, remarks: '', decidedBy: null, open: ['manual'] });
   }
 
-  writeFileSync(join(forkPath, ledgerFile), `${JSON.stringify(ledger, null, 2)}\n`);
+  writeFileSync(join(repoRoot, ledgerFile), `${JSON.stringify(ledger, null, 2)}\n`);
   return ledger;
 }

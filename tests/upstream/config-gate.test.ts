@@ -1,10 +1,10 @@
 /**
  * Tests for upstream override changes.
  *
- * The sync config is managed (never merged), so entries upstream adds to its own
+ * The upgrade config is managed (never merged), so entries upstream adds to its own
  * `overrides.pinned`/`overrides.ignored`, and keys it adds to `settings.packageJsonKeys`, never
- * reach the fork. `parseOverrideLists` reads the lists without evaluating the file,
- * `diffOverrideLists` keeps what the fork config does not follow, and `compareUpstreamOverrides`
+ * reach the app. `parseOverrideLists` reads the lists without evaluating the file,
+ * `diffOverrideLists` keeps what the app config does not follow, and `compareUpstreamOverrides`
  * runs both against upstream's config at two refs.
  */
 import fs from 'node:fs';
@@ -20,11 +20,11 @@ import {
 import { printUpstreamOverrideChanges } from '../../src/utils/display';
 import { captureInfo, createRepo, exec, write } from '../helpers/test-env';
 
-/** The keys a config without `packageJsonKeys` syncs. */
-const DEFAULT_KEYS = ['dependencies', 'devDependencies'];
+/** The keys a config without `packageJsonKeys` upgrades. */
+const defaultKeys = ['dependencies', 'devDependencies'];
 
 /** No change in one list. */
-const NONE = { added: [], removed: [] };
+const none = { added: [], removed: [] };
 
 /**
  * A cella-style config with the given list bodies (raw source, so tests can embed comments).
@@ -39,7 +39,7 @@ export default defineConfig({
     ${settings}
   },
   overrides: {
-    // Paths the fork fully owns
+    // Paths the app fully owns
     ignored: [${ignored}],
     pinned: [${pinned}],
   },
@@ -47,7 +47,7 @@ export default defineConfig({
 `;
 }
 
-function forkConfig(
+function appConfig(
   overrides: { pinned?: string[]; ignored?: string[] },
   packageJsonKeys?: PackageJsonKey[],
 ): CellaCliConfig {
@@ -72,7 +72,7 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists(source)).toEqual({
       pinned: ['backend/src/modules.ts', 'frontend/src/menu-config.tsx', 'json/text-blocks.json'],
       ignored: ['README.md', 'shared/config'],
-      packageJsonKeys: DEFAULT_KEYS,
+      packageJsonKeys: defaultKeys,
     });
   });
 
@@ -80,12 +80,12 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists(`export default defineConfig({ settings: { upstreamUrl: 'x' } });`)).toEqual({
       pinned: [],
       ignored: [],
-      packageJsonKeys: DEFAULT_KEYS,
+      packageJsonKeys: defaultKeys,
     });
     expect(parseOverrideLists(`export default defineConfig({ overrides: { pinned: ['a'] } });`)).toEqual({
       pinned: ['a'],
       ignored: [],
-      packageJsonKeys: DEFAULT_KEYS,
+      packageJsonKeys: defaultKeys,
     });
   });
 
@@ -112,7 +112,7 @@ describe('parseOverrideLists', () => {
     expect(parseOverrideLists(viaVariable)).toEqual({ pinned: ['a.ts'], ignored: ['own'], packageJsonKeys: null });
 
     const plain = `export default ({ overrides: { pinned: ['b.ts'] } }) satisfies CellaCliConfig;`;
-    expect(parseOverrideLists(plain)).toEqual({ pinned: ['b.ts'], ignored: [], packageJsonKeys: DEFAULT_KEYS });
+    expect(parseOverrideLists(plain)).toEqual({ pinned: ['b.ts'], ignored: [], packageJsonKeys: defaultKeys });
   });
 
   it('returns null when the config cannot be read statically', () => {
@@ -124,58 +124,58 @@ describe('parseOverrideLists', () => {
 });
 
 describe('diffOverrideLists', () => {
-  const base = { pinned: ['a.ts', 'b.ts', 'gone.ts'], ignored: ['README.md', 'old'], packageJsonKeys: DEFAULT_KEYS };
+  const base = { pinned: ['a.ts', 'b.ts', 'gone.ts'], ignored: ['README.md', 'old'], packageJsonKeys: defaultKeys };
   const incoming = {
     pinned: ['a.ts', 'b.ts', 'backend/src/bundle-config.ts'],
     ignored: ['README.md', 'shared/config/'],
-    packageJsonKeys: DEFAULT_KEYS,
+    packageJsonKeys: defaultKeys,
   };
 
-  it('reports upstream additions the fork lacks and removals the fork still carries', () => {
-    const fork = { pinned: ['a.ts', 'gone.ts'], ignored: ['README.md', 'old/'], packageJsonKeys: DEFAULT_KEYS };
-    expect(diffOverrideLists(base, incoming, fork)).toEqual({
+  it('reports upstream additions the app lacks and removals the app still carries', () => {
+    const app = { pinned: ['a.ts', 'gone.ts'], ignored: ['README.md', 'old/'], packageJsonKeys: defaultKeys };
+    expect(diffOverrideLists(base, incoming, app)).toEqual({
       pinned: { added: ['backend/src/bundle-config.ts'], removed: ['gone.ts'] },
       ignored: { added: ['shared/config'], removed: ['old'] },
-      packageJsonKeys: NONE,
+      packageJsonKeys: none,
     });
   });
 
-  it('skips additions the fork already covers, by entry or parent folder', () => {
-    const fork = { pinned: ['backend/src/bundle-config.ts'], ignored: ['shared'], packageJsonKeys: DEFAULT_KEYS };
-    expect(diffOverrideLists(base, incoming, fork)).toEqual({ pinned: NONE, ignored: NONE, packageJsonKeys: NONE });
+  it('skips additions the app already covers, by entry or parent folder', () => {
+    const app = { pinned: ['backend/src/bundle-config.ts'], ignored: ['shared'], packageJsonKeys: defaultKeys };
+    expect(diffOverrideLists(base, incoming, app)).toEqual({ pinned: none, ignored: none, packageJsonKeys: none });
   });
 
-  it('never reports entries upstream had all along, whether the fork has them or not', () => {
-    // 'a.ts' is in both upstream refs and the fork; 'b.ts' in both upstream refs, dropped by the fork
+  it('never reports entries upstream had all along, whether the app has them or not', () => {
+    // 'a.ts' is in both upstream refs and the app; 'b.ts' in both upstream refs, dropped by the app
     const result = diffOverrideLists(base, incoming, { pinned: ['a.ts'], ignored: [], packageJsonKeys: [] });
     expect(result.pinned.added).not.toContain('a.ts');
     expect(result.pinned.added).not.toContain('b.ts');
     expect(result.pinned.removed).toEqual([]);
-    // the default keys are in both upstream refs, the fork syncs none of them
-    expect(result.packageJsonKeys).toEqual(NONE);
+    // the default keys are in both upstream refs, the app upgrades none of them
+    expect(result.packageJsonKeys).toEqual(none);
   });
 
-  it('reports an upstream rename the fork never carried as moved, which blocks nothing', () => {
-    // Upstream renamed its own pin json/text-blocks.json; the fork never had it under either path.
-    const before = { pinned: ['a.ts', 'json/text-blocks.json'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
-    const after = { pinned: ['a.ts', 'shared/json/text-blocks.json'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
-    const fork = { pinned: ['a.ts'], ignored: [], packageJsonKeys: DEFAULT_KEYS };
+  it('reports an upstream rename the app never carried as moved, which blocks nothing', () => {
+    // Upstream renamed its own pin json/text-blocks.json; the app never had it under either path.
+    const before = { pinned: ['a.ts', 'json/text-blocks.json'], ignored: [], packageJsonKeys: defaultKeys };
+    const after = { pinned: ['a.ts', 'shared/json/text-blocks.json'], ignored: [], packageJsonKeys: defaultKeys };
+    const app = { pinned: ['a.ts'], ignored: [], packageJsonKeys: defaultKeys };
 
-    const changes = diffOverrideLists(before, after, fork);
+    const changes = diffOverrideLists(before, after, app);
     expect(changes.pinned).toEqual({
       added: [],
       removed: [],
       moved: [{ from: 'json/text-blocks.json', to: 'shared/json/text-blocks.json' }],
     });
-    expect(hasBlockingOverrideChanges({ kind: 'changes', ...changes })).toBe(false);
+    expect(hasBlockingOverrideChanges({ type: 'changes', ...changes })).toBe(false);
 
-    // The fork carrying the old path keeps the entry blocking: its config names a path that is gone.
-    const carrying = diffOverrideLists(before, after, { ...fork, pinned: ['a.ts', 'json/text-blocks.json'] });
+    // The app carrying the old path keeps the entry blocking: its config names a path that is gone.
+    const carrying = diffOverrideLists(before, after, { ...app, pinned: ['a.ts', 'json/text-blocks.json'] });
     expect(carrying.pinned).toEqual({ added: ['shared/json/text-blocks.json'], removed: ['json/text-blocks.json'] });
-    expect(hasBlockingOverrideChanges({ kind: 'changes', ...carrying })).toBe(true);
+    expect(hasBlockingOverrideChanges({ type: 'changes', ...carrying })).toBe(true);
   });
 
-  it('reports packageJsonKeys keys upstream added that the fork lacks and dropped that the fork still lists', () => {
+  it('reports packageJsonKeys keys upstream added that the app lacks and dropped that the app still lists', () => {
     const lists = (packageJsonKeys: string[] | null) => ({ pinned: [], ignored: [], packageJsonKeys });
     const before = lists(['dependencies', 'devDependencies', 'engines']);
     const after = lists(['dependencies', 'devDependencies', 'scripts', 'exports']);
@@ -185,8 +185,8 @@ describe('diffOverrideLists', () => {
       removed: ['engines'],
     });
     // a side that could not be read compares nothing
-    expect(diffOverrideLists(before, lists(null), lists(['dependencies'])).packageJsonKeys).toEqual(NONE);
-    expect(diffOverrideLists(before, after, lists(null)).packageJsonKeys).toEqual(NONE);
+    expect(diffOverrideLists(before, lists(null), lists(['dependencies'])).packageJsonKeys).toEqual(none);
+    expect(diffOverrideLists(before, after, lists(null)).packageJsonKeys).toEqual(none);
   });
 });
 
@@ -224,17 +224,17 @@ describe('compareUpstreamOverrides', () => {
       repoPath,
       base,
       incoming,
-      forkConfig({ pinned: ['a.ts'], ignored: ['README.md', 'old'] }),
+      appConfig({ pinned: ['a.ts'], ignored: ['README.md', 'old'] }),
     );
     expect(report).toEqual({
-      kind: 'changes',
+      type: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
       ignored: { added: [], removed: ['old'] },
-      packageJsonKeys: NONE,
+      packageJsonKeys: none,
     });
   });
 
-  it('reports a packageJsonKeys key upstream added, against the default when the fork config names none', async () => {
+  it('reports a packageJsonKeys key upstream added, against the default when the app config names none', async () => {
     repoPath = createRepo('cella-upstream-overrides-');
     const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const incoming = commit({
@@ -245,30 +245,30 @@ describe('compareUpstreamOverrides', () => {
       ),
     });
 
-    const fork = forkConfig({ pinned: ['a.ts'] });
-    expect(await compareUpstreamOverrides(repoPath, base, incoming, fork)).toEqual({
-      kind: 'changes',
-      pinned: NONE,
-      ignored: NONE,
+    const app = appConfig({ pinned: ['a.ts'] });
+    expect(await compareUpstreamOverrides(repoPath, base, incoming, app)).toEqual({
+      type: 'changes',
+      pinned: none,
+      ignored: none,
       packageJsonKeys: { added: ['exports'], removed: [] },
     });
 
-    const following = forkConfig({ pinned: ['a.ts'] }, ['dependencies', 'exports']);
+    const following = appConfig({ pinned: ['a.ts'] }, ['dependencies', 'exports']);
     expect(await compareUpstreamOverrides(repoPath, base, incoming, following)).toBeUndefined();
   });
 
-  it('stays silent when upstream has no config, it did not change, or the fork already follows', async () => {
+  it('stays silent when upstream has no config, it did not change, or the app already follows', async () => {
     repoPath = createRepo('cella-upstream-overrides-');
     const empty = commit({ 'other.ts': 'a' });
     const alsoEmpty = commit({ 'other.ts': 'b' });
-    expect(await compareUpstreamOverrides(repoPath, empty, alsoEmpty, forkConfig({}))).toBeUndefined();
+    expect(await compareUpstreamOverrides(repoPath, empty, alsoEmpty, appConfig({}))).toBeUndefined();
 
     const withConfig = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const unchanged = commit({ 'other.ts': 'c' });
-    expect(await compareUpstreamOverrides(repoPath, withConfig, unchanged, forkConfig({}))).toBeUndefined();
+    expect(await compareUpstreamOverrides(repoPath, withConfig, unchanged, appConfig({}))).toBeUndefined();
 
     const added = commit({ 'cella/cella.config.ts': configSource(`'a.ts', 'b.ts'`, '') });
-    const followed = forkConfig({ pinned: ['a.ts', 'b.ts'] });
+    const followed = appConfig({ pinned: ['a.ts', 'b.ts'] });
     expect(await compareUpstreamOverrides(repoPath, withConfig, added, followed)).toBeUndefined();
   });
 
@@ -278,12 +278,12 @@ describe('compareUpstreamOverrides', () => {
     const present = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const broken = commit({ 'cella/cella.config.ts': 'export default buildConfig(' });
 
-    expect(await compareUpstreamOverrides(repoPath, missing, present, forkConfig({}))).toEqual({
-      kind: 'unreadable',
+    expect(await compareUpstreamOverrides(repoPath, missing, present, appConfig({}))).toEqual({
+      type: 'unreadable',
       side: 'base',
     });
-    expect(await compareUpstreamOverrides(repoPath, present, broken, forkConfig({}))).toEqual({
-      kind: 'unreadable',
+    expect(await compareUpstreamOverrides(repoPath, present, broken, appConfig({}))).toEqual({
+      type: 'unreadable',
       side: 'incoming',
     });
   });
@@ -295,7 +295,7 @@ describe('printUpstreamOverrideChanges', () => {
 
   it('lists added and removed entries by name', () => {
     const out = capture({
-      kind: 'changes',
+      type: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
       ignored: { added: ['infra/Pulumi.staging.yaml'], removed: ['old'] },
       packageJsonKeys: { added: ['exports'], removed: ['engines'] },
@@ -311,7 +311,7 @@ describe('printUpstreamOverrideChanges', () => {
   });
 
   it('prints one dim line when upstream config was unreadable, nothing when there is no report', () => {
-    const unreadable = capture({ kind: 'unreadable', side: 'incoming' });
+    const unreadable = capture({ type: 'unreadable', side: 'incoming' });
     expect(unreadable.trim().split('\n')).toHaveLength(1);
     expect(unreadable).toContain('upstream CLI config not compared');
     expect(capture(undefined)).toBe('');

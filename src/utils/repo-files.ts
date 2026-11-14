@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
-import { MAX_BUFFER } from './git';
+import { maxBuffer } from './git';
 
 /**
  * Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, each once, in
@@ -11,13 +11,13 @@ export function listRepoFiles(repoPath: string): string[] {
   const output = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
     cwd: repoPath,
     encoding: 'utf8',
-    maxBuffer: MAX_BUFFER,
+    maxBuffer,
   });
   return [...new Set(output.split('\0'))].filter((file) => file && existsSync(join(repoPath, file)));
 }
 
 /**
- * Check if a file path is generated output a fork regenerates itself: a `gen` path segment
+ * Check if a file path is generated output an app regenerates itself: a `gen` path segment
  * (`sdk/gen/...`) or a `.gen.` file name (`routeTree.gen.ts`, `compose.gen.yml`). Upstream's
  * copy is never adopted, so upstream changes to it are not worth reporting.
  */

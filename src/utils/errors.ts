@@ -1,5 +1,5 @@
 /**
- * Error helpers for sync CLI.
+ * Error helpers for the CLI.
  */
 
 /**

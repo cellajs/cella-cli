@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { confirm, select } from '@inquirer/prompts';
 import pc from '../utils/colors';
-import { checkMark, createSpinner, DIVIDER, plural, spinnerText, warningMark } from '../utils/display';
+import { checkMark, createSpinner, divider, plural, spinnerText, warningMark } from '../utils/display';
 import { type AuditSettings, readAuditSettings, readPatchFiles, writeAuditSettings } from '../utils/workspace-yaml';
 import {
   fetchPublishTimes,
@@ -35,11 +35,11 @@ import {
   standingOverrides,
 } from './security-plan';
 
-const WORKSPACE_FILE = 'pnpm-workspace.yaml';
-const LOCK_FILE = 'pnpm-lock.yaml';
+const workspaceFile = 'pnpm-workspace.yaml';
+const lockFile = 'pnpm-lock.yaml';
 
 /** Root files, next to the manifests, that decide how pnpm resolves. */
-const RESOLUTION_FILES = ['package.json', LOCK_FILE, '.npmrc', '.pnpmfile.cjs'];
+const resolutionFiles = ['package.json', lockFile, '.npmrc', '.pnpmfile.cjs'];
 
 /** What happens to an item: an override is written, its advisories are ignored, or it stays reported. */
 type Action = 'override' | 'ignore' | 'open';
@@ -53,14 +53,14 @@ interface Decision {
 
 const readOr = <T>(path: string, fallback: T): string | T => (existsSync(path) ? readFileSync(path, 'utf8') : fallback);
 
-const isBreaking = (item: SecurityItem): boolean => item.remedy.kind !== 'none' && item.remedy.breaking;
+const isBreaking = (item: SecurityItem): boolean => item.remedy.type !== 'none' && item.remedy.breaking;
 
 /**
  * Whether a developer decides about the item: it is new, and its fix is missing, too young, a
  * breaking jump, or for a package a workspace depends on directly (its manifest sets that version).
  */
 const needsDecision = (item: SecurityItem): boolean =>
-  item.standing === 'new' && (item.remedy.kind !== 'override' || item.remedy.breaking || item.direct);
+  item.standing === 'new' && (item.remedy.type !== 'override' || item.remedy.breaking || item.direct);
 
 const sameEntries = (a: Record<string, string>, b: Record<string, string>): boolean =>
   Object.keys(a).length === Object.keys(b).length && Object.entries(a).every(([key, value]) => b[key] === value);
@@ -69,20 +69,20 @@ const sameEntries = (a: Record<string, string>, b: Record<string, string>): bool
  * A copy of everything pnpm reads to resolve the workspace: manifests, lockfile, pnpm config and
  * patch files. Resolving there leaves the workspace and its node_modules alone.
  */
-async function createStaging(forkPath: string, workspaceYaml: string): Promise<string> {
+async function createStaging(repoRoot: string, workspaceYaml: string): Promise<string> {
   const staging = mkdtempSync(join(tmpdir(), 'cella-audit-'));
-  const projects = ((await runPnpmJson(['ls', '-r', '--depth', '-1', '--json'], forkPath)) ?? []) as Array<{
+  const projects = ((await runPnpmJson(['ls', '-r', '--depth', '-1', '--json'], repoRoot)) ?? []) as Array<{
     path: string;
   }>;
   const files = [
-    ...RESOLUTION_FILES,
+    ...resolutionFiles,
     ...readPatchFiles(workspaceYaml),
-    ...projects.map((project) => join(relative(forkPath, project.path), 'package.json')),
+    ...projects.map((project) => join(relative(repoRoot, project.path), 'package.json')),
   ];
   for (const file of new Set(files)) {
-    if (file.startsWith('..') || !existsSync(join(forkPath, file))) continue;
+    if (file.startsWith('..') || !existsSync(join(repoRoot, file))) continue;
     mkdirSync(dirname(join(staging, file)), { recursive: true });
-    cpSync(join(forkPath, file), join(staging, file));
+    cpSync(join(repoRoot, file), join(staging, file));
   }
   return staging;
 }
@@ -93,10 +93,10 @@ async function resolveStaging(
   workspaceYaml: string,
   settings: AuditSettings,
 ): Promise<{ lock: string } | { error: string }> {
-  writeFileSync(join(staging, WORKSPACE_FILE), writeAuditSettings(workspaceYaml, settings));
+  writeFileSync(join(staging, workspaceFile), writeAuditSettings(workspaceYaml, settings));
   const result = await runPnpm(['install', '--lockfile-only', '--no-frozen-lockfile', '--ignore-scripts'], staging);
   return result.ok
-    ? { lock: readOr(join(staging, LOCK_FILE), '') }
+    ? { lock: readOr(join(staging, lockFile), '') }
     : { error: `${result.stdout}${result.stderr}`.trim() };
 }
 
@@ -110,14 +110,14 @@ function lockedVersions(lock: string, name: string): string[] {
 
 /** `installed → fix`, flagged when the fix is a breaking jump; the installed version alone without a fix. */
 function versionsText(item: SecurityItem): string {
-  if (item.remedy.kind === 'none') return item.installed;
+  if (item.remedy.type === 'none') return item.installed;
   return `${item.installed} → ${item.remedy.target}${isBreaking(item) ? ' ⚠' : ''}`;
 }
 
 /** One line of context for an item that is not simply fixed by its override. */
 function noteText(item: SecurityItem, releaseAgeHours: number): string {
-  if (item.remedy.kind === 'none') return 'no fix published';
-  if (item.remedy.kind === 'fresh')
+  if (item.remedy.type === 'none') return 'no fix published';
+  if (item.remedy.type === 'fresh')
     return `fix published ${item.remedy.hoursOld}h ago, inside the ${releaseAgeHours}h release age`;
   if (item.standing === 'ignored') return 'the fix is a breaking jump';
   return '';
@@ -154,7 +154,7 @@ function printDropped(title: string, rows: Array<[name: string, reason: string]>
 function droppedReason(key: string, items: SecurityItem[], bareLock: string): string {
   const module = overrideModule(key);
   const item = items.find((candidate) => candidate.module === module);
-  if (item) return item.remedy.kind === 'none' ? 'no published version fixes it' : 'replaced by another range';
+  if (item) return item.remedy.type === 'none' ? 'no published version fixes it' : 'replaced by another range';
   const versions = lockedVersions(bareLock, module);
   return versions.length > 0 ? `resolves to ${versions.join(', ')} on its own` : 'no longer installed';
 }
@@ -165,17 +165,17 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
 
   for (const item of items) {
     const { remedy } = item;
-    const jump = remedy.kind === 'none' ? '' : `${item.installed} → ${remedy.target}`;
+    const jump = remedy.type === 'none' ? '' : `${item.installed} → ${remedy.target}`;
 
     if (!needsDecision(item)) {
       decisions.push({ item, action: item.standing === 'ignored' ? 'ignore' : 'override' });
-    } else if (remedy.kind === 'none') {
+    } else if (remedy.type === 'none') {
       const ignore = await confirm({
         message: `${item.module}: no fix is published. ignore ${item.ghsas.join(', ')} until one is?`,
         default: true,
       });
       decisions.push({ item, action: ignore ? 'ignore' : 'open' });
-    } else if (remedy.kind === 'fresh') {
+    } else if (remedy.type === 'fresh') {
       const action = await select<Action>({
         message: `${item.module}: fix ${remedy.target} was published ${remedy.hoursOld}h ago, inside the ${releaseAgeHours}h release age`,
         choices: [
@@ -235,26 +235,26 @@ export interface WorkspaceEdits {
   files: Record<string, string>;
 }
 
-const NO_EDITS: WorkspaceEdits = { manifests: {}, files: {} };
+const noEdits: WorkspaceEdits = { manifests: {}, files: {} };
 
 /**
- * Run the security pass on the workspace at `forkPath`, with the update step's `edits` already in
+ * Run the security pass on the workspace at `repoRoot`, with the update step's `edits` already in
  * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
  * written once, at the end; with `apply` off nothing is written. Returns whether the edits landed:
  * false for a report, a failure or a cancelled prompt, which all leave the workspace as it was.
  */
 export async function runSecurityPass(
-  forkPath: string,
+  repoRoot: string,
   options: { apply: boolean; releaseAgeMinutes: number; edits?: WorkspaceEdits },
 ): Promise<boolean> {
-  const { releaseAgeMinutes, edits = NO_EDITS } = options;
-  const workspaceYaml = readOr(join(forkPath, WORKSPACE_FILE), '');
+  const { releaseAgeMinutes, edits = noEdits } = options;
+  const workspaceYaml = readOr(join(repoRoot, workspaceFile), '');
   let previous: AuditSettings;
   try {
     previous = readAuditSettings(workspaceYaml);
   } catch (error) {
     console.error(
-      `${pc.red('✗')} ${WORKSPACE_FILE} could not be read: ${error instanceof Error ? error.message : error}`,
+      `${pc.red('✗')} ${workspaceFile} could not be read: ${error instanceof Error ? error.message : error}`,
     );
     return false;
   }
@@ -276,7 +276,7 @@ export async function runSecurityPass(
     return false;
   };
 
-  const staging = await createStaging(forkPath, workspaceYaml);
+  const staging = await createStaging(repoRoot, workspaceYaml);
   try {
     for (const [file, content] of Object.entries(edits.manifests)) writeFileSync(join(staging, file), content);
 
@@ -295,7 +295,7 @@ export async function runSecurityPass(
     spinnerText(`checking ${plural(advisories.length, 'advisory', 'advisories')} against the registry...`);
     const versionedExcludes = previous.releaseAgeExcludes.flatMap((entry) => parseVersionedExclude(entry)?.name ?? []);
     const names = [...new Set([...advisories.map((advisory) => advisory.module), ...versionedExcludes])];
-    const times = await Promise.all(names.map((name) => fetchPublishTimes(name, forkPath)));
+    const times = await Promise.all(names.map((name) => fetchPublishTimes(name, repoRoot)));
     const published: Record<string, PublishTimes> = Object.fromEntries(
       names.map((name, i) => [name, times[i]]).filter(([, answer]) => answer),
     );
@@ -340,7 +340,7 @@ export async function runSecurityPass(
 
     const otherFiles = Object.keys(edits.files);
     const writeFiles = (): void => {
-      for (const [file, content] of Object.entries(edits.files)) writeFileSync(join(forkPath, file), content);
+      for (const [file, content] of Object.entries(edits.files)) writeFileSync(join(repoRoot, file), content);
       if (otherFiles.length > 0) console.info(`${checkMark} ${otherFiles.join(', ')} updated`);
     };
 
@@ -354,7 +354,7 @@ export async function runSecurityPass(
 
     const summarize = (): void => {
       if (!settingsChanged) return;
-      console.info(pc.bold(WORKSPACE_FILE));
+      console.info(pc.bold(workspaceFile));
       console.info(changeLine('overrides', auditKeys, Object.keys(next.overrides).filter(isAuditOverride)));
       console.info(changeLine('excludes', previous.releaseAgeExcludes, next.releaseAgeExcludes));
       console.info(changeLine('ignored', previous.ignoredGhsas, next.ignoredGhsas));
@@ -364,8 +364,8 @@ export async function runSecurityPass(
     // Ignores and aged excludes do not change what resolves: the file is all there is to write.
     if (!updatesManifests && sameEntries(next.overrides, previous.overrides)) {
       writeFiles();
-      writeFileSync(join(forkPath, WORKSPACE_FILE), nextYaml);
-      console.info(`${checkMark} ${WORKSPACE_FILE} updated ${pc.dim('· nothing to install')}`);
+      writeFileSync(join(repoRoot, workspaceFile), nextYaml);
+      console.info(`${checkMark} ${workspaceFile} updated ${pc.dim('· nothing to install')}`);
       printOpen(open);
       summarize();
       return true;
@@ -376,18 +376,18 @@ export async function runSecurityPass(
     stagingSpinner.stop();
     if ('error' in staged) return fail('could not resolve the workspace with the new settings', staged.error);
 
-    const written = { ...edits.files, ...edits.manifests, [WORKSPACE_FILE]: nextYaml, [LOCK_FILE]: staged.lock };
+    const written = { ...edits.files, ...edits.manifests, [workspaceFile]: nextYaml, [lockFile]: staged.lock };
     // Undefined for a file that does not exist yet, which the rollback removes
     const before = Object.fromEntries(
-      Object.keys(written).map((file) => [file, readOr(join(forkPath, file), undefined)] as const),
+      Object.keys(written).map((file) => [file, readOr(join(repoRoot, file), undefined)] as const),
     );
-    for (const [file, content] of Object.entries(written)) writeFileSync(join(forkPath, file), content);
-    const install = spawnSync('pnpm', ['install'], { cwd: forkPath, stdio: 'inherit' });
+    for (const [file, content] of Object.entries(written)) writeFileSync(join(repoRoot, file), content);
+    const install = spawnSync('pnpm', ['install'], { cwd: repoRoot, stdio: 'inherit' });
     console.info();
     if (install.status !== 0) {
       for (const [file, content] of Object.entries(before)) {
-        if (content === undefined) rmSync(join(forkPath, file), { force: true });
-        else writeFileSync(join(forkPath, file), content);
+        if (content === undefined) rmSync(join(repoRoot, file), { force: true });
+        else writeFileSync(join(repoRoot, file), content);
       }
       console.error(`${pc.red('✗')} pnpm install failed (exit code ${install.status})`);
       console.info(pc.dim(`  ${Object.keys(before).join(', ')} are back as they were; run pnpm install to match`));
@@ -396,7 +396,7 @@ export async function runSecurityPass(
     }
 
     // The workspace's own audit has the last word on what is still reported.
-    const verified = await runPnpmAudit(forkPath);
+    const verified = await runPnpmAudit(repoRoot);
     const reported = verified ? [...new Set(advisoriesFromAudit(verified).map((advisory) => advisory.module))] : open;
     console.info(`${checkMark} installed${reported.length === 0 ? ` ${pc.dim('·')} audit clean` : ''}`);
     printOpen(reported);
@@ -448,7 +448,7 @@ function printPlan(plan: {
     .map((ghsa): [string, string] => [ghsa, fixedGhsas.has(ghsa) ? 'a fix is published' : 'no longer applies']);
 
   console.info(pc.bold('security'));
-  console.info(DIVIDER);
+  console.info(divider);
   if (items.length === 0 && droppedOverrides.length === 0 && droppedIgnores.length === 0) {
     console.info(`${checkMark} no vulnerabilities found`);
     console.info();

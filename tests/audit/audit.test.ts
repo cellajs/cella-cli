@@ -97,7 +97,7 @@ describe('audit-utils', () => {
     it('reports an unreadable outdated check, not an up-to-date workspace, and skips the security pass', async () => {
       vi.stubEnv('FAKE_PNPM_STDOUT', 'not json');
       const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-      await runAudit({ forkPath: bin, list: true } as RuntimeConfig);
+      await runAudit({ repoRoot: bin, list: true } as RuntimeConfig);
       const printed = info.mock.calls.flat().join('\n');
       expect(printed).toContain('pnpm outdated gave no answer');
       expect(printed).not.toContain('up to date');
@@ -127,7 +127,7 @@ describe('audit-utils', () => {
       vi.stubEnv('FAKE_PNPM_STDOUT', JSON.stringify(outdated));
       vi.spyOn(console, 'info').mockImplementation(() => {});
 
-      await runAudit({ forkPath: fork } as RuntimeConfig);
+      await runAudit({ repoRoot: fork } as RuntimeConfig);
 
       const { manifests } = securityPass.mock.calls[0][1].edits;
       expect(JSON.parse(manifests['frontend/package.json']).dependencies.i18next).toBe('^26.5.6');

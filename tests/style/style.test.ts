@@ -60,7 +60,7 @@ afterAll(() => {
   for (const root of [dirty, clean]) rmSync(root, { recursive: true, force: true });
 });
 
-const OK = '[style] OK, terminology, documentation, comments and frontend code follow the required style.';
+const ok = '[style] OK, terminology, documentation, comments and frontend code follow the required style.';
 /** A test repository has no commits and no `origin/main` to measure changed lines from. */
 const noBase = '[style] skipped the changed-line rules (consequence-tail): HEAD has no merge base with origin/main';
 const placement =
@@ -110,7 +110,7 @@ describe('style check', () => {
   });
 
   it('prints one line when clean', () => {
-    expect(run(clean)).toEqual({ status: 0, stdout: lines(OK), stderr: lines(noBase) });
+    expect(run(clean)).toEqual({ status: 0, stdout: lines(ok), stderr: lines(noBase) });
   });
 });
 

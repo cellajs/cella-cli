@@ -1,8 +1,8 @@
 /**
- * Merge engine, shared by analyze and sync. Analyze classifies every file from git refs and leaves
- * the app's branches and working tree unchanged; like sync, it fetches upstream and may record the
- * sync base in local refs. Sync merges in the fork itself (`git merge --no-commit`), resolves pinned
- * and ignored files to the fork side and leaves the merge staged, conflicts keeping their markers
+ * Merge engine, shared by analyze and upgrade. Analyze classifies every file from git refs and leaves
+ * the app's branches and working tree unchanged; like upgrade, it fetches upstream and may record the
+ * upgrade point in local refs. Upgrade merges in the app itself (`git merge --no-commit`), resolves pinned
+ * and ignored files to the app side and leaves the merge staged, conflicts keeping their markers
  * for IDE 3-way resolution.
  */
 
@@ -10,19 +10,19 @@ import { existsSync } from 'node:fs';
 import { rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { readReleaseAgeMinutes } from '../audit/pnpm';
-import { DEFAULT_UPSTREAM_REMOTE, resolveUpstream } from '../config/load';
+import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import {
   type AnalysisSummary,
   type AnalyzedFile,
   type CommitRangeEntry,
   type MergeResult,
   type RuntimeConfig,
-  SYNC_APPLIED_STATUSES,
   type UpstreamOverridesReport,
+  upgradeAppliedStatuses,
 } from '../config/types';
 import pc from '../utils/colors';
 import {
-  COMMIT_STEP_MAX,
+  commitStepMax,
   createSpinner,
   formatCheckoutStep,
   formatMergeInProgressDetail,
@@ -30,13 +30,13 @@ import {
   plural,
   printStep,
   spinnerText,
-  VERSION,
+  version,
 } from '../utils/display';
 import {
   checkoutFromRef,
   countCommitsBetween,
   ensureRemote,
-  ensureSyncBase,
+  ensureUpgradePoint,
   fetchRemote,
   fetchUpstreamTags,
   fileExistsAtRef,
@@ -47,7 +47,7 @@ import {
   getEffectiveMergeBase,
   getMergeBase,
   getShortSha,
-  getUpstreamStatus,
+  getTrackingStatus,
   getWorkingTreeChangeCount,
   git,
   gitMv,
@@ -64,22 +64,22 @@ import {
   resolveLatestReleaseTag,
   resolveUpstreamCommit,
   stagePath,
-  storeLastSyncRef,
-  withTemporarySyncBaseGraft,
+  storeUpgradePoint,
+  withUpgradePointGraft,
 } from '../utils/git';
 import {
-  ALIGNMENTS_DIR,
+  alignmentsDir,
   arrivedAlignmentIds,
   listAlignmentIds,
-  PENDING_FILE,
+  pendingFile,
   readPending,
   writePending,
 } from './alignments';
 import { type AnalyzePredicates, analyzeRefs, enrichChangeInfo } from './classify';
 import { cliVersionMismatch, readUpstreamCliRange, releaseAgeExcludeHint } from './cli-version';
 import { compareUpstreamOverrides, hasBlockingOverrideChanges } from './config-gate';
-import { CONFIG_FILE, isManagedFile } from './managed-files';
-import { MANIFEST_FILE, type SyncManifest, writeSyncManifest } from './manifest';
+import { configFile, isManagedFile } from './managed-files';
+import { manifestFile, type UpgradeManifest, writeManifest } from './manifest';
 import { groupIgnoredUpstreamChanges, isIgnored, isPinned } from './protection';
 
 type ProgressCallback = (message: string, detail?: string) => void;
@@ -87,14 +87,14 @@ type ProgressCallback = (message: string, detail?: string) => void;
 type StepCallback = (label: string, detail?: string) => void;
 
 /**
- * Thrown when the upstream commit is behind the fork's last sync point: the fork already has it,
+ * Thrown when the upstream commit is behind the app's last upgrade point: the app already has it,
  * and merging it would stage a revert. `cella upgrade` ends as a no-op on it, unless the run pinned
  * the ref itself (`--ref`).
  */
-export class BehindSyncPointError extends Error {}
+export class BehindUpgradePointError extends Error {}
 
 /**
- * Thrown before a new merge starts when upstream changed its CLI config in ways the fork config
+ * Thrown before a new merge starts when upstream changed its CLI config in ways the app config
  * does not follow. Carries the report so the caller can print it.
  */
 export class UpstreamConfigChangedError extends Error {
@@ -104,7 +104,7 @@ export class UpstreamConfigChangedError extends Error {
     super(
       [
         'upstream changed its CLI config and yours does not follow it: stopped before the merge, nothing changed.',
-        `  add or drop the entries that fit your app in ${CONFIG_FILE}, commit, then rerun.`,
+        `  add or drop the entries that fit your app in ${configFile}, commit, then rerun.`,
         '  to merge with your config as it stands, rerun with --keep-config.',
       ].join('\n'),
     );
@@ -118,28 +118,28 @@ export function getGitHubBaseUrl(remoteUrl: string): string | null {
   return match ? `https://github.com/${match[1]}/${match[2]}` : null;
 }
 
-/** The fork's GitHub base URL from its `origin` remote; undefined without one on GitHub. */
-export async function readOriginGitHubUrl(forkPath: string): Promise<string | undefined> {
-  const origin = await git(['remote', 'get-url', 'origin'], forkPath, { ignoreErrors: true });
+/** The app's GitHub base URL from its `origin` remote; undefined without one on GitHub. */
+export async function readOriginGitHubUrl(repoRoot: string): Promise<string | undefined> {
+  const origin = await git(['remote', 'get-url', 'origin'], repoRoot, { ignoreErrors: true });
   return getGitHubBaseUrl(origin.trim()) ?? undefined;
 }
 
-/** Protected whole-file resolution: the fork side wins outright (ignored or pinned). */
+/** Protected whole-file resolution: the app side wins outright (ignored or pinned). */
 function isProtectedFile(file: AnalyzedFile): boolean {
   return file.isIgnored || file.isPinned;
 }
 
 /**
- * A pinned path the fork lacks that is new in upstream (`behind`, not a local deletion): upstream's
- * copy arrives once as the fork's first one, as when an alignment pins a path before the merge
- * that creates it. Protection applies from the next sync on.
+ * A pinned path the app lacks that is new in upstream (`behind`, not a local deletion): upstream's
+ * copy arrives once as the app's first one, as when an alignment pins a path before the merge
+ * that creates it. Protection applies from the next upgrade on.
  */
 function isPinnedFirstArrival(file: AnalyzedFile): boolean {
-  return file.isPinned && !file.isIgnored && !file.existsInFork && file.existsInUpstream && file.status === 'behind';
+  return file.isPinned && !file.isIgnored && !file.existsInApp && file.existsInUpstream && file.status === 'behind';
 }
 
-/** Build analyzer predicates for the sync direction (local = fork, incoming = upstream). */
-function syncPredicates(config: RuntimeConfig): AnalyzePredicates {
+/** Build analyzer predicates for the upgrade direction (local = app, incoming = upstream). */
+function upgradePredicates(config: RuntimeConfig): AnalyzePredicates {
   return {
     isIgnored: (path) => isIgnored(path, config),
     isPinned: (path) => (config.unpinned ? isManagedFile(path) : isPinned(path, config)),
@@ -147,12 +147,12 @@ function syncPredicates(config: RuntimeConfig): AnalyzePredicates {
 }
 
 /**
- * Apply the merge directly in the fork. Files are classified from git refs before the merge starts,
- * so pinned and ignored files go back to the fork side in one batch right after it, and the merge
+ * Apply the merge directly in the app. Files are classified from git refs before the merge starts,
+ * so pinned and ignored files go back to the app side in one batch right after it, and the merge
  * is left staged for IDE 3-way conflict resolution.
  */
 async function applyDirectMerge(
-  forkPath: string,
+  repoRoot: string,
   upstreamRef: string,
   mergeBaseRef: string,
   config: RuntimeConfig,
@@ -165,17 +165,17 @@ async function applyDirectMerge(
 }> {
   onProgress?.('analyzing files...');
   const analyzedFiles = await analyzeRefs(
-    forkPath,
+    repoRoot,
     'HEAD',
     upstreamRef,
     mergeBaseRef,
-    syncPredicates(config),
+    upgradePredicates(config),
     onProgress,
   );
 
-  // Protected files go back to the fork side right after the merge: restored where the fork has
-  // them, removed where it does not, so a fork deletion stands. One upstream moved goes to its new
-  // path as the fork has it at the old one.
+  // Protected files go back to the app side right after the merge: restored where the app has
+  // them, removed where it does not, so an app deletion stands. One upstream moved goes to its new
+  // path as the app has it at the old one.
   const batchRestorePaths: string[] = [];
   const batchRemovePaths: string[] = [];
   const movedProtected: { from: string; to: string }[] = [];
@@ -183,35 +183,35 @@ async function applyDirectMerge(
     if (file.status === 'identical' || file.status === 'ahead' || isPinnedFirstArrival(file)) continue;
     if (file.status === 'pinned' && file.renamedFrom) movedProtected.push({ from: file.renamedFrom, to: file.path });
     else if (file.isIgnored || file.isPinned) {
-      (file.existsInFork ? batchRestorePaths : batchRemovePaths).push(file.path);
+      (file.existsInApp ? batchRestorePaths : batchRemovePaths).push(file.path);
     }
   }
 
-  // The temporary graft makes the merge 3-way against the recorded sync point, not git's own
-  // (squash-stale) merge-base; without it, upstream hunks earlier syncs integrated re-apply or
+  // The temporary graft makes the merge 3-way against the recorded upgrade point, not git's own
+  // (squash-stale) merge-base; without it, upstream hunks earlier upgrades integrated re-apply or
   // re-conflict on every run.
-  onProgress?.('starting merge in fork...');
-  await withTemporarySyncBaseGraft(forkPath, 'HEAD', mergeBaseRef, () => merge(forkPath, upstreamRef));
+  onProgress?.('starting merge in the app...');
+  await withUpgradePointGraft(repoRoot, 'HEAD', mergeBaseRef, () => merge(repoRoot, upstreamRef));
 
   if (batchRestorePaths.length > 0) {
     onProgress?.(`batch restoring ${batchRestorePaths.length} pinned/ignored files...`);
-    await checkoutFromRef(forkPath, 'HEAD', batchRestorePaths);
+    await checkoutFromRef(repoRoot, 'HEAD', batchRestorePaths);
   }
   if (batchRemovePaths.length > 0) {
     onProgress?.(`batch removing ${batchRemovePaths.length} ignored files...`);
-    await gitRm(forkPath, batchRemovePaths);
+    await gitRm(repoRoot, batchRemovePaths);
     for (const filePath of batchRemovePaths) {
-      await removeFileFromWorktree(forkPath, filePath);
+      await removeFileFromWorktree(repoRoot, filePath);
     }
   }
   for (const { from, to } of movedProtected) {
     onProgress?.(`→ ${from} → ${to}: keeping your copy (moved in upstream)`);
-    await moveFromRef(forkPath, 'HEAD', from, to);
+    await moveFromRef(repoRoot, 'HEAD', from, to);
   }
 
   // The remaining files, one by one; protected ones went with the batch above.
   for (const file of analyzedFiles) {
-    const { path: filePath, status, existsInFork } = file;
+    const { path: filePath, status, existsInApp } = file;
     if (status === 'identical' || status === 'ahead' || (isProtectedFile(file) && !isPinnedFirstArrival(file)))
       continue;
 
@@ -222,76 +222,76 @@ async function applyDirectMerge(
     }
 
     if (status === 'behind') {
-      if (!existsInFork) {
+      if (!existsInApp) {
         onProgress?.(
           `→ ${filePath}: adding from upstream (${isPinnedFirstArrival(file) ? "pinned, upstream's copy is your first" : 'new file'})`,
         );
-        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
+        await checkoutFromRef(repoRoot, upstreamRef, [filePath]);
       } else if (!file.existsInUpstream) {
-        // Upstream deleted the file: removed from the fork, including leftovers after a squash merge.
+        // Upstream deleted the file: removed from the app, including leftovers after a squash merge.
         onProgress?.(`→ ${filePath}: removing (deleted in upstream)`);
-        await removeFileFully(forkPath, filePath);
+        await removeFileFully(repoRoot, filePath);
       } else {
         // Both exist and only upstream changed: upstream's version is taken explicitly,
-        // which resolves false conflicts from a stale merge-base (previous squash syncs).
+        // which resolves false conflicts from a stale merge-base (previous squash upgrades).
         onProgress?.(`→ ${filePath}: accepting upstream (behind)`);
-        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
+        await checkoutFromRef(repoRoot, upstreamRef, [filePath]);
       }
       continue;
     }
 
     if (status === 'deleted') {
-      await removeFileFully(forkPath, filePath);
+      await removeFileFully(repoRoot, filePath);
       continue;
     }
 
     if (status === 'renamed' && file.renamedFrom) {
       // Upstream renames apply as git mv to preserve history.
       const oldPath = file.renamedFrom;
-      const oldPathExists = await fileExistsInWorktree(forkPath, oldPath);
-      const newPathExists = await fileExistsInWorktree(forkPath, filePath);
+      const oldPathExists = await fileExistsInWorktree(repoRoot, oldPath);
+      const newPathExists = await fileExistsInWorktree(repoRoot, filePath);
 
       if (oldPathExists && !newPathExists) {
         onProgress?.(`→ ${oldPath} → ${filePath}: moving (renamed in upstream)`);
         try {
-          await gitMv(forkPath, oldPath, filePath);
+          await gitMv(repoRoot, oldPath, filePath);
         } catch {
           // git mv can fail mid-merge: fall back to remove plus checkout.
-          await removeFileFully(forkPath, oldPath);
-          await checkoutFromRef(forkPath, upstreamRef, [filePath]);
+          await removeFileFully(repoRoot, oldPath);
+          await checkoutFromRef(repoRoot, upstreamRef, [filePath]);
         }
       } else if (oldPathExists && newPathExists) {
         // Both exist (merge already staged the new file, but the old one is still in the worktree).
         onProgress?.(`→ ${oldPath} → ${filePath}: completing rename (removing old)`);
-        await removeFileFully(forkPath, oldPath);
-        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
+        await removeFileFully(repoRoot, oldPath);
+        await checkoutFromRef(repoRoot, upstreamRef, [filePath]);
       } else {
         // Rename already applied (or neither path exists): the new path gets upstream's content.
         onProgress?.(`→ ${filePath}: updating from upstream (renamed)`);
-        await checkoutFromRef(forkPath, upstreamRef, [filePath]);
+        await checkoutFromRef(repoRoot, upstreamRef, [filePath]);
       }
     }
   }
 
-  // Protected files whose upstream changes the fork-wins resolution dropped, for the sync summary
+  // Protected files whose upstream changes the app-wins resolution dropped, for the upgrade summary
   // (a Set keeps insertion order, so the report order stays).
   const protectedConflicts = new Set(analyzedFiles.filter((file) => file.upstreamChanged).map((file) => file.path));
 
-  // Remaining git conflicts: only ignored/pinned resolve to the fork; the rest keep their markers.
-  for (const filePath of await getConflictedFiles(forkPath)) {
-    if (!isIgnored(filePath, config) && !syncPredicates(config).isPinned(filePath)) continue;
+  // Remaining git conflicts: only ignored/pinned resolve to the app; the rest keep their markers.
+  for (const filePath of await getConflictedFiles(repoRoot)) {
+    if (!isIgnored(filePath, config) && !upgradePredicates(config).isPinned(filePath)) continue;
 
-    if (await fileExistsAtRef(forkPath, 'HEAD', filePath)) {
-      onProgress?.(`→ ${filePath}: keeping fork (protected conflict)`);
-      await checkoutFromRef(forkPath, 'HEAD', [filePath]);
+    if (await fileExistsAtRef(repoRoot, 'HEAD', filePath)) {
+      onProgress?.(`→ ${filePath}: keeping the app side (protected conflict)`);
+      await checkoutFromRef(repoRoot, 'HEAD', [filePath]);
       protectedConflicts.add(filePath);
     } else {
-      onProgress?.(`→ ${filePath}: removing (protected conflict, not in fork)`);
-      await removeFileFully(forkPath, filePath);
+      onProgress?.(`→ ${filePath}: removing (protected conflict, not in the app)`);
+      await removeFileFully(repoRoot, filePath);
     }
   }
 
-  const remainingConflicts = await getConflictedFiles(forkPath);
+  const remainingConflicts = await getConflictedFiles(repoRoot);
   const remainingConflictSet = new Set(remainingConflicts);
   const autoMergedFiles = analyzedFiles
     .filter((file) => file.status === 'diverged' && !remainingConflictSet.has(file.path))
@@ -333,40 +333,40 @@ interface UpstreamContext {
   upstreamRef: string;
   /** Release tag when tracking releases */
   releaseTag?: string;
-  /** Effective merge-base used for the 3-way analysis, which is also the last sync point */
+  /** Effective merge-base used for the 3-way analysis, which is also the last upgrade point */
   mergeBase: string;
-  /** Base of the merge itself: the sync point, or the natural merge-base under --unpinned */
+  /** Base of the merge itself: the upgrade point, or the natural merge-base under --unpinned */
   mergeRef: string;
   /** Upstream GitHub URL base for commit links */
   upstreamGitHubUrl?: string;
   /** Upstream HEAD commit info */
   upstreamCommit: CommitRangeEntry;
-  /** Upstream commits since the last sync */
+  /** Upstream commits since the last upgrade */
   commitCount: number;
 }
 
 /**
- * Resolve a `--ref` to the upstream commit this run syncs to, after the fetch: an upstream branch
+ * Resolve a `--ref` to the upstream commit this run upgrades to, after the fetch: an upstream branch
  * name, a release tag or a sha (see `resolveUpstreamCommit`). Refuses a ref that does not resolve,
- * or one upstream never published on its branch or in a release (a fork commit, an upstream
- * feature branch). A release tag syncs as that release; anything else as its commit sha, recorded
+ * or one upstream never published on its branch or in a release (an app commit, an upstream
+ * feature branch). A release tag upgrades as that release; anything else as its commit sha, recorded
  * like branch tracking.
  */
 async function resolvePinnedRef(
-  forkPath: string,
+  repoRoot: string,
   config: RuntimeConfig,
   remoteName: string,
   branchRef: string,
   ref: string,
 ): Promise<{ ref: string; releaseTag?: string }> {
-  const resolved = await resolveUpstreamCommit(forkPath, remoteName, ref);
+  const resolved = await resolveUpstreamCommit(repoRoot, remoteName, ref);
   if (!resolved) {
     throw new Error(
       `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag or a branch on ` +
         `${config.settings.upstreamUrl}.`,
     );
   }
-  if (!(await isPublishedUpstream(forkPath, remoteName, branchRef, resolved.sha))) {
+  if (!(await isPublishedUpstream(repoRoot, remoteName, branchRef, resolved.sha))) {
     throw new Error(
       `--ref '${ref}' (${resolved.sha.slice(0, 7)}) is not on ${branchRef} or in an upstream release. ` +
         'Upgrade only to commits upstream has published there.',
@@ -377,7 +377,7 @@ async function resolvePinnedRef(
 
 /**
  * Resolve everything both modes need from upstream: remote setup, the concrete
- * ref to merge (branch tip, latest release tag or a pinned --ref), sync ancestry bootstrap,
+ * ref to merge (branch tip, latest release tag or a pinned --ref), upgrade ancestry bootstrap,
  * effective merge-base, and commit info for progress output.
  */
 async function prepareUpstream(
@@ -385,40 +385,40 @@ async function prepareUpstream(
   onProgress?: ProgressCallback,
   onStep?: StepCallback,
 ): Promise<UpstreamContext> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
 
   onProgress?.('checking local checkout...');
-  const [branch, headSha, changeCount, upstreamStatus] = await Promise.all([
-    getCurrentBranch(forkPath),
-    getShortSha(forkPath, 'HEAD'),
-    getWorkingTreeChangeCount(forkPath),
-    getUpstreamStatus(forkPath),
+  const [branch, headSha, changeCount, trackingStatus] = await Promise.all([
+    getCurrentBranch(repoRoot),
+    getShortSha(repoRoot, 'HEAD'),
+    getWorkingTreeChangeCount(repoRoot),
+    getTrackingStatus(repoRoot),
   ]);
-  onStep?.('checkout', formatCheckoutStep({ branch, headSha, changeCount, upstream: upstreamStatus }));
+  onStep?.('checkout', formatCheckoutStep({ branch, headSha, changeCount, tracking: trackingStatus }));
 
   onProgress?.('setting up upstream remote...');
   const { track: configTrack, branchRef } = resolveUpstream(config.settings);
-  const remoteName = DEFAULT_UPSTREAM_REMOTE;
+  const remoteName = defaultUpstreamRemote;
   // A per-run --track flag (config.track) overrides the configured tracking mode.
   const track = config.track ?? configTrack;
-  await ensureRemote(forkPath, remoteName, config.settings.upstreamUrl);
+  await ensureRemote(repoRoot, remoteName, config.settings.upstreamUrl);
 
   onProgress?.(`fetching upstream (${remoteName})...`);
-  await fetchRemote(forkPath, remoteName);
+  await fetchRemote(repoRoot, remoteName);
 
   // Resolve the concrete ref to merge from. A per-run --ref pins it (and wins over --track);
-  // otherwise release tracking (default) syncs to the latest published release tag and
+  // otherwise release tracking (default) upgrades to the latest published release tag and
   // branch tracking follows the upstream branch tip.
   let upstreamRef = branchRef;
   let releaseTag: string | undefined;
   if (config.ref) {
-    await fetchUpstreamTags(forkPath, remoteName);
-    const pinned = await resolvePinnedRef(forkPath, config, remoteName, branchRef, config.ref);
+    await fetchUpstreamTags(repoRoot, remoteName);
+    const pinned = await resolvePinnedRef(repoRoot, config, remoteName, branchRef, config.ref);
     upstreamRef = pinned.ref;
     releaseTag = pinned.releaseTag;
   } else if (track === 'release') {
-    await fetchUpstreamTags(forkPath, remoteName);
-    const latest = await resolveLatestReleaseTag(forkPath, remoteName);
+    await fetchUpstreamTags(repoRoot, remoteName);
+    const latest = await resolveLatestReleaseTag(repoRoot, remoteName);
     if (!latest) {
       throw new Error(
         `no upstream release tags found on '${remoteName}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
@@ -435,51 +435,51 @@ async function prepareUpstream(
   config.upstreamRef = upstreamRef;
 
   // Stop before anything merges when upstream was built with a newer CLI than this one.
-  const cliRange = await readUpstreamCliRange(forkPath, upstreamRef);
-  const cliMismatch = cliRange ? cliVersionMismatch(VERSION, cliRange) : null;
+  const cliRange = await readUpstreamCliRange(repoRoot, upstreamRef);
+  const cliMismatch = cliRange ? cliVersionMismatch(version, cliRange) : null;
   if (cliMismatch && cliRange) {
-    const delayed = (await readReleaseAgeMinutes(forkPath)) > 0;
+    const delayed = (await readReleaseAgeMinutes(repoRoot)) > 0;
     throw new Error(delayed ? `${cliMismatch}\n${releaseAgeExcludeHint(cliRange)}` : cliMismatch);
   }
 
-  // Bootstrap sync ancestry for forks with unrelated history (create-cella scaffold or an
+  // Bootstrap upgrade ancestry for apps with unrelated history (create-cella scaffold or an
   // upstream history squash). No-op once a native merge-base exists. Runs after fetch so the
   // base commit object is present, and after upstreamRef is finalized so release tags resolve.
-  onProgress?.('checking sync base...');
-  await ensureSyncBase(forkPath, 'HEAD', upstreamRef);
+  onProgress?.('checking the upgrade point...');
+  await ensureUpgradePoint(repoRoot, 'HEAD', upstreamRef);
 
   const upstreamGitHubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
 
-  // Effective merge base (handles a stale base from previous squash syncs).
-  const mergeBase = await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef);
-  const mergeRef = config.unpinned ? await getMergeBase(forkPath, 'HEAD', upstreamRef) : mergeBase;
+  // Effective merge base (handles a stale base from previous squash upgrades).
+  const mergeBase = await getEffectiveMergeBase(repoRoot, 'HEAD', upstreamRef);
+  const mergeRef = config.unpinned ? await getMergeBase(repoRoot, 'HEAD', upstreamRef) : mergeBase;
 
-  const upstreamCommit = await getCommitInfo(forkPath, upstreamRef);
+  const upstreamCommit = await getCommitInfo(repoRoot, upstreamRef);
 
-  // An upstream commit behind the sync point (an earlier run went further with --ref or --track
+  // An upstream commit behind the upgrade point (an earlier run went further with --ref or --track
   // branch) would stage a revert of everything after it as if upstream had undone it: stop.
-  if (upstreamCommit.hash !== mergeBase && (await isAncestor(forkPath, upstreamCommit.hash, mergeBase))) {
-    const [upstreamShort, syncShort] = await Promise.all([
-      getShortSha(forkPath, upstreamCommit.hash),
-      getShortSha(forkPath, mergeBase),
+  if (upstreamCommit.hash !== mergeBase && (await isAncestor(repoRoot, upstreamCommit.hash, mergeBase))) {
+    const [upstreamShort, upgradePointShort] = await Promise.all([
+      getShortSha(repoRoot, upstreamCommit.hash),
+      getShortSha(repoRoot, mergeBase),
     ]);
     const hint = config.ref
       ? 'Pick a newer --ref.'
       : releaseTag
-        ? `Nothing to upgrade until a release past ${syncShort}; to follow the tip instead, run with --track branch.`
-        : `Nothing to upgrade until '${branchRef}' moves past ${syncShort}.`;
-    throw new BehindSyncPointError(
-      `upstream ${upstreamLabel} (${upstreamShort}) is behind the last upgrade at ${syncShort}: the fork already ` +
+        ? `Nothing to upgrade until a release past ${upgradePointShort}; to follow the tip instead, run with --track branch.`
+        : `Nothing to upgrade until '${branchRef}' moves past ${upgradePointShort}.`;
+    throw new BehindUpgradePointError(
+      `upstream ${upstreamLabel} (${upstreamShort}) is behind the last upgrade at ${upgradePointShort}: the app already ` +
         `has it, and merging it would revert the upstream changes after it.\n${hint}`,
     );
   }
-  const commitCount = await countCommitsBetween(forkPath, mergeBase, upstreamRef);
+  const commitCount = await countCommitsBetween(repoRoot, mergeBase, upstreamRef);
   const upstreamCommits =
-    commitCount > 0 ? await listCommitsBetween(forkPath, mergeBase, upstreamRef, COMMIT_STEP_MAX) : [];
+    commitCount > 0 ? await listCommitsBetween(repoRoot, mergeBase, upstreamRef, commitStepMax) : [];
 
   const [upstreamShort, baseShort] = await Promise.all([
-    getShortSha(forkPath, upstreamCommit.hash),
-    getShortSha(forkPath, mergeBase),
+    getShortSha(repoRoot, upstreamCommit.hash),
+    getShortSha(repoRoot, mergeBase),
   ]);
   onStep?.(
     'upstream',
@@ -498,15 +498,15 @@ async function prepareUpstream(
 }
 
 /**
- * Stop a new merge when upstream changed its CLI config since the sync point in ways the fork
- * config does not follow. The merge runs on the fork's config, so a path upstream newly ignores or
- * pins would arrive as an ordinary synced file (upstream renamed an ignored folder, the fork's list
+ * Stop a new merge when upstream changed its CLI config since the upgrade point in ways the app
+ * config does not follow. The merge runs on the app's config, so a path upstream newly ignores or
+ * pins would arrive as an ordinary merged file (upstream renamed an ignored folder, the app's list
  * still names the old one). `--keep-config` skips the gate; an unreadable upstream config or a
  * failed comparison never stops the run.
  */
-async function assertSyncConfigFollowed(config: RuntimeConfig, ctx: UpstreamContext): Promise<void> {
+async function assertUpstreamConfigFollowed(config: RuntimeConfig, ctx: UpstreamContext): Promise<void> {
   if (config.keepConfig) return;
-  const report = await compareUpstreamOverrides(config.forkPath, ctx.mergeBase, ctx.upstreamRef, config).catch(
+  const report = await compareUpstreamOverrides(config.repoRoot, ctx.mergeBase, ctx.upstreamRef, config).catch(
     () => undefined,
   );
   // A report of moved entries alone prints with the merge result and stops nothing.
@@ -525,8 +525,8 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
 }
 
 /**
- * Upstream changes the fork never receives, shared by both engine modes: the upstream config's
- * `overrides` entries and `packageJsonKeys` the fork config does not follow (the config itself
+ * Upstream changes the app never receives, shared by both engine modes: the upstream config's
+ * `overrides` entries and `packageJsonKeys` the app config does not follow (the config itself
  * never merges), ignored files only upstream changed, and the range the review page diffs upstream's
  * changes over. Report only, read from refs (the merge state is irrelevant); a failure here yields
  * no report and never fails the run.
@@ -536,13 +536,13 @@ async function upstreamOnlyReports(
   ctx: UpstreamContext,
   files: AnalyzedFile[],
 ): Promise<Pick<MergeResult, 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges'>> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   try {
     const [baseSha, upstreamSha, upstreamOverrides] = await Promise.all([
-      getShortSha(forkPath, ctx.mergeBase),
+      getShortSha(repoRoot, ctx.mergeBase),
       // the commit, not an annotated release tag object
-      getShortSha(forkPath, ctx.upstreamCommit.hash),
-      compareUpstreamOverrides(forkPath, ctx.mergeBase, ctx.upstreamRef, config),
+      getShortSha(repoRoot, ctx.upstreamCommit.hash),
+      compareUpstreamOverrides(repoRoot, ctx.mergeBase, ctx.upstreamRef, config),
     ]);
     return {
       upstreamDiffRange: `${baseSha}..${upstreamSha}`,
@@ -554,33 +554,33 @@ async function upstreamOnlyReports(
   }
 }
 
-/** Upstream alignments for this sync range, and the fork's pending list before the arrivals are added. */
+/** Upstream alignments for this upgrade range, and the app's pending list before the arrivals are added. */
 interface AlignmentsInRange {
   total: number;
   arrived: string[];
   pending: string[];
 }
 
-/** The fork's pending list once a sync records the arrivals. */
-function pendingAfterSync(alignments: AlignmentsInRange): string[] {
+/** The app's pending list once an upgrade records the arrivals. */
+function pendingAfterUpgrade(alignments: AlignmentsInRange): string[] {
   return [...new Set([...alignments.pending, ...alignments.arrived])];
 }
 
 /**
- * Read the alignments for this sync range: upstream's alignments at the incoming ref and the ones
- * added since the recorded sync point. Runs before the sync point moves. A failure yields no
+ * Read the alignments for this upgrade range: upstream's alignments at the incoming ref and the ones
+ * added since the recorded upgrade point. Runs before the upgrade point moves. A failure yields no
  * alignments and never fails the run.
  */
 async function readAlignmentsInRange(
   config: RuntimeConfig,
   ctx: UpstreamContext,
 ): Promise<AlignmentsInRange | undefined> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   try {
     const [total, arrived, pending] = await Promise.all([
-      listAlignmentIds(forkPath, ctx.upstreamRef),
-      arrivedAlignmentIds(forkPath, ctx.mergeBase, ctx.upstreamRef),
-      readPending(forkPath),
+      listAlignmentIds(repoRoot, ctx.upstreamRef),
+      arrivedAlignmentIds(repoRoot, ctx.mergeBase, ctx.upstreamRef),
+      readPending(repoRoot),
     ]);
     return { total: total.length, arrived, pending };
   } catch {
@@ -589,49 +589,49 @@ async function readAlignmentsInRange(
 }
 
 /**
- * The {@link MergeResult} view of {@link AlignmentsInRange}. A sync records the arrivals as open; a
- * dry run leaves them arriving, since `pnpm cella align` only lists them once the sync lands.
+ * The {@link MergeResult} view of {@link AlignmentsInRange}. An upgrade records the arrivals as open; a
+ * dry run leaves them arriving, since `pnpm cella align` only lists them once the upgrade lands.
  */
 function alignmentsResult(
   alignments: AlignmentsInRange | undefined,
   options: { dryRun: boolean },
 ): Pick<MergeResult, 'alignments'> {
   if (!alignments) return {};
-  const open = options.dryRun ? alignments.pending : pendingAfterSync(alignments);
+  const open = options.dryRun ? alignments.pending : pendingAfterUpgrade(alignments);
   return { alignments: { total: alignments.total, arrived: alignments.arrived, open } };
 }
 
 /**
- * Remove the fork's copy of the alignments folder (forks that synced it before it became
- * upstream-only, and new apps whose scaffold cloned it). Staged with the sync.
+ * Remove the app's copy of the alignments folder (apps that received it in an upgrade before it became
+ * upstream-only, and new apps whose scaffold cloned it). Staged with the upgrade.
  */
-async function removeUpstreamOnlyCopy(forkPath: string, onStep?: StepCallback): Promise<void> {
-  if (!existsSync(join(forkPath, ALIGNMENTS_DIR))) return;
-  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', ALIGNMENTS_DIR], forkPath);
-  await rm(join(forkPath, ALIGNMENTS_DIR), { recursive: true, force: true });
-  onStep?.('alignments', `removed ${ALIGNMENTS_DIR}/: alignments stay upstream, list them with pnpm cella align`);
+async function removeUpstreamOnlyCopy(repoRoot: string, onStep?: StepCallback): Promise<void> {
+  if (!existsSync(join(repoRoot, alignmentsDir))) return;
+  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', alignmentsDir], repoRoot);
+  await rm(join(repoRoot, alignmentsDir), { recursive: true, force: true });
+  onStep?.('alignments', `removed ${alignmentsDir}/: alignments stay upstream, list them with pnpm cella align`);
 }
 
 /**
- * SYNC MODE: merge, analyze, and resolve directly in the fork, then record the
- * sync point (local ref + committed manifest) and leave the merge staged.
+ * UPGRADE MODE: merge, analyze, and resolve directly in the app, then record the
+ * upgrade point (local ref + committed manifest) and leave the merge staged.
  */
-async function runSyncMerge(
+async function runUpgradeMerge(
   config: RuntimeConfig,
   ctx: UpstreamContext,
   onProgress?: ProgressCallback,
   onStep?: StepCallback,
 ): Promise<MergeResult> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   const { upstreamRef, releaseTag, mergeRef, upstreamGitHubUrl, upstreamCommit } = ctx;
 
   // Last gate before anything merges (the CLI version gate runs in prepareUpstream)
-  await assertSyncConfigFollowed(config, ctx);
+  await assertUpstreamConfigFollowed(config, ctx);
 
   const alignments = await readAlignmentsInRange(config, ctx);
 
   const { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts } = await applyDirectMerge(
-    forkPath,
+    repoRoot,
     upstreamRef,
     mergeRef,
     config,
@@ -639,14 +639,14 @@ async function runSyncMerge(
   );
 
   const summary = calculateSummary(analyzedFiles);
-  const synced = analyzedFiles.filter((file) => ['behind', 'diverged', 'renamed'].includes(file.status)).length;
+  const fromUpstream = analyzedFiles.filter((file) => ['behind', 'diverged', 'renamed'].includes(file.status)).length;
 
-  const totalResolved = analyzedFiles.filter((file) => SYNC_APPLIED_STATUSES.includes(file.status)).length;
+  const totalResolved = analyzedFiles.filter((file) => upgradeAppliedStatuses.includes(file.status)).length;
 
-  // Record the sync point in lockstep: the local `refs/cella/last-upgrade` ref plus the manifest,
+  // Record the upgrade point in lockstep: the local `refs/cella/last-upgrade` ref plus the manifest,
   // staged so it rides in the upgrade commit. The manifest is the last write: one naming MERGE_HEAD
   // tells a later run that this one finished the merge.
-  const syncManifest: SyncManifest = {
+  const manifest: UpgradeManifest = {
     upstream: {
       repo: upstreamGitHubUrl ? upstreamGitHubUrl.replace('https://github.com/', '') : undefined,
       track: releaseTag ? 'release' : 'branch',
@@ -660,31 +660,31 @@ async function runSyncMerge(
       upgradedAt: new Date().toISOString(),
     },
   };
-  const recordSyncPoint = async () => {
-    // Alignments that arrived join the fork's pending list; an empty list deletes the file.
+  const recordUpgradePoint = async () => {
+    // Alignments that arrived join the app's pending list; an empty list deletes the file.
     if (alignments) {
-      await writePending(forkPath, pendingAfterSync(alignments));
-      await stagePath(forkPath, PENDING_FILE);
+      await writePending(repoRoot, pendingAfterUpgrade(alignments));
+      await stagePath(repoRoot, pendingFile);
     }
-    await removeUpstreamOnlyCopy(forkPath, onStep);
-    await storeLastSyncRef(forkPath, upstreamCommit.hash);
-    await writeSyncManifest(forkPath, syncManifest);
-    await stagePath(forkPath, MANIFEST_FILE);
+    await removeUpstreamOnlyCopy(repoRoot, onStep);
+    await storeUpgradePoint(repoRoot, upstreamCommit.hash);
+    await writeManifest(repoRoot, manifest);
+    await stagePath(repoRoot, manifestFile);
   };
 
   // MERGE_HEAD stays in both staged cases: the IDE shows a 3-way merge, `git merge --abort` works,
-  // and the finishing rerun tells a staged sync from a dirty tree, then commits it single-parent.
-  // Upstream already in HEAD starts no merge, whatever the fork changed in ignored files.
-  const merging = await mergeInProgress(forkPath);
+  // and the finishing rerun tells a staged upgrade from a dirty tree, then commits it single-parent.
+  // Upstream already in HEAD starts no merge, whatever the app changed in ignored files.
+  const merging = await mergeInProgress(repoRoot);
   if (remainingConflicts.length > 0) {
-    await recordSyncPoint();
-    onStep?.('merged', formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100));
+    await recordUpgradePoint();
+    onStep?.('merged', formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { repoRoot }, 100));
   } else if (merging && totalResolved > 0) {
-    const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
-    await recordSyncPoint();
+    const label = fromUpstream > 0 ? `${fromUpstream} files from upstream` : 'upstream changes';
+    await recordUpgradePoint();
     onStep?.('upgraded', `${label} (staged, commit to finish)`);
   } else {
-    if (merging) await mergeAbort(forkPath);
+    if (merging) await mergeAbort(repoRoot);
     onStep?.('up to date', 'no upstream changes to merge');
   }
 
@@ -707,19 +707,19 @@ async function runAnalyzePreview(
   onProgress?: ProgressCallback,
   onStep?: StepCallback,
 ): Promise<MergeResult> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   const alignments = await readAlignmentsInRange(config, ctx);
 
   onProgress?.('analyzing files...');
   const analyzedFiles = await analyzeRefs(
-    forkPath,
+    repoRoot,
     'HEAD',
     ctx.upstreamRef,
     ctx.mergeRef,
-    syncPredicates(config),
+    upgradePredicates(config),
     onProgress,
   );
-  await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
+  await enrichChangeInfo(repoRoot, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
   const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
   const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
   onStep?.(
@@ -740,7 +740,7 @@ async function runAnalyzePreview(
 }
 
 /**
- * Merge engine entry point for analyze and sync: prepare upstream once, then run the requested
+ * Merge engine entry point for analyze and upgrade: prepare upstream once, then run the requested
  * mode. Progress updates the spinner text; each completed step prints with its detail and starts a
  * fresh spinner.
  */
@@ -751,5 +751,5 @@ export async function runEngineWithSpinner(config: RuntimeConfig, apply: boolean
     createSpinner('...');
   };
   const ctx = await prepareUpstream(config, onProgress, onStep);
-  return apply ? runSyncMerge(config, ctx, onProgress, onStep) : runAnalyzePreview(config, ctx, onProgress, onStep);
+  return apply ? runUpgradeMerge(config, ctx, onProgress, onStep) : runAnalyzePreview(config, ctx, onProgress, onStep);
 }

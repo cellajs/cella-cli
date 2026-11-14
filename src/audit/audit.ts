@@ -43,10 +43,10 @@ import {
   readRuntimePins,
 } from './runtimes';
 import { runSecurityPass, type WorkspaceEdits } from './security-pass';
-import { type Advisory, advisoriesFromAudit, SEVERITIES } from './security-plan';
+import { type Advisory, advisoriesFromAudit, severities } from './security-plan';
 
 /** The manifest sections an update rewrites, as `pnpm up --latest` does. */
-const DEPENDENCY_SECTIONS = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
+const dependencySections = ['dependencies', 'devDependencies', 'optionalDependencies'] as const;
 
 /** A dependent workspace's package.json: its dependency maps, for pin detection. */
 type DependentPkgJson = Partial<Record<'dependencies' | 'devDependencies', Record<string, string>>>;
@@ -69,19 +69,19 @@ function createDependentPkgReader(): (location: string) => DependentPkgJson | nu
 }
 
 export async function runAudit(config: RuntimeConfig): Promise<void> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
 
   const spinner = createSpinner('checking packages and runtimes...');
   try {
-    const pins = await readRuntimePins(forkPath);
+    const pins = await readRuntimePins(repoRoot);
     const now = Date.now();
     // --long adds each package's latest manifest, which holds its repository URL.
     const [outdated, auditResult, releaseAgeMinutes, feeds, machine] = await Promise.all([
-      runPnpmJson(['-r', 'outdated', '--json', '--long'], forkPath),
-      runPnpmAudit(forkPath),
-      readReleaseAgeMinutes(forkPath),
-      fetchRuntimeFeeds(pins, forkPath, now),
-      readLocalTools(forkPath, now),
+      runPnpmJson(['-r', 'outdated', '--json', '--long'], repoRoot),
+      runPnpmAudit(repoRoot),
+      readReleaseAgeMinutes(repoRoot),
+      fetchRuntimeFeeds(pins, repoRoot, now),
+      readLocalTools(repoRoot, now),
     ]);
     if (!outdated) {
       spinnerFail('pnpm outdated gave no answer: run pnpm -r outdated to see why');
@@ -99,30 +99,30 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
 
     if (rows.length === 0) {
       spinnerSuccess('all packages and runtimes are up to date');
-      printNotes(forkPath, runtimes.unchecked);
+      printNotes(repoRoot, runtimes.unchecked);
       console.info();
       printLocalTools(localTools);
-      await runSecurityPass(forkPath, { apply: !config.list, releaseAgeMinutes });
+      await runSecurityPass(repoRoot, { apply: !config.list, releaseAgeMinutes });
       return;
     }
 
     spinner.stop();
-    printOutdatedResults(rows, forkPath);
-    printNotes(forkPath, runtimes.unchecked);
+    printOutdatedResults(rows, repoRoot);
+    printNotes(repoRoot, runtimes.unchecked);
     console.info();
     printLocalTools(localTools);
 
     // --list is the non-interactive mode: report only, no prompts and no writes.
     if (config.list) {
-      await runSecurityPass(forkPath, { apply: false, releaseAgeMinutes });
+      await runSecurityPass(repoRoot, { apply: false, releaseAgeMinutes });
       return;
     }
 
     printReported(advisories);
     const selected = await promptForUpdates(rows);
     if (!selected) return;
-    const { edits, bumped } = await planEdits(forkPath, rows, selected, pins.nodeImageSuffixes);
-    if (await runSecurityPass(forkPath, { apply: true, releaseAgeMinutes, edits })) printNext(bumped);
+    const { edits, bumped } = await planEdits(repoRoot, rows, selected, pins.nodeImageSuffixes);
+    if (await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits })) printNext(bumped);
   } finally {
     spinner.stop();
   }
@@ -130,7 +130,7 @@ export async function runAudit(config: RuntimeConfig): Promise<void> {
 
 /** The most severe advisory on a package; null when it has none. */
 const worstSeverity = (advisories: Advisory[], name: string) =>
-  SEVERITIES.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
+  severities.find((severity) => advisories.some((a) => a.module === name && a.severity === severity)) ?? null;
 
 /** The outdated packages as table rows, sorted by the workspaces that depend on them. */
 function packageRows(outdated: Record<string, OutdatedPackage>, advisories: Advisory[]) {
@@ -192,24 +192,24 @@ const isRed = (row: EnhancedPackageInfo): boolean => row.severity === 'critical'
 const inText = (row: EnhancedPackageInfo): string =>
   row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name));
 
-function printOutdatedResults(rows: EnhancedPackageInfo[], forkPath: string): void {
-  const DEV_TAG = ' (dev)';
-  const RUNTIME_TAG = ' (runtime)';
-  const MAX_NAME_LEN = 35;
-  const MAX_DEPENDENTS_LEN = 15;
-  const tag = (row: EnhancedPackageInfo) => (row.runtime ? RUNTIME_TAG : row.isDev ? DEV_TAG : '');
-  const maxNameLen = Math.min(MAX_NAME_LEN, Math.max(7, ...rows.map((p) => p.name.length + tag(p).length)));
-  const maxCurrentLen = Math.max(7, ...rows.map((p) => p.current.length));
-  const maxLatestLen = Math.max(6, ...rows.map((p) => p.latest.length));
-  const maxDependentsLen = Math.min(MAX_DEPENDENTS_LEN, Math.max(10, ...rows.map((p) => inText(p).length)));
+function printOutdatedResults(rows: EnhancedPackageInfo[], repoRoot: string): void {
+  const devTag = ' (dev)';
+  const runtimeTag = ' (runtime)';
+  const maxNameLen = 35;
+  const maxDependentsLen = 15;
+  const tag = (row: EnhancedPackageInfo) => (row.runtime ? runtimeTag : row.isDev ? devTag : '');
+  const nameWidth = Math.min(maxNameLen, Math.max(7, ...rows.map((p) => p.name.length + tag(p).length)));
+  const currentWidth = Math.max(7, ...rows.map((p) => p.current.length));
+  const latestWidth = Math.max(6, ...rows.map((p) => p.latest.length));
+  const dependentsWidth = Math.min(maxDependentsLen, Math.max(10, ...rows.map((p) => inText(p).length)));
 
   // The vuln column is a single dot, so it gets no width budget.
   const header = [
     ' ',
-    pc.bold('package'.padEnd(maxNameLen)),
-    pc.bold('current'.padEnd(maxCurrentLen)),
-    pc.bold('latest'.padEnd(maxLatestLen)),
-    pc.bold('in'.padEnd(maxDependentsLen)),
+    pc.bold('package'.padEnd(nameWidth)),
+    pc.bold('current'.padEnd(currentWidth)),
+    pc.bold('latest'.padEnd(latestWidth)),
+    pc.bold('in'.padEnd(dependentsWidth)),
     pc.bold('links'),
   ].join(' ');
 
@@ -218,14 +218,14 @@ function printOutdatedResults(rows: EnhancedPackageInfo[], forkPath: string): vo
   for (const pkg of rows) {
     const vulnIndicator = pkg.severity ? getVulnIcon(pkg.severity) : ' ';
 
-    const displayName = middleTruncate(`${pkg.name}${tag(pkg)}`, maxNameLen);
-    const name = pc.white(displayName.padEnd(maxNameLen));
+    const displayName = middleTruncate(`${pkg.name}${tag(pkg)}`, nameWidth);
+    const name = pc.white(displayName.padEnd(nameWidth));
 
-    const current = pc.red(pkg.current.padEnd(maxCurrentLen));
-    const latestText = pkg.latest.padEnd(maxLatestLen);
+    const current = pc.red(pkg.current.padEnd(currentWidth));
+    const latestText = pkg.latest.padEnd(latestWidth);
     const latest = pkg.breaking ? pc.bold(pc.green(latestText)) : pc.green(latestText);
 
-    const dependents = pc.dim(middleTruncate(inText(pkg), maxDependentsLen).padEnd(maxDependentsLen));
+    const dependents = pc.dim(middleTruncate(inText(pkg), dependentsWidth).padEnd(dependentsWidth));
 
     const links: string[] = [];
     if (pkg.releasesUrl) {
@@ -258,7 +258,7 @@ function printOutdatedResults(rows: EnhancedPackageInfo[], forkPath: string): vo
   const maxDependentNameLen = Math.max(0, ...sortedDependents.map(([name]) => name.length));
   for (const [dependentName, { location, count }] of sortedDependents) {
     const packageJsonPath = join(location, 'package.json');
-    const relativePath = relative(forkPath, packageJsonPath);
+    const relativePath = relative(repoRoot, packageJsonPath);
     const paddedName = dependentName.padEnd(maxDependentNameLen);
     console.info(
       `  ${pc.dim('•')} ${paddedName}  ${hyperlink(relativePath, `file://${packageJsonPath}`)} ${pc.dim(`${count}`)}`,
@@ -267,10 +267,10 @@ function printOutdatedResults(rows: EnhancedPackageInfo[], forkPath: string): vo
 }
 
 /** The packages pnpm holds back (`updateConfig.ignoreDependencies`), and the runtimes whose feed did not answer. */
-function printNotes(forkPath: string, unchecked: string[]): void {
+function printNotes(repoRoot: string, unchecked: string[]): void {
   let held: string[] = [];
   try {
-    const updateConfig = readTopLevel(readFileSync(join(forkPath, 'pnpm-workspace.yaml'), 'utf8'), 'updateConfig');
+    const updateConfig = readTopLevel(readFileSync(join(repoRoot, 'pnpm-workspace.yaml'), 'utf8'), 'updateConfig');
     const ignored = (updateConfig as { ignoreDependencies?: unknown } | undefined)?.ignoreDependencies;
     held = Array.isArray(ignored) ? ignored.map(String) : [];
   } catch {
@@ -321,7 +321,7 @@ function printReported(advisories: Advisory[] | null): void {
       direct: own.some((a) => a.direct),
     };
   });
-  modules.sort((a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity));
+  modules.sort((a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity));
   const nameWidth = Math.min(30, Math.max(...modules.map((m) => m.name.length)));
   const versionWidth = Math.max(...modules.map((m) => m.installed.length));
 
@@ -410,8 +410,8 @@ async function promptForUpdates(rows: EnhancedPackageInfo[]): Promise<string[] |
 
 /** The text of a runtime bump in the summary, e.g. `engines.node 26.12.1`. */
 function bumpText(update: RuntimeUpdate): string {
-  if (update.pin.kind === 'node') return `engines.node ${update.target}`;
-  if (update.pin.kind === 'pnpm') return `packageManager pnpm@${update.target}`;
+  if (update.pin.type === 'node') return `engines.node ${update.target}`;
+  if (update.pin.type === 'pnpm') return `packageManager pnpm@${update.target}`;
   return update.pin.to;
 }
 
@@ -421,7 +421,7 @@ function bumpText(update: RuntimeUpdate): string {
  * Node bump waits until Docker Hub has every `node:<version><suffix>` image the Dockerfiles build from.
  */
 async function planEdits(
-  forkPath: string,
+  repoRoot: string,
   rows: EnhancedPackageInfo[],
   selected: string[],
   nodeImageSuffixes: string[],
@@ -430,7 +430,7 @@ async function planEdits(
   const summary = new Map<string, string[]>();
   const bumped: RuntimeUpdate[] = [];
   const edit = (file: string, label: string, item: string, resolves: boolean, change: (content: string) => string) => {
-    const entry = contents.get(file) ?? { content: readFileSync(join(forkPath, file), 'utf8'), resolves: false };
+    const entry = contents.get(file) ?? { content: readFileSync(join(repoRoot, file), 'utf8'), resolves: false };
     const next = change(entry.content);
     if (next === entry.content) return;
     contents.set(file, { content: next, resolves: entry.resolves || resolves });
@@ -441,10 +441,10 @@ async function planEdits(
   for (const row of chosen) {
     if (row.runtime) continue;
     for (const { name: dependent, location } of row.dependentPackages) {
-      const file = relative(forkPath, join(location, 'package.json'));
+      const file = relative(repoRoot, join(location, 'package.json'));
       edit(file, dependent || file, row.name, true, (content) =>
         editJsonText(content, (json) => {
-          for (const section of DEPENDENCY_SECTIONS) {
+          for (const section of dependencySections) {
             const deps = json[section] as Record<string, string> | undefined;
             const spec = deps?.[row.name];
             if (!deps || spec === undefined) continue;
@@ -460,7 +460,7 @@ async function planEdits(
   for (const row of chosen) {
     const update = row.runtime;
     if (!update) continue;
-    if (update.pin.kind === 'node') {
+    if (update.pin.type === 'node') {
       const missing = await missingNodeImages(update.target, nodeImageSuffixes);
       if (missing.length > 0) {
         console.info(`${warningMark} node ${update.target} skipped: ${missing.join(', ')} is not on docker hub yet`);
@@ -486,13 +486,13 @@ async function planEdits(
 /** The steps a runtime bump leaves to the developer: this machine's Node, and a local build of each changed image. */
 function printNext(bumped: RuntimeUpdate[]): void {
   const steps: Array<[command: string, why: string]> = [];
-  const node = bumped.find((update) => update.pin.kind === 'node');
+  const node = bumped.find((update) => update.pin.type === 'node');
   if (node && process.version !== `v${node.target}`) {
     const command = getEnv('VOLTA_HOME') ? `volta install node@${node.target}` : `switch to node ${node.target}`;
     steps.push([command, `this machine runs ${process.version.slice(1)}`]);
   }
   for (const update of bumped) {
-    if (update.pin.kind === 'image') steps.push([`docker build -f ${update.file} .`, 'check that the image builds']);
+    if (update.pin.type === 'image') steps.push([`docker build -f ${update.file} .`, 'check that the image builds']);
   }
   if (steps.length === 0) return;
 

@@ -10,26 +10,26 @@ import { isUpstreamRepo, resolveUpstream } from './config/load';
 import type {
   AnalyzeScope,
   CellaCliConfig,
+  CliService,
   CommandGroup,
   CommandOption,
   RuntimeConfig,
-  SyncService,
   ToolCommand,
 } from './config/types';
 import { toolCommands } from './tool-commands';
 import { validateOverrides } from './upstream/protection';
 import pc from './utils/colors';
-import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
+import { menuDivider, printHeader, setJsonMode, version, warningMark } from './utils/display';
 
 /** A tool command and the options it parsed for itself. */
 export type ToolSelection = { tool: ToolCommand; options: unknown };
 
 type CliServiceSelection = {
-  service?: SyncService;
+  service?: CliService;
   options: CliOptionState;
 };
 
-type CliOptionState = Omit<RuntimeConfig, keyof CellaCliConfig | 'forkPath' | 'upstreamRef' | 'service'>;
+type CliOptionState = Omit<RuntimeConfig, keyof CellaCliConfig | 'repoRoot' | 'upstreamRef' | 'service'>;
 
 type MenuContext = {
   hasForks: boolean;
@@ -37,7 +37,7 @@ type MenuContext = {
 };
 
 type ServiceDefinition = {
-  name: SyncService;
+  name: CliService;
   /** Upstream unless set. */
   group?: CommandGroup;
   description: string;
@@ -149,10 +149,10 @@ const serviceDefinitions: ServiceDefinition[] = [
   },
 ];
 
-function getMenuContext(userConfig: CellaCliConfig, forkPath: string): MenuContext {
+function getMenuContext(userConfig: CellaCliConfig, repoRoot: string): MenuContext {
   return {
     hasForks: (userConfig.forks?.length ?? 0) > 0,
-    isUpstreamRepo: isUpstreamRepo(forkPath),
+    isUpstreamRepo: isUpstreamRepo(repoRoot),
   };
 }
 
@@ -181,7 +181,7 @@ function buildMenuChoices(context: MenuContext) {
     ...groupOrder
       .flatMap((group) => entries.filter((entry) => entry.group === group))
       .map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
-    { type: 'separator' as const, separator: MENU_DIVIDER },
+    { type: 'separator' as const, separator: menuDivider },
     { value: 'exit', name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
   ];
 }
@@ -253,7 +253,7 @@ function buildProgram(
   setToolSelection: (selection: ToolSelection) => void,
 ): Command {
   const program = new Command('cella')
-    .version(VERSION, '-v, --version', 'output the current version')
+    .version(version, '-v, --version', 'output the current version')
     .usage('[command] [options]')
     .helpOption('-h, --help', 'display help for a command')
     .showHelpAfterError()
@@ -333,10 +333,10 @@ export function parseToolCommand(argv: string[]): ToolSelection | undefined {
   return selection;
 }
 
-async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): Promise<SyncService | ToolSelection> {
+async function promptForCommand(userConfig: CellaCliConfig, repoRoot: string): Promise<CliService | ToolSelection> {
   const selected = await select<string>({
     message: 'choose a command:',
-    choices: buildMenuChoices(getMenuContext(userConfig, forkPath)),
+    choices: buildMenuChoices(getMenuContext(userConfig, repoRoot)),
     // The page grows with the terminal, less the three rows of the question and key hints; seven is Inquirer's default
     pageSize: Math.max(7, (process.stdout.rows || 24) - 3),
     loop: false,
@@ -373,15 +373,15 @@ async function promptForCommand(userConfig: CellaCliConfig, forkPath: string): P
 
 function buildRuntimeConfig(
   userConfig: CellaCliConfig,
-  forkPath: string,
+  repoRoot: string,
   selection: CliServiceSelection,
   upstreamRef: string,
 ): RuntimeConfig {
-  return { ...userConfig, forkPath, upstreamRef, service: selection.service ?? 'analyze', ...selection.options };
+  return { ...userConfig, repoRoot, upstreamRef, service: selection.service ?? 'analyze', ...selection.options };
 }
 
 /** The upstream command to run with its config, or the tool command picked from the menu. */
-export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Promise<RuntimeConfig | ToolSelection> {
+export async function parseCli(userConfig: CellaCliConfig, repoRoot: string): Promise<RuntimeConfig | ToolSelection> {
   const selection = parseCommandLine(process.argv);
 
   // In machine-output modes (--json, --list), reserve stdout for the payload or rows
@@ -395,15 +395,15 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   // The upstream branch tip as last fetched: ignored entries are validated against it, and it is the
   // upstreamRef until the merge engine resolves the release tag when tracking releases.
   const { branchRef } = resolveUpstream(userConfig.settings);
-  const warnings = await validateOverrides(userConfig, forkPath, branchRef);
+  const warnings = await validateOverrides(userConfig, repoRoot, branchRef);
   for (const warning of warnings) console.info(`${warningMark} ${warning}`);
   if (warnings.length > 0) console.info();
 
   if (!selection.service) {
-    const picked = await promptForCommand(userConfig, forkPath);
+    const picked = await promptForCommand(userConfig, repoRoot);
     if (typeof picked !== 'string') return picked;
     selection.service = picked;
   }
 
-  return buildRuntimeConfig(userConfig, forkPath, selection, branchRef);
+  return buildRuntimeConfig(userConfig, repoRoot, selection, branchRef);
 }

@@ -41,7 +41,7 @@ function parseKey(value: string, locales: Locales): { namespace: string; key: st
  * @throws when the old key is in no file, or the new one already exists
  */
 function renameInLocales(
-  forkPath: string,
+  repoRoot: string,
   locales: Locales,
   from: { namespace: string; key: string },
   to: { namespace: string; key: string },
@@ -82,19 +82,19 @@ function renameInLocales(
     }
   }
   if (changed.size === 0) throw new Error(`${from.namespace}:${from.key} is in no locale file`);
-  for (const file of changed.values()) writeLocaleFile(forkPath, file);
+  for (const file of changed.values()) writeLocaleFile(repoRoot, file);
   return [...changed.keys()];
 }
 
 /** Rewrites every `'ns:old'` literal, plural forms included, in the app's code. */
-function renameInCode(forkPath: string, from: string, to: string): { file: string; literals: number }[] {
+function renameInCode(repoRoot: string, from: string, to: string): { file: string; literals: number }[] {
   const literal = new RegExp(
     `(['"\`])${RegExp.escape(from)}((?:_(?:ordinal_)?(?:zero|one|two|few|many|other))?)(?=\\1)`,
     'g',
   );
   const changed: { file: string; literals: number }[] = [];
-  for (const file of listCodeFiles(forkPath)) {
-    const path = join(forkPath, file);
+  for (const file of listCodeFiles(repoRoot)) {
+    const path = join(repoRoot, file);
     if (!existsSync(path)) continue;
     const text = readFileSync(path, 'utf8');
     if (!text.includes(from)) continue;
@@ -111,27 +111,27 @@ function renameInCode(forkPath: string, from: string, to: string): { file: strin
 }
 
 /** Sorts the changed locale files with the app's own Biome, whose config decides the key order. */
-function sortWithBiome(forkPath: string, files: string[]): boolean {
-  const biome = join(forkPath, 'node_modules/.bin/biome');
+function sortWithBiome(repoRoot: string, files: string[]): boolean {
+  const biome = join(repoRoot, 'node_modules/.bin/biome');
   if (!existsSync(biome) || files.length === 0) return false;
-  return spawnSync(biome, ['check', '--write', ...files], { cwd: forkPath, stdio: 'ignore' }).status === 0;
+  return spawnSync(biome, ['check', '--write', ...files], { cwd: repoRoot, stdio: 'ignore' }).status === 0;
 }
 
-export async function rename(forkPath: string, options: RenameOptions): Promise<RenameReport> {
-  const locales = readLocales(forkPath);
+export async function rename(repoRoot: string, options: RenameOptions): Promise<RenameReport> {
+  const locales = readLocales(repoRoot);
   const from = parseKey(options.from, locales);
   const to = parseKey(options.to, locales);
   if (options.from === options.to) throw new Error('the new name is the old one');
   // Loaded before any write: a throw here leaves the files as they were
-  const ts = await loadTypeScript(forkPath);
+  const ts = await loadTypeScript(repoRoot);
 
-  const localeFiles = renameInLocales(forkPath, locales, from, to);
-  const codeFiles = renameInCode(forkPath, options.from, options.to);
-  const sorted = sortWithBiome(forkPath, localeFiles);
+  const localeFiles = renameInLocales(repoRoot, locales, from, to);
+  const codeFiles = renameInCode(repoRoot, options.from, options.to);
+  const sorted = sortWithBiome(repoRoot, localeFiles);
 
   // What no literal rewrite reaches: a key without its namespace in `t()`, a template that builds the old key. An
   // error type is typed, so the typecheck finds it
-  const scan = scanCode(ts, forkPath, '', [...locales.namespaces.keys()], new Set([from.key]));
+  const scan = scanCode(ts, repoRoot, '', [...locales.namespaces.keys()], new Set([from.key]));
   const check = [
     ...(scan.bare.get(from.key) ?? [])
       .filter((site) => site.keyArgument)
@@ -150,8 +150,8 @@ export async function rename(forkPath: string, options: RenameOptions): Promise<
 }
 
 /** `cella i18n rename <ns:old> <ns:new>`: the key in every locale file and in the code. */
-export async function runRename(forkPath: string, options: RenameOptions, json: boolean): Promise<number> {
-  const report = await rename(forkPath, options);
+export async function runRename(repoRoot: string, options: RenameOptions, json: boolean): Promise<number> {
+  const report = await rename(repoRoot, options);
   if (json) {
     writeStdout(JSON.stringify(report, null, 2));
     return 0;

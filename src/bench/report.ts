@@ -2,7 +2,7 @@ import process from 'node:process';
 import { stripVTControlCharacters } from 'node:util';
 import pc from '../utils/colors';
 import { padVisible } from '../utils/layout';
-import { type BaselineEntry, compareBaseline, RUNNER_EPOCH } from './baseline';
+import { type BaselineEntry, compareBaseline, runnerEpoch } from './baseline';
 import type { Distribution } from './metrics';
 import type { RunSummary } from './run';
 
@@ -201,11 +201,11 @@ export function summaryLines(view: SummaryView): string[] {
         (d) => `${d.label} ${deltaText(d.pct, d.lowerIsBetter)}`,
       );
       lines.push(
-        `  baseline ${view.baseline.timestamp.slice(0, 16).replace('T', ' ')} (${RUNNER_EPOCH}): ${deltas.join(', ')}`,
+        `  baseline ${view.baseline.timestamp.slice(0, 16).replace('T', ' ')} (${runnerEpoch}): ${deltas.join(', ')}`,
       );
     } else {
       const older = view.olderBaselines > 0 ? `, ${view.olderBaselines} older-runner entries kept` : '';
-      lines.push(pc.dim(`  no comparable baseline: first ${RUNNER_EPOCH} run${older}`));
+      lines.push(pc.dim(`  no comparable baseline: first ${runnerEpoch} run${older}`));
     }
     if (view.saved !== null) lines.push(pc.dim(`  baseline saved (${view.saved} run${view.saved === 1 ? '' : 's'})`));
   }

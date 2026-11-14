@@ -10,7 +10,7 @@ import { fileExistsAtRef, getEffectiveMergeBase, git, listChangedSinceRef, revPa
 import { isGeneratedFile } from '../utils/repo-files';
 import { isUpstreamOnly } from './alignments';
 import { parseOverrideLists } from './config-gate';
-import { CONFIG_FILE, isManagedFile } from './managed-files';
+import { configFile, isManagedFile } from './managed-files';
 
 /** Normalize an override entry: trimmed, no leading `./`, no trailing slash. */
 export function normalizeEntry(entry: string): string {
@@ -30,7 +30,7 @@ export function isUnderAnyFolder(filePath: string, folders: string[]): boolean {
 
 /**
  * Whether a file is inside an ignored path, or an upstream-only one (alignments),
- * which every fork ignores without listing it.
+ * which every app ignores without listing it.
  */
 export function isIgnored(filePath: string, config: CellaCliConfig): boolean {
   return isUpstreamOnly(filePath) || isUnderAnyFolder(filePath, config.overrides?.ignored || []);
@@ -68,7 +68,7 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 
     const group = groups.get(entry) ?? { entry, paths: [], added: 0, deleted: 0 };
     group.paths.push(file.path);
-    if (!file.existsInFork) group.added++;
+    if (!file.existsInApp) group.added++;
     if (!file.existsInUpstream) group.deleted++;
     groups.set(entry, group);
   }
@@ -78,23 +78,23 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
 }
 
 /**
- * Warnings for override entries that cannot work: globs, pins and ignored entries neither the fork
- * nor upstream has (a fork may ignore a path to keep it from arriving; an entry upstream holds
- * arrives with the merge, a pinned one as the fork's first copy). A missing generated path never
+ * Warnings for override entries that cannot work: globs, pins and ignored entries neither the app
+ * nor upstream has (an app may ignore a path to keep it from arriving; an entry upstream holds
+ * arrives with the merge, a pinned one as the app's first copy). A missing generated path never
  * warns: it appears with its build step. Also pins that do nothing: inside an ignored path (app
  * modules included), absent from upstream (the path is the app's own; the merge base tells a file
  * upstream deleted from one it never had), or identical to upstream (it only drops upstream's next
  * change). Upstream is read at `upstreamRef` as last fetched; while it does not resolve, every
- * entry missing from the fork warns and the upstream checks on pins are skipped.
+ * entry missing from the app warns and the upstream checks on pins are skipped.
  */
 export async function validateOverrides(
   config: CellaCliConfig,
-  forkPath: string,
+  repoRoot: string,
   upstreamRef?: string,
 ): Promise<string[]> {
   const warnings: string[] = [];
   const ignored = config.overrides?.ignored ?? [];
-  const upstream = upstreamRef && (await revParse(forkPath, upstreamRef)) ? upstreamRef : undefined;
+  const upstream = upstreamRef && (await revParse(repoRoot, upstreamRef)) ? upstreamRef : undefined;
   const pinsUpstreamHas: string[] = [];
   let mergeBase: string | undefined;
 
@@ -102,23 +102,23 @@ export async function validateOverrides(
     const path = normalizeEntry(entry);
     const ignoredEntry = ignored.find((folder) => isUnderAnyFolder(path, [folder]));
     if (/[*?]/.test(entry)) warnings.push(`pin uses glob (not supported, use a path or folder): ${entry}`);
-    else if (!existsSync(join(forkPath, path))) {
-      // Upstream holds it: the merge brings it as the fork's first copy, nothing to warn about.
-      if (!upstream || !(await fileExistsAtRef(forkPath, upstream, path))) warnings.push(`pin not found: ${entry}`);
+    else if (!existsSync(join(repoRoot, path))) {
+      // Upstream holds it: the merge brings it as the app's first copy, nothing to warn about.
+      if (!upstream || !(await fileExistsAtRef(repoRoot, upstream, path))) warnings.push(`pin not found: ${entry}`);
     } else if (ignoredEntry) warnings.push(`pin does nothing, '${normalizeEntry(ignoredEntry)}' is ignored: ${entry}`);
     else if (!upstream) continue;
-    else if (await fileExistsAtRef(forkPath, upstream, path)) pinsUpstreamHas.push(entry);
+    else if (await fileExistsAtRef(repoRoot, upstream, path)) pinsUpstreamHas.push(entry);
     else {
-      mergeBase ??= await getEffectiveMergeBase(forkPath, 'HEAD', upstream);
-      const gone = await fileExistsAtRef(forkPath, mergeBase, path);
+      mergeBase ??= await getEffectiveMergeBase(repoRoot, 'HEAD', upstream);
+      const gone = await fileExistsAtRef(repoRoot, mergeBase, path);
       warnings.push(`pin does nothing, ${gone ? 'upstream no longer has it' : 'upstream has no such file'}: ${entry}`);
     }
   }
 
   if (upstream && pinsUpstreamHas.length > 0) {
-    const differs = await listChangedSinceRef(forkPath, upstream, pinsUpstreamHas.map(normalizeEntry));
+    const differs = await listChangedSinceRef(repoRoot, upstream, pinsUpstreamHas.map(normalizeEntry));
     // A pin upstream's own config lists is a file the template leaves to the app: identical until the app fills it in.
-    const upstreamSource = await git(['show', `${upstream}:${CONFIG_FILE}`], forkPath, { ignoreErrors: true });
+    const upstreamSource = await git(['show', `${upstream}:${configFile}`], repoRoot, { ignoreErrors: true });
     const upstreamPins = (upstreamSource && parseOverrideLists(upstreamSource)?.pinned.map(normalizeEntry)) || [];
     for (const entry of pinsUpstreamHas) {
       if (differs.some((changed) => isUnderAnyFolder(changed, [entry]))) continue;
@@ -131,8 +131,8 @@ export async function validateOverrides(
     const path = normalizeEntry(entry);
     if (/[*?]/.test(entry)) {
       warnings.push(`ignored entry uses glob (not supported, use a path or folder): ${entry}`);
-    } else if (!existsSync(join(forkPath, path))) {
-      if (upstreamRef && (await fileExistsAtRef(forkPath, upstreamRef, path))) continue;
+    } else if (!existsSync(join(repoRoot, path))) {
+      if (upstreamRef && (await fileExistsAtRef(repoRoot, upstreamRef, path))) continue;
       // Generated output appears with its build step, so its absence proves nothing.
       if (isGeneratedFile(path)) continue;
       warnings.push(`ignored entry not found: ${entry}`);

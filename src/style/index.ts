@@ -1,8 +1,8 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DEFAULT_UPSTREAM_REMOTE } from '../config/load';
+import { defaultUpstreamRemote } from '../config/load';
 import type { ToolCommand } from '../config/types';
-import { readManifestBase } from '../upstream/manifest';
+import { readUpgradePoint } from '../upstream/manifest';
 import { git } from '../utils/git';
 import { alignmentFindings, type BranchChanges, owedAlignmentFindings } from './alignment-rules';
 import { changedLinesFromDiff, onChangedLines } from './changed-lines';
@@ -47,8 +47,8 @@ async function changedLines(
 ): Promise<{ changed: Map<string, Set<number>>; untracked: Set<string> }> {
   const untracked = new Set((await run('ls-files', '-o', '--exclude-standard')).split('\n').filter(Boolean));
   const changed = changedLinesFromDiff(await run('diff', '--unified=0', '--no-color', base));
-  const isApp = await git(['remote', 'get-url', DEFAULT_UPSTREAM_REMOTE], repoRoot, { ignoreErrors: true });
-  const upstream = isApp ? await readManifestBase(repoRoot) : null;
+  const isApp = await git(['remote', 'get-url', defaultUpstreamRemote], repoRoot, { ignoreErrors: true });
+  const upstream = isApp ? await readUpgradePoint(repoRoot) : null;
   for (const file of upstream ? files : []) {
     const lines = changed.get(file);
     const theirs = await git(['show', `${upstream}:${file}`], repoRoot, { ignoreErrors: true });

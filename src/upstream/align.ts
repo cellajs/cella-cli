@@ -1,9 +1,9 @@
 /**
- * Align service: the upstream alignments this fork has not handled yet.
+ * Align service: the upstream alignments this app has not handled yet.
  *
  * Alignments live upstream only (see `upstream/alignments`). They are read at the upstream commit the
- * fork last synced to, which the sync already fetched, so this works offline after a sync and
- * while a conflicted sync is still open. Each alignment also gets a GitHub permalink for readers
+ * app last upgraded to, which the upgrade already fetched, so this works offline after an upgrade and
+ * while a conflicted upgrade is still open. Each alignment also gets a GitHub permalink for readers
  * without the upstream remote. Nothing here blocks: the list is information to act on.
  *
  * Next to what the README says, each alignment shows what git can tell about it: the upstream
@@ -18,7 +18,7 @@ import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import process from 'node:process';
-import { DEFAULT_UPSTREAM_REMOTE } from '../config/load';
+import { defaultUpstreamRemote } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { checkMark, hyperlink, type NextStep, plural, writeStdout } from '../utils/display';
@@ -26,17 +26,17 @@ import {
   batchRestoreWorktreeFromRef,
   ensureRemote,
   fetchRemote,
-  getStoredSyncRef,
   git,
   listIdenticalToRef,
-  MAX_BUFFER,
-  readManifestBaseAtRef,
+  maxBuffer,
+  readStoredUpgradePoint,
+  readUpgradePointAtRef,
   revParse,
 } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import {
-  ALIGNMENTS_DIR,
   type Alignment,
+  alignmentsDir,
   alignmentUrl,
   formatAlignmentsLine,
   grepAlignmentTerms,
@@ -48,18 +48,18 @@ import {
   writePending,
 } from './alignments';
 import { isManagedFile } from './managed-files';
-import { readManifestBase } from './manifest';
+import { readUpgradePoint } from './manifest';
 import { getGitHubBaseUrl } from './merge-engine';
 import { isUnderAnyFolder } from './protection';
 
-/** Where `--extract` writes an alignment folder: inside the fork, so a codemod resolves the fork's packages. */
-const EXTRACT_DIR = 'node_modules/.cache/cella/alignments';
+/** Where `--extract` writes an alignment folder: inside the app, so a codemod resolves the app's packages. */
+const extractDir = 'node_modules/.cache/cella/alignments';
 
 /** How many restored paths `--run` lists before it cuts the list short. */
-const RESTORED_LIST_MAX = 20;
+const restoredListMax = 20;
 
 /** How many paths or grep hits `--show` lists per block before it cuts the list short. */
-const SHOW_LIST_MAX = 30;
+const showListMax = 30;
 
 /** An alignment with what git tells about it, as `--json` writes it. */
 interface DescribedAlignment extends Alignment {
@@ -78,41 +78,41 @@ interface DescribedAlignment extends Alignment {
   grepHits: Array<{ file: string; line: number }>;
 }
 
-/** What the fork holds against the upstream commit it synced to, read once per run. */
-interface ForkView {
+/** What the app holds against the upstream commit it upgraded to, read once per run. */
+interface AppView {
   githubUrl: string | undefined;
   /** Whether the app pins or ignores a path (managed and generated files left out). */
   owns: (path: string) => boolean;
-  /** Tracked paths whose working tree copy differs from the sync point, or that the sync point lacks. */
+  /** Tracked paths whose working tree copy differs from the upgrade point, or that the upgrade point lacks. */
   changed: Set<string>;
 }
 
 /** Make sure an upstream commit is in this clone, fetching upstream once when it is not. */
 async function ensureUpstreamCommit(config: RuntimeConfig, sha: string): Promise<void> {
-  const { forkPath } = config;
-  const present = async () => !!(await revParse(forkPath, `${sha}^{commit}`));
+  const { repoRoot } = config;
+  const present = async () => !!(await revParse(repoRoot, `${sha}^{commit}`));
   if (await present()) return;
-  await ensureRemote(forkPath, DEFAULT_UPSTREAM_REMOTE, config.settings.upstreamUrl);
-  await fetchRemote(forkPath, DEFAULT_UPSTREAM_REMOTE);
+  await ensureRemote(repoRoot, defaultUpstreamRemote, config.settings.upstreamUrl);
+  await fetchRemote(repoRoot, defaultUpstreamRemote);
   if (!(await present()))
-    throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${DEFAULT_UPSTREAM_REMOTE}'`);
+    throw new Error(`upstream commit ${sha.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
 }
 
-/** The upstream commit the fork last upgraded to, fetched if this clone lacks it; null before any upgrade. */
+/** The upstream commit the app last upgraded to, fetched if this clone lacks it; null before any upgrade. */
 async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | null> {
-  const { forkPath } = config;
-  const ref = (await getStoredSyncRef(forkPath)) ?? (await readManifestBaseAtRef(forkPath, 'HEAD'));
+  const { repoRoot } = config;
+  const ref = (await readStoredUpgradePoint(repoRoot)) ?? (await readUpgradePointAtRef(repoRoot, 'HEAD'));
   if (!ref) return null;
   await ensureUpstreamCommit(config, ref);
   return ref;
 }
 
-/** Open alignments at the fork's sync point, for a run without a merge result; null before any upgrade. */
+/** Open alignments at the app's upgrade point, for a run without a merge result; null before any upgrade. */
 export async function readOpenAlignments(config: RuntimeConfig): Promise<AlignmentsView | null> {
   try {
     const ref = await resolveAlignmentsRef(config);
     if (!ref) return null;
-    return { ref, open: await readPending(config.forkPath) };
+    return { ref, open: await readPending(config.repoRoot) };
   } catch {
     return null;
   }
@@ -121,7 +121,7 @@ export async function readOpenAlignments(config: RuntimeConfig): Promise<Alignme
 /** Alignments for the `align` step: the ref to read them at, and the ids by state. */
 interface AlignmentsView {
   ref: string;
-  /** Open in the fork: listed by `pnpm cella align` */
+  /** Open in the app: listed by `pnpm cella align` */
   open: string[];
   /** Arriving with an upgrade a dry run previews: not open until the upgrade lands */
   arriving?: string[];
@@ -130,7 +130,7 @@ interface AlignmentsView {
 }
 
 /** Alignment rows the `align` step lists before it points to `pnpm cella align`. */
-const STEP_ROWS_MAX = 5;
+const stepRowsMax = 5;
 
 /** `manual · not breaking`, `codemod · breaking · caught by compiler`. */
 function alignmentTags(alignment: Alignment): string {
@@ -162,22 +162,22 @@ export async function alignmentsStep(config: RuntimeConfig, view: AlignmentsView
   const githubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
   const ids = [...arriving, ...open];
   const details: string[] = [];
-  for (const id of ids.slice(0, STEP_ROWS_MAX)) {
-    const alignment = await readAlignment(config.forkPath, view.ref, id).catch(() => null);
+  for (const id of ids.slice(0, stepRowsMax)) {
+    const alignment = await readAlignment(config.repoRoot, view.ref, id).catch(() => null);
     const title = hyperlink(alignment?.title ?? id, alignmentUrl(githubUrl, view.ref, id));
     details.push(`${pc.cyan('○')} ${title}${alignment ? pc.dim(` · ${alignmentTags(alignment)}`) : ''}`);
     if (!process.stdout.isTTY) details.push(pc.dim(`  id ${id}`));
   }
-  if (ids.length > STEP_ROWS_MAX) details.push(pc.dim(`+ ${ids.length - STEP_ROWS_MAX} more`));
+  if (ids.length > stepRowsMax) details.push(pc.dim(`+ ${ids.length - stepRowsMax} more`));
   details.push(`${arriving.length > 0 ? pc.dim('after the upgrade: ') : ''}pnpm cella align`);
   return { label: 'align', line, details };
 }
 
-/** Read the fork's overrides and its differences from the sync point, for the derived fields. */
-async function readForkView(config: RuntimeConfig, ref: string): Promise<ForkView> {
+/** Read the app's overrides and its differences from the upgrade point, for the derived fields. */
+async function readAppView(config: RuntimeConfig, ref: string): Promise<AppView> {
   const { pinned = [], ignored = [] } = config.overrides ?? {};
   const counts = (path: string) => !isManagedFile(path) && !isGeneratedFile(path) && !isUpstreamOnly(path);
-  const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--'], config.forkPath);
+  const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--'], config.repoRoot);
   return {
     githubUrl: getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined,
     owns: (path) => counts(path) && isUnderAnyFolder(path, [...pinned, ...ignored]),
@@ -188,15 +188,15 @@ async function readForkView(config: RuntimeConfig, ref: string): Promise<ForkVie
 /** An alignment plus its source commit, the app's files in it and the grep hits in app code. */
 async function describeAlignment(
   config: RuntimeConfig,
-  view: ForkView,
+  view: AppView,
   ref: string,
   alignment: Alignment,
   open: boolean,
 ): Promise<DescribedAlignment> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   const [source, grepHits] = await Promise.all([
-    readAlignmentSource(forkPath, ref, alignment.id),
-    grepAlignmentTerms(forkPath, alignment.grep, (path) => view.changed.has(path)),
+    readAlignmentSource(repoRoot, ref, alignment.id),
+    grepAlignmentTerms(repoRoot, alignment.grep, (path) => view.changed.has(path)),
   ]);
   const pr = source?.pr ?? null;
   return {
@@ -247,33 +247,33 @@ function printAlignment(index: number, alignment: DescribedAlignment): void {
   console.info();
 }
 
-/** Print a titled block of lines for `--show`, cut short after {@link SHOW_LIST_MAX}. */
+/** Print a titled block of lines for `--show`, cut short after {@link showListMax}. */
 function printShowBlock(title: string, items: string[]): void {
   if (items.length === 0) return;
   console.info(pc.dim(`${title} (${items.length}):`));
-  for (const item of items.slice(0, SHOW_LIST_MAX)) console.info(pc.dim(`  ${item}`));
-  if (items.length > SHOW_LIST_MAX) console.info(pc.dim(`  ... + ${items.length - SHOW_LIST_MAX} more`));
+  for (const item of items.slice(0, showListMax)) console.info(pc.dim(`  ${item}`));
+  if (items.length > showListMax) console.info(pc.dim(`  ... + ${items.length - showListMax} more`));
 }
 
 /**
- * `--show <id>`: the README, then what git tells about it. Read at the sync point, or at the
- * fetched upstream branch when the sync point lacks it (an alignment read before its sync merges).
+ * `--show <id>`: the README, then what git tells about it. Read at the upgrade point, or at the
+ * fetched upstream branch when the upgrade point lacks it (an alignment read before its upgrade merges).
  */
 async function showAlignment(config: RuntimeConfig, ref: string, pending: string[], id: string): Promise<void> {
-  const { forkPath } = config;
-  const upstreamBranch = `${DEFAULT_UPSTREAM_REMOTE}/${config.settings.upstreamBranch}`;
+  const { repoRoot } = config;
+  const upstreamBranch = `${defaultUpstreamRemote}/${config.settings.upstreamBranch}`;
   let readRef = ref;
-  let alignment = await readAlignment(forkPath, ref, id);
-  if (!alignment && (await revParse(forkPath, upstreamBranch))) {
-    alignment = await readAlignment(forkPath, upstreamBranch, id);
+  let alignment = await readAlignment(repoRoot, ref, id);
+  if (!alignment && (await revParse(repoRoot, upstreamBranch))) {
+    alignment = await readAlignment(repoRoot, upstreamBranch, id);
     readRef = upstreamBranch;
   }
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)} or ${upstreamBranch}`);
 
-  const source = await git(['show', `${readRef}:${ALIGNMENTS_DIR}/${id}/README.md`], forkPath);
+  const source = await git(['show', `${readRef}:${alignmentsDir}/${id}/README.md`], repoRoot);
   const described = await describeAlignment(
     config,
-    await readForkView(config, ref),
+    await readAppView(config, ref),
     readRef,
     alignment,
     pending.includes(id),
@@ -300,41 +300,41 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
 }
 
 /**
- * Write an alignment's folder under {@link EXTRACT_DIR}, byte for byte. Returns the alignment, the
- * folder (relative to the fork) and its files.
+ * Write an alignment's folder under {@link extractDir}, byte for byte. Returns the alignment, the
+ * folder (relative to the app) and its files.
  */
 async function writeAlignmentFolder(
   config: RuntimeConfig,
   ref: string,
   id: string,
 ): Promise<{ alignment: Alignment; target: string; files: string[] }> {
-  const { forkPath } = config;
-  const alignment = await readAlignment(forkPath, ref, id);
+  const { repoRoot } = config;
+  const alignment = await readAlignment(repoRoot, ref, id);
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)}`);
 
-  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${ALIGNMENTS_DIR}/${id}`], forkPath))
+  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot))
     .split('\n')
     .filter(Boolean);
-  const target = join(EXTRACT_DIR, id);
+  const target = join(extractDir, id);
   for (const file of files) {
     // Byte for byte: the git helper trims its output.
-    const content = execFileSync('git', ['show', `${ref}:${ALIGNMENTS_DIR}/${id}/${file}`], {
-      cwd: forkPath,
-      maxBuffer: MAX_BUFFER,
+    const content = execFileSync('git', ['show', `${ref}:${alignmentsDir}/${id}/${file}`], {
+      cwd: repoRoot,
+      maxBuffer,
     });
-    const path = join(forkPath, target, file);
+    const path = join(repoRoot, target, file);
     await mkdir(dirname(path), { recursive: true });
     await writeFile(path, content);
   }
   return { alignment, target, files };
 }
 
-/** `--extract <id>`: write the alignment folder under {@link EXTRACT_DIR} and print how to run its codemod. */
+/** `--extract <id>`: write the alignment folder under {@link extractDir} and print how to run its codemod. */
 async function extractAlignment(config: RuntimeConfig, ref: string, id: string): Promise<void> {
   const { alignment, target, files } = await writeAlignmentFolder(config, ref, id);
 
   console.info(`${checkMark} extracted ${files.length} file(s) to ${target}/`);
-  console.info(pc.dim(`  the README's ${ALIGNMENTS_DIR}/${id}/ paths are this folder.`));
+  console.info(pc.dim(`  the README's ${alignmentsDir}/${id}/ paths are this folder.`));
   if (alignment.codemod) {
     console.info(pc.dim(`  pnpm exec tsx ${target}/${alignment.codemod} inventory ${alignment.roots.join(' ')}`));
     console.info(pc.dim(`  or, keeping files identical to upstream as they are: pnpm cella align --run ${id}`));
@@ -342,12 +342,12 @@ async function extractAlignment(config: RuntimeConfig, ref: string, id: string):
 }
 
 /**
- * `--run <id>`: run the alignment's codemod with `tsx` from the fork root, then give each file that
+ * `--run <id>`: run the alignment's codemod with `tsx` from the app root, then give each file that
  * was identical to the manifest's upstream commit before the run, and changed by it, its upstream
  * content back.
  */
 async function runAlignment(config: RuntimeConfig, ref: string, id: string): Promise<void> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   const { alignment, target } = await writeAlignmentFolder(config, ref, id);
   if (!alignment.codemod) {
     throw new Error(
@@ -357,28 +357,28 @@ async function runAlignment(config: RuntimeConfig, ref: string, id: string): Pro
   const script = join(target, alignment.codemod);
   const args = config.runArgs?.length ? config.runArgs : ['inventory', ...alignment.roots];
 
-  const upstreamCommit = (await readManifestBase(forkPath)) ?? ref;
+  const upstreamCommit = (await readUpgradePoint(repoRoot)) ?? ref;
   await ensureUpstreamCommit(config, upstreamCommit);
-  const identical = await listIdenticalToRef(forkPath, upstreamCommit);
+  const identical = await listIdenticalToRef(repoRoot, upstreamCommit);
 
   console.info(pc.dim(`running pnpm exec tsx ${script} ${args.join(' ')}`));
   console.info();
-  const child = spawnSync('pnpm', ['exec', 'tsx', script, ...args], { cwd: forkPath, stdio: 'inherit' });
+  const child = spawnSync('pnpm', ['exec', 'tsx', script, ...args], { cwd: repoRoot, stdio: 'inherit' });
   if (child.error) throw new Error(`could not run the codemod: ${child.error.message}`);
 
   // Also after a failed run: a codemod that stopped halfway may have rewritten files already.
-  const stillIdentical = await listIdenticalToRef(forkPath, upstreamCommit);
+  const stillIdentical = await listIdenticalToRef(repoRoot, upstreamCommit);
   const restored = [...identical].filter((path) => !stillIdentical.has(path)).sort();
-  await batchRestoreWorktreeFromRef(forkPath, upstreamCommit, restored);
+  await batchRestoreWorktreeFromRef(repoRoot, upstreamCommit, restored);
 
   const upstreamShort = upstreamCommit.slice(0, 9);
   console.info();
   if (restored.length > 0) {
     console.info(`${checkMark} restored ${restored.length} file(s) to upstream ${upstreamShort}`);
     console.info(pc.dim('  the codemod changed them, and they were identical to upstream before the run:'));
-    for (const path of restored.slice(0, RESTORED_LIST_MAX)) console.info(pc.dim(`    ${path}`));
-    if (restored.length > RESTORED_LIST_MAX) {
-      console.info(pc.dim(`    ... + ${restored.length - RESTORED_LIST_MAX} more`));
+    for (const path of restored.slice(0, restoredListMax)) console.info(pc.dim(`    ${path}`));
+    if (restored.length > restoredListMax) {
+      console.info(pc.dim(`    ... + ${restored.length - restoredListMax} more`));
     }
   } else {
     console.info(pc.dim(`no file identical to upstream ${upstreamShort} was changed by the codemod.`));
@@ -396,31 +396,31 @@ async function markAlignments(config: RuntimeConfig, ref: string, pending: strin
   const open = new Set(pending);
   const unknown = ids.filter((id) => !open.has(id));
   for (const id of ids) open.delete(id);
-  await writePending(config.forkPath, [...open]);
+  await writePending(config.repoRoot, [...open]);
   const marked = ids.length - unknown.length;
   if (marked > 0) console.info(`${checkMark} recorded ${marked} alignment(s) as handled`);
   if (unknown.length > 0) console.info(pc.dim(`not pending, left as is: ${unknown.join(', ')}`));
-  console.info(pc.dim(formatAlignmentsLine((await listAlignmentIds(config.forkPath, ref)).length, open.size)));
+  console.info(pc.dim(formatAlignmentsLine((await listAlignmentIds(config.repoRoot, ref)).length, open.size)));
 }
 
 /** Run the align service. */
 export async function runAlign(config: RuntimeConfig): Promise<void> {
-  const { forkPath } = config;
+  const { repoRoot } = config;
   const ref = await resolveAlignmentsRef(config);
   if (!ref) {
     console.info(pc.dim('no upgrade recorded yet: alignments start with the first `pnpm cella upgrade`.'));
     return;
   }
 
-  const pending = await readPending(forkPath);
+  const pending = await readPending(repoRoot);
 
   if (config.mark?.length) return markAlignments(config, ref, pending, config.mark);
   if (config.run) return runAlignment(config, ref, config.run);
   if (config.extract) return extractAlignment(config, ref, config.extract);
   if (config.show) return showAlignment(config, ref, pending, config.show);
 
-  const ids = config.all ? await listAlignmentIds(forkPath, ref) : pending;
-  const read = await Promise.all(ids.map((id) => readAlignment(forkPath, ref, id)));
+  const ids = config.all ? await listAlignmentIds(repoRoot, ref) : pending;
+  const read = await Promise.all(ids.map((id) => readAlignment(repoRoot, ref, id)));
   const alignments: Alignment[] = read.map(
     (alignment, i) =>
       alignment ?? {
@@ -436,9 +436,9 @@ export async function runAlign(config: RuntimeConfig): Promise<void> {
         codemod: null,
       },
   );
-  const total = (await listAlignmentIds(forkPath, ref)).length;
+  const total = (await listAlignmentIds(repoRoot, ref)).length;
   const open = new Set(pending);
-  const view = await readForkView(config, ref);
+  const view = await readAppView(config, ref);
   const described = await Promise.all(
     alignments.map((alignment) => describeAlignment(config, view, ref, alignment, open.has(alignment.id))),
   );

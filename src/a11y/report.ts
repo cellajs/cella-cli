@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
-import { LOCALES_DIR } from '../i18n/locales';
+import { localesDir } from '../i18n/locales';
 import { printStep } from '../utils/display';
 import { loadPlaywright } from '../utils/drive';
 import { onShutdown } from '../utils/signals';
@@ -90,15 +90,15 @@ function toHtml(markdown: string, title: string) {
  * @throws when the app has no ledger yet, or `publish` meets a draft without `draft`
  */
 export async function runReport(
-  forkPath: string,
+  repoRoot: string,
   resultsDir: string,
   { publish, draft }: { publish: boolean; draft: boolean },
 ): Promise<number> {
-  const ledger = readLedger(forkPath);
-  const { name: product, version } = rootPackage(forkPath);
+  const ledger = readLedger(repoRoot);
+  const { name: product, version } = rootPackage(repoRoot);
   if (!ledger) throw new Error(`no ledger for ${product} yet: run \`pnpm cella a11y\` first`);
   // The report describes the production app
-  const app = await loadAppConfig(forkPath, 'production');
+  const app = await loadAppConfig(repoRoot, 'production');
 
   const table = (level: 'A' | 'AA') =>
     [
@@ -181,8 +181,8 @@ This report describes the product as tested on the report date. Accessibility ca
 `;
 
   /** Files a reviewer's evidence names that changed after the day of the decision: the decision may describe old code. */
-  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', LOCALES_DIR], {
-    cwd: forkPath,
+  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', localesDir], {
+    cwd: repoRoot,
     encoding: 'utf8',
   }).stdout.split('\n');
   function changedSince(r: LedgerRow) {
@@ -192,7 +192,7 @@ This report describes the product as tested on the report date. Accessibility ca
     const files = [...cited].flatMap((name) => tracked.filter((file) => file.endsWith(`/${name}`)).slice(0, 1));
     return files.filter((file) =>
       spawnSync('git', ['log', '-1', `--since=${review.date}T23:59:59`, '--format=%h', '--', file], {
-        cwd: forkPath,
+        cwd: repoRoot,
         encoding: 'utf8',
       }).stdout.trim(),
     );
@@ -275,7 +275,7 @@ ${failing
   const html = toHtml(vpat, `${app.name} Accessibility Conformance Report`);
   const pdfPath = join(resultsDir, 'conformance-report.pdf');
   writeFileSync(join(resultsDir, 'conformance-report.html'), html);
-  const { chromium } = await loadPlaywright(forkPath);
+  const { chromium } = await loadPlaywright(repoRoot);
   const browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
   const forget = onShutdown(() => browser.close());
   try {
@@ -303,8 +303,8 @@ ${failing
     }
     // Under static/common: that folder is the app's own, so one product's report never merges into another
     const publicPath = 'frontend/public/static/common/accessibility-conformance-report.pdf';
-    mkdirSync(dirname(join(forkPath, publicPath)), { recursive: true });
-    copyFileSync(pdfPath, join(forkPath, publicPath));
+    mkdirSync(dirname(join(repoRoot, publicPath)), { recursive: true });
+    copyFileSync(pdfPath, join(repoRoot, publicPath));
     const count = (status: LedgerRow['status']) => ledger.criteria.filter((r) => r.status === status).length;
     const review = {
       standard: ledger.standard,

@@ -13,8 +13,8 @@ export interface Scope {
   states: A11yState[];
 }
 
-export async function loadScope(forkPath: string): Promise<Scope> {
-  const { base, app } = await loadAdapter(forkPath, 'a11y', baseSchema, appSchema);
+export async function loadScope(repoRoot: string): Promise<Scope> {
+  const { base, app } = await loadAdapter(repoRoot, 'a11y', baseSchema, appSchema);
   return {
     prepare: [base.prepare, app?.prepare].filter((step) => step !== undefined),
     placeholders: { ...base.placeholders, ...app?.placeholders },
@@ -39,8 +39,8 @@ const appConfigSchema = z.object({
 export type AppConfig = z.infer<typeof appConfigSchema>;
 
 /** The app's config in `mode`: the report describes the production app, the audit runs against development builds. */
-export async function loadAppConfig(forkPath: string, mode: 'development' | 'production'): Promise<AppConfig> {
-  const parsed = appConfigSchema.safeParse((await importFromApp(forkPath, 'shared/index.ts', mode)).appConfig);
+export async function loadAppConfig(repoRoot: string, mode: 'development' | 'production'): Promise<AppConfig> {
+  const parsed = appConfigSchema.safeParse((await importFromApp(repoRoot, 'shared/index.ts', mode)).appConfig);
   if (!parsed.success)
     throw new Error(`shared/index.ts exports no appConfig the audit can read: ${parsed.error.message}`);
   return parsed.data;

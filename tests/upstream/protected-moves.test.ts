@@ -7,7 +7,7 @@
  * (projectcampus: its nl/app.json content arrived as nl/about.json) and a missing one drops the
  * app's copy for upstream's. `repairIncomingRenames` re-aims the pairs by path, and `analyzeRefs`
  * classifies a pinned path that is new in upstream as `behind`, so upstream's copy arrives as the
- * fork's first one.
+ * app's first one.
  */
 import { describe, expect, it } from 'vitest';
 import { analyzeRefs, repairIncomingRenames } from '../../src/upstream/classify';
@@ -112,10 +112,10 @@ describe('repairIncomingRenames', () => {
 });
 
 /**
- * Repo with a `main` (fork) and `upstream` branch off one base commit. The base holds
+ * Repo with a `main` (app) and `upstream` branch off one base commit. The base holds
  * `locales/nl/` where app.json, about.json and appError.json are byte-identical (`{}`), the shape
  * that lets git pair them crosswise or not at all; upstream moves the folder to `shared/locales/`
- * and the fork fills each file with its own content.
+ * and the app fills each file with its own content.
  */
 function createMovedFolderRepo(): string {
   const dir = createRepo('cella-protected-moves-');
@@ -140,7 +140,7 @@ function createMovedFolderRepo(): string {
     'locales/nl/common.json':
       '{"back":"Terug","cancel":"Annuleren","close":"Sluiten","save":"Opslaan","fork":"Fork"}\n',
   });
-  exec('git add -A && git commit -q -m fork', dir);
+  exec('git add -A && git commit -q -m app', dir);
   return dir;
 }
 
@@ -177,6 +177,6 @@ describe('analyzeRefs protected moves', () => {
 
     expect(file?.status).toBe('behind');
     expect(file?.isPinned).toBe(true);
-    expect(file?.existsInFork).toBe(false);
+    expect(file?.existsInApp).toBe(false);
   });
 });

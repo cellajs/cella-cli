@@ -1,7 +1,7 @@
 /**
  * Static analysis of module ownership. A module with `owner: 'app'` in its `registerModule`,
- * `defineBackendModule` or `defineFrontendModule` call is fork territory: its source folder, plus
- * a matching frontend static asset folder, never syncs and is never offered back upstream.
+ * `defineBackendModule` or `defineFrontendModule` call is app territory: its source folder, plus
+ * a matching frontend static asset folder, never merges and is never offered back upstream.
  * Parsing is syntax-only (ts-morph, no type-checker).
  */
 
@@ -10,15 +10,15 @@ import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
 
 /** Glob patterns (relative to repo root) for module definition files. */
-const MODULE_FILE_GLOBS = [
+const moduleFileGlobs = [
   'backend/src/modules/*/*-module.ts',
   'frontend/src/modules/*/*-module.ts',
   'frontend/src/modules/*/*-module.tsx',
 ];
 
 /** Call names that register a module and carry its `owner` in the first argument. */
-const MODULE_REGISTER_CALLS = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);
-const FRONTEND_STATIC_ROOT = 'frontend/public/static';
+const moduleRegisterCalls = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);
+const frontendStaticRoot = 'frontend/public/static';
 
 /** Read the string value of an object literal's `owner` property, if present. */
 function readOwner(call: import('ts-morph').CallExpression): string | undefined {
@@ -40,7 +40,7 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
     skipLoadingLibFiles: true,
   });
 
-  const sourceFiles = project.addSourceFilesAtPaths(MODULE_FILE_GLOBS.map((glob) => `${repoPath}/${glob}`));
+  const sourceFiles = project.addSourceFilesAtPaths(moduleFileGlobs.map((glob) => `${repoPath}/${glob}`));
 
   const folders = new Set<string>();
   const moduleNames = new Set<string>();
@@ -48,7 +48,7 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
   for (const sourceFile of sourceFiles) {
     const ownsApp = sourceFile
       .getDescendantsOfKind(SyntaxKind.CallExpression)
-      .some((call) => MODULE_REGISTER_CALLS.has(call.getExpression().getText()) && readOwner(call) === 'app');
+      .some((call) => moduleRegisterCalls.has(call.getExpression().getText()) && readOwner(call) === 'app');
 
     if (!ownsApp) continue;
 
@@ -58,7 +58,7 @@ export function resolveAppModuleFolders(repoPath: string): string[] {
   }
 
   for (const moduleName of moduleNames) {
-    const staticFolder = `${FRONTEND_STATIC_ROOT}/${moduleName}`;
+    const staticFolder = `${frontendStaticRoot}/${moduleName}`;
     if (existsSync(join(repoPath, staticFolder))) {
       folders.add(staticFolder);
     }

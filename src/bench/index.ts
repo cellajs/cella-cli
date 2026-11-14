@@ -4,15 +4,15 @@ import type { ToolCommand } from '../config/types';
 import { runCommand, withTestbed } from '../testbed';
 import { toolDir } from '../utils/app';
 import { getEnvSnapshot } from '../utils/env';
-import { BENCH_REQUEST_ENV, type BenchRequest } from './request';
+import { type BenchRequest, benchRequestEnv } from './request';
 
 /** The app's bench, in the backend so that it imports the backend's modules by `#/`. */
-const BENCH_DIR = 'backend/bench';
+const benchDir = 'backend/bench';
 /**
  * The app's entry, run by the backend's tsx in the backend folder, so the backend's tsconfig paths resolve. Node's Web
  * Storage is off: it warns once a library probes `localStorage`.
  */
-const ENTRY_COMMAND = ['pnpm', 'exec', 'tsx', '--no-experimental-webstorage', 'bench/run.ts'];
+const entryCommand = ['pnpm', 'exec', 'tsx', '--no-experimental-webstorage', 'bench/run.ts'];
 
 interface BenchOptions {
   /** Unset: pick one from a list, unless `all`. */
@@ -24,11 +24,11 @@ interface BenchOptions {
   isolated: boolean;
 }
 
-async function runBench(forkPath: string, options: BenchOptions): Promise<number> {
-  if (!existsSync(join(forkPath, BENCH_DIR, 'run.ts'))) {
-    throw new Error(`${BENCH_DIR}/run.ts is missing: upgrade the app from cella first`);
+async function runBench(repoRoot: string, options: BenchOptions): Promise<number> {
+  if (!existsSync(join(repoRoot, benchDir, 'run.ts'))) {
+    throw new Error(`${benchDir}/run.ts is missing: upgrade the app from cella first`);
   }
-  const scenariosDir = join(forkPath, BENCH_DIR, 'scenarios');
+  const scenariosDir = join(repoRoot, benchDir, 'scenarios');
   const names = readdirSync(scenariosDir)
     .filter((file) => file.endsWith('.ts'))
     .map((file) => basename(file, '.ts'))
@@ -43,11 +43,11 @@ async function runBench(forkPath: string, options: BenchOptions): Promise<number
     short: options.short,
     skipSeed: options.skipSeed,
     scenariosDir,
-    dataDir: toolDir(forkPath, 'bench', 'repository'),
+    dataDir: toolDir(repoRoot, 'bench', 'repository'),
   };
   const run = (env: NodeJS.ProcessEnv) =>
-    runCommand(join(forkPath, 'backend'), { ...env, [BENCH_REQUEST_ENV]: JSON.stringify(request) }, ENTRY_COMMAND);
-  return options.isolated ? withTestbed(forkPath, (testbed) => run(testbed.env)) : run(getEnvSnapshot());
+    runCommand(join(repoRoot, 'backend'), { ...env, [benchRequestEnv]: JSON.stringify(request) }, entryCommand);
+  return options.isolated ? withTestbed(repoRoot, (testbed) => run(testbed.env)) : run(getEnvSnapshot());
 }
 
 export const benchCommand: ToolCommand<BenchOptions> = {

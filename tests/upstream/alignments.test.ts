@@ -13,7 +13,7 @@ import {
   isUpstreamOnly,
   parseAlignment,
 } from '../../src/upstream/alignments';
-import { buildSyncPrBody } from '../../src/upstream/upgrade';
+import { buildUpgradePrBody } from '../../src/upstream/upgrade';
 
 const readme = [
   '---',
@@ -115,11 +115,11 @@ describe('isUpstreamOnly', () => {
   });
 });
 
-describe('buildSyncPrBody alignments section', () => {
+describe('buildUpgradePrBody alignments section', () => {
   const base = { repoSlug: 'cellajs/cella', toSha: 'b'.repeat(40), commits: [], totalCount: 0 };
 
   it('lists open alignments with their permalinks', () => {
-    const body = buildSyncPrBody({
+    const body = buildUpgradePrBody({
       ...base,
       alignments: {
         total: 97,
@@ -131,9 +131,9 @@ describe('buildSyncPrBody alignments section', () => {
   });
 
   it('says so when every alignment is handled, and stays silent without alignments', () => {
-    expect(buildSyncPrBody({ ...base, alignments: { total: 97, open: [] } })).toContain(
+    expect(buildUpgradePrBody({ ...base, alignments: { total: 97, open: [] } })).toContain(
       '**Alignments**: all 97 handled.',
     );
-    expect(buildSyncPrBody({ ...base, alignments: { total: 0, open: [] } })).not.toContain('Alignments');
+    expect(buildUpgradePrBody({ ...base, alignments: { total: 0, open: [] } })).not.toContain('Alignments');
   });
 });

@@ -39,16 +39,16 @@ export interface ShootOptions {
 }
 
 // The nav bar's first button shows the logo for three seconds after mount (`AppNavLoader`): every shot waits it out, so a pair never differs by it
-const INTRO_MS = 3200;
+const introMs = 3200;
 // The first signed-in page compiles most of the app on demand when the frontend is a dev server
-const PAGE_MS = 120_000;
+const pageMs = 120_000;
 // A 1200x630 link preview weighs about 90 KB at 92, a quarter of its PNG
-const JPEG_QUALITY = 92;
+const jpegQuality = 92;
 // A shot whose `out` lies here is a file the frontend serves, at the path that follows
-const PUBLIC_DIR = 'frontend/public/';
+const publicDir = 'frontend/public/';
 
-export async function loadShotList(forkPath: string): Promise<ShotList> {
-  const { base, app } = await loadAdapter(forkPath, 'screenshots', baseSchema, appSchema);
+export async function loadShotList(repoRoot: string): Promise<ShotList> {
+  const { base, app } = await loadAdapter(repoRoot, 'screenshots', baseSchema, appSchema);
   const shots = app ? applyDelta(base.shots, app, 'cella/screenshots.app.ts') : base.shots;
   const devices = { ...base.devices, ...app?.devices };
   for (const shot of shots) {
@@ -104,12 +104,12 @@ interface Written {
  * its pixel and file size.
  * Resolves to the exit code: 1 when a shot failed.
  */
-export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHandle, options: ShootOptions) {
+export async function shoot(repoRoot: string, list: ShotList, testbed: TestbedHandle, options: ShootOptions) {
   const email = options.email ?? testbed.env.ADMIN_EMAIL;
   if (!email) throw new Error('no shot user: pass --email, or set ADMIN_EMAIL in .env');
   const todo = options.ids.length > 0 ? list.shots.filter((shot) => options.ids.includes(shot.id)) : list.shots;
 
-  const user = mintSession(email, { forkPath, env: testbed.env });
+  const user = mintSession(email, { repoRoot, env: testbed.env });
   const scratch = mkdtempSync(join(tmpdir(), 'cella-screenshots-'));
   let browser: Browser | undefined;
   const cleanup = async () => {
@@ -144,7 +144,7 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
     const values: Record<string, string | null> = {};
     for (const [name, resolve] of Object.entries(list.placeholders)) values[name] = await resolve(signedIn(user));
 
-    const { chromium } = await loadPlaywright(forkPath);
+    const { chromium } = await loadPlaywright(repoRoot);
     // The cleanup registered above closes it on a signal, before the testbed stops
     browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
 
@@ -177,20 +177,20 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
         );
 
         for (const shot of shots) {
-          const target = options.out ? join(resolve(options.out), basename(shot.out)) : join(forkPath, shot.out);
+          const target = options.out ? join(resolve(options.out), basename(shot.out)) : join(repoRoot, shot.out);
           const format = shot.format ?? list.format;
           const suffix = mode === 'dark' && !shot.mode ? '-dark' : '';
           const path = `${target}${suffix}.${format}`;
-          const served = shot.out.startsWith(PUBLIC_DIR)
-            ? `/${shot.out.slice(PUBLIC_DIR.length)}${suffix}.${format}`
+          const served = shot.out.startsWith(publicDir)
+            ? `/${shot.out.slice(publicDir.length)}${suffix}.${format}`
             : null;
           const encoding =
-            format === 'jpg' ? { type: 'jpeg' as const, quality: JPEG_QUALITY } : { type: 'png' as const };
+            format === 'jpg' ? { type: 'jpeg' as const, quality: jpegQuality } : { type: 'png' as const };
           let page: Page | undefined;
           try {
             const route = fillPath(shot.path, values, 'the screenshots adapter');
-            page = await openPage(context, `${user.frontendUrl}${route}`, { timeout: PAGE_MS });
-            await page.waitForTimeout(INTRO_MS);
+            page = await openPage(context, `${user.frontendUrl}${route}`, { timeout: pageMs });
+            await page.waitForTimeout(introMs);
             await spinnersGone(page);
             await shot.open?.(page);
             await settle(page, { cap: 5000 });

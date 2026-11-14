@@ -28,7 +28,7 @@ export interface A11yState {
   forms?: FormCheck[];
 }
 
-/** `cella/a11y.ts`: the template's scope, synced with the UI it describes. */
+/** `cella/a11y.ts`: the template's scope, kept in step with the UI it describes. */
 export interface A11yBase {
   /** Brings the audit user into the state the pages expect, before the first visit. */
   prepare?: Prepare;

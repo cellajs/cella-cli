@@ -6,7 +6,7 @@
  */
 
 import pc from '../utils/colors';
-import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../utils/display';
+import { createSpinner, divider, spinnerSuccess, writeStdout } from '../utils/display';
 import { git, revParse } from '../utils/git';
 import { parseUnifiedDiff } from '../utils/unified-diff';
 import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions } from './snapshot';
@@ -133,15 +133,15 @@ export function countLineContent(
  * Collect what HEAD changed since it left `since`: committed work only, compared with the merge
  * base, which is what a pull request into that ref shows.
  */
-export async function collectBranchStats(forkPath: string, since: string): Promise<BranchStats> {
-  const sinceSha = await revParse(forkPath, `${since}^{commit}`);
+export async function collectBranchStats(repoRoot: string, since: string): Promise<BranchStats> {
+  const sinceSha = await revParse(repoRoot, `${since}^{commit}`);
   if (!sinceSha) throw new Error(`unknown ref '${since}'. pass a branch, tag or commit, such as origin/main`);
 
-  const mergeBase = await git(['merge-base', sinceSha, 'HEAD'], forkPath, { ignoreErrors: true });
+  const mergeBase = await git(['merge-base', sinceSha, 'HEAD'], repoRoot, { ignoreErrors: true });
   if (!mergeBase) throw new Error(`the current branch shares no history with '${since}'`);
 
   const range = [mergeBase, 'HEAD'];
-  const files = parseNumstat(await git(['diff', '--numstat', '-z', '--no-renames', ...range], forkPath));
+  const files = parseNumstat(await git(['diff', '--numstat', '-z', '--no-renames', ...range], repoRoot));
   const kindOf = new Map(files.map((file) => [file.path, file.kind]));
 
   const emptyKind = (): KindChange => ({ files: 0, added: 0, removed: 0 });
@@ -155,7 +155,7 @@ export async function collectBranchStats(forkPath: string, since: string): Promi
     other: emptyKind(),
   };
   const total = emptyKind();
-  const packages = await getWorkspacePackages(forkPath);
+  const packages = await getWorkspacePackages(repoRoot);
   const byPackage = new Map<string, KindChange>();
 
   const add = (target: KindChange, file: FileChange) => {
@@ -178,7 +178,7 @@ export async function collectBranchStats(forkPath: string, since: string): Promi
   // The patch of code files only: generated JSON can run to megabytes and holds no comments.
   const patch = await git(
     ['diff', '-U0', '--no-renames', '--no-color', ...range, '--', ...codeExtensions.map((ext) => `*.${ext}`)],
-    forkPath,
+    repoRoot,
     { ignoreErrors: true },
   );
   const sourceContent =
@@ -188,13 +188,13 @@ export async function collectBranchStats(forkPath: string, since: string): Promi
     [...byPackage.entries()].sort((a, b) => net(b[1]) - net(a[1]) || a[0].localeCompare(b[0])),
   );
 
-  const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], forkPath);
-  const status = await git(['status', '--porcelain'], forkPath, { ignoreErrors: true });
+  const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
+  const status = await git(['status', '--porcelain'], repoRoot, { ignoreErrors: true });
 
   return {
     since,
     mergeBase: mergeBase.slice(0, 7),
-    head: branch === 'HEAD' ? await git(['rev-parse', '--short', 'HEAD'], forkPath) : branch,
+    head: branch === 'HEAD' ? await git(['rev-parse', '--short', 'HEAD'], repoRoot) : branch,
     total,
     kinds,
     sourceContent,
@@ -286,7 +286,7 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
 
   if (verbose) {
     console.info();
-    console.info(DIVIDER);
+    console.info(divider);
     console.info();
     for (const file of stats.files) {
       console.info(columns('', file, `${file.path}  ${pc.dim(kindLabel(file.kind))}`));
@@ -305,12 +305,12 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
 
 /** Count what the branch changed since `since` and print it: tables, or the markdown with `md`. */
 export async function runBranchStats(
-  forkPath: string,
+  repoRoot: string,
   since: string,
   { md, verbose }: { md: boolean; verbose: boolean },
 ): Promise<void> {
   createSpinner('counting changed lines...');
-  const stats = await collectBranchStats(forkPath, since);
+  const stats = await collectBranchStats(repoRoot, since);
   spinnerSuccess(`Counted what ${stats.head} changed since ${stats.since} (${stats.mergeBase})`);
 
   if (stats.total.files === 0) {

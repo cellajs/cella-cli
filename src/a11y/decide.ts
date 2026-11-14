@@ -13,11 +13,11 @@ export interface DecideOptions {
  * Records reviewers' decisions on criteria the audit leaves open. Nothing is written unless every decision is valid.
  * @throws when the file holds no list, or a decision is incomplete or contradicts the audit's evidence
  */
-export function runDecide(forkPath: string, { file, decision }: DecideOptions): number {
+export function runDecide(repoRoot: string, { file, decision }: DecideOptions): number {
   const input: unknown = file ? JSON.parse(readFileSync(resolve(file), 'utf8')) : [decision];
   if (!Array.isArray(input)) throw new Error(`${file} holds no list of decisions`);
   const decisions = input.map(parseDecision);
-  const ledger = recordDecisions(forkPath, decisions);
+  const ledger = recordDecisions(repoRoot, decisions);
   const count = (by: string) => ledger.criteria.filter((row) => row.decidedBy === by).length;
   printStep(
     'recorded',

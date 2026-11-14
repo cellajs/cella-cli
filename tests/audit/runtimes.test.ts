@@ -8,8 +8,8 @@ import {
   type RuntimePins,
 } from '../../src/audit/runtimes';
 
-const NOW = Date.parse('2026-10-22T14:00:00Z');
-const ago = (hours: number) => NOW - hours * 60 * 60 * 1000;
+const now = Date.parse('2026-10-22T14:00:00Z');
+const ago = (hours: number) => now - hours * 60 * 60 * 1000;
 const iso = (hours: number) => new Date(ago(hours)).toISOString();
 
 describe('runtimes', () => {
@@ -83,7 +83,7 @@ FROM nginx`;
       ],
     };
 
-    expect(planRuntimeUpdates(pins, feeds, { releaseAgeMinutes: 1440, now: NOW })).toEqual({
+    expect(planRuntimeUpdates(pins, feeds, { releaseAgeMinutes: 1440, now })).toEqual({
       updates: [
         expect.objectContaining({ name: 'node', target: '26.12.1', severity: 'high', note: 'security release' }),
         expect.objectContaining({ name: 'pnpm', target: '11.28.6', severity: 'high', note: '1 advisory' }),
@@ -93,7 +93,7 @@ FROM nginx`;
           target: '2.11',
           severity: 'moderate',
           note: 'tag frozen since sep 2025',
-          pin: { kind: 'image', line: 10, ref: 'caddy:2.8-alpine', to: 'caddy:2.11-alpine' },
+          pin: { type: 'image', line: 10, ref: 'caddy:2.8-alpine', to: 'caddy:2.11-alpine' },
         }),
       ],
       unchecked: ['nginx'],
@@ -125,7 +125,7 @@ FROM nginx`;
       severity: null,
       note: '',
       releasesUrl: '',
-      pin: { kind: 'pnpm' },
+      pin: { type: 'pnpm' },
     });
     expect(pnpm).toBe(manifest.replace('pnpm@11.8.0+sha512.abc', 'pnpm@11.28.6'));
 
@@ -138,7 +138,7 @@ FROM nginx`;
       severity: null,
       note: '',
       releasesUrl: '',
-      pin: { kind: 'image', line: 1, ref: 'caddy:2.8-alpine', to: 'caddy:2.11-alpine' },
+      pin: { type: 'image', line: 1, ref: 'caddy:2.8-alpine', to: 'caddy:2.11-alpine' },
     });
     expect(caddy).toBe('# caddy:2.8-alpine is the proxy\nFROM caddy:2.11-alpine\n');
   });

@@ -3,7 +3,7 @@
  *
  * `reviewSections` picks the files of each terminal list with the refs their diffs run over,
  * `writeReviewPage` renders them into the git dir and lists what it cannot render,
- * `reportReviewPage` writes the page and opens it in the browser only for a sync on a terminal,
+ * `reportReviewPage` writes the page and opens it in the browser only for an upgrade on a terminal,
  * and `reviewStep` is the `next steps` entry for it. A fake `open`/`xdg-open` on PATH records the
  * opener's arguments.
  */
@@ -16,7 +16,7 @@ import type { AnalyzedFile, MergeResult } from '../../src/config/types';
 import { analyzeRefs } from '../../src/upstream/classify';
 import { groupIgnoredUpstreamChanges } from '../../src/upstream/protection';
 import {
-  existingSyncReviewPage,
+  existingUpgradeReviewPage,
   type ReviewPageReport,
   reportReviewPage,
   reviewSections,
@@ -27,13 +27,13 @@ import { getEnv } from '../../src/utils/env';
 import { createRepo, exec, write } from '../helpers/test-env';
 
 /**
- * Repo with a `main` (fork) and `upstream` branch off one base commit:
+ * Repo with a `main` (app) and `upstream` branch off one base commit:
  * - pinned.css:   both changed            → dropped (protected but behind)
  * - masking.css:  pinned, upstream only   → masking pin
- * - stale.css:    pinned, fork dropped b  → ahead, 1 upstream line absent
+ * - stale.css:    pinned, app dropped b  → ahead, 1 upstream line absent
  * - own/new.ts:   ignored, upstream added → ignored path changed upstream
- * - drift.ts:     fork changed            → drifted
- * - drift.bin:    fork changed, binary    → drifted, no text diff
+ * - drift.ts:     app changed            → drifted
+ * - drift.bin:    app changed, binary    → drifted, no text diff
  * - plain.ts:     upstream changed        → behind, on no section
  */
 function createScenarioRepo(): string {
@@ -61,10 +61,10 @@ function createScenarioRepo(): string {
   write(dir, {
     'pinned.css': 'a\nb\nfork\n',
     'stale.css': 'a\n',
-    'drift.ts': 'export const drift = "fork-change";\n',
+    'drift.ts': 'export const drift = "app-change";\n',
     'drift.bin': '\0fork\0',
   });
-  exec('git add -A && git commit -q -m fork', dir);
+  exec('git add -A && git commit -q -m app', dir);
   return dir;
 }
 
@@ -163,22 +163,22 @@ describe('review page', () => {
       expect(sections.map((s) => [s.title, s.range, s.paths])).toEqual([
         ['protected but behind upstream', `${base}..${upstream}`, ['pinned.css', 'own/new.ts']],
         ['pinned files that match the previous upstream', `${base}..${upstream}`, ['masking.css']],
-        ['protected in fork, upstream lines absent', `HEAD..${upstream}`, ['stale.css']],
+        ['protected in app, upstream lines absent', `HEAD..${upstream}`, ['stale.css']],
         ['drifted from upstream', `${base}..HEAD`, ['drift.bin', 'drift.ts']],
       ]);
     });
 
-    it('limits sync to the upstream changes it did not bring in, dropped files from the merge result', () => {
+    it('limits upgrade to the upstream changes it did not bring in, dropped files from the merge result', () => {
       const sections = reviewSections({ ...result, protectedConflicts: ['pinned.css', 'package.json'] }, 'upgrade');
 
       expect(sections.map((s) => [s.title, s.paths])).toEqual([
-        ['protected files kept the fork version', ['pinned.css', 'package.json']],
+        ['protected files kept the app version', ['pinned.css', 'package.json']],
         ['ignored paths changed upstream', ['own/new.ts']],
         ['pinned files that match the previous upstream', ['masking.css']],
       ]);
     });
 
-    it('returns nothing without a resolved sync range', () => {
+    it('returns nothing without a resolved upgrade range', () => {
       expect(reviewSections({ ...result, upstreamDiffRange: undefined }, 'analyze')).toEqual([]);
     });
   });
@@ -194,8 +194,8 @@ describe('review page', () => {
       expect(page).toMatchObject({ diffs: 5, listed: 1, sections: 4 });
       const text = visibleText(fs.readFileSync(page?.path ?? '', 'utf-8'));
       for (const title of ['protected but behind upstream', 'drifted from upstream']) expect(text).toContain(title);
-      // Each section's diff runs over its own refs: upstream's changes, and the fork's own change.
-      for (const line of ['upstream-utility', 'upstream-masked', 'export const added', 'fork-change']) {
+      // Each section's diff runs over its own refs: upstream's changes, and the app's own change.
+      for (const line of ['upstream-utility', 'upstream-masked', 'export const added', 'app-change']) {
         expect(text).toContain(line);
       }
     });
@@ -238,7 +238,7 @@ describe('review page', () => {
 
       expect(page).toMatchObject({ diffs: 2, listed: 2, sections: 2 });
       const html = fs.readFileSync(page?.path ?? '', 'utf-8');
-      expect(visibleText(html)).toContain('fork-change');
+      expect(visibleText(html)).toContain('app-change');
       expect(html).toContain('<li><code>masking.css</code></li>');
       expect(html).toContain('<li><code>plain.ts</code></li>');
     });
@@ -272,7 +272,7 @@ describe('review page', () => {
       expect(fs.existsSync(argsFile)).toBe(false);
     });
 
-    it('opens the sync page in the browser on a terminal', async () => {
+    it('opens the upgrade page in the browser on a terminal', async () => {
       setTTY(true);
 
       const page = await report('upgrade');
@@ -281,7 +281,7 @@ describe('review page', () => {
       expect(fs.readFileSync(argsFile, 'utf-8')).toContain('upgrade-review.html');
     });
 
-    it('never opens the sync page without a terminal', async () => {
+    it('never opens the upgrade page without a terminal', async () => {
       setTTY(false);
 
       expect(await report('upgrade')).toMatchObject({ opened: false });
@@ -294,15 +294,15 @@ describe('review page', () => {
       expect(await report('analyze')).toBeUndefined();
     });
 
-    it('finds the page the merge run of a sync wrote, and drops it when a later sync has nothing to review', async () => {
-      expect(existingSyncReviewPage(repoPath)).toBeUndefined();
+    it('finds the page the merge run of an upgrade wrote, and drops it when a later upgrade has nothing to review', async () => {
+      expect(existingUpgradeReviewPage(repoPath)).toBeUndefined();
 
       await report('upgrade');
-      expect(existingSyncReviewPage(repoPath)).toContain('upgrade-review.html');
+      expect(existingUpgradeReviewPage(repoPath)).toContain('upgrade-review.html');
 
       result = { ...result, files: [], protectedConflicts: [], ignoredUpstreamChanges: [] };
       expect(await report('upgrade')).toBeUndefined();
-      expect(existingSyncReviewPage(repoPath)).toBeUndefined();
+      expect(existingUpgradeReviewPage(repoPath)).toBeUndefined();
     });
   });
 
@@ -326,7 +326,7 @@ describe('review page', () => {
       ]);
     });
 
-    it('says what a sync page shows and that it opened', () => {
+    it('says what an upgrade page shows and that it opened', () => {
       const step = reviewStep(page({ command: 'upgrade', diffs: 7, listed: 0, opened: true }));
 
       expect(plain(step)[1]).toBe('7 diffs of upstream changes that did not arrive · opened in the browser');

@@ -4,10 +4,10 @@ import { performance } from 'node:perf_hooks';
 import type { Metrics } from './metrics';
 import type { HttpClient, HttpRequestOptions, HttpResponse } from './types';
 
-const DEFAULT_TIMEOUT_MS = 10_000;
+const defaultTimeoutMs = 10_000;
 
 /** Set on an error the HTTP client already counted, so the VU that fails on it does not count it again. */
-export const COUNTED = Symbol('counted');
+export const counted = Symbol('counted');
 
 /** The counter suffix of an error: its system code (`ECONNRESET`), else its name. */
 export function errorCode(error: unknown): string {
@@ -82,11 +82,11 @@ export function createHttpClient(
             metrics.counter('http.timeouts');
           } else stats.errors++;
           metrics.counter(`errors.${code}`);
-          Object.assign(error, { [COUNTED]: true });
+          Object.assign(error, { [counted]: true });
         }
         reject(error);
       };
-      const timeoutMs = options.timeout ?? DEFAULT_TIMEOUT_MS;
+      const timeoutMs = options.timeout ?? defaultTimeoutMs;
       const timer = setTimeout(
         () => req.destroy(codedError('ETIMEDOUT', `${label} took longer than ${timeoutMs} ms`)),
         timeoutMs,

@@ -52,20 +52,20 @@ function parseA11y({ job = 'audit', opts }: { job?: string; opts: Record<string,
   return { job: known, audit: { states: list(opts.states), workers, email: text(opts.email) } };
 }
 
-async function runA11y(forkPath: string, options: A11yOptions): Promise<number> {
-  const resultsDir = toolDir(forkPath, 'a11y');
-  if (options.job === 'decide') return runDecide(forkPath, options.decide);
-  if (options.job === 'report') return runReport(forkPath, resultsDir, options);
+async function runA11y(repoRoot: string, options: A11yOptions): Promise<number> {
+  const resultsDir = toolDir(repoRoot, 'a11y');
+  if (options.job === 'decide') return runDecide(repoRoot, options.decide);
+  if (options.job === 'report') return runReport(repoRoot, resultsDir, options);
 
   // Before the testbed starts: a scope that does not fit this CLI, or a missing browser, fails in seconds
-  const scope = await loadScope(forkPath);
+  const scope = await loadScope(repoRoot);
   const unknown = options.audit.states.filter((id) => !scope.states.some((state) => state.id === id));
   if (unknown.length > 0) {
     throw new Error(`no state ${unknown.join(', ')} in the scope: ${scope.states.map((state) => state.id).join(', ')}`);
   }
-  await requireChromium(forkPath);
-  const app = await loadAppConfig(forkPath, 'development');
-  return withTestbed(forkPath, (testbed) => runAudit({ forkPath, app, resultsDir }, scope, testbed, options.audit));
+  await requireChromium(repoRoot);
+  const app = await loadAppConfig(repoRoot, 'development');
+  return withTestbed(repoRoot, (testbed) => runAudit({ repoRoot, app, resultsDir }, scope, testbed, options.audit));
 }
 
 export const a11yCommand: ToolCommand<A11yOptions> = {

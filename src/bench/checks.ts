@@ -9,7 +9,7 @@ interface CheckInput {
   short: boolean;
 }
 
-const DEFAULT_MAX_REJECTED_SHARE = 1;
+const defaultMaxRejectedShare = 1;
 
 const pct = (n: number) => `${n.toFixed(1)}%`;
 
@@ -37,7 +37,7 @@ export function evaluateChecks(
   const responses = byStatus.reduce((sum, [, n]) => sum + n, 0);
   const rejected = byStatus.filter(([status]) => !status.startsWith('2'));
   const rejectedCount = rejected.reduce((sum, [, n]) => sum + n, 0);
-  const maxRejected = checks.maxRejectedShare ?? DEFAULT_MAX_REJECTED_SHARE;
+  const maxRejected = checks.maxRejectedShare ?? defaultMaxRejectedShare;
   if (responses > 0) {
     const ok = rejectedCount <= (responses * maxRejected) / 100;
     const detail = rejected.length ? ` (${rejected.map(([status, n]) => `${status} ×${n}`).join(', ')})` : '';

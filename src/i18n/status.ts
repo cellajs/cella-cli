@@ -1,6 +1,6 @@
 import pc from '../utils/colors';
 import { checkMark, warningMark, writeStdout } from '../utils/display';
-import { type Locales, namespaceTexts, pluralForm, readLocales, SOURCE_LANGUAGE, textsOf } from './locales';
+import { type Locales, namespaceTexts, pluralForm, readLocales, sourceLanguage, textsOf } from './locales';
 import {
   categoriesOf,
   compare,
@@ -87,16 +87,16 @@ function measure(english: Record<string, string>, texts: Record<string, string>,
 }
 
 function buildStatus(locales: Locales): StatusReport {
-  const others = locales.languages.filter((language) => language !== SOURCE_LANGUAGE);
+  const others = locales.languages.filter((language) => language !== sourceLanguage);
   const namespaces = [...locales.namespaces].map(([name, files]): NamespaceStatus => {
-    const english = namespaceTexts(locales, SOURCE_LANGUAGE, name);
+    const english = namespaceTexts(locales, sourceLanguage, name);
     const languages = Object.fromEntries(
       others.map((language) => [language, measure(english, namespaceTexts(locales, language, name), language)]),
     );
     const overrides = Object.fromEntries(
       files.length > 1 ? locales.languages.map((language) => [language, overridesOf(locales, language, files)]) : [],
     );
-    const plurals = pluralGaps(english, english, SOURCE_LANGUAGE);
+    const plurals = pluralGaps(english, english, sourceLanguage);
     return { name, files, keys: Object.keys(english).length, plurals, overrides, languages };
   });
   return { languages: locales.languages, namespaces };
@@ -114,7 +114,7 @@ const defectCount = (report: StatusReport): number =>
     0,
   );
 
-const LIST_MAX = 8;
+const listMax = 8;
 const percent = (part: number, whole: number) => (whole === 0 ? 100 : Math.floor((part / whole) * 100));
 
 type Cell = string | [text: string, style: (text: string) => string];
@@ -141,9 +141,9 @@ const findings = (count: number): Cell => (count === 0 ? ['✓', pc.green] : [St
 
 function printList(title: string, items: string[]): void {
   if (items.length === 0) return;
-  const more = items.length > LIST_MAX ? `, … ${items.length - LIST_MAX} more (--json lists them)` : '';
+  const more = items.length > listMax ? `, … ${items.length - listMax} more (--json lists them)` : '';
   console.info(`  ${warningMark} ${title}`);
-  console.info(`    ${pc.dim(`${items.slice(0, LIST_MAX).join(', ')}${more}`)}`);
+  console.info(`    ${pc.dim(`${items.slice(0, listMax).join(', ')}${more}`)}`);
 }
 
 const describe = ({ key, missing, extra }: Mismatch | PluralGap) =>
@@ -161,7 +161,7 @@ function printStatus(report: StatusReport, dir: string): void {
     console.info(
       row([
         namespace.name,
-        SOURCE_LANGUAGE,
+        sourceLanguage,
         String(namespace.keys),
         '',
         '',
@@ -192,7 +192,7 @@ function printStatus(report: StatusReport, dir: string): void {
 
   for (const namespace of report.namespaces) {
     printList(
-      `${namespace.name} ${SOURCE_LANGUAGE}: plural groups that lack or add a form`,
+      `${namespace.name} ${sourceLanguage}: plural groups that lack or add a form`,
       namespace.plurals.map(describe),
     );
     for (const [language, status] of Object.entries(namespace.languages)) {
@@ -217,7 +217,7 @@ function printStatus(report: StatusReport, dir: string): void {
       ? `${checkMark} no orphans, placeholder, tag or plural mismatches`
       : `${pc.red('✗')} ${defects} findings above`,
   );
-  for (const language of report.languages.filter((language) => language !== SOURCE_LANGUAGE)) {
+  for (const language of report.languages.filter((language) => language !== sourceLanguage)) {
     const statuses = report.namespaces.map((namespace) => namespace.languages[language]).filter((status) => !!status);
     const translated = statuses.reduce((sum, status) => sum + status.translated, 0);
     const expected = statuses.reduce((sum, status) => sum + status.translated + status.missing.length, 0);
@@ -230,8 +230,8 @@ function printStatus(report: StatusReport, dir: string): void {
 }
 
 /** `cella i18n`: per runtime namespace and language, what is missing, orphaned or mismatched. Exit 1 on a mismatch. */
-export function runStatus(forkPath: string, json: boolean): number {
-  const locales = readLocales(forkPath);
+export function runStatus(repoRoot: string, json: boolean): number {
+  const locales = readLocales(repoRoot);
   const report = buildStatus(locales);
   if (json) writeStdout(JSON.stringify(report, null, 2));
   else printStatus(report, locales.dir);

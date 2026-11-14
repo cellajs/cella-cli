@@ -26,11 +26,11 @@ export interface Advisory {
 /** What can be done about an item. */
 type Remedy =
   /** A published, installable version outside every vulnerable range. */
-  | { kind: 'override'; target: string; breaking: boolean }
+  | { type: 'override'; target: string; breaking: boolean }
   /** The fix exists but is younger than the release age. */
-  | { kind: 'fresh'; target: string; breaking: boolean; hoursOld: number }
+  | { type: 'fresh'; target: string; breaking: boolean; hoursOld: number }
   /** Nothing published fixes it. */
-  | { kind: 'none' };
+  | { type: 'none' };
 
 /** How an item relates to the settings from before this run. */
 type Standing =
@@ -71,7 +71,7 @@ export interface PlanInput {
 }
 
 /** Severity levels, most severe first. */
-export const SEVERITIES: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
+export const severities: VulnerabilitySeverity[] = ['critical', 'high', 'moderate', 'low', 'info'];
 
 /**
  * Whether an override key is audit output. A key with a version selector and no parent
@@ -184,15 +184,15 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
       const allIgnored = ghsas.every((ghsa) => ignored.has(ghsa));
       const breaking = !!fix && installed.some((v) => isBreakingJump(v, fix));
 
-      let remedy: Remedy = { kind: 'none' };
+      let remedy: Remedy = { type: 'none' };
       let standing: Standing = allIgnored ? 'ignored' : 'new';
       let overrides: Record<string, string> = {};
 
       if (fix) {
         const hoursOld = Math.max(0, Math.floor(publishedAgo(module, fix, input) / 3_600_000));
         remedy = isInstallable(module, fix, input)
-          ? { kind: 'override', target: fix, breaking }
-          : { kind: 'fresh', target: fix, breaking, hoursOld };
+          ? { type: 'override', target: fix, breaking }
+          : { type: 'fresh', target: fix, breaking, hoursOld };
 
         overrides = Object.fromEntries(
           [...new Set(group.map((advisory) => advisory.range))].map((range) => {
@@ -203,7 +203,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
           }),
         );
 
-        if (remedy.kind === 'override') {
+        if (remedy.type === 'override') {
           if (previousOverrides(module, input.previous).some(([, target]) => admits(target, fix))) standing = 'carried';
           // An ignored advisory whose fix arrived moves to an override, unless that takes a breaking jump.
           else if (allIgnored && !breaking) standing = 'new';
@@ -212,7 +212,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
 
       items.push({
         module,
-        severity: SEVERITIES.find((severity) => group.some((advisory) => advisory.severity === severity)) ?? 'info',
+        severity: severities.find((severity) => group.some((advisory) => advisory.severity === severity)) ?? 'info',
         ghsas,
         installed: installed[0] ?? '',
         via: [...new Set(group.flatMap((advisory) => advisory.via))],
@@ -225,7 +225,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
   }
 
   return items.sort(
-    (a, b) => SEVERITIES.indexOf(a.severity) - SEVERITIES.indexOf(b.severity) || a.module.localeCompare(b.module),
+    (a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity) || a.module.localeCompare(b.module),
   );
 }
 

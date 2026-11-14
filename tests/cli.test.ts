@@ -19,8 +19,8 @@ vi.mock('node:fs', () => ({
 }));
 
 vi.mock('../src/utils/display', () => ({
-  MENU_DIVIDER: '─'.repeat(40),
-  VERSION: 'test',
+  menuDivider: '─'.repeat(40),
+  version: 'test',
   printHeader: vi.fn(),
   setJsonMode: vi.fn(),
   warningMark: '⚠',
@@ -29,8 +29,8 @@ vi.mock('../src/utils/display', () => ({
 const { parseCli, parseToolCommand } = await import('../src/cli');
 
 /** parseCli for a command line that names an upstream command. */
-async function parseUpstream(config: CellaCliConfig, forkPath: string) {
-  const parsed = await parseCli(config, forkPath);
+async function parseUpstream(config: CellaCliConfig, repoRoot: string) {
+  const parsed = await parseCli(config, repoRoot);
   if ('tool' in parsed) throw new Error(`parsed the tool command ${parsed.tool.name}`);
   return parsed;
 }

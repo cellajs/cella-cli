@@ -92,7 +92,7 @@ vi.mock('../../src/audit/pnpm', async (importOriginal) => ({
 const { runSecurityPass } = await import('../../src/audit/security-pass');
 
 /** An override that stopped being needed, one that still is, and an ignored advisory without a fix. */
-const PACKAGES: Record<string, SimulatedPackage> = {
+const packages: Record<string, SimulatedPackage> = {
   stale: { admits: '>=1.0.0 <2.0.0', resolves: '1.0.1', published: ['1.0.0', '1.0.1'] },
   needed: {
     admits: '>=1.0.0 <2.0.0',
@@ -108,7 +108,7 @@ const PACKAGES: Record<string, SimulatedPackage> = {
   },
 };
 
-const WORKSPACE = `auditConfig:
+const workspace = `auditConfig:
   ignoreGhsas:
     - GHSA-nofix
 overrides:
@@ -116,13 +116,13 @@ overrides:
   stale@<1.0.1: ^1.0.1
 `;
 
-const LOCK = lockOf({ stale: '1.0.1', needed: '2.0.0', nofix: '3.0.3' });
+const lock = lockOf({ stale: '1.0.1', needed: '2.0.0', nofix: '3.0.3' });
 
-const MANIFEST = '{"name":"app"}\n';
-const DOCKERFILE = 'FROM caddy:2.8-alpine\n';
+const manifest = '{"name":"app"}\n';
+const dockerfile = 'FROM caddy:2.8-alpine\n';
 
 /** What the update step hands over: a manifest with a raised dependency, and a raised image tag. */
-const EDITS = {
+const edits = {
   manifests: { 'package.json': '{"name":"app","dependencies":{"stale":"^1.0.1"}}\n' },
   files: { Dockerfile: 'FROM caddy:2.11-alpine\n' },
 };
@@ -133,11 +133,11 @@ describe('runSecurityPass', () => {
 
   beforeEach(() => {
     repo = mkdtempSync(join(tmpdir(), 'cella-audit-test-'));
-    writeFileSync(join(repo, 'package.json'), MANIFEST);
-    writeFileSync(join(repo, 'Dockerfile'), DOCKERFILE);
-    writeFileSync(join(repo, 'pnpm-workspace.yaml'), WORKSPACE);
-    writeFileSync(join(repo, 'pnpm-lock.yaml'), LOCK);
-    Object.assign(world, { packages: structuredClone(PACKAGES), auditAnswers: true, installStatus: 0, installs: [] });
+    writeFileSync(join(repo, 'package.json'), manifest);
+    writeFileSync(join(repo, 'Dockerfile'), dockerfile);
+    writeFileSync(join(repo, 'pnpm-workspace.yaml'), workspace);
+    writeFileSync(join(repo, 'pnpm-lock.yaml'), lock);
+    Object.assign(world, { packages: structuredClone(packages), auditAnswers: true, installStatus: 0, installs: [] });
     prompts.confirm.mockReset();
     prompts.select.mockReset();
     vi.spyOn(console, 'info').mockImplementation(() => {});
@@ -150,12 +150,12 @@ describe('runSecurityPass', () => {
   });
 
   it('drops the override the workspace no longer needs, keeps the rest, and writes the updates with the same install', async () => {
-    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits });
 
-    expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE.replace('  stale@<1.0.1: ^1.0.1\n', ''));
-    expect(file('pnpm-lock.yaml')).toBe(LOCK);
-    expect(file('package.json')).toBe(EDITS.manifests['package.json']);
-    expect(file('Dockerfile')).toBe(EDITS.files.Dockerfile);
+    expect(file('pnpm-workspace.yaml')).toBe(workspace.replace('  stale@<1.0.1: ^1.0.1\n', ''));
+    expect(file('pnpm-lock.yaml')).toBe(lock);
+    expect(file('package.json')).toBe(edits.manifests['package.json']);
+    expect(file('Dockerfile')).toBe(edits.files.Dockerfile);
     expect(world.installs).toEqual([repo]);
     expect(prompts.confirm).not.toHaveBeenCalled();
     expect(prompts.select).not.toHaveBeenCalled();
@@ -164,8 +164,8 @@ describe('runSecurityPass', () => {
   it('writes nothing in report-only mode', async () => {
     await runSecurityPass(repo, { apply: false, releaseAgeMinutes: 1440 });
 
-    expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
-    expect(file('pnpm-lock.yaml')).toBe(LOCK);
+    expect(file('pnpm-workspace.yaml')).toBe(workspace);
+    expect(file('pnpm-lock.yaml')).toBe(lock);
     expect(world.installs).toEqual([]);
   });
 
@@ -183,22 +183,22 @@ describe('runSecurityPass', () => {
   it('puts every file back when the install fails', async () => {
     world.installStatus = 1;
 
-    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits });
 
-    expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
-    expect(file('pnpm-lock.yaml')).toBe(LOCK);
-    expect(file('package.json')).toBe(MANIFEST);
-    expect(file('Dockerfile')).toBe(DOCKERFILE);
+    expect(file('pnpm-workspace.yaml')).toBe(workspace);
+    expect(file('pnpm-lock.yaml')).toBe(lock);
+    expect(file('package.json')).toBe(manifest);
+    expect(file('Dockerfile')).toBe(dockerfile);
   });
 
   it('removes the lockfile a failed install wrote where there was none', async () => {
     rmSync(join(repo, 'pnpm-lock.yaml'));
     world.installStatus = 1;
 
-    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits });
 
     expect(existsSync(join(repo, 'pnpm-lock.yaml'))).toBe(false);
-    expect(file('package.json')).toBe(MANIFEST);
+    expect(file('package.json')).toBe(manifest);
   });
 
   it('leaves the workspace alone when the audit gives no answer', async () => {
@@ -206,12 +206,12 @@ describe('runSecurityPass', () => {
 
     await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
-    expect(file('pnpm-workspace.yaml')).toBe(WORKSPACE);
+    expect(file('pnpm-workspace.yaml')).toBe(workspace);
     expect(world.installs).toEqual([]);
   });
 
   it('asks before a new breaking override, and leaves the advisory open on the default answer', async () => {
-    writeFileSync(join(repo, 'pnpm-workspace.yaml'), WORKSPACE.replace('  needed@<2.0.0: ^2.0.0\n', ''));
+    writeFileSync(join(repo, 'pnpm-workspace.yaml'), workspace.replace('  needed@<2.0.0: ^2.0.0\n', ''));
     prompts.select.mockResolvedValue('open');
 
     await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
@@ -234,7 +234,7 @@ describe('runSecurityPass', () => {
 
     expect(prompts.select).toHaveBeenCalledOnce();
     expect(file('pnpm-workspace.yaml')).toContain('  needed@<2.0.0: ^2.0.0\n');
-    expect(file('pnpm-lock.yaml')).toBe(LOCK);
+    expect(file('pnpm-lock.yaml')).toBe(lock);
   });
 
   it('ignores a new advisory without a fix on request, with nothing to install', async () => {
@@ -253,11 +253,11 @@ describe('runSecurityPass', () => {
     writeFileSync(join(repo, 'pnpm-workspace.yaml'), 'overrides:\n  stale@<1.0.1: ^1.0.1\n  needed@<2.0.0: ^2.0.0\n');
     prompts.confirm.mockRejectedValue(new Error('User force closed the prompt'));
 
-    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits: EDITS });
+    await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440, edits });
 
     expect(file('pnpm-workspace.yaml')).toContain('stale@<1.0.1');
-    expect(file('package.json')).toBe(MANIFEST);
-    expect(file('Dockerfile')).toBe(DOCKERFILE);
+    expect(file('package.json')).toBe(manifest);
+    expect(file('Dockerfile')).toBe(dockerfile);
     expect(world.installs).toEqual([]);
   });
 });

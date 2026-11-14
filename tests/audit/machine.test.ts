@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { type LocalTools, planLocalTools } from '../../src/audit/machine';
 
-const NOW = Date.parse('2026-10-24T14:00:00Z');
-const ago = (hours: number) => NOW - hours * 60 * 60 * 1000;
+const now = Date.parse('2026-10-24T14:00:00Z');
+const ago = (hours: number) => now - hours * 60 * 60 * 1000;
 const iso = (hours: number) => new Date(ago(hours)).toISOString();
 
 describe('local tools', () => {
@@ -35,7 +35,7 @@ describe('local tools', () => {
       pnpm: pnpm(pnpmVersion),
       gh: { version: '2.69.0', installer: 'brew', releases: null, advisories: ['low', 'high', 'low'] },
     });
-    const options = { releaseAgeMinutes: 1440, now: NOW };
+    const options = { releaseAgeMinutes: 1440, now };
 
     expect(planLocalTools(tools('10.12.3'), options)).toEqual([
       { name: 'node', version: '26.12.0', severity: 'high', note: '1 security release', fix: 'update to 26.12.1' },

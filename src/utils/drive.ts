@@ -24,7 +24,7 @@ export interface Session {
 
 export interface MintOptions {
   /** The app's root; default the current directory. */
-  forkPath?: string;
+  repoRoot?: string;
   /** The environment the mint script runs in: a testbed's names its database. Default this process's. */
   env?: NodeJS.ProcessEnv;
   /** Session lifetime; default 2. */
@@ -32,16 +32,16 @@ export interface MintOptions {
 }
 
 /** Playwright as the app's frontend installed it, so the CLI ships none. */
-export function loadPlaywright(forkPath = process.cwd()): Promise<Playwright> {
-  return importFromWorkspace<Playwright>(forkPath, 'frontend', 'playwright');
+export function loadPlaywright(repoRoot = process.cwd()): Promise<Playwright> {
+  return importFromWorkspace<Playwright>(repoRoot, 'frontend', 'playwright');
 }
 
 /**
  * Checks that Playwright has its Chromium, before anything slow starts.
  * @throws with the install command when it has none
  */
-export async function requireChromium(forkPath = process.cwd()): Promise<void> {
-  const { chromium } = await loadPlaywright(forkPath);
+export async function requireChromium(repoRoot = process.cwd()): Promise<void> {
+  const { chromium } = await loadPlaywright(repoRoot);
   if (!existsSync(chromium.executablePath())) {
     throw new Error('Playwright has no Chromium yet: run `pnpm --filter frontend exec playwright install chromium`');
   }
@@ -53,9 +53,9 @@ export async function requireChromium(forkPath = process.cwd()): Promise<void> {
  * in, so a testbed's shifted ports and a linked worktree's are written down nowhere.
  * @throws when the script prints no session, as for an email with no user
  */
-export function mintSession(email: string, { forkPath = process.cwd(), env, hours = 2 }: MintOptions = {}): Session {
+export function mintSession(email: string, { repoRoot = process.cwd(), env, hours = 2 }: MintOptions = {}): Session {
   const minted = spawnSync('pnpm', ['--silent', '--filter', 'backend', 'session:mint', email, String(hours)], {
-    cwd: forkPath,
+    cwd: repoRoot,
     env,
     encoding: 'utf8',
   });

@@ -7,7 +7,7 @@
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { CellaCliConfig } from '../../src/config/types';
-import { CONFIG_FILE, isManagedFile } from '../../src/upstream/managed-files';
+import { configFile, isManagedFile } from '../../src/upstream/managed-files';
 import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from '../../src/upstream/protection';
 import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from '../helpers/test-env';
 
@@ -121,13 +121,13 @@ describe('overrides', () => {
 
     beforeEach(() => {
       env = createTestEnv();
-      // Upstream has a ledger and a docs folder the fork keeps out, plus a folder the fork keeps
+      // Upstream has a ledger and a docs folder the app keeps out, plus a folder the app keeps
       makeCommit(env.upstreamPath, {
         files: { 'json/ledger.json': '{}\n', 'docs/guide.md': '# Guide\n', 'kept/file.ts': 'export {};\n' },
         message: 'feat: ledger and docs',
       });
-      fetchUpstream(env.forkPath);
-      makeCommit(env.forkPath, { files: { 'kept/file.ts': 'export {};\n' }, message: 'feat: kept' });
+      fetchUpstream(env.repoRoot);
+      makeCommit(env.repoRoot, { files: { 'kept/file.ts': 'export {};\n' }, message: 'feat: kept' });
     });
 
     afterEach(() => {
@@ -136,68 +136,68 @@ describe('overrides', () => {
 
     const ignored = ['json/ledger.json', 'docs/', 'kept', 'never/existed'];
 
-    it('warns about an ignored entry only when the path is in neither the fork nor upstream', async () => {
-      const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
+    it('warns about an ignored entry only when the path is in neither the app nor upstream', async () => {
+      const warnings = await validateOverrides(buildConfig({ ignored }), env.repoRoot, 'cella-upstream/main');
       expect(warnings).toEqual(['ignored entry not found: never/existed']);
     });
 
     it('warns once upstream no longer has the path either', async () => {
       deleteFileAndCommit(env.upstreamPath, 'json/ledger.json', 'chore: drop ledger');
-      fetchUpstream(env.forkPath);
+      fetchUpstream(env.repoRoot);
 
-      const warnings = await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/main');
+      const warnings = await validateOverrides(buildConfig({ ignored }), env.repoRoot, 'cella-upstream/main');
       expect(warnings).toEqual(['ignored entry not found: json/ledger.json', 'ignored entry not found: never/existed']);
     });
 
-    it('warns about every ignored entry missing from the fork while no upstream ref resolves', async () => {
+    it('warns about every ignored entry missing from the app while no upstream ref resolves', async () => {
       const missing = ['json/ledger.json', 'docs/', 'never/existed'].map(
         (entry) => `ignored entry not found: ${entry}`,
       );
-      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath, 'cella-upstream/unfetched')).toEqual(
+      expect(await validateOverrides(buildConfig({ ignored }), env.repoRoot, 'cella-upstream/unfetched')).toEqual(
         missing,
       );
-      expect(await validateOverrides(buildConfig({ ignored }), env.forkPath)).toEqual(missing);
+      expect(await validateOverrides(buildConfig({ ignored }), env.repoRoot)).toEqual(missing);
     });
 
-    it('warns about a pin only when the path is in neither the fork nor upstream, and about globs', async () => {
+    it('warns about a pin only when the path is in neither the app nor upstream, and about globs', async () => {
       const config = buildConfig({ pinned: ['json/ledger.json', 'never/was.json', 'src/*.ts'], ignored: ['docs/*'] });
-      // json/ledger.json is upstream's: the merge brings it as the fork's first copy, so no warning.
-      const warnings = await validateOverrides(config, env.forkPath, 'cella-upstream/main');
+      // json/ledger.json is upstream's: the merge brings it as the app's first copy, so no warning.
+      const warnings = await validateOverrides(config, env.repoRoot, 'cella-upstream/main');
       expect(warnings).toEqual([
         expect.stringMatching(/^pin not found: never\/was\.json$/),
         expect.stringMatching(/^pin uses glob .*: src\/\*\.ts$/),
         expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
       ]);
-      // Without a resolved upstream only the fork-side check runs, so both missing pins warn.
-      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toContainEqual(
+      // Without a resolved upstream only the app-side check runs, so both missing pins warn.
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toContainEqual(
         'pin not found: json/ledger.json',
       );
     });
 
     it('never warns about a missing generated path: it appears with its build step', async () => {
       const config = buildConfig({ ignored: ['shared/locales/resources.gen.d.ts', 'frontend/gen'] });
-      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([]);
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/main')).toEqual([]);
     });
 
     it('warns about pins that do nothing: ignored, gone from upstream, or identical to upstream', async () => {
-      makeCommit(env.forkPath, {
+      makeCommit(env.repoRoot, {
         files: {
           'own/file.ts': 'export const own = 1;\n',
-          'changed/file.ts': 'export const fork = 1;\n',
+          'changed/file.ts': 'export const app = 1;\n',
           'json/x.json': '{}\n',
         },
         message: 'feat: own files',
       });
       makeCommit(env.upstreamPath, { files: { 'changed/file.ts': 'export {};\n' }, message: 'feat: changed' });
       deleteFileAndCommit(env.upstreamPath, 'README.md', 'chore: drop readme');
-      fetchUpstream(env.forkPath);
+      fetchUpstream(env.repoRoot);
       const config = buildConfig({
         pinned: ['kept/', 'own/file.ts', 'README.md', 'changed', 'json/x.json'],
         ignored: ['json'],
       });
 
       // The warning said "no longer has it" for a path upstream never had
-      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).toEqual([
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/main')).toEqual([
         'pin does nothing, upstream has no such file: own/file.ts',
         'pin does nothing, upstream no longer has it: README.md',
         "pin does nothing, 'json' is ignored: json/x.json",
@@ -205,15 +205,15 @@ describe('overrides', () => {
       ]);
       // A pin upstream's own config lists is the template's file for the app to fill in
       makeCommit(env.upstreamPath, {
-        files: { [CONFIG_FILE]: "export default { overrides: { pinned: ['kept/'], ignored: [] } };\n" },
+        files: { [configFile]: "export default { overrides: { pinned: ['kept/'], ignored: [] } };\n" },
         message: 'chore: upstream pins kept',
       });
-      fetchUpstream(env.forkPath);
-      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/main')).not.toContainEqual(
+      fetchUpstream(env.repoRoot);
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/main')).not.toContainEqual(
         expect.stringContaining('pin is identical'),
       );
-      // Before the first fetch only the fork-side checks run
-      expect(await validateOverrides(config, env.forkPath, 'cella-upstream/unfetched')).toEqual([
+      // Before the first fetch only the app-side checks run
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toEqual([
         "pin does nothing, 'json' is ignored: json/x.json",
       ]);
     });

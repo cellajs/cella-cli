@@ -1,5 +1,5 @@
 /** The variable that hands the app's bench entry what `pnpm cella bench` asks of it, as JSON. */
-export const BENCH_REQUEST_ENV = 'CELLA_BENCH';
+export const benchRequestEnv = 'CELLA_BENCH';
 
 /** What `pnpm cella bench` asks of the app's bench entry. */
 export interface BenchRequest {

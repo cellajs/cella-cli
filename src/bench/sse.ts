@@ -1,10 +1,10 @@
 import { performance } from 'node:perf_hooks';
-import { COUNTED, errorCode } from './http';
+import { counted, errorCode } from './http';
 import type { Metrics } from './metrics';
 import type { SseEvent, SseOptions } from './types';
 
 /** Time to the response headers of a stream: past it the connect counts as a timeout. */
-const CONNECT_TIMEOUT_MS = 10_000;
+const connectTimeoutMs = 10_000;
 
 /**
  * An incremental `text/event-stream` parser: feed it decoded text in any chunking, it calls `onEvent` per dispatched
@@ -67,9 +67,9 @@ export async function readSse(
   const timer = setTimeout(
     () =>
       connect.abort(
-        Object.assign(new Error(`${label} sent no headers in ${CONNECT_TIMEOUT_MS} ms`), { code: 'ETIMEDOUT' }),
+        Object.assign(new Error(`${label} sent no headers in ${connectTimeoutMs} ms`), { code: 'ETIMEDOUT' }),
       ),
-    CONNECT_TIMEOUT_MS,
+    connectTimeoutMs,
   );
   const started = performance.now();
   stats.requests++;
@@ -88,7 +88,7 @@ export async function readSse(
       metrics.counter('http.timeouts');
     } else stats.errors++;
     metrics.counter(`errors.${code}`);
-    throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), { [COUNTED]: true });
+    throw Object.assign(cause instanceof Error ? cause : new Error(String(cause)), { [counted]: true });
   }
   clearTimeout(timer);
   metrics.response(label, res.status, performance.now() - started);

@@ -19,13 +19,13 @@ import {
 } from '@inquirer/core';
 import { select } from '@inquirer/prompts';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from '../config/forks';
-import { DEFAULT_BRANCH, isUpstreamRepo, loadConfig } from '../config/load';
+import { defaultBranch, isUpstreamRepo, loadConfig } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import {
   checkMark,
   createSpinner,
-  DIVIDER,
+  divider,
   spinnerFail,
   spinnerSuccess,
   warningMark,
@@ -276,22 +276,22 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
 
   // Compare forks against cella's currently checked-out branch, not a fixed
   // configured branch, so contributions reflect the branch you're working on.
-  const baseRef = await getCurrentBranch(config.forkPath);
+  const baseRef = await getCurrentBranch(config.repoRoot);
 
   // Warn when not on cella's base branch. The comparison is a 3-way analysis against
   // merge-base(baseRef, fork), so a long-lived feature branch has an older merge-base
   // than 'main' and may surface extra 'diverged' files that would show clean from main.
-  if (baseRef !== DEFAULT_BRANCH) {
+  if (baseRef !== defaultBranch) {
     console.info(
-      `${warningMark} ${pc.yellow(`not on base branch '${DEFAULT_BRANCH}'`)} ${pc.dim(`comparing forks against '${baseRef}'`)}`,
+      `${warningMark} ${pc.yellow(`not on base branch '${defaultBranch}'`)} ${pc.dim(`comparing forks against '${baseRef}'`)}`,
     );
     console.info(
-      `  ${pc.dim(`older merge-base may show extra 'diverged' files; switch to '${DEFAULT_BRANCH}' for the cleanest result`)}`,
+      `  ${pc.dim(`older merge-base may show extra 'diverged' files; switch to '${defaultBranch}' for the cleanest result`)}`,
     );
     console.info('');
   }
 
-  const forkBasePath = await resolveForkBasePath(config.forkPath);
+  const forkBasePath = await resolveForkBasePath(config.repoRoot);
   const validated = forks.map((fork) => validateForkPath(fork, forkBasePath));
 
   const selectedFork = await selectFork(config, validated);
@@ -307,9 +307,9 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
 
   try {
     // Prefer the fork's remote (authoritative committed ref) over the local clone.
-    await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], config.forkPath);
-    const forkRef = await git(['rev-parse', 'FETCH_HEAD'], config.forkPath);
-    const meta = await forkRefMeta(config.forkPath, forkRef);
+    await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], config.repoRoot);
+    const forkRef = await git(['rev-parse', 'FETCH_HEAD'], config.repoRoot);
+    const meta = await forkRefMeta(config.repoRoot, forkRef);
     forkBanner = { pullBranch: fork.pullBranch, sha: meta.sha, date: meta.date };
 
     // Read the fork's own owned folders so its fork-specific modules aren't offered back
@@ -321,12 +321,12 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
       // Fork may not have a cella/cella.config.ts: no extra territory to exclude
     }
 
-    const files = await detectContributableFiles(config.forkPath, baseRef, forkRef, config, forkTerritory);
+    const files = await detectContributableFiles(config.repoRoot, baseRef, forkRef, config, forkTerritory);
     if (files.length > 0) {
-      const built = await buildContribBranch(config.forkPath, baseRef, forkRef, files, forkName);
+      const built = await buildContribBranch(config.repoRoot, baseRef, forkRef, files, forkName);
       if (built.appliedFiles.length > 0) {
         branch = built.branch;
-        const stat = await getDiffStat(config.forkPath, baseRef, branch);
+        const stat = await getDiffStat(config.repoRoot, baseRef, branch);
         for (const file of files) {
           const { additions = null, deletions = null } = stat.get(file.path) ?? {};
           allItems.push({ ...file, additions, deletions, checked: false });
@@ -375,7 +375,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
   }
 
   console.info();
-  console.info(DIVIDER);
+  console.info(divider);
 
   const selected = await contribPrompt({
     message: `contributions from ${forkName}`,
@@ -383,7 +383,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
     forkName,
     baseRef,
     branch,
-    cwd: config.forkPath,
+    cwd: config.repoRoot,
   });
 
   if (selected.length === 0) {
@@ -393,7 +393,7 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
 
   // Apply selected files into the working tree (unstaged in upstream cella, staged in a fork)
   createSpinner(`applying ${selected.length} files...`);
-  const applyUnstaged = isUpstreamRepo(config.forkPath);
+  const applyUnstaged = isUpstreamRepo(config.repoRoot);
 
   let applied = 0;
   const errors: string[] = [];
@@ -407,15 +407,15 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
       }
       if (item.kind === 'deleted') {
         if (applyUnstaged) {
-          await removeFileFromWorktree(config.forkPath, item.path);
+          await removeFileFromWorktree(config.repoRoot, item.path);
         } else {
-          await gitRm(config.forkPath, [item.path]);
+          await gitRm(config.repoRoot, [item.path]);
         }
       } else {
         if (applyUnstaged) {
-          await restoreWorktreeFromRef(config.forkPath, branch, item.path);
+          await restoreWorktreeFromRef(config.repoRoot, branch, item.path);
         } else {
-          await checkoutFromRef(config.forkPath, branch, [item.path]);
+          await checkoutFromRef(config.repoRoot, branch, [item.path]);
         }
       }
       applied++;

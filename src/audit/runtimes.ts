@@ -68,24 +68,24 @@ export interface RuntimeUpdate {
   severity: 'high' | 'moderate' | null;
   note: string;
   releasesUrl: string;
-  pin: { kind: 'node' } | { kind: 'pnpm' } | { kind: 'image'; line: number; ref: string; to: string };
+  pin: { type: 'node' } | { type: 'pnpm' } | { type: 'image'; line: number; ref: string; to: string };
 }
 
-const DAY = 24 * 60 * 60 * 1000;
+const day = 24 * 60 * 60 * 1000;
 
 /** A tag without a push for this long, while a newer line got one, gets no more fixes. */
-const FROZEN_AFTER = 180 * DAY;
-const RECENT_PUSH = 30 * DAY;
+const frozenAfter = 180 * day;
+const recentPush = 30 * day;
 
-const EXACT_VERSION = /^\d+\.\d+\.\d+$/;
+const exactVersion = /^\d+\.\d+\.\d+$/;
 
-const FROM_LINE = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?\s*$/i;
+const fromLine = /^\s*FROM\s+(?:--platform=\S+\s+)?(\S+)(?:\s+AS\s+(\S+))?\s*$/i;
 
 /** `FROM node:${NODE_VERSION}-alpine`: the version comes from a build argument. */
-const NODE_ARG_TAG = /^(?:docker\.io\/)?(?:library\/)?node:\$\{?\w+\}?([\w.-]*)$/;
+const nodeArgTag = /^(?:docker\.io\/)?(?:library\/)?node:\$\{?\w+\}?([\w.-]*)$/;
 
 /** A tag naming at least a minor (`2.8`, `2.8.4`), with an optional suffix (`-alpine`). */
-const MINOR_TAG = /^(\d+(?:\.\d+){1,2})(-[\w.-]+)?$/;
+const minorTag = /^(\d+(?:\.\d+){1,2})(-[\w.-]+)?$/;
 
 const isDockerfile = (path: string): boolean => /(^|\.)Dockerfile$|^Dockerfile\./i.test(basename(path));
 
@@ -96,14 +96,14 @@ export function parseDockerfile(file: string, content: string): { images: ImageP
   const stages = new Set<string>();
 
   content.split('\n').forEach((text, line) => {
-    const match = text.match(FROM_LINE);
+    const match = text.match(fromLine);
     if (!match) return;
     const [, ref, stage] = match;
     const fromStage = stages.has(ref.toLowerCase());
     if (stage) stages.add(stage.toLowerCase());
     if (fromStage || ref.includes('@')) return;
 
-    const nodeArg = ref.match(NODE_ARG_TAG);
+    const nodeArg = ref.match(nodeArgTag);
     if (nodeArg) {
       nodeImageSuffixes.push(nodeArg[1]);
       return;
@@ -126,23 +126,23 @@ export function parseDockerfile(file: string, content: string): { images: ImageP
 }
 
 /** The exact Node and pnpm pins of the root package.json, and the image tags of every tracked Dockerfile. */
-export async function readRuntimePins(forkPath: string): Promise<RuntimePins> {
+export async function readRuntimePins(repoRoot: string): Promise<RuntimePins> {
   let manifest: { engines?: { node?: string }; packageManager?: string } = {};
   try {
-    manifest = JSON.parse(readFileSync(join(forkPath, 'package.json'), 'utf8'));
+    manifest = JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
   } catch {
     // No root manifest: nothing pinned there.
   }
   const node = manifest.engines?.node?.trim() ?? '';
   const pnpm = manifest.packageManager?.match(/^pnpm@(\d+\.\d+\.\d+)(?:\+.*)?$/)?.[1] ?? null;
 
-  const tracked = (await git(['ls-files', '-z'], forkPath, { ignoreErrors: true })).split('\0').filter(isDockerfile);
+  const tracked = (await git(['ls-files', '-z'], repoRoot, { ignoreErrors: true })).split('\0').filter(isDockerfile);
   const images: ImagePin[] = [];
   const nodeImageSuffixes = new Set<string>();
   for (const file of tracked) {
     let content: string;
     try {
-      content = readFileSync(join(forkPath, file), 'utf8');
+      content = readFileSync(join(repoRoot, file), 'utf8');
     } catch {
       continue;
     }
@@ -152,7 +152,7 @@ export async function readRuntimePins(forkPath: string): Promise<RuntimePins> {
   }
 
   return {
-    node: EXACT_VERSION.test(node) ? node : null,
+    node: exactVersion.test(node) ? node : null,
     pnpm,
     images,
     nodeImageSuffixes: [...nodeImageSuffixes],
@@ -197,7 +197,7 @@ export async function fetchNodeReleases(major: number, now: number): Promise<Nod
 
   await Promise.all(
     releases
-      .filter((release) => now - release.publishedAt < 2 * DAY)
+      .filter((release) => now - release.publishedAt < 2 * day)
       .map(async (release) => {
         try {
           const response = await fetch(`https://nodejs.org/dist/v${release.version}/SHASUMS256.txt`, {
@@ -205,9 +205,9 @@ export async function fetchNodeReleases(major: number, now: number): Promise<Nod
             signal: AbortSignal.timeout(10_000),
           });
           const modified = Date.parse(response.headers.get('last-modified') ?? '');
-          release.publishedAt = Number.isNaN(modified) ? release.publishedAt + DAY : modified;
+          release.publishedAt = Number.isNaN(modified) ? release.publishedAt + day : modified;
         } catch {
-          release.publishedAt += DAY;
+          release.publishedAt += day;
         }
       }),
   );
@@ -215,7 +215,7 @@ export async function fetchNodeReleases(major: number, now: number): Promise<Nod
 }
 
 async function fetchImageTags(pin: ImagePin): Promise<{ pinned: HubTag | null; tags: HubTag[] } | null> {
-  const shape = pin.tag.match(MINOR_TAG);
+  const shape = pin.tag.match(minorTag);
   if (!shape) return null;
   const base = `https://hub.docker.com/v2/repositories/${hubRepository(pin.image)}/tags`;
   const filter = shape[2] ?? `${shape[1].split('.')[0]}.`;
@@ -299,7 +299,7 @@ export function planRuntimeUpdates(
         severity: security ? 'high' : null,
         note: security ? 'security release' : '',
         releasesUrl: `https://nodejs.org/en/blog/release/v${target.version}`,
-        pin: { kind: 'node' },
+        pin: { type: 'node' },
       });
     }
   }
@@ -326,13 +326,13 @@ export function planRuntimeUpdates(
         severity: fixed > 0 ? 'high' : null,
         note: fixed > 0 ? plural(fixed, 'advisory', 'advisories') : '',
         releasesUrl: `https://github.com/pnpm/pnpm/releases/tag/v${target.version}`,
-        pin: { kind: 'pnpm' },
+        pin: { type: 'pnpm' },
       });
     }
   }
 
   pins.images.forEach((pin, i) => {
-    const shape = pin.tag.match(MINOR_TAG);
+    const shape = pin.tag.match(minorTag);
     if (!shape) return;
     const feed = feeds.images[i];
     if (!feed) {
@@ -343,7 +343,7 @@ export function planRuntimeUpdates(
     const parts = version.split('.').length;
     const major = version.split('.')[0];
     const target = feed.tags
-      .map((tag) => ({ tag, match: tag.name.match(MINOR_TAG) }))
+      .map((tag) => ({ tag, match: tag.name.match(minorTag) }))
       .filter(
         ({ match }) =>
           match &&
@@ -357,8 +357,8 @@ export function planRuntimeUpdates(
 
     const frozen =
       !!feed.pinned &&
-      options.now - feed.pinned.pushedAt > FROZEN_AFTER &&
-      options.now - target.tag.pushedAt < RECENT_PUSH;
+      options.now - feed.pinned.pushedAt > frozenAfter &&
+      options.now - target.tag.pushedAt < recentPush;
     const repository = hubRepository(pin.image);
     updates.push({
       name: pin.image,
@@ -370,7 +370,7 @@ export function planRuntimeUpdates(
       releasesUrl: repository.startsWith('library/')
         ? `https://hub.docker.com/_/${pin.image}/tags`
         : `https://hub.docker.com/r/${repository}/tags`,
-      pin: { kind: 'image', line: pin.line, ref: `${pin.image}:${pin.tag}`, to: `${pin.image}:${target.tag.name}` },
+      pin: { type: 'image', line: pin.line, ref: `${pin.image}:${pin.tag}`, to: `${pin.image}:${target.tag.name}` },
     });
   });
 
@@ -380,13 +380,13 @@ export function planRuntimeUpdates(
 /** The file content with the update's pin moved to its target. */
 export function applyRuntimeUpdate(content: string, update: RuntimeUpdate): string {
   const { pin } = update;
-  if (pin.kind === 'image') {
+  if (pin.type === 'image') {
     const lines = content.split('\n');
     lines[pin.line] = lines[pin.line].replace(pin.ref, pin.to);
     return lines.join('\n');
   }
   return editJsonText(content, (json) => {
-    if (pin.kind === 'node') (json.engines as Record<string, string>).node = update.target;
+    if (pin.type === 'node') (json.engines as Record<string, string>).node = update.target;
     // A `+sha` suffix names the old version's tarball, so it goes.
     else json.packageManager = `pnpm@${update.target}`;
   });

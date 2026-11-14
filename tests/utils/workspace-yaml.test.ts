@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { readAuditSettings, readPatchFiles, writeAuditSettings } from '../../src/utils/workspace-yaml';
 
 /** Shaped like a workspace file pnpm maintains: sorted settings, plain scalars where YAML allows. */
-const SORTED = `---
+const sorted = `---
 allowBuilds:
   esbuild: true
 auditConfig:
@@ -22,7 +22,7 @@ patchedDependencies:
 `;
 
 /** Shaped like a hand-written one: comments, quotes, its own order. */
-const HAND_WRITTEN = `# Supply-chain guard.
+const handWritten = `# Supply-chain guard.
 minimumReleaseAge: 1440
 
 overrides:
@@ -35,7 +35,7 @@ allowBuilds:
 
 describe('readAuditSettings', () => {
   it('reads overrides, release-age excludes and ignored advisories', () => {
-    expect(readAuditSettings(SORTED)).toEqual({
+    expect(readAuditSettings(sorted)).toEqual({
       overrides: { 'csv-parse@<7.0.2': '^7.0.2', 'shell-quote@>=1.8.4 <1.11.0': '^1.11.0' },
       releaseAgeExcludes: ['@cellajs/cli', 'moment@2.31.0'],
       ignoredGhsas: ['GHSA-vfj7-8cjw-p6xm'],
@@ -44,7 +44,7 @@ describe('readAuditSettings', () => {
 
   it('reads missing blocks, and an empty file, as empty', () => {
     const empty = { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: [] };
-    expect(readAuditSettings(HAND_WRITTEN).releaseAgeExcludes).toEqual([]);
+    expect(readAuditSettings(handWritten).releaseAgeExcludes).toEqual([]);
     expect(readAuditSettings('')).toEqual(empty);
     expect(readAuditSettings('auditConfig: {}\n')).toEqual(empty);
   });
@@ -54,18 +54,18 @@ describe('readAuditSettings', () => {
   });
 
   it('lists the patch files a resolve needs', () => {
-    expect(readPatchFiles(SORTED)).toEqual(['patches/artillery@2.0.34.patch']);
+    expect(readPatchFiles(sorted)).toEqual(['patches/artillery@2.0.34.patch']);
   });
 });
 
 describe('writeAuditSettings', () => {
   it('returns the content byte for byte when nothing changes', () => {
-    expect(writeAuditSettings(SORTED, readAuditSettings(SORTED))).toBe(SORTED);
-    expect(writeAuditSettings(HAND_WRITTEN, readAuditSettings(HAND_WRITTEN))).toBe(HAND_WRITTEN);
+    expect(writeAuditSettings(sorted, readAuditSettings(sorted))).toBe(sorted);
+    expect(writeAuditSettings(handWritten, readAuditSettings(handWritten))).toBe(handWritten);
   });
 
   it('removes and adds entries in place, new keys in sorted position and quoted where YAML needs it', () => {
-    const next = writeAuditSettings(SORTED, {
+    const next = writeAuditSettings(sorted, {
       overrides: {
         'shell-quote@>=1.8.4 <1.11.0': '^1.11.0',
         '@scope/pkg@<1.2.3': '^1.2.3',
@@ -90,7 +90,7 @@ overrides:`);
   });
 
   it('drops a block that ends up empty, and an auditConfig left without keys', () => {
-    const next = writeAuditSettings(SORTED, { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: [] });
+    const next = writeAuditSettings(sorted, { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: [] });
 
     expect(next).not.toMatch(/overrides|minimumReleaseAgeExclude|auditConfig/);
     expect(next).toContain('minimumReleaseAge: 1440\npackages:');
@@ -103,13 +103,13 @@ overrides:`);
     expect(writeAuditSettings(sorted, { ...readAuditSettings(sorted), ignoredGhsas })).toBe(
       'allowBuilds:\n  esbuild: true\nauditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\npackages:\n  - backend\n',
     );
-    expect(writeAuditSettings(HAND_WRITTEN, { ...readAuditSettings(HAND_WRITTEN), ignoredGhsas })).toBe(
-      `${HAND_WRITTEN}auditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\n`,
+    expect(writeAuditSettings(handWritten, { ...readAuditSettings(handWritten), ignoredGhsas })).toBe(
+      `${handWritten}auditConfig:\n  ignoreGhsas:\n    - GHSA-aaaa-bbbb-cccc\n`,
     );
   });
 
   it('keeps comments and quoting of the entries it leaves alone', () => {
-    const next = writeAuditSettings(HAND_WRITTEN, {
+    const next = writeAuditSettings(handWritten, {
       overrides: { 'esbuild@<0.28.1': '>=0.28.1', 'braces@<=3.0.3': '^3.0.4' },
       releaseAgeExcludes: [],
       ignoredGhsas: [],

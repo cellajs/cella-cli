@@ -12,13 +12,13 @@ import {
 } from '../../src/audit/security-plan';
 import { isBreakingJump, satisfiesComparators } from '../../src/utils/versions';
 
-const HOUR = 3_600_000;
-const NOW = Date.parse('2026-10-13T12:00:00Z');
-const OLD = '2024-01-01T00:00:00Z';
+const hour = 3_600_000;
+const now = Date.parse('2026-10-13T12:00:00Z');
+const old = '2024-01-01T00:00:00Z';
 
 /** Publish times for a list of versions, all long ago unless given a time. */
 const published = (versions: string[], times: Record<string, string> = {}) =>
-  Object.fromEntries(versions.map((version) => [version, times[version] ?? OLD]));
+  Object.fromEntries(versions.map((version) => [version, times[version] ?? old]));
 
 const advisory = (
   partial: Partial<Advisory> & Pick<Advisory, 'ghsa' | 'module' | 'range' | 'installed'>,
@@ -35,7 +35,7 @@ const plan = (input: Partial<PlanInput>) =>
     published: {},
     previous: { overrides: {}, releaseAgeExcludes: [], ignoredGhsas: [] },
     releaseAgeMinutes: 1440,
-    now: NOW,
+    now: now,
     ...input,
   });
 
@@ -121,7 +121,7 @@ describe('planSecurity', () => {
       previous: { overrides: { 'braces@<=3.0.3': '^3.0.4' }, releaseAgeExcludes: ['braces@3.0.4'], ignoredGhsas: [] },
     });
 
-    expect(item.remedy).toEqual({ kind: 'none' });
+    expect(item.remedy).toEqual({ type: 'none' });
     expect(item.standing).toBe('new');
     expect(item.overrides).toEqual({});
   });
@@ -138,7 +138,7 @@ describe('planSecurity', () => {
     });
 
     expect(rest).toEqual([]);
-    expect(item.remedy).toEqual({ kind: 'override', target: '4.3.2', breaking: false });
+    expect(item.remedy).toEqual({ type: 'override', target: '4.3.2', breaking: false });
     expect(item.standing).toBe('carried');
     expect(item.overrides).toEqual({
       'js-yaml@>=4.0.0 <4.3.0': '^4.3.2',
@@ -164,7 +164,7 @@ describe('planSecurity', () => {
       },
     });
 
-    expect(items.map((item) => [item.module, item.standing, item.remedy.kind])).toEqual([
+    expect(items.map((item) => [item.module, item.standing, item.remedy.type])).toEqual([
       ['csv-parse', 'carried', 'override'],
       ['esbuild', 'carried', 'override'],
     ]);
@@ -179,23 +179,23 @@ describe('planSecurity', () => {
     });
 
     expect(item.standing).toBe('new');
-    expect(item.remedy).toEqual({ kind: 'override', target: '7.0.2', breaking: true });
+    expect(item.remedy).toEqual({ type: 'override', target: '7.0.2', breaking: true });
     expect(item.overrides).toEqual({ 'csv-parse@<7.0.2': '^7.0.2' });
   });
 
   it('holds back a fix younger than the release age, unless an exclude names it', () => {
     const input = {
       advisories: [advisory({ ghsa: 'GHSA-new', module: 'pkg', range: '<2.1.1', installed: ['2.1.0'] })],
-      published: { pkg: published(['2.1.0', '2.1.1'], { '2.1.1': new Date(NOW - 5 * HOUR).toISOString() }) },
+      published: { pkg: published(['2.1.0', '2.1.1'], { '2.1.1': new Date(now - 5 * hour).toISOString() }) },
     };
 
-    expect(plan(input)[0].remedy).toEqual({ kind: 'fresh', target: '2.1.1', breaking: false, hoursOld: 5 });
+    expect(plan(input)[0].remedy).toEqual({ type: 'fresh', target: '2.1.1', breaking: false, hoursOld: 5 });
 
     const excluded = plan({
       ...input,
       previous: { overrides: {}, releaseAgeExcludes: ['pkg@2.1.1'], ignoredGhsas: [] },
     });
-    expect(excluded[0].remedy.kind).toBe('override');
+    expect(excluded[0].remedy.type).toBe('override');
   });
 
   it('skips prereleases and versions inside another advisory range when picking the fix', () => {
@@ -207,7 +207,7 @@ describe('planSecurity', () => {
       published: { pkg: published(['1.1.0', '1.2.0', '1.2.2-beta.1', '1.2.2', '1.3.0']) },
     });
 
-    expect(item.remedy).toMatchObject({ kind: 'override', target: '1.2.2' });
+    expect(item.remedy).toMatchObject({ type: 'override', target: '1.2.2' });
   });
 
   it('fixes what it can when no release escapes every advisory of a package', () => {
@@ -219,7 +219,7 @@ describe('planSecurity', () => {
       published: { pkg: published(['1.5.0', '2.0.0', '2.1.0']) },
     });
 
-    expect(items.map((item) => [item.ghsas, item.remedy.kind])).toEqual([
+    expect(items.map((item) => [item.ghsas, item.remedy.type])).toEqual([
       [['GHSA-old'], 'override'],
       [['GHSA-all'], 'none'],
     ]);
@@ -233,12 +233,12 @@ describe('planSecurity', () => {
         advisory({ ghsa: 'GHSA-new', module: 'pkg', range: '<7.0.5', installed: ['4.16.3'] }),
       ],
       published: {
-        pkg: published(['4.16.3', '7.0.2', '7.0.4', '7.0.5'], { '7.0.5': new Date(NOW - 3 * HOUR).toISOString() }),
+        pkg: published(['4.16.3', '7.0.2', '7.0.4', '7.0.5'], { '7.0.5': new Date(now - 3 * hour).toISOString() }),
       },
       previous: { overrides: { 'pkg@<7.0.2': '^7.0.2' }, releaseAgeExcludes: [], ignoredGhsas: [] },
     });
 
-    expect(items.map((item) => [item.ghsas, item.remedy.kind, item.standing])).toEqual([
+    expect(items.map((item) => [item.ghsas, item.remedy.type, item.standing])).toEqual([
       [['GHSA-old'], 'override', 'carried'],
       [['GHSA-new'], 'fresh', 'new'],
     ]);
@@ -282,7 +282,7 @@ describe('liveExcludes', () => {
     const kept = liveExcludes({
       published: {
         moment: published(['2.31.0']),
-        pkg: published(['2.1.1'], { '2.1.1': new Date(NOW - 5 * HOUR).toISOString() }),
+        pkg: published(['2.1.1'], { '2.1.1': new Date(now - 5 * hour).toISOString() }),
         braces: published(['3.0.3']),
       },
       previous: {
@@ -291,7 +291,7 @@ describe('liveExcludes', () => {
         ignoredGhsas: [],
       },
       releaseAgeMinutes: 1440,
-      now: NOW,
+      now: now,
     });
 
     // moment has aged, braces@3.0.4 was never published; `silent` got no registry answer and stays.

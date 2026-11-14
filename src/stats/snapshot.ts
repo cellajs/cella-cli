@@ -8,7 +8,7 @@
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import pc from '../utils/colors';
-import { createSpinner, DIVIDER, spinnerSuccess } from '../utils/display';
+import { createSpinner, divider, spinnerSuccess } from '../utils/display';
 import { git } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import { readTopLevel } from '../utils/workspace-yaml';
@@ -44,8 +44,8 @@ interface WorkspacePackage {
 }
 
 /** Workspace package names and path prefixes from pnpm-workspace.yaml; none without that file. */
-export async function getWorkspacePackages(forkPath: string): Promise<WorkspacePackage[]> {
-  const content = await readFile(join(forkPath, 'pnpm-workspace.yaml'), 'utf8').catch(() => '');
+export async function getWorkspacePackages(repoRoot: string): Promise<WorkspacePackage[]> {
+  const content = await readFile(join(repoRoot, 'pnpm-workspace.yaml'), 'utf8').catch(() => '');
   const patterns = readTopLevel(content, 'packages');
 
   return (Array.isArray(patterns) ? patterns.map(String) : []).map((pattern) => {
@@ -114,11 +114,11 @@ export function matchPackage(filePath: string, packages: WorkspacePackage[]): st
 const sourcePathspecs = [...sourceExtensions].map((ext) => `*.${ext}`);
 
 /** File and LOC stats for the repository; one `git grep -c ''` call yields paths and line counts. */
-async function collectStats(forkPath: string): Promise<StatsResult> {
+async function collectStats(repoRoot: string): Promise<StatsResult> {
   // Tracked source files with line counts (respects .gitignore, ~15ms).
-  const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], forkPath, { ignoreErrors: true });
+  const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], repoRoot, { ignoreErrors: true });
 
-  const packages = await getWorkspacePackages(forkPath);
+  const packages = await getWorkspacePackages(repoRoot);
 
   // Parse "path:count" lines
   const entries: { path: string; loc: number }[] = [];
@@ -201,7 +201,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   }
 
   console.info();
-  console.info(DIVIDER);
+  console.info(divider);
   console.info();
 
   const header = verbose
@@ -224,12 +224,12 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
 }
 
-export async function runStats(forkPath: string, verbose: boolean): Promise<void> {
+export async function runStats(repoRoot: string, verbose: boolean): Promise<void> {
   createSpinner('counting files...');
-  const stats = await collectStats(forkPath);
+  const stats = await collectStats(repoRoot);
   spinnerSuccess('counted raw lines of code');
 
   printStats(stats, verbose);
   console.info();
-  printCoverageSummary(forkPath);
+  printCoverageSummary(repoRoot);
 }

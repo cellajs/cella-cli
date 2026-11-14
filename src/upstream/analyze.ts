@@ -1,5 +1,5 @@
 /**
- * Analyze service: a dry run of sync that shows what would change without applying.
+ * Analyze service: a dry run of the upgrade that shows what would change without applying.
  */
 
 import type { MergeResult, RuntimeConfig } from '../config/types';
@@ -16,7 +16,7 @@ import {
 } from '../utils/display';
 import { alignmentsStep } from './align';
 import { printAnalysisFileGroups } from './analyze-report';
-import { CONFIG_FILE } from './managed-files';
+import { configFile } from './managed-files';
 import { readOriginGitHubUrl, runEngineWithSpinner } from './merge-engine';
 import { reportReviewPage, reviewStep } from './review-page';
 
@@ -30,18 +30,18 @@ const scopeStatuses: Record<'all' | 'risk' | 'protected', Set<string>> = {
  * Scope filter. Protected files upstream also changed (`upstreamChanged`, status `pinned` or
  * `ignored`) ride along in `all` and `protected`: they are the pins most worth reviewing. So do
  * ignored files only upstream changed (`upstreamOnly`), and the CLI config when upstream's
- * overrides changed in ways the fork config does not follow.
+ * overrides changed in ways the app config does not follow.
  */
 function filterByScope(result: MergeResult, scope: 'all' | 'risk' | 'protected'): MergeResult['files'] {
   const statuses = scopeStatuses[scope];
   if (scope === 'risk') return result.files.filter((f) => statuses.has(f.status));
-  const overridesChanged = result.upstreamOverrides?.kind === 'changes';
+  const overridesChanged = result.upstreamOverrides?.type === 'changes';
   return result.files.filter(
     (f) =>
       statuses.has(f.status) ||
       f.upstreamChanged === true ||
       f.upstreamOnly === true ||
-      (overridesChanged && f.path === CONFIG_FILE),
+      (overridesChanged && f.path === configFile),
   );
 }
 
@@ -55,7 +55,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   const scopedFiles = filterByScope(result, config.scope ?? 'all');
 
   if (config.json) {
-    const overrides = result.upstreamOverrides?.kind === 'changes' ? result.upstreamOverrides : undefined;
+    const overrides = result.upstreamOverrides?.type === 'changes' ? result.upstreamOverrides : undefined;
     const out = scopedFiles.map((f) => ({
       path: f.path,
       status: f.status,
@@ -67,9 +67,9 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
       upstreamChangedLines: f.upstreamChangedLines ?? null,
       upstreamLinesAbsent: f.upstreamLinesAbsent ?? null,
       upstreamOnly: f.upstreamOnly ?? false,
-      // Only on the CLI config: upstream override entries and packageJsonKeys the fork config does not follow
+      // Only on the CLI config: upstream override entries and packageJsonKeys the app config does not follow
       upstreamOverrides:
-        overrides && f.path === CONFIG_FILE
+        overrides && f.path === configFile
           ? { pinned: overrides.pinned, ignored: overrides.ignored, packageJsonKeys: overrides.packageJsonKeys }
           : null,
     }));
@@ -89,9 +89,9 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
     links: {
       upstreamGitHubUrl: result.upstreamGitHubUrl,
       upstreamSha: result.upstreamCommit?.hash,
-      forkGitHubUrl: await readOriginGitHubUrl(config.forkPath),
+      appGitHubUrl: await readOriginGitHubUrl(config.repoRoot),
       fileLinkMode: config.settings.fileLinkMode,
-      forkPath: config.forkPath,
+      repoRoot: config.repoRoot,
     },
     all: config.all,
     overrides: config.overrides,
@@ -101,10 +101,10 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
   printSummary(result.summary, 'analysis summary');
 
   const steps: NextStep[] = [];
-  const review = await reportReviewPage(config.forkPath, result, 'analyze');
+  const review = await reportReviewPage(config.repoRoot, result, 'analyze');
   if (review) steps.push(reviewStep(review));
-  const sync = syncStep(result);
-  if (sync) steps.push(sync);
+  const upgrade = upgradeStep(result);
+  if (upgrade) steps.push(upgrade);
   const align =
     result.alignments && result.upstreamCommit
       ? await alignmentsStep(config, {
@@ -120,7 +120,7 @@ export async function runAnalyze(config: RuntimeConfig): Promise<MergeResult> {
 }
 
 /** The `upgrade` step: what the upgrade would change, left out when upstream has nothing new. */
-function syncStep(result: MergeResult): NextStep | undefined {
+function upgradeStep(result: MergeResult): NextStep | undefined {
   if (!result.upstreamCommitCount) return undefined;
   const { behind, diverged, renamed } = result.summary;
   const changes = [

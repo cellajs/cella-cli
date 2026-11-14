@@ -35,11 +35,11 @@ export const defaultViewport = { width: 1280, height: 900 };
  * `env` points the session mint at the database the app runs on.
  */
 export async function startAudit(
-  forkPath: string,
+  repoRoot: string,
   scope: Scope,
   { email, env }: { email: string; env?: NodeJS.ProcessEnv },
 ): Promise<AuditSession> {
-  const user = mintSession(email, { forkPath, env, hours: 4 });
+  const user = mintSession(email, { repoRoot, env, hours: 4 });
   let browser: Browser | undefined;
   // Closes the browser on a signal until the caller registers endAudit
   const forget = onShutdown(() => browser?.close());
@@ -48,7 +48,7 @@ export async function startAudit(
     const values: AuditSession['values'] = {};
     for (const [name, resolve] of Object.entries(scope.placeholders)) values[name] = await resolve(signedIn(user));
 
-    const { chromium } = await loadPlaywright(forkPath);
+    const { chromium } = await loadPlaywright(repoRoot);
     browser = await chromium.launch({ handleSIGINT: false, handleSIGTERM: false });
     // Route guards read the user store, which a real sign-in fills before any deep link is opened
     const context = await newContext(browser, { session: user });
@@ -123,11 +123,11 @@ export async function openState(
   { mode = 'light', context: overrides, email = getEnv('ADMIN_EMAIL') }: OpenStateOptions = {},
 ): Promise<{ page: Page; context: BrowserContext; close: () => Promise<void> }> {
   if (!email) throw new Error('no email: pass one, or run through `pnpm testbed --`, which sets ADMIN_EMAIL');
-  const forkPath = process.cwd();
-  const scope = await loadScope(forkPath);
+  const repoRoot = process.cwd();
+  const scope = await loadScope(repoRoot);
   const state = scope.states.find((candidate) => candidate.id === id);
   if (!state) throw new Error(`no state "${id}" in the a11y scope`);
-  const session = await startAudit(forkPath, scope, { email });
+  const session = await startAudit(repoRoot, scope, { email });
   try {
     const context = await auditContext(session, { auth: state.auth, mode }, { ...state.context, ...overrides });
     const page = await openStatePath(session, context, state);

@@ -7,12 +7,12 @@ import {
   baselineFile,
   compareBaseline,
   loadBaseline,
-  RUNNER_EPOCH,
+  runnerEpoch,
   saveBaseline,
 } from '../../src/bench/baseline';
 
 const entry = (overrides: Partial<BaselineEntry> = {}): BaselineEntry => ({
-  runner: RUNNER_EPOCH,
+  runner: runnerEpoch,
   timestamp: '2026-10-20T10:00:00.000Z',
   scenario: 'get-me',
   requests: 40_000,
@@ -51,7 +51,7 @@ describe('baselines', () => {
 
     expect(saveBaseline(dir, entry())).toBe(2);
     const history = JSON.parse(readFileSync(baselineFile(dir, 'get-me'), 'utf8')) as { runner?: string }[];
-    expect(history.map((run) => run.runner)).toEqual([undefined, RUNNER_EPOCH]);
+    expect(history.map((run) => run.runner)).toEqual([undefined, runnerEpoch]);
     expect(loadBaseline(dir, 'get-me')).toEqual({ baseline: entry(), older: 1 });
     expect(loadBaseline(dir, 'page-load')).toEqual({ baseline: null, older: 0 });
   });

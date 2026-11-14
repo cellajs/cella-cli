@@ -4,24 +4,24 @@ import { monitorEventLoopDelay, performance } from 'node:perf_hooks';
 import process from 'node:process';
 import { setTimeout as delay } from 'node:timers/promises';
 import pc from '../utils/colors';
-import { type BaselineEntry, loadBaseline, RUNNER_EPOCH, saveBaseline } from './baseline';
+import { type BaselineEntry, loadBaseline, runnerEpoch, saveBaseline } from './baseline';
 import { evaluateChecks } from './checks';
-import { COUNTED, createHttpClient, errorCode } from './http';
+import { counted, createHttpClient, errorCode } from './http';
 import { type Distribution, type EndpointSummary, Metrics } from './metrics';
 import { compactLine, LiveDisplay, liveLines, type Output, type SummaryView, summaryLines } from './report';
 import { play, roleSequencer, type ScheduleEvent, schedule } from './scheduler';
 import { readSse } from './sse';
 import { type CheckResult, type Phase, type Scenario, splitMetricKey, type Vu, type VuFn } from './types';
 
-const DEFAULT_INTERVAL_MS = 5000;
-const LAG_WARN_MS = 50;
+const defaultIntervalMs = 5000;
+const lagWarnMs = 50;
 /** The loop-delay sampler's period: it records whole periods, so an idle loop reads this much. */
-const LAG_RESOLUTION_MS = 10;
-const DEFAULT_DRAIN_TIMEOUT_S = 300;
+const lagResolutionMs = 10;
+const defaultDrainTimeoutSeconds = 300;
 /** Seconds an aborted VU gets to unwind before the run reports without it. */
-const ABORT_GRACE_S = 5;
+const abortGraceSeconds = 5;
 /** Logs kept per scenario; older ones are deleted. */
-const LOGS_KEPT = 30;
+const logsKept = 30;
 
 interface RunOptions {
   /** Scenario name: labels the output, the log file and the baseline history. */
@@ -48,7 +48,7 @@ interface RunOptions {
 
 export interface RunSummary {
   type: 'summary';
-  runner: typeof RUNNER_EPOCH;
+  runner: typeof runnerEpoch;
   scenario: string;
   startedAt: string;
   durationS: number;
@@ -135,7 +135,7 @@ function logFileFor(dataDir: string, name: string, startedAt: Date): string {
   const old = readdirSync(dir)
     .filter((file) => file.startsWith(`${name}-`) && file.endsWith('.jsonl'))
     .sort();
-  for (const file of old.slice(0, Math.max(0, old.length - LOGS_KEPT + 1))) rmSync(join(dir, file), { force: true });
+  for (const file of old.slice(0, Math.max(0, old.length - logsKept + 1))) rmSync(join(dir, file), { force: true });
   return join(dir, `${name}-${startedAt.toISOString().slice(0, 19).replaceAll(':', '-')}.jsonl`);
 }
 
@@ -169,7 +169,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   const showPhases = !(quiet && output.isTTY);
 
   const stop = new AbortController();
-  const lag = monitorEventLoopDelay({ resolution: LAG_RESOLUTION_MS });
+  const lag = monitorEventLoopDelay({ resolution: lagResolutionMs });
   lag.enable();
   let lagP99Max = 0;
   let lagWarning: string | null = null;
@@ -223,7 +223,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
         (error: unknown) => {
           metrics.counter('vusers.failed');
           const code = stop.signal.aborted ? 'aborted' : errorCode(error);
-          if (!(error as { [COUNTED]?: boolean })?.[COUNTED] || stop.signal.aborted) metrics.counter(`errors.${code}`);
+          if (!(error as { [counted]?: boolean })?.[counted] || stop.signal.aborted) metrics.counter(`errors.${code}`);
           errors[code] ??= { message: error instanceof Error ? error.message : String(error) };
         },
       )
@@ -240,12 +240,12 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     const intervalS = (now - lastTick) / 1000;
     lastTick = now;
     const { counters, histograms } = metrics.tick();
-    const lagP99 = Math.max(0, lag.percentile(99) / 1e6 - LAG_RESOLUTION_MS);
+    const lagP99 = Math.max(0, lag.percentile(99) / 1e6 - lagResolutionMs);
     lag.reset();
     lagP99Max = Math.max(lagP99Max, lagP99);
     const elapsedS = (now - started) / 1000;
-    if (lagP99 > LAG_WARN_MS && !lagWarning) {
-      lagWarning = `generator event-loop lag p99 ${Math.round(lagP99)} ms (over ${LAG_WARN_MS} ms): the load generator is saturated, latencies include its own queueing`;
+    if (lagP99 > lagWarnMs && !lagWarning) {
+      lagWarning = `generator event-loop lag p99 ${Math.round(lagP99)} ms (over ${lagWarnMs} ms): the load generator is saturated, latencies include its own queueing`;
       display.log(`  ⚠ ${lagWarning}`);
     }
     const custom = Object.entries(counters).filter(([counter, n]) => declared.has(counter) && n > 0);
@@ -283,7 +283,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   };
 
   if (!quiet) display.log(`${pc.dim('▸')} running ${name}${short ? ' (short)' : ''}: ${scenario.description}`);
-  const ticker = setInterval(tick, DEFAULT_INTERVAL_MS);
+  const ticker = setInterval(tick, defaultIntervalMs);
 
   await play(
     events,
@@ -298,7 +298,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
 
   if (active > 0) {
     if (!scenario.run) phaseName = 'drain';
-    const drainS = scenario.drainTimeout ?? (scenario.run ? Number.POSITIVE_INFINITY : DEFAULT_DRAIN_TIMEOUT_S);
+    const drainS = scenario.drainTimeout ?? (scenario.run ? Number.POSITIVE_INFINITY : defaultDrainTimeoutSeconds);
     const idle = new Promise<void>((resolve) => {
       onIdle = resolve;
     });
@@ -310,7 +310,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     if ((await Promise.race([idle, timedOut])) === 'timeout') {
       display.log(`  ⚠ ${active} VUs still running after ${drainS} s: aborted`);
       stop.abort();
-      await Promise.race([idle, wait(ABORT_GRACE_S)]);
+      await Promise.race([idle, wait(abortGraceSeconds)]);
     }
     timers.abort();
   }
@@ -338,7 +338,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   const http = distributions['http.response_time'] ?? null;
   const endpoints = metrics.endpointSummaries();
   const current: BaselineEntry = {
-    runner: RUNNER_EPOCH,
+    runner: runnerEpoch,
     timestamp: startedAt.toISOString(),
     scenario: name,
     requests,
@@ -372,7 +372,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   const builtin = /^(vusers|http|errors)\./;
   const summary: RunSummary = {
     type: 'summary',
-    runner: RUNNER_EPOCH,
+    runner: runnerEpoch,
     scenario: name,
     startedAt: startedAt.toISOString(),
     durationS,

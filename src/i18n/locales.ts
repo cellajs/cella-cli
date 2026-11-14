@@ -2,11 +2,11 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 
 /** Where an app keeps its translations, `<dir>/<language>/<file>.json`, relative to its root. */
-export const LOCALES_DIR = 'shared/locales';
+export const localesDir = 'shared/locales';
 /** Runtime namespaces that merge several files, later files winning: `{ "c": ["common", "app"] }`. */
-const MANIFEST = 'namespaces.json';
+const manifest = 'namespaces.json';
 /** English holds every key; every other language is measured against it. */
-export const SOURCE_LANGUAGE = 'en';
+export const sourceLanguage = 'en';
 
 /** One `"key": "value"` line of a locale file, both tokens as written, escapes included. */
 export interface RawEntry {
@@ -60,8 +60,8 @@ function serializeLocaleFile(file: LocaleFile): string {
   return `{\n${file.entries.map(({ raw }) => `${file.indent}${raw[0]}: ${raw[1]}`).join(',\n')}\n}\n`;
 }
 
-export function writeLocaleFile(forkPath: string, file: LocaleFile): void {
-  writeFileSync(join(forkPath, file.path), serializeLocaleFile(file));
+export function writeLocaleFile(repoRoot: string, file: LocaleFile): void {
+  writeFileSync(join(repoRoot, file.path), serializeLocaleFile(file));
 }
 
 /** A file's texts by key; a later duplicate wins, as `JSON.parse` does. */
@@ -78,32 +78,32 @@ const readJsonObject = (path: string): Record<string, unknown> => {
  * Every locale file of the app, and its runtime namespaces from `namespaces.json` in the locales folder.
  * @throws when the app has no `en/` or no manifest in that folder, or a locale file is not flat
  */
-export function readLocales(forkPath: string): Locales {
-  const dir = join(forkPath, LOCALES_DIR);
-  if (!existsSync(join(dir, SOURCE_LANGUAGE))) throw new Error(`no ${LOCALES_DIR}/${SOURCE_LANGUAGE}/ in ${forkPath}`);
+export function readLocales(repoRoot: string): Locales {
+  const dir = join(repoRoot, localesDir);
+  if (!existsSync(join(dir, sourceLanguage))) throw new Error(`no ${localesDir}/${sourceLanguage}/ in ${repoRoot}`);
 
   const languages = readdirSync(dir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory() && !entry.name.startsWith('.'))
     .map((entry) => entry.name)
-    .sort((a, b) => (a === SOURCE_LANGUAGE ? -1 : b === SOURCE_LANGUAGE ? 1 : a.localeCompare(b)));
+    .sort((a, b) => (a === sourceLanguage ? -1 : b === sourceLanguage ? 1 : a.localeCompare(b)));
 
   const files = new Map<string, LocaleFile>();
   for (const language of languages) {
     for (const name of readdirSync(join(dir, language)).filter((name) => name.endsWith('.json'))) {
-      const path = `${LOCALES_DIR}/${language}/${name}`;
-      const parsed = parseLocaleFile(path, readFileSync(join(forkPath, path), 'utf8'));
+      const path = `${localesDir}/${language}/${name}`;
+      const parsed = parseLocaleFile(path, readFileSync(join(repoRoot, path), 'utf8'));
       if (typeof parsed === 'string') throw new Error(`${path}: ${parsed}; pnpm lint:fix writes one entry per line`);
       files.set(`${language}/${name.slice(0, -'.json'.length)}`, parsed);
     }
   }
 
-  const manifestPath = join(dir, MANIFEST);
-  if (!existsSync(manifestPath)) throw new Error(`no ${LOCALES_DIR}/${MANIFEST}: upgrade the app from cella first`);
+  const manifestPath = join(dir, manifest);
+  if (!existsSync(manifestPath)) throw new Error(`no ${localesDir}/${manifest}: upgrade the app from cella first`);
   const merged = readJsonObject(manifestPath);
   const namespaces = new Map<string, string[]>();
   for (const [namespace, sources] of Object.entries(merged)) {
     if (!Array.isArray(sources) || !sources.every((source) => typeof source === 'string')) {
-      throw new Error(`${LOCALES_DIR}/${MANIFEST}: ${namespace} must list file names`);
+      throw new Error(`${localesDir}/${manifest}: ${namespace} must list file names`);
     }
     namespaces.set(namespace, sources);
   }
@@ -113,7 +113,7 @@ export function readLocales(forkPath: string): Locales {
   );
   for (const file of ownFiles.sort()) namespaces.set(file, [file]);
 
-  return { dir: LOCALES_DIR, languages, namespaces, files };
+  return { dir: localesDir, languages, namespaces, files };
 }
 
 /** A runtime namespace's texts in one language, merged as the app loads them. */

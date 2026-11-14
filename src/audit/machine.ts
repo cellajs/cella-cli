@@ -21,7 +21,7 @@ import {
   type NodeRelease,
   newestAged,
 } from './runtimes';
-import { SEVERITIES } from './security-plan';
+import { severities } from './security-plan';
 
 const execFileAsync = promisify(execFile);
 
@@ -122,7 +122,7 @@ async function fetchOsvSeverities(module: string, version: string): Promise<Vuln
   const byGhsa = new Map<string, VulnerabilitySeverity>();
   for (const vuln of (answer as { vulns?: OsvVuln[] }).vulns ?? []) {
     const id = [vuln.id, ...(vuln.aliases ?? [])].find((alias) => alias.startsWith('GHSA-')) ?? vuln.id;
-    const severity = SEVERITIES.find((level) => level === vuln.database_specific?.severity?.toLowerCase());
+    const severity = severities.find((level) => level === vuln.database_specific?.severity?.toLowerCase());
     if (severity || !byGhsa.has(id)) byGhsa.set(id, severity ?? 'moderate');
   }
   return [...byGhsa.values()];
@@ -175,7 +175,7 @@ function toCheck(
   return {
     name,
     version: tool.version,
-    severity: SEVERITIES.find((severity) => missed.includes(severity)) ?? null,
+    severity: severities.find((severity) => missed.includes(severity)) ?? null,
     note: `${plural(missed.length, ...noun)}${high > 0 && high < missed.length ? `, ${high} high` : ''}`,
     fix: upgradeCommand(name, tool.installer, target),
   };

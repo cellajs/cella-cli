@@ -49,9 +49,9 @@ const skipped = (path: string) =>
   path.split('/').includes('node_modules') ||
   isGeneratedFile(path);
 /** A larger file is a bundle or a fixture. */
-const MAX_FILE_BYTES = 1_000_000;
+const maxFileBytes = 1_000_000;
 /** A template whose parts combine into more keys than this is reported by its pattern. */
-const MAX_COMBINATIONS = 500;
+const maxCombinations = 500;
 
 /** The code files of a repository: tracked ones and new ones git does not ignore. */
 export function listCodeFiles(repoPath: string): string[] {
@@ -62,8 +62,8 @@ export function listCodeFiles(repoPath: string): string[] {
  * The app's own TypeScript, which parses the code and types the parts of a built key.
  * @throws when the repository root has no `typescript` with the compiler API
  */
-export async function loadTypeScript(forkPath: string): Promise<typeof TS> {
-  const ts = await importFromWorkspace<typeof TS>(forkPath, '.', 'typescript');
+export async function loadTypeScript(repoRoot: string): Promise<typeof TS> {
+  const ts = await importFromWorkspace<typeof TS>(repoRoot, '.', 'typescript');
   if (typeof ts.createSourceFile !== 'function') {
     throw new Error('cella i18n reads the code with the TypeScript compiler API: the root `typescript` has none');
   }
@@ -132,7 +132,7 @@ function combine(head: string, parts: { values: string[]; tail: string }[]): str
   let keys = [head];
   for (const { values, tail } of parts) {
     keys = keys.flatMap((key) => values.map((value) => `${key}${value}${tail}`));
-    if (keys.length > MAX_COMBINATIONS) return undefined;
+    if (keys.length > maxCombinations) return undefined;
   }
   return keys;
 }
@@ -206,7 +206,7 @@ export function scanCode(
     const path = join(repoPath, file);
     let text: string;
     try {
-      if (statSync(path).size > MAX_FILE_BYTES) continue;
+      if (statSync(path).size > maxFileBytes) continue;
       text = readFileSync(path, 'utf8');
     } catch {
       // Listed by git but gone from the working tree

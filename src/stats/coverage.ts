@@ -27,7 +27,7 @@ interface CoverageEntry {
 type CoverageSummary = Record<string, CoverageEntry> & { total: CoverageEntry };
 
 /** Coverage data is considered stale after this many ms (7 days). */
-const STALE_THRESHOLD_MS = 7 * 24 * 60 * 60 * 1000;
+const staleThresholdMs = 7 * 24 * 60 * 60 * 1000;
 
 /** Color a percentage: green ≥ 80, yellow ≥ 50, red below. */
 function colorPct(pct: CoverageMetric['pct']): string {
@@ -50,8 +50,8 @@ function formatAge(ms: number): string {
 }
 
 /** Print a compact coverage overview from the cached summary file. */
-export function printCoverageSummary(forkPath: string): void {
-  const file = join(forkPath, '.coverage', 'coverage-summary.json');
+export function printCoverageSummary(repoRoot: string): void {
+  const file = join(repoRoot, '.coverage', 'coverage-summary.json');
   let summary: CoverageSummary | undefined;
   let mtimeMs = 0;
   let problem = 'no coverage data found';
@@ -71,13 +71,13 @@ export function printCoverageSummary(forkPath: string): void {
   }
 
   const ageMs = Date.now() - mtimeMs;
-  const stale = ageMs > STALE_THRESHOLD_MS;
+  const stale = ageMs > staleThresholdMs;
 
   // Roll up per-package line coverage by the first path segment relative to root.
   const perPackage = new Map<string, { covered: number; total: number }>();
   for (const [key, entry] of Object.entries(summary)) {
     if (key === 'total') continue;
-    const rel = relative(forkPath, key);
+    const rel = relative(repoRoot, key);
     if (rel.startsWith('..')) continue;
     const pkg = rel.split(sep)[0];
     const acc = perPackage.get(pkg) ?? { covered: 0, total: 0 };

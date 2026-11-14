@@ -44,9 +44,9 @@ export const i18nCommand: ToolCommand<I18nOptions> = {
     const [from, to] = operands;
     return { job, json, from, to };
   },
-  run: async (forkPath, options) => {
-    if (options.job === 'status') return runStatus(forkPath, options.json);
-    if (options.job === 'unused') return runUnused(forkPath, options.json);
-    return runRename(forkPath, await renameKeys(options), options.json);
+  run: async (repoRoot, options) => {
+    if (options.job === 'status') return runStatus(repoRoot, options.json);
+    if (options.job === 'unused') return runUnused(repoRoot, options.json);
+    return runRename(repoRoot, await renameKeys(options), options.json);
   },
 };

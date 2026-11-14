@@ -39,7 +39,7 @@ export interface Shot {
   format?: Format;
 }
 
-/** `cella/screenshots.ts`: the template's shots, synced with the UI they show. */
+/** `cella/screenshots.ts`: the template's shots, kept in step with the UI they show. */
 export interface ScreenshotsBase {
   /** The file type of every shot without a `format` of its own. */
   format: Format;

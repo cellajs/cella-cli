@@ -21,10 +21,10 @@ function characterShortcuts(search: (pattern: string) => string[]) {
  * Repository checks for criteria a browser cannot see: media, motion, shortcuts, gestures, dragging and sign-in methods.
  * `sources` are the `git grep` pathspecs the adapter base names.
  */
-export function runCodeChecks(evidence: EvidenceSet, { forkPath, app }: AuditRun, sources: string[]) {
+export function runCodeChecks(evidence: EvidenceSet, { repoRoot, app }: AuditRun, sources: string[]) {
   /** Matching lines (`file:line: text`). Patterns are POSIX ERE: no `\s`, `\w` or `\b`. */
   const search = (pattern: string) =>
-    spawnSync('git', ['grep', '-nIE', pattern, '--', ...sources], { cwd: forkPath, encoding: 'utf8' })
+    spawnSync('git', ['grep', '-nIE', pattern, '--', ...sources], { cwd: repoRoot, encoding: 'utf8' })
       .stdout.split('\n')
       .filter(Boolean);
 

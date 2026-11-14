@@ -83,7 +83,7 @@ export async function detectContributableFiles(
     if (file.status !== 'behind' && file.status !== 'diverged') continue;
     if (file.isIgnored || file.isPinned) continue;
 
-    const inCella = file.existsInFork; // local side
+    const inCella = file.existsInApp; // local side
     const inFork = file.existsInUpstream; // incoming side
 
     let kind: ContribFile['kind'];

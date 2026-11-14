@@ -1,6 +1,6 @@
 /**
  * Unit tests for the git helpers in src/utils/git.ts, against real temp repos: the ls-tree and
- * diff-tree parsers, commit listing, sync ref storage, ancestry, the effective merge-base, and
+ * diff-tree parsers, commit listing, upgrade ref storage, ancestry, the effective merge-base, and
  * merge-commit flattening.
  */
 import fs from 'node:fs';
@@ -11,11 +11,11 @@ import {
   getEffectiveMergeBase,
   getFileChanges,
   getFileHashesAtRef,
-  getStoredSyncRef,
   isAncestor,
   listBranchMergeCommits,
   listCommitsBetween,
-  storeLastSyncRef,
+  readStoredUpgradePoint,
+  storeUpgradePoint,
 } from '../../src/utils/git';
 import { createManifestRepo, exec, makeCommit, write } from '../helpers/test-env';
 
@@ -150,9 +150,9 @@ describe('git parsing', () => {
     });
   });
 
-  describe('sync ref tracking', () => {
-    it('returns null when no sync ref is stored', async () => {
-      const stored = await getStoredSyncRef(repoPath);
+  describe('upgrade ref tracking', () => {
+    it('returns null when no upgrade ref is stored', async () => {
+      const stored = await readStoredUpgradePoint(repoPath);
       expect(stored).toBeNull();
     });
 
@@ -163,11 +163,11 @@ describe('git parsing', () => {
       exec('git add -A && git commit -m "second"', repoPath);
       const hash2 = exec('git rev-parse HEAD', repoPath);
 
-      await storeLastSyncRef(repoPath, hash1);
-      expect(await getStoredSyncRef(repoPath)).toBe(hash1);
+      await storeUpgradePoint(repoPath, hash1);
+      expect(await readStoredUpgradePoint(repoPath)).toBe(hash1);
 
-      await storeLastSyncRef(repoPath, hash2);
-      expect(await getStoredSyncRef(repoPath)).toBe(hash2);
+      await storeUpgradePoint(repoPath, hash2);
+      expect(await readStoredUpgradePoint(repoPath)).toBe(hash2);
     });
   });
 
@@ -195,7 +195,7 @@ describe('git parsing', () => {
       return featureHash;
     }
 
-    /** Write a working-tree sync manifest that records `sha` as the synced upstream commit. */
+    /** Write a working-tree upgrade manifest that records `sha` as the upgrade point. */
     function writeManifest(sha: string): void {
       write(repoPath, { 'cella/cella.manifest.json': `${JSON.stringify({ upstream: { commit: sha } })}\n` });
     }
@@ -208,25 +208,25 @@ describe('git parsing', () => {
       );
     });
 
-    it('recovers the squash-sync base from the committed manifest alone (fresh clone, no local refs)', async () => {
+    it('recovers the squash-upgrade point from the committed manifest alone (fresh clone, no local refs)', async () => {
       const featureHash = createFeatureBranch();
 
-      // Commit a manifest recording the squash-synced upstream commit, without storing any
+      // Commit a manifest recording the upstream commit a squash upgrade merged, without storing any
       // local refs: the state of a fresh clone or a second maintainer's machine.
       writeManifest(featureHash);
-      exec('git add -A && git commit -m "sync manifest"', repoPath);
+      exec('git add -A && git commit -m "upgrade manifest"', repoPath);
 
       expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(featureHash);
     });
 
-    it('does not trust a manifest that only exists in the working tree (aborted sync)', async () => {
+    it('does not trust a manifest that only exists in the working tree (aborted upgrade)', async () => {
       const featureHash = createFeatureBranch();
       const gitBase = exec('git merge-base main feature', repoPath);
 
-      // An aborted sync can leave the manifest in the working tree and the ref recorded.
+      // An aborted upgrade can leave the manifest in the working tree and the ref recorded.
       // Nothing was committed, so nothing was integrated.
       writeManifest(featureHash);
-      await storeLastSyncRef(repoPath, featureHash);
+      await storeUpgradePoint(repoPath, featureHash);
 
       expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(gitBase);
     });
@@ -234,10 +234,10 @@ describe('git parsing', () => {
 
   describe('listBranchMergeCommits / flattenBranch', () => {
     /**
-     * Build the shape of a manually-committed sync merge: an "upstream" branch whose history
-     * contains its own internal merge commit, merged into a sync branch cut from main.
+     * Build the shape of a manually-committed upgrade merge: an "upstream" branch whose history
+     * contains its own internal merge commit, merged into an upgrade branch cut from main.
      */
-    function setupMergedSyncBranch(): void {
+    function setupMergedUpgradeBranch(): void {
       // Upstream history with an internal merge (fa merges fb).
       exec('git checkout -b fa main', repoPath);
       fs.writeFileSync(path.join(repoPath, 'a.txt'), 'a\n');
@@ -248,7 +248,7 @@ describe('git parsing', () => {
       exec('git checkout fa', repoPath);
       exec('git merge fb --no-ff -m "upstream internal merge"', repoPath);
 
-      // Sync branch from main: one normal commit, then a manual merge of the upstream branch.
+      // Upgrade branch from main: one normal commit, then a manual merge of the upstream branch.
       exec('git checkout -b cella/upgrade/test main', repoPath);
       fs.writeFileSync(path.join(repoPath, 'own.txt'), 'own\n');
       exec('git add -A && git commit -m "own commit"', repoPath);
@@ -264,7 +264,7 @@ describe('git parsing', () => {
     });
 
     it("lists the branch's own merge commits but not merges inside merged-in history", async () => {
-      setupMergedSyncBranch();
+      setupMergedUpgradeBranch();
 
       const merges = await listBranchMergeCommits(repoPath, 'main');
       expect(merges).toHaveLength(1);
@@ -272,16 +272,16 @@ describe('git parsing', () => {
     });
 
     it('flattens a merged branch to one commit with identical content', async () => {
-      setupMergedSyncBranch();
+      setupMergedUpgradeBranch();
       const treeBefore = exec('git rev-parse HEAD^{tree}', repoPath);
 
-      await flattenBranch(repoPath, 'main', 'chore: sync upstream cella abc1234');
+      await flattenBranch(repoPath, 'main', 'chore: upgrade upstream cella abc1234');
 
       // One single-parent commit on top of main, same tree, upstream history unreachable.
       expect(exec('git rev-list --count main..HEAD', repoPath)).toBe('1');
       expect(exec('git rev-parse HEAD^{tree}', repoPath)).toBe(treeBefore);
       expect(exec('git rev-parse HEAD^', repoPath)).toBe(exec('git rev-parse main', repoPath));
-      expect(exec('git log -1 --format=%s', repoPath)).toBe('chore: sync upstream cella abc1234');
+      expect(exec('git log -1 --format=%s', repoPath)).toBe('chore: upgrade upstream cella abc1234');
       expect(await listBranchMergeCommits(repoPath, 'main')).toEqual([]);
       // Content from both upstream sides and the branch's own commit is intact.
       expect(fs.existsSync(path.join(repoPath, 'a.txt'))).toBe(true);

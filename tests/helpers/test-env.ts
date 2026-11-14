@@ -3,20 +3,20 @@
  *
  * Creates local git repos for testing against real git without network dependencies:
  * low-level helpers (exec, write, commitAll, createRepo) for single-repo unit tests, and
- * the isolated upstream + fork pair (createTestEnv) the sync e2e tests run against.
+ * the isolated upstream + app pair (createTestEnv) the upgrade e2e tests run against.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
-import type { AnalyzedFile, CellaCliConfig, FileStatus, RuntimeConfig, SyncService } from '../../src/config/types';
+import type { AnalyzedFile, CellaCliConfig, CliService, FileStatus, RuntimeConfig } from '../../src/config/types';
 
 /** Git config for test commits */
-export const GIT_USER = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
+export const gitUser = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
 
-/** Upstream remote name used by sync CLI */
-export const UPSTREAM_REMOTE = 'cella-upstream';
+/** Upstream remote name used by upgrade CLI */
+export const upstreamRemote = 'cella-upstream';
 
 /**
  * Execute a shell command synchronously.
@@ -59,7 +59,7 @@ export function createRepo(target: string, files?: Record<string, string>): stri
   fs.mkdirSync(dir, { recursive: true });
   // -b main: don't depend on the runner's init.defaultBranch (CI defaults to master).
   exec('git init -b main', dir);
-  exec(GIT_USER, dir);
+  exec(gitUser, dir);
   if (files) {
     write(dir, files);
     commitAll(dir, 'initial');
@@ -67,7 +67,7 @@ export function createRepo(target: string, files?: Record<string, string>): stri
   return dir;
 }
 
-/** A temp repo with an initial commit and the `cella/` dir the sync manifest lives in. */
+/** A temp repo with an initial commit and the `cella/` dir the upgrade manifest lives in. */
 export function createManifestRepo(): string {
   const dir = createRepo('cella-git-test-', { 'initial.txt': 'initial\n' });
   fs.mkdirSync(path.join(dir, 'cella'));
@@ -75,30 +75,30 @@ export function createManifestRepo(): string {
 }
 
 /**
- * Test environment with upstream and fork repos.
+ * Test environment with upstream and app repos.
  */
 export interface TestEnv {
   /** Root temp directory for this test */
   testDir: string;
   /** Path to the upstream repo (simulates cellajs/cella) */
   upstreamPath: string;
-  /** Path to the fork repo (simulates user's app) */
-  forkPath: string;
+  /** Path to the app repo (simulates user's app) */
+  repoRoot: string;
   /** Clean up the test environment */
   cleanup: () => void;
 }
 
 /**
- * Create a fresh test environment with upstream and fork repos.
+ * Create a fresh test environment with upstream and app repos.
  *
  * Both repos start with the same initial commit, then can be modified
- * independently to create various sync scenarios. `files` replaces the
+ * independently to create various upgrade scenarios. `files` replaces the
  * default initial upstream content.
  */
 export function createTestEnv(options: { files?: Record<string, string> } = {}): TestEnv {
   const testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-e2e-'));
   const upstreamPath = path.join(testDir, 'upstream');
-  const forkPath = path.join(testDir, 'fork');
+  const repoRoot = path.join(testDir, 'app');
 
   createRepo(
     upstreamPath,
@@ -110,17 +110,17 @@ export function createTestEnv(options: { files?: Record<string, string> } = {}):
     },
   );
 
-  // Clone to create fork (same starting point)
-  exec(`git clone ${upstreamPath} ${forkPath}`);
-  exec(GIT_USER, forkPath);
+  // Clone to create app (same starting point)
+  exec(`git clone ${upstreamPath} ${repoRoot}`);
+  exec(gitUser, repoRoot);
 
-  // Rename origin to cella-upstream in fork (simulating sync setup)
-  exec(`git remote rename origin ${UPSTREAM_REMOTE}`, forkPath);
+  // Rename origin to cella-upstream in app (simulating upgrade setup)
+  exec(`git remote rename origin ${upstreamRemote}`, repoRoot);
 
   return {
     testDir,
     upstreamPath,
-    forkPath,
+    repoRoot,
     cleanup: () => {
       fs.rmSync(testDir, { recursive: true, force: true });
     },
@@ -178,10 +178,10 @@ export function fileExists(repoPath: string, filePath: string): boolean {
 }
 
 /**
- * Fetch upstream changes into fork.
+ * Fetch upstream changes into app.
  */
-export function fetchUpstream(forkPath: string): void {
-  exec(`git fetch ${UPSTREAM_REMOTE}`, forkPath);
+export function fetchUpstream(repoRoot: string): void {
+  exec(`git fetch ${upstreamRemote}`, repoRoot);
 }
 
 /**
@@ -197,14 +197,14 @@ export function tagUpstream(repoPath: string, tag: string): void {
 export function buildRuntimeConfig(
   env: TestEnv,
   options: {
-    service?: SyncService;
+    service?: CliService;
     pinned?: string[];
     ignored?: string[];
     track?: 'release' | 'branch';
     trackOverride?: 'release' | 'branch';
     /** A pinned upstream ref (`--ref`) */
     ref?: string;
-    /** Merge with the fork config as it stands (`--keep-config`) */
+    /** Merge with the app config as it stands (`--keep-config`) */
     keepConfig?: boolean;
     /** Lift every pinned entry for this run (`--unpinned`) */
     unpinned?: boolean;
@@ -227,8 +227,8 @@ export function buildRuntimeConfig(
 
   return {
     ...config,
-    forkPath: env.forkPath,
-    upstreamRef: `${UPSTREAM_REMOTE}/main`,
+    repoRoot: env.repoRoot,
+    upstreamRef: `${upstreamRemote}/main`,
     service,
     track: trackOverride,
     ref,
@@ -240,16 +240,16 @@ export function buildRuntimeConfig(
 }
 
 /**
- * Reset fork to a clean state (abort any in-progress merge).
+ * Reset app to a clean state (abort any in-progress merge).
  */
-export function resetFork(forkPath: string): void {
+export function resetApp(repoRoot: string): void {
   try {
-    exec('git merge --abort', forkPath);
+    exec('git merge --abort', repoRoot);
   } catch {
     // Ignore if no merge in progress
   }
-  exec('git checkout .', forkPath);
-  exec('git clean -fd', forkPath);
+  exec('git checkout .', repoRoot);
+  exec('git clean -fd', repoRoot);
 }
 
 /** Run `print` with `console.info` captured, and return the printed lines. */
@@ -268,5 +268,5 @@ export function captureInfo(print: () => void): string {
 
 /** An analyzed file, unprotected and present on both sides unless `overrides` say otherwise. */
 export function analyzedFile(overrides: Partial<AnalyzedFile> & { path: string; status: FileStatus }): AnalyzedFile {
-  return { isIgnored: false, isPinned: false, existsInFork: true, existsInUpstream: true, ...overrides };
+  return { isIgnored: false, isPinned: false, existsInApp: true, existsInUpstream: true, ...overrides };
 }

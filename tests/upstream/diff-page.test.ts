@@ -12,19 +12,19 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitDiffFile, openInBrowser, renderDiffPage, writeDiffPage } from '../../src/upstream/diff-page';
 import { getEnv } from '../../src/utils/env';
-import { exec, GIT_USER } from '../helpers/test-env';
+import { exec, gitUser } from '../helpers/test-env';
 
 describe('diff helpers', () => {
   let testDir: string;
-  let forkPath: string;
+  let repoRoot: string;
   let binDir: string;
   let argsFile: string;
   let originalPath: string | undefined;
 
   /** Working-tree patch (HEAD vs modified x.ts) with standard a/ b/ prefixes. */
   function makePatch(): string {
-    fs.writeFileSync(path.join(forkPath, 'x.ts'), 'const side = "fork content";\n');
-    return gitDiffFile(forkPath, 'HEAD', 'x.ts').toString();
+    fs.writeFileSync(path.join(repoRoot, 'x.ts'), 'const side = "app content";\n');
+    return gitDiffFile(repoRoot, 'HEAD', 'x.ts').toString();
   }
 
   /** Page text without tags: highlighting splits lines into token spans. */
@@ -42,7 +42,7 @@ describe('diff helpers', () => {
 
   beforeEach(() => {
     testDir = fs.mkdtempSync(path.join(os.tmpdir(), 'cella-diff-test-'));
-    forkPath = path.join(testDir, 'fork');
+    repoRoot = path.join(testDir, 'app');
     binDir = path.join(testDir, 'bin');
     argsFile = path.join(testDir, 'open-args.txt');
     fs.mkdirSync(binDir);
@@ -55,11 +55,11 @@ describe('diff helpers', () => {
     }
 
     // Real git repo with a committed file used as the upstream side.
-    fs.mkdirSync(forkPath);
-    exec('git init -b main', forkPath);
-    exec(GIT_USER, forkPath);
-    fs.writeFileSync(path.join(forkPath, 'x.ts'), 'const side = "upstream content";\n');
-    exec('git add -A && git commit -m "initial"', forkPath);
+    fs.mkdirSync(repoRoot);
+    exec('git init -b main', repoRoot);
+    exec(gitUser, repoRoot);
+    fs.writeFileSync(path.join(repoRoot, 'x.ts'), 'const side = "upstream content";\n');
+    exec('git add -A && git commit -m "initial"', repoRoot);
 
     originalPath = getEnv('PATH');
     vi.stubEnv('PATH', `${binDir}:${originalPath ?? ''}`);
@@ -80,11 +80,11 @@ describe('diff helpers', () => {
     });
 
     it('returns empty output for an unchanged file', () => {
-      expect(gitDiffFile(forkPath, 'HEAD', 'x.ts').length).toBe(0);
+      expect(gitDiffFile(repoRoot, 'HEAD', 'x.ts').length).toBe(0);
     });
 
     it('throws a clear error for an invalid ref', () => {
-      expect(() => gitDiffFile(forkPath, 'no-such-ref', 'x.ts')).toThrow();
+      expect(() => gitDiffFile(repoRoot, 'no-such-ref', 'x.ts')).toThrow();
     });
   });
 
@@ -98,7 +98,7 @@ describe('diff helpers', () => {
       expect(html).toContain('<!doctype html>');
       const text = visibleText(html);
       expect(text).toContain('upstream content');
-      expect(text).toContain('fork content');
+      expect(text).toContain('app content');
       // Self-contained: styles inline, no external requests.
       expect(html).toContain('<style');
       expect(html).not.toContain('src="http');
@@ -135,7 +135,7 @@ describe('diff helpers', () => {
     it('escapes HTML in the title, note, section text and omitted lines', async () => {
       const html = await renderDiffPage(
         [{ title: '<b>t</b>', hint: 'a & b', files: [{ path: 'x.ts', patch: makePatch() }], omitted: ['"q"'] }],
-        { title: '<script>alert(1)</script>', note: 'fork "quoted"' },
+        { title: '<script>alert(1)</script>', note: 'app "quoted"' },
       );
 
       expect(html).not.toContain('<script>alert(1)</script>');
@@ -151,14 +151,14 @@ describe('diff helpers', () => {
       const pagePath = await writeDiffPage(
         [{ files: [{ path: 'x.ts', patch: makePatch() }] }],
         { title: 'x.ts' },
-        forkPath,
+        repoRoot,
         'src/utils/x.ts',
       );
 
-      expect(pagePath).toBe(path.join(fs.realpathSync(forkPath), '.git', 'cella-diff', 'src-utils-x.ts.html'));
+      expect(pagePath).toBe(path.join(fs.realpathSync(repoRoot), '.git', 'cella-diff', 'src-utils-x.ts.html'));
       expect(fs.readFileSync(pagePath, 'utf-8')).toContain('<!doctype html>');
       // Inside the git dir: the page never shows up as an untracked file.
-      expect(exec('git status --porcelain', forkPath)).toBe('M x.ts');
+      expect(exec('git status --porcelain', repoRoot)).toBe('M x.ts');
     });
   });
 

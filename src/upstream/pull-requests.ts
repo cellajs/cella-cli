@@ -1,8 +1,8 @@
 /**
  * GitHub CLI (`gh`) helpers for the cella CLI.
  *
- * Thin wrappers around `gh` used by the sync service to open, list, merge, and close the sync pull
- * requests. Every wrapper degrades gracefully when `gh` is missing or a call fails, so a sync
+ * Thin wrappers around `gh` used by the upgrade service to open, list, merge, and close the upgrade pull
+ * requests. Every wrapper degrades gracefully when `gh` is missing or a call fails, so an upgrade
  * run on a repo without `gh`/`origin` still works; it just skips the PR automation.
  */
 
@@ -41,7 +41,7 @@ function runGh(cwd: string, args: string[]): GhResult {
  * List open upgrade PRs (head branch under `prefix`, e.g. `cella/upgrade/`), newest first (highest PR number).
  * Returns an empty array when `gh` fails (no auth, no origin) so callers degrade to a no-op.
  */
-export function listOpenSyncPrs(cwd: string, prefix: string): GhPullRequest[] {
+export function listOpenUpgradePrs(cwd: string, prefix: string): GhPullRequest[] {
   const { ok, output } = runGh(cwd, [
     'pr',
     'list',
@@ -103,7 +103,7 @@ export function mergePrSquash(cwd: string, ref: string | number, options: { dele
   return runGh(cwd, ['pr', 'merge', String(ref), '--squash', ...(options.deleteBranch ? ['--delete-branch'] : [])]);
 }
 
-/** Close a PR without merging (used to discard superseded sync PRs). */
+/** Close a PR without merging (used to discard superseded upgrade PRs). */
 export function closePr(cwd: string, ref: string | number): GhResult {
   return runGh(cwd, ['pr', 'close', String(ref)]);
 }

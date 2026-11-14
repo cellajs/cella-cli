@@ -1,13 +1,13 @@
 /**
- * Where the fork's own code still uses a package or a script.
+ * Where the app's own code still uses a package or a script.
  *
- * The package sync removes an entry upstream dropped when the fork never touched it in
- * package.json, but a fork can use an inherited entry without touching it: an import in a
- * fork-only module, a CLI in a fork script, a script name in a fork workflow. Only fork-authored
+ * The package merge removes an entry upstream dropped when the app never touched it in
+ * package.json, but an app can use an inherited entry without touching it: an import in an
+ * app-only module, a CLI in an app script, a script name in an app workflow. Only app-authored
  * content is searched: files that differ from upstream after the file merge, and package.json
- * scripts the fork added or changed. Upstream no longer uses what it dropped, so a reference in
- * that content is the fork's own. A false match keeps the entry, which is the safe side: a stale
- * entry costs an install, a missing one breaks the fork.
+ * scripts the app added or changed. Upstream no longer uses what it dropped, so a reference in
+ * that content is the app's own. A false match keeps the entry, which is the safe side: a stale
+ * entry costs an install, a missing one breaks the app.
  */
 
 import { existsSync, readFileSync, statSync } from 'node:fs';
@@ -16,8 +16,8 @@ import { git } from '../utils/git';
 import { isManagedFile, isPackageJson } from './managed-files';
 import { isUnderAnyFolder } from './protection';
 
-/** Fork-authored content: a file, or one package.json script. */
-interface ForkSource {
+/** App-authored content: a file, or one package.json script. */
+interface AppSource {
   /** Repo-relative path, which scopes a workspace's packages to its directory */
   path: string;
   /** Where the reference is, as reported to the user */
@@ -26,21 +26,21 @@ interface ForkSource {
   text: () => string;
 }
 
-/** Answers where the fork still uses an entry upstream dropped; undefined when nowhere. */
-export interface ForkUsage {
-  /** A fork-authored place inside `location` that imports `name` or runs one of its CLIs */
+/** Answers where the app still uses an entry upstream dropped; undefined when nowhere. */
+export interface AppUsage {
+  /** An app-authored place inside `location` that imports `name` or runs one of its CLIs */
   findPackage(location: string, name: string): string | undefined;
-  /** A fork-authored place anywhere in the repo that runs script `name` through a package manager */
+  /** An app-authored place anywhere in the repo that runs script `name` through a package manager */
   findScript(name: string): string | undefined;
 }
 
 /** Larger files are generated or binary and are not searched. */
-const MAX_FILE_BYTES = 1024 * 1024;
+const maxFileBytes = 1024 * 1024;
 
 /** A file's text, or '' when it is missing, too large or binary. */
 function readSearchable(filePath: string): string {
   try {
-    if (statSync(filePath).size > MAX_FILE_BYTES) return '';
+    if (statSync(filePath).size > maxFileBytes) return '';
     const text = readFileSync(filePath, 'utf8');
     return text.includes('\0') ? '' : text;
   } catch {
@@ -59,48 +59,48 @@ function stripComments(text: string): string {
   return text.replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
 }
 
-function fileSource(forkPath: string, path: string): ForkSource {
+function fileSource(repoRoot: string, path: string): AppSource {
   let text: string | undefined;
   const read = () => {
-    const content = readSearchable(join(forkPath, path));
+    const content = readSearchable(join(repoRoot, path));
     return codeFilePattern.test(path) ? stripComments(content) : content;
   };
   return { path, label: path, text: () => (text ??= read()) };
 }
 
-async function readScriptsAtRef(forkPath: string, ref: string, path: string): Promise<Record<string, string>> {
+async function readScriptsAtRef(repoRoot: string, ref: string, path: string): Promise<Record<string, string>> {
   try {
-    return JSON.parse(await git(['show', `${ref}:${path}`], forkPath)).scripts ?? {};
+    return JSON.parse(await git(['show', `${ref}:${path}`], repoRoot)).scripts ?? {};
   } catch {
     return {};
   }
 }
 
-/** The scripts of a fork package.json that differ from both the merge-base and upstream. */
+/** The scripts of an app package.json that differ from both the merge-base and upstream. */
 async function scriptSources(
-  forkPath: string,
+  repoRoot: string,
   upstreamRef: string,
   baseRef: string,
   path: string,
-): Promise<ForkSource[]> {
-  let forkScripts: Record<string, string>;
+): Promise<AppSource[]> {
+  let appScripts: Record<string, string>;
   try {
-    forkScripts = JSON.parse(readFileSync(join(forkPath, path), 'utf8')).scripts ?? {};
+    appScripts = JSON.parse(readFileSync(join(repoRoot, path), 'utf8')).scripts ?? {};
   } catch {
     return [];
   }
-  const baseScripts = await readScriptsAtRef(forkPath, baseRef, path);
-  const upstreamScripts = await readScriptsAtRef(forkPath, upstreamRef, path);
+  const baseScripts = await readScriptsAtRef(repoRoot, baseRef, path);
+  const upstreamScripts = await readScriptsAtRef(repoRoot, upstreamRef, path);
 
-  return Object.entries(forkScripts)
+  return Object.entries(appScripts)
     .filter(([name, value]) => value !== baseScripts[name] && value !== upstreamScripts[name])
     .map(([name, value]) => ({ path, label: `${path} (scripts.${name})`, text: () => value }));
 }
 
 /** The CLI names a package installs, from its installed package.json; its bare name when not installed. */
-function binNames(forkPath: string, location: string, name: string): string[] {
+function binNames(repoRoot: string, location: string, name: string): string[] {
   const bareName = name.split('/').pop() as string;
-  for (const dir of [join(forkPath, location), forkPath]) {
+  for (const dir of [join(repoRoot, location), repoRoot]) {
     const manifest = join(dir, 'node_modules', name, 'package.json');
     if (!existsSync(manifest)) continue;
     try {
@@ -118,13 +118,13 @@ function binNames(forkPath: string, location: string, name: string): string[] {
  * How code refers to a package: a quoted specifier or subpath (imports, requires, config
  * strings), the package an `@types/*` entry types, and its CLI names as whole words.
  */
-function packagePatterns(forkPath: string, location: string, name: string): RegExp[] {
+function packagePatterns(repoRoot: string, location: string, name: string): RegExp[] {
   const specifiers = [name];
   const typed = name.match(/^@types\/(.+)$/);
   if (typed) specifiers.push(typed[1].includes('__') ? `@${typed[1].replace('__', '/')}` : typed[1]);
 
   const patterns = specifiers.map((specifier) => new RegExp(`(['"\`])${RegExp.escape(specifier)}(?:/[^'"\`\\s]*)?\\1`));
-  for (const bin of binNames(forkPath, location, name)) {
+  for (const bin of binNames(repoRoot, location, name)) {
     patterns.push(new RegExp(`(?:^|[\\s'"\`(;&|=])${RegExp.escape(bin)}(?=$|[\\s'"\`);&|])`, 'm'));
   }
   return patterns;
@@ -136,28 +136,28 @@ function scriptPattern(name: string): RegExp {
 }
 
 /**
- * Collect the fork-authored content: files in the working tree (the merge result) that differ
- * from upstream, minus managed files, plus the scripts the fork added or changed. Call before
+ * Collect the app-authored content: files in the working tree (the merge result) that differ
+ * from upstream, minus managed files, plus the scripts the app added or changed. Call before
  * any package.json is rewritten.
  */
-export async function loadForkUsage(forkPath: string, upstreamRef: string, baseRef: string): Promise<ForkUsage> {
-  const diff = await git(['diff', '--name-only', '-z', '--diff-filter=d', upstreamRef], forkPath);
-  const sources: ForkSource[] = [];
+export async function loadAppUsage(repoRoot: string, upstreamRef: string, baseRef: string): Promise<AppUsage> {
+  const diff = await git(['diff', '--name-only', '-z', '--diff-filter=d', upstreamRef], repoRoot);
+  const sources: AppSource[] = [];
 
   for (const path of diff.split('\0').filter(Boolean)) {
-    if (isPackageJson(path)) sources.push(...(await scriptSources(forkPath, upstreamRef, baseRef, path)));
+    if (isPackageJson(path)) sources.push(...(await scriptSources(repoRoot, upstreamRef, baseRef, path)));
     // Markdown only mentions a package or script; a mention is not use.
-    else if (!isManagedFile(path) && !proseFilePattern.test(path)) sources.push(fileSource(forkPath, path));
+    else if (!isManagedFile(path) && !proseFilePattern.test(path)) sources.push(fileSource(repoRoot, path));
   }
 
-  const findIn = (scoped: ForkSource[], patterns: RegExp[]) =>
+  const findIn = (scoped: AppSource[], patterns: RegExp[]) =>
     scoped.find((source) => patterns.some((pattern) => pattern.test(source.text())))?.label;
 
   return {
     findPackage: (location, name) =>
       findIn(
         location ? sources.filter((source) => isUnderAnyFolder(source.path, [location])) : sources,
-        packagePatterns(forkPath, location, name),
+        packagePatterns(repoRoot, location, name),
       ),
     findScript: (name) => findIn(sources, [scriptPattern(name)]),
   };
