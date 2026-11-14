@@ -1,8 +1,9 @@
-import { execFileSync } from 'node:child_process';
 import { readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import type * as TS from 'typescript';
 import { importFromWorkspace } from '../../utils/app-facts';
+import { listRepoFiles } from '../../utils/git';
+import { isGeneratedFile } from '../../utils/managed-files';
 
 /** A place in a repository's code. */
 export interface Site {
@@ -44,25 +45,18 @@ const codeFile = /\.(?:[cm]?[jt]sx?)$/;
 /** Generated output, locale files and alignments, whose old keys are history: never a use. */
 const skipped = (path: string) =>
   path.endsWith('.d.ts') ||
-  path.startsWith('locales/') ||
   path.startsWith('shared/locales/') ||
   path.startsWith('cella/alignments/') ||
-  path.split('/').some((segment) => segment === 'node_modules' || segment === 'gen' || segment.includes('.gen.'));
+  path.split('/').includes('node_modules') ||
+  isGeneratedFile(path);
 /** A larger file is a bundle or a fixture. */
 const MAX_FILE_BYTES = 1_000_000;
 /** A template whose parts combine into more keys than this is reported by its pattern. */
 const MAX_COMBINATIONS = 500;
 
-export const escapeRegExp = (value: string): string => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** The code files of a repository: tracked ones and new ones git does not ignore. */
 export function listCodeFiles(repoPath: string): string[] {
-  const output = execFileSync('git', ['ls-files', '-z', '--cached', '--others', '--exclude-standard'], {
-    cwd: repoPath,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  });
-  return [...new Set(output.split('\0'))].filter((path) => codeFile.test(path) && !skipped(path));
+  return listRepoFiles(repoPath).filter((path) => codeFile.test(path) && !skipped(path));
 }
 
 /**
@@ -205,7 +199,7 @@ export function scanCode(
   keys: Set<string>,
 ): CodeScan {
   const started = performance.now();
-  const prefix = new RegExp(`^(${namespaces.map(escapeRegExp).join('|')}):`);
+  const prefix = new RegExp(`^(${namespaces.map(RegExp.escape).join('|')}):`);
   const scan: CodeScan = { repo, files: 0, ms: 0, literals: new Map(), bare: new Map(), dynamic: [] };
   const pending = new Map<string, PendingSite[]>();
 
@@ -254,6 +248,6 @@ export const isOpenPattern = (pattern: string): boolean => /^(?:[^:*]+:)?\*+$/.t
 
 /** A pattern as a test for `ns:key`. */
 export function patternTest(pattern: string): (key: string) => boolean {
-  const regex = new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`);
+  const regex = new RegExp(`^${pattern.split('*').map(RegExp.escape).join('.*')}$`);
   return (key) => regex.test(key);
 }

@@ -45,6 +45,10 @@ describe('sync e2e', () => {
     env.cleanup();
   });
 
+  /** The release the sync recorded in the manifest it staged; null when it followed a branch or a commit. */
+  const recordedRelease = () =>
+    JSON.parse(readRepoFile(env.forkPath, 'cella/cella.manifest.json') ?? '{}').upstream?.release;
+
   /**
    * Commit the staged sync. With `squash`, single-parent the way the finishing `cella upgrade` rerun
    * does, so git's native merge-base goes stale; else as a two-parent merge commit.
@@ -65,7 +69,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       expect(result.summary.identical).toBeGreaterThan(0);
       expect(result.summary.behind).toBe(0);
       expect(result.summary.diverged).toBe(0);
@@ -83,7 +86,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       expect(result.summary.behind).toBeGreaterThan(0);
 
       const behindFile = result.files.find((f) => f.path === 'new-feature.ts');
@@ -109,7 +111,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       const divergedFile = result.files.find((f) => f.path === 'shared.ts');
       expect(divergedFile).toBeDefined();
       expect(divergedFile?.status).toBe('diverged');
@@ -136,7 +137,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       const pinnedFile = result.files.find((f) => f.path === 'backend/src/index.ts');
       expect(pinnedFile).toBeDefined();
       expect(pinnedFile?.isPinned).toBe(true);
@@ -185,7 +185,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       const ignoredFile = result.files.find((f) => f.path === 'docs/guide.md');
       expect(ignoredFile).toBeDefined();
       expect(ignoredFile?.isIgnored).toBe(true);
@@ -206,7 +205,7 @@ describe('sync e2e', () => {
 
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(fileExists(env.forkPath, 'new-feature.ts')).toBe(true);
       expect(readRepoFile(env.forkPath, 'new-feature.ts')).toContain('New feature');
     });
@@ -234,7 +233,7 @@ describe('sync e2e', () => {
 
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       // Fork version should be preserved
       expect(readRepoFile(env.forkPath, 'custom.ts')).toBe(forkContent);
     });
@@ -282,7 +281,7 @@ describe('sync e2e', () => {
 
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       // File should NOT be added to fork
       expect(fileExists(env.forkPath, 'docs/internal.md')).toBe(false);
     });
@@ -299,7 +298,7 @@ describe('sync e2e', () => {
 
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(readRepoFile(env.forkPath, 'README.md')).toContain('Updated Readme');
     });
 
@@ -327,7 +326,7 @@ describe('sync e2e', () => {
       config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       // File should be deleted from fork
       expect(fileExists(env.forkPath, 'temp.ts')).toBe(false);
     });
@@ -370,7 +369,7 @@ describe('sync e2e', () => {
       // Sync: the deletion is respected — README.md stays gone.
       const syncConfig = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(syncConfig);
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(fileExists(env.forkPath, 'README.md')).toBe(false);
     });
 
@@ -402,7 +401,7 @@ describe('sync e2e', () => {
       config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       // Old file should be deleted, new file should exist
       expect(fileExists(env.forkPath, 'old-dir/moved-file.ts')).toBe(false);
       expect(fileExists(env.forkPath, 'new-dir/moved-file.ts')).toBe(true);
@@ -431,7 +430,7 @@ describe('sync e2e', () => {
       fetchUpstream(env.forkPath);
       const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ignored: [entry] }));
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(fileExists(env.forkPath, 'old-dir/texts.json')).toBe(false);
       expect(readRepoFile(env.forkPath, 'new-dir/texts.json')).toBe('{ "a": "app" }\n');
     });
@@ -459,7 +458,7 @@ describe('sync e2e', () => {
       config = buildRuntimeConfig(env, { service: 'upgrade' });
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(fileExists(env.forkPath, 'src/old-name.ts')).toBe(false);
       expect(fileExists(env.forkPath, 'src/new-name.ts')).toBe(true);
     });
@@ -484,7 +483,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       const driftedFile = result.files.find((f) => f.path === 'README.md');
       expect(driftedFile).toBeDefined();
       expect(driftedFile?.status).toBe('drifted');
@@ -508,7 +506,6 @@ describe('sync e2e', () => {
 
       const result = await runAnalyze(config);
 
-      expect(result.success).toBe(true);
       const localFile = result.files.find((f) => f.path === 'fork-only-feature.ts');
       expect(localFile).toBeDefined();
       expect(localFile?.status).toBe('local');
@@ -609,7 +606,7 @@ describe('sync e2e', () => {
       let config = buildRuntimeConfig(env, { service: 'upgrade' });
       let result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(fileExists(env.forkPath, 'cycle-file.ts')).toBe(true);
 
       await commitMerge('sync: cycle 1');
@@ -624,7 +621,7 @@ describe('sync e2e', () => {
       config = buildRuntimeConfig(env, { service: 'upgrade' });
       result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(readRepoFile(env.forkPath, 'cycle-file.ts')).toContain('Cycle 2');
 
       await commitMerge('sync: cycle 2');
@@ -639,7 +636,6 @@ describe('sync e2e', () => {
       config = buildRuntimeConfig(env, { service: 'analyze' });
       const analysis = await runAnalyze(config);
 
-      expect(analysis.success).toBe(true);
       const cycleFile = analysis.files.find((f) => f.path === 'cycle-file.ts');
       expect(cycleFile).toBeDefined();
       expect(cycleFile?.status).toBe('behind');
@@ -656,7 +652,7 @@ describe('sync e2e', () => {
       let config = buildRuntimeConfig(env, { service: 'upgrade' });
       let result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
 
       await commitMerge('sync: squash cycle 1', { squash: true });
 
@@ -675,14 +671,14 @@ describe('sync e2e', () => {
       // The effective merge-base should use stored ref (not git's stale one)
       const effectiveBase = await getEffectiveMergeBase(env.forkPath, 'HEAD', 'cella-upstream/main');
 
-      // After squash, git's merge-base is stale, so stored ref should be used
-      expect(effectiveBase.storedRef).not.toBeNull();
+      // After squash, git's merge-base is stale, so the recorded sync point should be used
+      expect(effectiveBase).toBe(storedRef);
 
       // Sync should work correctly despite squash history
       config = buildRuntimeConfig(env, { service: 'upgrade' });
       result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(readRepoFile(env.forkPath, 'squash-file.ts')).toContain('Squash v2');
 
       // File should be detected as 'behind' (not 'diverged' which was the old bug)
@@ -709,8 +705,8 @@ describe('sync e2e', () => {
       const config = buildRuntimeConfig(env, { service: 'upgrade', track: 'release' });
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
-      expect(result.upstreamTag).toBe('v0.1.0');
+      expect(result.conflicts).toEqual([]);
+      expect(recordedRelease()).toBe('v0.1.0');
       // Released file is synced; the untagged commit is not pulled in.
       expect(fileExists(env.forkPath, 'released.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'unreleased.ts')).toBe(false);
@@ -747,8 +743,8 @@ describe('sync e2e', () => {
       });
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
-      expect(result.upstreamTag).toBeUndefined();
+      expect(result.conflicts).toEqual([]);
+      expect(recordedRelease()).toBeNull();
       expect(fileExists(env.forkPath, 'tip.ts')).toBe(true);
     });
   });
@@ -770,8 +766,8 @@ describe('sync e2e', () => {
 
       const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'release', ref }));
 
-      expect(result.success).toBe(true);
-      expect(result.upstreamTag).toBeUndefined();
+      expect(result.conflicts).toEqual([]);
+      expect(recordedRelease()).toBeNull();
       expect(result.upstreamCommit?.hash).toBe(pinned);
       expect(fileExists(env.forkPath, 'pinned.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'later.ts')).toBe(false);
@@ -786,9 +782,9 @@ describe('sync e2e', () => {
       tagUpstream(env.upstreamPath, 'v0.2.0');
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: 'v0.1.0' }));
 
-      expect(result.upstreamTag).toBe('v0.1.0');
+      expect(recordedRelease()).toBe('v0.1.0');
       expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'two.ts')).toBe(false);
     });
@@ -802,9 +798,9 @@ describe('sync e2e', () => {
       tagUpstream(env.upstreamPath, 'archive/pre-release');
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', track: 'release' }));
 
-      expect(result.upstreamTag).toBe('0.18.1');
+      expect(recordedRelease()).toBe('0.18.1');
       expect(fileExists(env.forkPath, 'released.ts')).toBe(true);
       expect(fileExists(env.forkPath, 'later.ts')).toBe(false);
     });
@@ -817,9 +813,9 @@ describe('sync e2e', () => {
       execSync('git checkout -q main', { cwd: env.upstreamPath });
       fetchUpstream(env.forkPath);
 
-      const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: '0.3.0' }));
+      await runSync(buildRuntimeConfig(env, { service: 'upgrade', ref: '0.3.0' }));
 
-      expect(result.upstreamTag).toBe('0.3.0');
+      expect(recordedRelease()).toBe('0.3.0');
       expect(fileExists(env.forkPath, 'one.ts')).toBe(true);
     });
 
@@ -983,7 +979,7 @@ describe('sync e2e', () => {
 
       const result = await runSync(config);
 
-      expect(result.success).toBe(true);
+      expect(result.conflicts).toEqual([]);
       expect(result.upstreamOverrides?.kind).toBe('changes');
       expect(result.ignoredUpstreamChanges?.map((group) => group.entry)).toEqual(['shared/config']);
       expect(readRepoFile(env.forkPath, 'cella/cella.config.ts')).not.toContain('bundle-config');

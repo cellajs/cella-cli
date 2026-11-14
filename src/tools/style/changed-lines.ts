@@ -1,35 +1,14 @@
+import { parseUnifiedDiff } from '../../utils/unified-diff';
 import type { Finding } from './repo';
 
-/**
- * The lines of each file a zero-context diff adds or changes, from the `+` side of its hunks. Hunk headers say how many
- * lines follow, so a changed line that itself starts with `+++ b/` is never taken for a file header.
- */
+/** The lines of each file a zero-context diff adds or changes, from the `+` side of its hunks. */
 export function changedLinesFromDiff(diff: string): Map<string, Set<number>> {
   const lines = new Map<string, Set<number>>();
-  let file = '';
-  let remaining = 0;
-  for (const line of diff.split('\n')) {
-    if (remaining > 0) {
-      // "\ No newline at end of file" follows a line without being one
-      if (!line.startsWith('\\')) remaining--;
-      continue;
-    }
-    // A path git had to quote matches no header, so its hunks count for no file
-    if (line.startsWith('diff --git ')) file = '';
-    const header = /^\+\+\+ b\/(.+)$/.exec(line);
-    if (header) {
-      file = header[1];
-      continue;
-    }
-    const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(line);
-    if (!hunk) continue;
-    const start = Number(hunk[2]);
-    const count = hunk[3] === undefined ? 1 : Number(hunk[3]);
-    remaining = Number(hunk[1] ?? 1) + count;
-    if (!file) continue;
-    const set = lines.get(file) ?? new Set<number>();
-    for (let i = 0; i < count; i++) set.add(start + i);
-    lines.set(file, set);
+  for (const { newPath, hunks } of parseUnifiedDiff(diff)) {
+    if (!newPath || hunks.length === 0) continue;
+    const set = lines.get(newPath) ?? new Set<number>();
+    for (const { newStart, newCount } of hunks) for (let i = 0; i < newCount; i++) set.add(newStart + i);
+    lines.set(newPath, set);
   }
   return lines;
 }

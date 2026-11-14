@@ -20,12 +20,6 @@ import { git, splitPrNumber } from './git';
 /** Upstream folder holding one subfolder per alignment. Upstream-only: never synced into a fork. */
 export const ALIGNMENTS_DIR = 'cella/alignments';
 
-/**
- * Folders the sync keeps out of a fork: the alignments, and `cella/migrations`, the migration notes
- * upstream deleted when it started the alignments. Older syncs copied that folder into forks.
- */
-export const UPSTREAM_ONLY_DIRS = [ALIGNMENTS_DIR, 'cella/migrations'];
-
 /** The fork's record of alignments still to handle. */
 export const PENDING_FILE = 'cella/cella.alignments.json';
 
@@ -33,7 +27,7 @@ export const PENDING_FILE = 'cella/cella.alignments.json';
 export const ALIGNMENT_ID = /^\d{8}T\d{4}-[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 /** What catches app code the change leaves behind: the typecheck, the tests the app inherits, or nothing. */
-export type CaughtBy = 'compiler' | 'tests' | 'nothing';
+type CaughtBy = 'compiler' | 'tests' | 'nothing';
 
 export const CAUGHT_BY: CaughtBy[] = ['compiler', 'tests', 'nothing'];
 
@@ -61,7 +55,7 @@ export interface Alignment {
 }
 
 /** Where an alignment came from: the upstream commit that added its README. */
-export interface AlignmentSource {
+interface AlignmentSource {
   commit: string;
   /** From a trailing `(#NNNN)` in the commit subject, as squash merges write it; null without one. */
   pr: number | null;
@@ -86,7 +80,7 @@ export function splitList(value: string | undefined): string[] {
 
 /** Whether a path is upstream-only: the sync never brings it in and removes a fork copy. */
 export function isUpstreamOnly(filePath: string): boolean {
-  return UPSTREAM_ONLY_DIRS.some((dir) => filePath === dir || filePath.startsWith(`${dir}/`));
+  return filePath === ALIGNMENTS_DIR || filePath.startsWith(`${ALIGNMENTS_DIR}/`);
 }
 
 /** The lines after the frontmatter, without HTML comment lines (a comment opens at the start of a line). */
@@ -122,8 +116,7 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
     id,
     title: title || id,
     summary,
-    // `syncBreaking` is the field's name in alignments up to cella 0.27
-    breaking: (meta.get('breaking') ?? meta.get('syncBreaking')) === 'true',
+    breaking: meta.get('breaking') === 'true',
     clientCacheBump: meta.get('clientCacheBump') === 'true',
     caughtBy,
     generate: meta.get('generate') === 'true',

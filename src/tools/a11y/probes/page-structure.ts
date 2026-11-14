@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { settle } from '../../drive';
-import { localesDir } from '../../i18n/locales';
+import { LOCALES_DIR } from '../../i18n/locales';
 import type { Check, Finding } from '../findings';
 
 const titles = { criteria: ['2.4.2'], check: 'probe:titles', what: 'A distinct, descriptive page title' };
@@ -48,7 +48,7 @@ export const pageStructure: Check = async (page, state, { app }) => {
 export const languageSwitch: Check = async (page, state, { app, forkPath }) => {
   if (state.open) return [];
   const names: Record<string, string> = JSON.parse(
-    readFileSync(join(forkPath, localesDir(forkPath), app.defaultLanguageCode, 'common.json'), 'utf8'),
+    readFileSync(join(forkPath, LOCALES_DIR, app.defaultLanguageCode, 'common.json'), 'utf8'),
   );
   const findings: Awaited<ReturnType<Check>> = [];
 

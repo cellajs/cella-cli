@@ -3,7 +3,7 @@
  * sync-point tracking and merge-base recovery machinery.
  */
 
-import { execFile } from 'node:child_process';
+import { execFile, execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
@@ -37,6 +37,19 @@ interface GitCommandOptions {
   ignoreErrors?: boolean;
   /** Additional environment variables for the git command */
   env?: Record<string, string>;
+}
+
+/**
+ * Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, each once, in
+ * `git ls-files` order.
+ */
+export function listRepoFiles(repoPath: string): string[] {
+  const output = execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], {
+    cwd: repoPath,
+    encoding: 'utf8',
+    maxBuffer: MAX_BUFFER,
+  });
+  return [...new Set(output.split('\0'))].filter((file) => file && existsSync(join(repoPath, file)));
 }
 
 /** Executes a git command and returns trimmed stdout. */
@@ -712,26 +725,12 @@ async function cleanupEmptyParentDirs(cwd: string, relativePath: string): Promis
 
 // Sync ref tracking and merge-base recovery.
 
-/** The local ref holding the upstream commit of the last upgrade, and `<ref>-head` the fork HEAD then. */
+/** The local ref holding the upstream commit of the last upgrade. */
 const LAST_UPGRADE_REF = 'refs/cella/last-upgrade';
 
-/** Where CLI 0.5 kept the same two refs; read while a fork has not upgraded under 0.6. */
-const LEGACY_LAST_UPGRADE_REF = 'refs/cella/last-sync';
-
-/**
- * Store the upstream commit hash after a successful upgrade merge.
- * Used to recover correct merge-base when squash strategy creates single-parent commits.
- *
- * Also records the fork HEAD at store time as `refs/cella/last-upgrade-head`. The last-upgrade
- * ref is written while the merge is still staged (before the user commits), so it cannot be
- * trusted on its own: if the user runs `git merge --abort`, HEAD never advances and the ref
- * is left pointing at an upstream commit that was never actually integrated. Recording HEAD
- * lets `getEffectiveMergeBase` detect that an aborted/uncommitted merge produced a stale ref.
- */
+/** Store the upstream commit hash after a successful upgrade merge. */
 export async function storeLastSyncRef(cwd: string, upstreamHash: string): Promise<void> {
   await git(['update-ref', LAST_UPGRADE_REF, upstreamHash], cwd);
-  const head = await revParse(cwd, 'HEAD');
-  if (head) await git(['update-ref', `${LAST_UPGRADE_REF}-head`, head], cwd);
 }
 
 /** Stage a single path (git add). Best-effort: never throws. */
@@ -739,18 +738,9 @@ export async function stagePath(cwd: string, path: string): Promise<void> {
   await git(['add', '--', path], cwd, { ignoreErrors: true });
 }
 
-/** The stored last-upgrade ref and its HEAD, under the 0.5 names when the 0.6 ones are absent. */
-async function readStoredSyncRefs(cwd: string): Promise<{ ref: string; head: string | null } | null> {
-  for (const name of [LAST_UPGRADE_REF, LEGACY_LAST_UPGRADE_REF]) {
-    const ref = await revParse(cwd, name);
-    if (ref) return { ref, head: await revParse(cwd, `${name}-head`) };
-  }
-  return null;
-}
-
 /** The stored last-upgrade upstream ref, or null when no upgrade has been recorded. */
 export async function getStoredSyncRef(cwd: string): Promise<string | null> {
-  return (await readStoredSyncRefs(cwd))?.ref ?? null;
+  return revParse(cwd, LAST_UPGRADE_REF);
 }
 
 /**
@@ -916,51 +906,19 @@ export async function isAncestor(cwd: string, ancestor: string, descendant: stri
 }
 
 /**
- * Legacy sync point for forks that last upgraded before the manifest was committed: the local
- * last-upgrade ref, discarded while HEAD still sits at the recorded HEAD (an aborted merge,
- * see {@link storeLastSyncRef}).
- */
-async function getLegacySyncRef(cwd: string, headRef: string): Promise<string | null> {
-  const stored = await readStoredSyncRefs(cwd);
-  if (!stored) return null;
-
-  if (stored.head) {
-    const currentHead = await revParse(cwd, headRef);
-    if (currentHead && currentHead === stored.head) return null;
-  }
-
-  return stored.ref;
-}
-
-/**
  * The effective merge-base, preferring the recorded sync point when it's more recent.
  * This handles stale merge-base caused by previous squash syncs (single-parent commits
  * don't update git's merge-base graph).
  *
- * The manifest committed at `headRef` is the authoritative record: it lands iff the sync commit lands
- * and travels with the repo. The local last-upgrade ref is the fallback for forks whose last upgrade predates it.
- *
- * @returns The effective base commit, whether git's base was stale, and the recorded sync point
+ * The manifest committed at `headRef` records the sync point: it lands iff the sync commit lands
+ * and travels with the repo.
  */
-export async function getEffectiveMergeBase(
-  cwd: string,
-  headRef: string,
-  upstreamRef: string,
-): Promise<{ base: string; isStale: boolean; storedRef: string | null }> {
+export async function getEffectiveMergeBase(cwd: string, headRef: string, upstreamRef: string): Promise<string> {
   const gitBase = await getMergeBase(cwd, headRef, upstreamRef);
-
-  const recorded = (await readManifestBaseAtRef(cwd, headRef)) ?? (await getLegacySyncRef(cwd, headRef));
-  if (!recorded) {
-    return { base: gitBase, isStale: false, storedRef: null };
-  }
-
+  const recorded = await readManifestBaseAtRef(cwd, headRef);
   // Only prefer the recorded sync point when it is actually newer than git's own answer.
-  const recordedIsNewer = await isAncestor(cwd, gitBase, recorded);
-  if (recordedIsNewer && recorded !== gitBase) {
-    return { base: recorded, isStale: true, storedRef: recorded };
-  }
-
-  return { base: gitBase, isStale: false, storedRef: recorded };
+  if (recorded && (await isAncestor(cwd, gitBase, recorded))) return recorded;
+  return gitBase;
 }
 
 /**

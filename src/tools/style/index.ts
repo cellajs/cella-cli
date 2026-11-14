@@ -17,7 +17,7 @@ import { textColorFindings } from './text-color-rules';
 import { tokenContrastFindings } from './token-contrast-rules';
 import { loadAllowlist, productNameFindings, vocabularyFindings } from './vocabulary-rules';
 
-export interface StyleOptions {
+interface StyleOptions {
   /** Repo-relative paths whose files the in-file rules read; none reads every file. */
   paths: string[];
 }
@@ -76,8 +76,8 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
     .map((path) => ({ file: path, rule: 'path-argument', message: 'no file matches this path' }));
   findings.push(...alignmentFindings(requested, read));
   // Alignments are written where they live: an app's own changes to its own paths owe none. Every upgraded app has an
-  // upgrade manifest, and an upgrade by a CLI before 0.5 also copied the alignments folder in, so the folder alone does
-  // not mark the template.
+  // upgrade manifest, and an app's scaffold can hold a copy of the alignments folder, so the folder alone does not mark
+  // the template.
   const owesAlignments =
     paths.length === 0 &&
     files.includes('cella/alignments/_TEMPLATE.md') &&

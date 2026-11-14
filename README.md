@@ -200,9 +200,7 @@ A short script can open one state of the scope, signed in, to check a fix: `open
 files the app ships, and prints each file's pixel and byte size. A shot with a `mode` is written in that mode alone and
 without the `-dark` suffix, for a file the app serves in one mode, such as its link preview image. Ids pick some shots (`pnpm cella shoot settings`),
 `--out <dir>` writes a trial run elsewhere. An app with a `backend/scripts/seeds/showcase.json` is shot on a testbed seeded with that
-showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed, and the command turns
-MFA on for the shot user and a share of their members through the backend's `showcase:mfa` script where the app has it.
-Nobody can sign in with those factors. A shot's `format` overrides the list's: WebP is written lossless by the system
+showcase, which no other tool writes to, as its admin; without one the testbed holds the app's seed. A shot's `format` overrides the list's: WebP is written lossless by the system
 `cwebp` encoder, checked before the testbed starts, and JPEG at quality 92 by the browser. A page that shows an earlier
 shot's file, such as a composition of screenshots, gets the copy this run wrote. `cella/screenshots.ts` lists the template's shots and devices, and
 `cella/screenshots.app.ts` the app's own. The cella template's `screenshots` skill is the rubric for judging them.
@@ -410,7 +408,7 @@ collapses into a **single-parent commit** (`chore: upgrade cella to <sha>`). Thi
 to one clean commit with the incremental diff; a two-parent merge commit would instead list the
 upstream branch's entire history, because the fork doesn't share pushed ancestry with upstream
 and the local `git replace` graft that makes merges incremental is never pushed. Ancestry lives
-in `refs/cella/last-upgrade` (and the committed `cella.manifest.json` for fresh clones), so
+in the committed `cella.manifest.json` and the local `refs/cella/last-upgrade`, so
 `git merge-base` keeps working across throwaway branches; each is safe to delete once its PR
 lands. The three-segment name can't collide with git's ref namespacing.
 
@@ -460,8 +458,7 @@ Without a terminal (piped, or read by an agent) each alignment row also gets its
 Upstream ships an alignment for every change that app code has to follow, in
 `cella/alignments/<id>/`: a README (frontmatter, title, summary, then the steps) and sometimes a
 codemod. Alignments stay upstream. The upgrade never brings that folder into the app and removes a
-copy it finds (also of `cella/migrations/`, the migration notes upstream deleted when it started
-the alignments); `align` reads them from the upstream commit the app last upgraded to, which the upgrade
+copy it finds; `align` reads them from the upstream commit the app last upgraded to, which the upgrade
 already fetched.
 
 The frontmatter says what the change asks of the app: `breaking`, `clientCacheBump`,

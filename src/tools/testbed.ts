@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import process from 'node:process';
 import { parseEnv } from 'node:util';
 import type { ToolCommand } from '../config/types';
-import { loadAppFacts, loadLocalDatabases, movedPath, toolDir } from '../utils/app-facts';
+import { loadAppFacts, loadLocalDatabases, toolDir } from '../utils/app-facts';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
 import { getEnvSnapshot } from '../utils/env';
@@ -26,12 +26,11 @@ const DATABASE_SERVICE = 'db_testbed';
  * screenshots show (`pnpm seed showcase`). A start that asks for the other one seeds a new database, and every showcase
  * start does.
  */
-export type TestbedData = 'seed' | 'showcase';
+type TestbedData = 'seed' | 'showcase';
 
 /** The app's showcase, relative to its root. */
-const showcaseFile = (forkPath: string) =>
-  movedPath(forkPath, 'backend/scripts/seeds/showcase.json', 'json/showcase.json');
-const showcasePath = (forkPath: string) => join(forkPath, showcaseFile(forkPath));
+const SHOWCASE_FILE = 'backend/scripts/seeds/showcase.json';
+const showcasePath = (forkPath: string) => join(forkPath, SHOWCASE_FILE);
 
 /** Whether the app keeps a showcase for its screenshots. */
 export const hasShowcase = (forkPath: string) => existsSync(showcasePath(forkPath));
@@ -39,11 +38,11 @@ export const hasShowcase = (forkPath: string) => existsSync(showcasePath(forkPat
 /** The user the showcase seed creates as its admin, and the one a command signs in as. */
 function showcaseAdmin(forkPath: string): string {
   const { admin } = JSON.parse(readFileSync(showcasePath(forkPath), 'utf8'));
-  if (typeof admin?.email !== 'string') throw new Error(`${showcaseFile(forkPath)} names no admin email`);
+  if (typeof admin?.email !== 'string') throw new Error(`${SHOWCASE_FILE} names no admin email`);
   return admin.email;
 }
 
-export interface TestbedOptions {
+interface TestbedOptions {
   job: 'start' | 'stop';
   /** Start from an empty database. */
   fresh: boolean;
@@ -81,8 +80,7 @@ interface Lock {
   pid: number;
   forkPath: string;
   frontendUrl: string;
-  /** Absent in a lock an older version wrote: those held the seed. */
-  data?: TestbedData;
+  data: TestbedData;
 }
 
 const shiftPort = (url: string) => {
@@ -98,9 +96,8 @@ async function resolveTestbed(forkPath: string, data: TestbedData = 'seed'): Pro
     throw new Error('shared/src/local-database.ts names no testbed database: upgrade the app from cella first');
   }
   const composeEnv = databases.composeEnv();
-  // The env file sits at the repo root; an app not yet past that template change keeps it in backend/.
-  const envFile = [join(forkPath, '.env'), join(forkPath, 'backend/.env')].find((path) => existsSync(path));
-  const fileEnv = envFile ? parseEnv(readFileSync(envFile, 'utf8')) : {};
+  const envFile = join(forkPath, '.env');
+  const fileEnv = existsSync(envFile) ? parseEnv(readFileSync(envFile, 'utf8')) : {};
   const portOffset = facts.devPortOffset + PORT_SHIFT;
 
   return {
@@ -137,12 +134,12 @@ const lockPath = (testbed: Testbed) => join(testbed.stateDir, 'lock.json');
 const logPath = (testbed: Testbed) => join(testbed.stateDir, 'testbed.log');
 const dataPath = (testbed: Testbed) => join(testbed.stateDir, 'data.json');
 
-/** What the kept database was seeded with: the seed when no start recorded it, as before the showcase. */
-function heldData(testbed: Testbed): TestbedData {
+/** What the kept database was seeded with; undefined when no start recorded it. */
+function heldData(testbed: Testbed): TestbedData | undefined {
   try {
     return JSON.parse(readFileSync(dataPath(testbed), 'utf8')).data === 'showcase' ? 'showcase' : 'seed';
   } catch {
-    return 'seed';
+    return undefined;
   }
 }
 
@@ -409,9 +406,9 @@ export async function withTestbed<T>(
       `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm testbed stop\`)`,
     );
   }
-  if (lock && (lock.data ?? 'seed') !== data) {
+  if (lock && lock.data !== data) {
     throw new Error(
-      `a testbed with ${describeData(lock.data ?? 'seed')} runs at ${lock.frontendUrl}: this command needs ${describeData(data)}, so stop that one first (\`pnpm testbed stop\`)`,
+      `a testbed with ${describeData(lock.data)} runs at ${lock.frontendUrl}: this command needs ${describeData(data)}, so stop that one first (\`pnpm testbed stop\`)`,
     );
   }
   if (lock) {
@@ -432,7 +429,7 @@ export async function withTestbed<T>(
 
 async function runTestbed(forkPath: string, options: TestbedOptions): Promise<number> {
   if (options.job === 'stop') return stopTestbed(await resolveTestbed(forkPath));
-  if (options.showcase && !hasShowcase(forkPath)) throw new Error(`this app keeps no ${showcaseFile(forkPath)}`);
+  if (options.showcase && !hasShowcase(forkPath)) throw new Error(`this app keeps no ${SHOWCASE_FILE}`);
   const data: TestbedData = options.showcase ? 'showcase' : 'seed';
   if (options.command.length > 0) {
     return withTestbed(forkPath, (testbed) => runCommand(forkPath, testbed.env, options.command), { ...options, data });

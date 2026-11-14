@@ -68,7 +68,7 @@ export class LiveDisplay {
   }
 }
 
-export interface LiveState {
+interface LiveState {
   scenario: string;
   phase: string;
   elapsedS: number;

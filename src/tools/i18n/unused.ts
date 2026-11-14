@@ -40,7 +40,7 @@ interface KeyUse {
   pattern: boolean;
 }
 
-export interface UnusedReport {
+interface UnusedReport {
   repos: { name: string; files: number; ms: number }[];
   /** Forks named in the config whose local path is missing, so their uses are unknown. */
   missingForks: string[];
@@ -143,7 +143,7 @@ function classify(defined: Map<string, Site>, scans: CodeScan[]): Map<string, Ke
   return uses;
 }
 
-export async function buildUnused(forkPath: string): Promise<UnusedReport> {
+async function buildUnused(forkPath: string): Promise<UnusedReport> {
   const locales = readLocales(forkPath);
   const defined = definedKeys(locales);
   const ts = await loadTypeScript(forkPath);

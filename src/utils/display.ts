@@ -46,7 +46,7 @@ export const COMMIT_STEP_MAX = 10;
 const STEP_LABEL_WIDTH = 9;
 
 /** Where the detail of a step line starts: the mark, the label column and two spaces */
-export const STEP_INDENT = 2 + STEP_LABEL_WIDTH + 2;
+const STEP_INDENT = 2 + STEP_LABEL_WIDTH + 2;
 
 /** Warning mark for non-fatal warnings */
 export const warningMark = pc.yellow('⚠');
@@ -184,25 +184,22 @@ function styleSubject(subject: string): string {
 
 /**
  * The `checkout` step: branch and commit, whether the tree is clean, and how the branch stands to
- * its remote when it is ahead or behind. The path shows when it is not the current directory, as
- * with `CELLA_FORK_PATH`.
+ * its remote when it is ahead or behind.
  */
 export function formatCheckoutStep(checkout: {
-  forkPath: string;
   branch: string;
   headSha: string;
   changeCount: number;
   upstream: { upstream: string | null; ahead: number; behind: number };
 }): string {
-  const { forkPath, branch, headSha, changeCount, upstream } = checkout;
+  const { branch, headSha, changeCount, upstream } = checkout;
   const parts = [
     changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
   ];
   if (upstream.upstream && (upstream.ahead > 0 || upstream.behind > 0)) {
     parts.push(`${upstream.ahead} ahead, ${upstream.behind} behind ${upstream.upstream}`);
   }
-  const line = `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
-  return resolve(forkPath) === resolve(process.cwd()) ? line : `${line}\n${pc.dim(forkPath)}`;
+  return `${branch} @ ${headSha}${pc.dim(` · ${parts.join(' · ')}`)}`;
 }
 
 /**
@@ -397,7 +394,7 @@ export function filesWithStatus(files: AnalyzedFile[], status: FileStatus): Anal
  * side wins whole-file on these, so upstream's hunks are dropped: the regression class where
  * a pinned stylesheet misses new upstream utilities that synced components rely on.
  */
-export function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
+function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
   // Generated output is rebuilt from the fork's own sources, so upstream's copy has nothing to adopt.
   return files.filter((file) => file.upstreamChanged && !isManagedFile(file.path) && !isGeneratedFile(file.path));
 }

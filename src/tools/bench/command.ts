@@ -14,7 +14,7 @@ const BENCH_DIR = 'backend/bench';
  */
 const ENTRY_COMMAND = ['pnpm', 'exec', 'tsx', '--no-experimental-webstorage', 'bench/run.ts'];
 
-export interface BenchOptions {
+interface BenchOptions {
   /** Unset: pick one from a list, unless `all`. */
   scenario?: string;
   all: boolean;

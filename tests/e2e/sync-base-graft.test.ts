@@ -70,8 +70,7 @@ describe('withTemporarySyncBaseGraft', () => {
   });
 
   it('grafted merge honors the recorded sync point: no ghost re-application, upstream news still lands', async () => {
-    const { base, isStale } = await getEffectiveMergeBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
-    expect(isStale).toBe(true);
+    const base = await getEffectiveMergeBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
     expect(base).toBe(upstreamBlockSha);
 
     const result = await withTemporarySyncBaseGraft(forkPath, 'HEAD', base, () =>
@@ -95,7 +94,7 @@ describe('withTemporarySyncBaseGraft', () => {
     write(forkPath, { 'shared/util.ts': 'export const util = "fork";\n' });
     commitAll(forkPath, 'fork: own util');
 
-    const { base } = await getEffectiveMergeBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
+    const base = await getEffectiveMergeBase(forkPath, 'HEAD', `${UPSTREAM_REMOTE}/main`);
     const result = await withTemporarySyncBaseGraft(forkPath, 'HEAD', base, () =>
       merge(forkPath, `${UPSTREAM_REMOTE}/main`),
     );

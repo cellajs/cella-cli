@@ -34,7 +34,7 @@ interface Pair {
 }
 
 /** One endpoint's requests: time to first byte and to the last byte, status codes, timeouts and transport errors. */
-export interface EndpointStats {
+interface EndpointStats {
   requests: number;
   ttfb: RecordableHistogram;
   total: RecordableHistogram;
@@ -53,7 +53,7 @@ export interface EndpointSummary {
   errors: number;
 }
 
-export interface IntervalSnapshot {
+interface IntervalSnapshot {
   counters: Record<string, number>;
   histograms: Record<string, Distribution>;
 }

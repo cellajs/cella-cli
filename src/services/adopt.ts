@@ -64,7 +64,6 @@ interface ContribPromptConfig {
   branch: string;
   /** Repo path where contrib branches live */
   cwd: string;
-  pageSize?: number;
 }
 
 /**
@@ -72,7 +71,7 @@ interface ContribPromptConfig {
  * Returns items selected for acceptance.
  */
 const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, done) => {
-  const { pageSize = 20, baseRef, branch, cwd, forkName } = config;
+  const { baseRef, branch, cwd, forkName } = config;
 
   const [items, setItems] = useState<ContribItem[]>(config.items);
   const [active, setActive] = useState(0);
@@ -191,7 +190,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       const line = `${cursor} ${checkbox} ${item.path}${delLabel}${statusTag}${newLabel}${dateLabel}`;
       return isActive ? pc.cyan(line) : line;
     },
-    pageSize,
+    pageSize: 20,
     loop: false,
   });
 
@@ -385,7 +384,6 @@ export async function runAdopt(config: RuntimeConfig): Promise<void> {
     baseRef,
     branch,
     cwd: config.forkPath,
-    pageSize: 20,
   });
 
   if (selected.length === 0) {

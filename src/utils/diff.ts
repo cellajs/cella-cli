@@ -24,7 +24,7 @@ export function gitDiffFile(cwd: string, range: string, filePath: string): Buffe
 }
 
 /** One file on a diff page: its path and its unified diff, with standard a/ b/ prefixes. */
-export interface DiffPageFile {
+interface DiffPageFile {
   path: string;
   patch: string;
 }

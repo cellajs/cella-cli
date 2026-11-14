@@ -3,7 +3,7 @@ import { setJsonMode } from '../../utils/display';
 import { runBranchStats } from './since';
 import { runStats } from './snapshot';
 
-export interface StatsOptions {
+interface StatsOptions {
   /** Count what the current branch changed since it left this ref; the whole repository when unset */
   since?: string;
   md: boolean;

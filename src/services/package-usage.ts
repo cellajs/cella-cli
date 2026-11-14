@@ -37,10 +37,6 @@ export interface ForkUsage {
 /** Larger files are generated or binary and are not searched. */
 const MAX_FILE_BYTES = 1024 * 1024;
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
-
 /** A file's text, or '' when it is missing, too large or binary. */
 function readSearchable(filePath: string): string {
   try {
@@ -127,16 +123,16 @@ function packagePatterns(forkPath: string, location: string, name: string): RegE
   const typed = name.match(/^@types\/(.+)$/);
   if (typed) specifiers.push(typed[1].includes('__') ? `@${typed[1].replace('__', '/')}` : typed[1]);
 
-  const patterns = specifiers.map((specifier) => new RegExp(`(['"\`])${escapeRegExp(specifier)}(?:/[^'"\`\\s]*)?\\1`));
+  const patterns = specifiers.map((specifier) => new RegExp(`(['"\`])${RegExp.escape(specifier)}(?:/[^'"\`\\s]*)?\\1`));
   for (const bin of binNames(forkPath, location, name)) {
-    patterns.push(new RegExp(`(?:^|[\\s'"\`(;&|=])${escapeRegExp(bin)}(?=$|[\\s'"\`);&|])`, 'm'));
+    patterns.push(new RegExp(`(?:^|[\\s'"\`(;&|=])${RegExp.escape(bin)}(?=$|[\\s'"\`);&|])`, 'm'));
   }
   return patterns;
 }
 
 /** A package manager command that names the script as a whole word, e.g. `pnpm --filter backend geoip:download`. */
 function scriptPattern(name: string): RegExp {
-  return new RegExp(`\\b(?:pnpm|npm|yarn|bun)\\s+(?:[^\\n;&|]*?\\s)?${escapeRegExp(name)}(?=$|[\\s'"\`);&|])`, 'm');
+  return new RegExp(`\\b(?:pnpm|npm|yarn|bun)\\s+(?:[^\\n;&|]*?\\s)?${RegExp.escape(name)}(?=$|[\\s'"\`);&|])`, 'm');
 }
 
 /**

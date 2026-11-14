@@ -103,22 +103,6 @@ describe('parseCli', () => {
     expect(config.track).toBe('branch');
   });
 
-  it('runs upgrade under its 0.5 name sync, with its options, and warns about the rename', async () => {
-    process.argv = ['node', 'cella', 'sync', '--track', 'branch'];
-    const info = vi.spyOn(console, 'info').mockImplementation(() => {});
-
-    const config = await parseUpstream(
-      { ...baseConfig, settings: { ...baseConfig.settings, syncWithPackages: true } },
-      '/tmp/fork',
-    );
-
-    expect(config.service).toBe('upgrade');
-    expect(config.track).toBe('branch');
-    const out = info.mock.calls.flat().join('\n');
-    expect(out).toContain('`cella sync` is renamed to `cella upgrade`');
-    expect(out).toContain('settings.syncWithPackages is renamed to mergePackageJson');
-  });
-
   it('parses a pinned upstream ref for upgrade and analyze', async () => {
     process.argv = ['node', 'cella', 'upgrade', '--ref', '4f7d87c'];
     expect((await parseUpstream(baseConfig, '/tmp/fork')).ref).toBe('4f7d87c');

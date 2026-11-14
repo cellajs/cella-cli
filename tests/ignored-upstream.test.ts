@@ -11,7 +11,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
-import { findProtectedBehind, printIgnoredUpstreamChanges } from '../src/utils/display';
+import { findProtectedBehindUpstream, printIgnoredUpstreamChanges } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
 import { isGeneratedFile } from '../src/utils/managed-files';
 import { groupIgnoredUpstreamChanges, isUnderAnyFolder } from '../src/utils/overrides';
@@ -117,7 +117,7 @@ describe('ignored paths only upstream changed', () => {
     const both = byPath.get('own/both.ts');
     expect(both?.upstreamChanged).toBe(true);
     expect(both?.upstreamOnly).toBeUndefined();
-    expect(findProtectedBehind(files).map((f) => f.path)).toEqual(['own/both.ts']);
+    expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual(['own/both.ts']);
   });
 
   it('never flags fork-only changes, managed files or unprotected files', () => {

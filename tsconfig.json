@@ -1,7 +1,7 @@
 {
   "compilerOptions": {
     "target": "ESNext",
-    "lib": ["es2024", "DOM", "DOM.Iterable"],
+    "lib": ["es2024", "es2025.regexp", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
     "ignoreDeprecations": "6.0",

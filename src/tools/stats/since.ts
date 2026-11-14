@@ -8,13 +8,14 @@
 import pc from '../../utils/colors';
 import { createSpinner, DIVIDER, spinnerSuccess, writeStdout } from '../../utils/display';
 import { git, revParse } from '../../utils/git';
+import { parseUnifiedDiff } from '../../utils/unified-diff';
 import { classifyFile, getWorkspacePackages, matchPackage, sourceExtensions } from './snapshot';
 
 /** Kind of a changed file. `source` is code and styles that are none of the other kinds. */
-export type ChangeKind = 'source' | 'test' | 'stories' | 'generated' | 'json' | 'docs' | 'other';
+type ChangeKind = 'source' | 'test' | 'stories' | 'generated' | 'json' | 'docs' | 'other';
 
 /** What a changed source line holds. */
-export type LineContent = 'code' | 'comments' | 'blank';
+type LineContent = 'code' | 'comments' | 'blank';
 
 interface LineChange {
   added: number;
@@ -31,7 +32,7 @@ export interface FileChange extends LineChange {
 }
 
 /** What a branch changed since it left a ref */
-export interface BranchStats {
+interface BranchStats {
   /** The ref asked for, as typed */
   since: string;
   /** Short sha of the commit the branch left the ref at */
@@ -108,11 +109,7 @@ export function parseNumstat(output: string): FileChange[] {
   return files;
 }
 
-/**
- * Count the changed lines of a zero-context patch by what they hold, for the files `isCounted`
- * accepts. Hunk headers say how many lines follow, so a changed line that itself starts with
- * `+++` or `---` is never taken for a file header.
- */
+/** Count the changed lines of a zero-context patch by what they hold, for the files `isCounted` accepts. */
 export function countLineContent(
   patch: string,
   isCounted: (filePath: string) => boolean,
@@ -122,36 +119,13 @@ export function countLineContent(
     comments: { added: 0, removed: 0 },
     blank: { added: 0, removed: 0 },
   };
-
-  let counted = false;
-  let remaining = 0;
-
-  for (const line of patch.split('\n')) {
-    if (remaining > 0) {
-      // "\ No newline at end of file" follows a line without being one
-      if (line.startsWith('\\')) continue;
-      remaining--;
-      if (!counted) continue;
-      const change = line.startsWith('+') ? 'added' : 'removed';
-      content[classifyLine(line.slice(1))][change]++;
-      continue;
+  for (const { oldPath, newPath, hunks } of parseUnifiedDiff(patch)) {
+    const path = newPath ?? oldPath;
+    if (!path || !isCounted(path)) continue;
+    for (const line of hunks.flatMap((hunk) => hunk.lines)) {
+      content[classifyLine(line.slice(1))][line.startsWith('+') ? 'added' : 'removed']++;
     }
-
-    // A path git had to quote matches no header below, so every file starts out uncounted
-    if (line.startsWith('diff --git ')) {
-      counted = false;
-      continue;
-    }
-
-    if (line.startsWith('--- a/') || line.startsWith('+++ b/')) {
-      counted = isCounted(line.slice(6));
-      continue;
-    }
-
-    const hunk = /^@@ -\d+(?:,(\d+))? \+\d+(?:,(\d+))? @@/.exec(line);
-    if (hunk) remaining = Number(hunk[1] ?? 1) + Number(hunk[2] ?? 1);
   }
-
   return content;
 }
 

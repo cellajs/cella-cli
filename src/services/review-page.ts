@@ -26,7 +26,7 @@ import {
  * 0.6 KB of page, so the line budget keeps a page near 9 MB: 42 drizzle snapshot diffs once made
  * a 164 MB page that browsers could not open.
  */
-export interface ReviewPageLimits {
+interface ReviewPageLimits {
   /** Diffs on the page, each ~60 ms to render */
   files: number;
   /** Patch lines across the page */
@@ -41,7 +41,7 @@ const PAGE_LIMITS: ReviewPageLimits = { files: 50, lines: 15_000, patchLines: 2_
 const MAX_PATCH_BYTES = 512 * 1024;
 
 /** What {@link writeReviewPage} wrote: the page, its diffs, and the files it lists without one. */
-export interface ReviewPage {
+interface ReviewPage {
   path: string;
   diffs: number;
   listed: number;
@@ -49,7 +49,7 @@ export interface ReviewPage {
 }
 
 /** The files of one terminal list, and the `from..to` refs their diffs run over. */
-export interface ReviewSection {
+interface ReviewSection {
   title: string;
   /** What the diffs show and why the files are listed */
   hint: string;

@@ -118,7 +118,7 @@ export async function readOpenAlignments(config: RuntimeConfig): Promise<Alignme
 }
 
 /** Alignments for the `align` step: the ref to read them at, and the ids by state. */
-export interface AlignmentsView {
+interface AlignmentsView {
   ref: string;
   /** Open in the fork: listed by `pnpm cella align` */
   open: string[];

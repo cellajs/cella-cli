@@ -4,6 +4,7 @@ import { dirname, join } from 'node:path';
 import { printStep } from '../../utils/display';
 import { onShutdown } from '../../utils/signals';
 import { loadPlaywright } from '../drive';
+import { LOCALES_DIR } from '../i18n/locales';
 import { manualSteps, screenReaderSteps } from './criteria';
 import { automated, type LedgerRow, readLedger, rootPackage, type Status } from './ledger';
 import { loadAppConfig } from './scope';
@@ -180,7 +181,7 @@ This report describes the product as tested on the report date. Accessibility ca
 `;
 
   /** Files a reviewer's evidence names that changed after the day of the decision: the decision may describe old code. */
-  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', 'shared/locales', 'locales'], {
+  const tracked = spawnSync('git', ['ls-files', 'frontend/src', 'backend/src', LOCALES_DIR], {
     cwd: forkPath,
     encoding: 'utf8',
   }).stdout.split('\n');

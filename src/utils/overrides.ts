@@ -108,7 +108,7 @@ export async function validateOverrides(
     else if (!upstream) continue;
     else if (await fileExistsAtRef(forkPath, upstream, path)) pinsUpstreamHas.push(entry);
     else {
-      mergeBase ??= (await getEffectiveMergeBase(forkPath, 'HEAD', upstream)).base;
+      mergeBase ??= await getEffectiveMergeBase(forkPath, 'HEAD', upstream);
       const gone = await fileExistsAtRef(forkPath, mergeBase, path);
       warnings.push(`pin does nothing, ${gone ? 'upstream no longer has it' : 'upstream has no such file'}: ${entry}`);
     }

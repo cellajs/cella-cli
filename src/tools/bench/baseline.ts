@@ -4,7 +4,7 @@ import { join } from 'node:path';
 /** Marks the entries this runner wrote: an entry without it (Artillery's) stays in the file and is never compared. */
 export const RUNNER_EPOCH = 'cella-bench@1';
 
-export interface EndpointBaseline {
+interface EndpointBaseline {
   requests: number;
   p50: number;
   p95: number;
@@ -32,7 +32,7 @@ export interface BaselineEntry {
   endpoints: Record<string, EndpointBaseline>;
 }
 
-export interface Delta {
+interface Delta {
   label: string;
   current: number;
   baseline: number;

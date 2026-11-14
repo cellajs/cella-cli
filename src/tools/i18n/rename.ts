@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import pc from '../../utils/colors';
 import { checkMark, plural, warningMark, writeStdout } from '../../utils/display';
 import { type LocaleFile, type Locales, type RawEntry, readLocales, withPluralForms, writeLocaleFile } from './locales';
-import { escapeRegExp, isOpenPattern, listCodeFiles, loadTypeScript, patternTest, scanCode } from './scan';
+import { isOpenPattern, listCodeFiles, loadTypeScript, patternTest, scanCode } from './scan';
 
 export interface RenameOptions {
   from: string;
@@ -23,7 +23,7 @@ interface RenameReport {
 }
 
 /** `c:accept` as its namespace and key. */
-export function parseKey(value: string, locales: Locales): { namespace: string; key: string } {
+function parseKey(value: string, locales: Locales): { namespace: string; key: string } {
   const colon = value.indexOf(':');
   const namespace = value.slice(0, colon);
   const key = value.slice(colon + 1);
@@ -89,7 +89,7 @@ function renameInLocales(
 /** Rewrites every `'ns:old'` literal, plural forms included, in the app's code. */
 function renameInCode(forkPath: string, from: string, to: string): { file: string; literals: number }[] {
   const literal = new RegExp(
-    `(['"\`])${escapeRegExp(from)}((?:_(?:ordinal_)?(?:zero|one|two|few|many|other))?)(?=\\1)`,
+    `(['"\`])${RegExp.escape(from)}((?:_(?:ordinal_)?(?:zero|one|two|few|many|other))?)(?=\\1)`,
     'g',
   );
   const changed: { file: string; literals: number }[] = [];

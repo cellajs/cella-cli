@@ -38,7 +38,7 @@ interface NamespaceStatus {
   languages: Record<string, LanguageStatus>;
 }
 
-export interface StatusReport {
+interface StatusReport {
   languages: string[];
   namespaces: NamespaceStatus[];
 }
@@ -86,7 +86,7 @@ function measure(english: Record<string, string>, texts: Record<string, string>,
   return status;
 }
 
-export function buildStatus(locales: Locales): StatusReport {
+function buildStatus(locales: Locales): StatusReport {
   const others = locales.languages.filter((language) => language !== SOURCE_LANGUAGE);
   const namespaces = [...locales.namespaces].map(([name, files]): NamespaceStatus => {
     const english = namespaceTexts(locales, SOURCE_LANGUAGE, name);
@@ -103,7 +103,7 @@ export function buildStatus(locales: Locales): StatusReport {
 }
 
 /** The findings that fail the status: a text that renders wrong, not one that is not translated yet. */
-export const defectCount = (report: StatusReport): number =>
+const defectCount = (report: StatusReport): number =>
   report.namespaces.reduce(
     (sum, namespace) =>
       Object.values(namespace.languages).reduce(

@@ -20,7 +20,7 @@ import {
   runPnpmJson,
 } from '../utils/audit-utils';
 import pc from '../utils/colors';
-import { checkMark, createSpinner, DIVIDER, spinnerText, warningMark } from '../utils/display';
+import { checkMark, createSpinner, DIVIDER, plural, spinnerText, warningMark } from '../utils/display';
 import {
   type Advisory,
   advisoriesFromAudit,
@@ -52,8 +52,6 @@ interface Decision {
 }
 
 const readOr = <T>(path: string, fallback: T): string | T => (existsSync(path) ? readFileSync(path, 'utf8') : fallback);
-
-const count = (n: number, noun: string, plural = `${noun}s`): string => `${n} ${n === 1 ? noun : plural}`;
 
 const isBreaking = (item: SecurityItem): boolean => item.remedy.kind !== 'none' && item.remedy.breaking;
 
@@ -104,8 +102,9 @@ async function resolveStaging(
 
 /** The versions of a package that a lockfile holds. */
 function lockedVersions(lock: string, name: string): string[] {
-  const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-  const versions = [...lock.matchAll(new RegExp(`^ {2}'?${escaped}@(\\d[^:'()\\s]*)`, 'gm'))].map((match) => match[1]);
+  const versions = [...lock.matchAll(new RegExp(`^ {2}'?${RegExp.escape(name)}@(\\d[^:'()\\s]*)`, 'gm'))].map(
+    (match) => match[1],
+  );
   return [...new Set(versions)];
 }
 
@@ -265,7 +264,7 @@ export async function runSecurityPass(
 
   const spinner = createSpinner(
     auditKeys.length > 0
-      ? `resolving without the ${count(auditKeys.length, 'audit override')}...`
+      ? `resolving without the ${plural(auditKeys.length, 'audit override')}...`
       : 'resolving the workspace...',
   );
   const fail = (message: string, detail = ''): false => {
@@ -293,7 +292,7 @@ export async function runSecurityPass(
     if (!audit) return fail('pnpm audit gave no answer, so nothing can be decided');
     const advisories = advisoriesFromAudit(audit);
 
-    spinnerText(`checking ${count(advisories.length, 'advisory', 'advisories')} against the registry...`);
+    spinnerText(`checking ${plural(advisories.length, 'advisory', 'advisories')} against the registry...`);
     const versionedExcludes = previous.releaseAgeExcludes.flatMap((entry) => parseVersionedExclude(entry)?.name ?? []);
     const names = [...new Set([...advisories.map((advisory) => advisory.module), ...versionedExcludes])];
     const times = await Promise.all(names.map((name) => fetchPublishTimes(name, forkPath)));
@@ -347,7 +346,7 @@ export async function runSecurityPass(
 
     if (!settingsChanged && !updatesManifests) {
       writeFiles();
-      const state = `${count(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
+      const state = `${plural(auditKeys.length, 'override')} · ${next.ignoredGhsas.length} ignored`;
       console.info(`${checkMark} security settings are current ${pc.dim(`· ${state}`)}`);
       printOpen(open);
       return true;
@@ -412,7 +411,7 @@ export async function runSecurityPass(
 
 function printOpen(modules: string[]): void {
   if (modules.length > 0) {
-    console.info(`${warningMark} ${count(modules.length, 'package')} still reported: ${modules.join(', ')}`);
+    console.info(`${warningMark} ${plural(modules.length, 'package')} still reported: ${modules.join(', ')}`);
   }
   console.info();
 }
@@ -465,7 +464,7 @@ function printPlan(plan: {
 
   const lastingCount = Object.keys(plan.lasting).length;
   if (lastingCount > 0) {
-    console.info(pc.dim(`${count(lastingCount, 'override')} without a version selector left as written`));
+    console.info(pc.dim(`${plural(lastingCount, 'override')} without a version selector left as written`));
   }
   if (items.some(isBreaking)) {
     console.info(pc.dim('⚠ a breaking jump: another major, or another minor below 1.0'));

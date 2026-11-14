@@ -2,7 +2,7 @@ import { mkdirSync, readdirSync, readFileSync, unlinkSync, writeFileSync } from 
 import { join } from 'node:path';
 import process from 'node:process';
 
-export interface LockInfo {
+interface LockInfo {
   pid: number;
   scenario: string;
   startedAt: string;

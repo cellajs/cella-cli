@@ -11,6 +11,7 @@ import pc from '../../utils/colors';
 import { printCoverageSummary } from '../../utils/coverage-utils';
 import { createSpinner, DIVIDER, spinnerSuccess } from '../../utils/display';
 import { git } from '../../utils/git';
+import { isGeneratedFile } from '../../utils/managed-files';
 import { readTopLevel } from '../../utils/workspace-yaml';
 
 /** Extensions Biome can check (source code, config, styles) */
@@ -35,7 +36,7 @@ interface StatsResult {
 }
 
 /** Workspace package definition from pnpm-workspace.yaml */
-export interface WorkspacePackage {
+interface WorkspacePackage {
   /** Display name (e.g., 'backend', 'cli/cella') */
   name: string;
   /** Path prefix to match (e.g., 'backend/', 'cli/cella/') */
@@ -74,9 +75,7 @@ export function classifyFile(filePath: string): FileCategory {
   }
 
   if (
-    filePath.includes('.gen.') ||
-    filePath.includes('.gen/') ||
-    filePath.includes('/gen/') ||
+    isGeneratedFile(filePath) ||
     filePath.startsWith('drizzle/') ||
     filePath.includes('/drizzle/') ||
     filePath.endsWith('.d.ts') ||

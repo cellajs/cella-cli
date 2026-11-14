@@ -23,7 +23,7 @@ const ABORT_GRACE_S = 5;
 /** Logs kept per scenario; older ones are deleted. */
 const LOGS_KEPT = 30;
 
-export interface RunOptions {
+interface RunOptions {
   /** Scenario name: labels the output, the log file and the baseline history. */
   name: string;
   /** Base URL that relative request paths join. */
@@ -66,7 +66,7 @@ export interface RunSummary {
   attachments: Record<string, unknown>;
 }
 
-export interface RunResult {
+interface RunResult {
   ok: boolean;
   summary: RunSummary;
   /** This run's numbers in baseline shape, also for a run that failed or was short. */

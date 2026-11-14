@@ -92,12 +92,11 @@ describe('docFindings', () => {
     expect(found('cella/alignments/x/README.md', words(81))).toEqual([]);
   });
 
-  it('finds a ", so" tail outside "so that", and never in alignments or migration notes', () => {
+  it('finds a ", so" tail outside "so that", and never in alignments', () => {
     const long =
       'The row is cached in the browser for the whole session and shared by every open tab, so a reload is cheap.';
     expect(found('guide.md', `${long} Built so that it fits.`).map(({ rule }) => rule)).toEqual(['consequence-tail']);
     expect(found('cella/alignments/x/README.md', long)).toEqual([]);
-    expect(found('cella/migrations/x/README.md', long)).toEqual([]);
   });
 
   it('lets a ", so" pair of at most 15 words pass, and reports a longer sentence, wrapped or not', () => {

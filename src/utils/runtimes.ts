@@ -7,11 +7,12 @@
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import { editJsonText, fetchPublishTimes, type VulnerabilitySeverity } from './audit-utils';
+import { plural } from './display';
 import { git } from './git';
 import { compareVersionStrings, isPrerelease, parseComparableVersion, satisfiesComparators } from './versions';
 
 /** An image tag in a Dockerfile `FROM` line. */
-export interface ImagePin {
+interface ImagePin {
   file: string;
   /** Zero-based line of the `FROM`. */
   line: number;
@@ -37,7 +38,7 @@ export interface NodeRelease {
 }
 
 /** An image tag on Docker Hub and when it was last pushed. */
-export interface HubTag {
+interface HubTag {
   name: string;
   pushedAt: number;
 }
@@ -249,8 +250,6 @@ export async function fetchRuntimeFeeds(pins: RuntimePins, cwd: string, now: num
   return { node, pnpm: published && advisories ? { published, advisories } : null, images };
 }
 
-const count = (n: number, noun: string, plural = `${noun}s`): string => `${n} ${n === 1 ? noun : plural}`;
-
 const monthYear = (time: number): string =>
   new Date(time).toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).toLowerCase();
 
@@ -325,7 +324,7 @@ export function planRuntimeUpdates(
         target: target.version,
         file: 'package.json',
         severity: fixed > 0 ? 'high' : null,
-        note: fixed > 0 ? count(fixed, 'advisory', 'advisories') : '',
+        note: fixed > 0 ? plural(fixed, 'advisory', 'advisories') : '',
         releasesUrl: `https://github.com/pnpm/pnpm/releases/tag/v${target.version}`,
         pin: { kind: 'pnpm' },
       });

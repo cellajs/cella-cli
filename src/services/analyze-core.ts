@@ -30,7 +30,7 @@ function isReportableIgnored(filePath: string): boolean {
 }
 
 /** The tree facts `repairIncomingRenames` pairs against. */
-export interface RenameRepairContext {
+interface RenameRepairContext {
   /** Paths at the merge-base. */
   basePaths: ReadonlySet<string>;
   /** Paths at the incoming tip. */

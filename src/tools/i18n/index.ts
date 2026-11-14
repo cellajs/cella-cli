@@ -6,7 +6,7 @@ import { type RenameOptions, runRename } from './rename';
 import { runStatus } from './status';
 import { runUnused } from './unused';
 
-export type I18nOptions = Partial<RenameOptions> & { job: 'status' | 'unused' | 'rename'; json: boolean };
+type I18nOptions = Partial<RenameOptions> & { job: 'status' | 'unused' | 'rename'; json: boolean };
 
 const jobs = ['status', 'unused', 'rename'] as const;
 const isJob = (job: string): job is (typeof jobs)[number] => (jobs as readonly string[]).includes(job);

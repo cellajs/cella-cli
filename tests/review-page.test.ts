@@ -88,7 +88,6 @@ async function scenarioResult(dir: string): Promise<MergeResult> {
     isPinned: (p) => p.endsWith('.css'),
   });
   return {
-    success: true,
     files,
     summary: {
       managed: 0,

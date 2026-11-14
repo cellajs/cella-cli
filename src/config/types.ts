@@ -59,12 +59,6 @@ export interface SyncSettings {
   /** Merge the `packageJsonKeys` of every package.json after the upgrade merge (default: true). */
   mergePackageJson?: boolean;
 
-  /** @deprecated Renamed to `packageJsonKeys`. */
-  packageJsonSync?: PackageJsonKey[];
-
-  /** @deprecated Renamed to `mergePackageJson`. */
-  syncWithPackages?: boolean;
-
   /**
    * How to link files in CLI output.
    * - 'commit' (default): Link to the commit that changed the file on GitHub.
@@ -158,8 +152,6 @@ export const cellaConfigSchema = z
         releaseBase: z.string().min(1).optional(),
         packageJsonKeys: z.array(z.enum(PACKAGE_JSON_KEYS)).optional(),
         mergePackageJson: z.boolean().optional(),
-        packageJsonSync: z.array(z.enum(PACKAGE_JSON_KEYS)).optional(),
-        syncWithPackages: z.boolean().optional(),
         fileLinkMode: z.enum(['commit', 'file']).optional(),
       })
       .strict(),
@@ -382,13 +374,10 @@ export interface AnalysisSummary {
 
 /** Merge result from merge-engine */
 export interface MergeResult {
-  success: boolean;
   /** Upstream branch name for file links */
   upstreamBranch?: string;
   /** Resolved concrete upstream ref that was merged (branch ref or release tag ref) */
   upstreamRef?: string;
-  /** Upstream release tag synced (when tracking releases) */
-  upstreamTag?: string;
   files: AnalyzedFile[];
   summary: AnalysisSummary;
   conflicts: string[];

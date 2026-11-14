@@ -1,8 +1,7 @@
-import { execFileSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
-import { join } from 'node:path';
 import type TypeScript from 'typescript';
 import { importFromWorkspace } from '../../utils/app-facts';
+import { listRepoFiles } from '../../utils/git';
+import { isGeneratedFile } from '../../utils/managed-files';
 
 /** Absolute path of the repository a run checks; every repo-relative path here resolves against it. */
 export let repoRoot = '';
@@ -51,11 +50,9 @@ export interface Finding {
   message: string;
 }
 
-/** Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, in `git ls-files` order. */
+/** {@link listRepoFiles} of the repository a run checks. */
 export function repoFiles(): string[] {
-  return execFileSync('git', ['ls-files', '-co', '--exclude-standard', '-z'], { cwd: repoRoot, encoding: 'utf8' })
-    .split('\0')
-    .filter((file) => file && existsSync(join(repoRoot, file)));
+  return listRepoFiles(repoRoot);
 }
 
 /** Whether `file` is the path `entry` or inside it; `entry` may end in `/`. */
@@ -72,7 +69,7 @@ export function isRequested(file: string, roots: string[]): boolean {
 export function isFrontendSource(file: string): boolean {
   return (
     /^frontend\/src\/.*\.tsx?$/.test(file) &&
-    !file.includes('.gen.') &&
+    !isGeneratedFile(file) &&
     !file.includes('/content/') &&
     !file.includes('/stories/') &&
     !/\.(?:stories|test)\.tsx?$/.test(file)

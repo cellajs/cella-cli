@@ -17,7 +17,7 @@ import type {
 } from './config/types';
 import { toolCommands } from './tools';
 import pc from './utils/colors';
-import { isUpstreamRepo, renamedSettingWarnings, resolveUpstream } from './utils/config';
+import { isUpstreamRepo, resolveUpstream } from './utils/config';
 import { MENU_DIVIDER, printHeader, setJsonMode, VERSION, warningMark } from './utils/display';
 import { validateOverrides } from './utils/overrides';
 
@@ -26,8 +26,6 @@ export type ToolSelection = { tool: ToolCommand; options: unknown };
 
 type CliServiceSelection = {
   service?: SyncService;
-  /** The former service name the command line used, from {@link ServiceDefinition.aliases}. */
-  renamedFrom?: string;
   options: CliOptionState;
 };
 
@@ -46,8 +44,6 @@ type ServiceDefinition = {
   options?: CommandOption[];
   /** Arguments the service takes after its options, e.g. the ones `align --run` hands to the codemod. */
   operands?: CommandOption;
-  /** Former names that still run the service, hidden from help, with a warning to use the current name. */
-  aliases?: string[];
   includeInMenu?: (context: MenuContext) => boolean;
 };
 
@@ -114,7 +110,6 @@ const serviceDefinitions: ServiceDefinition[] = [
   {
     name: 'upgrade',
     description: 'merge upstream changes onto a fresh branch, merge package.json and open a squash-merge PR',
-    aliases: ['sync'],
     options: [
       trackOption,
       refOption,
@@ -196,27 +191,20 @@ function addServiceCommand(
   definition: ServiceDefinition,
   setSelection: (selection: CliServiceSelection) => void,
 ) {
-  for (const name of [definition.name, ...(definition.aliases ?? [])]) {
-    const renamedFrom = name === definition.name ? undefined : name;
-    const command = program
-      .command(name, { hidden: !!renamedFrom })
-      .description(definition.description)
-      .helpGroup(groupHeadings[serviceGroup(definition)]);
+  const command = program
+    .command(definition.name)
+    .description(definition.description)
+    .helpGroup(groupHeadings[serviceGroup(definition)]);
 
-    for (const option of definition.options ?? []) command.option(...option);
-    if (definition.operands) command.argument(...definition.operands);
+  for (const option of definition.options ?? []) command.option(...option);
+  if (definition.operands) command.argument(...definition.operands);
 
-    // Commander hands declared arguments to the action before the options
-    command.action((...args: unknown[]) => {
-      const operands = definition.operands ? (args[0] as string[]) : [];
-      const opts = (definition.operands ? args[1] : args[0]) as Record<string, unknown>;
-      setSelection({
-        service: definition.name,
-        renamedFrom,
-        options: readOptions(opts, operands),
-      });
-    });
-  }
+  // Commander hands declared arguments to the action before the options
+  command.action((...args: unknown[]) => {
+    const operands = definition.operands ? (args[0] as string[]) : [];
+    const opts = (definition.operands ? args[1] : args[0]) as Record<string, unknown>;
+    setSelection({ service: definition.name, options: readOptions(opts, operands) });
+  });
 }
 
 /** The words of `argv` after the `--` that follows the command name. */
@@ -407,13 +395,7 @@ export async function parseCli(userConfig: CellaCliConfig, forkPath: string): Pr
   // The upstream branch tip as last fetched: ignored entries are validated against it, and it is the
   // upstreamRef until the merge engine resolves the release tag when tracking releases.
   const { branchRef } = resolveUpstream(userConfig.settings);
-  const warnings = [
-    ...renamedSettingWarnings(userConfig),
-    ...(await validateOverrides(userConfig, forkPath, branchRef)),
-  ];
-  if (selection.renamedFrom) {
-    warnings.unshift(`\`cella ${selection.renamedFrom}\` is renamed to \`cella ${selection.service}\``);
-  }
+  const warnings = await validateOverrides(userConfig, forkPath, branchRef);
   for (const warning of warnings) console.info(`${warningMark} ${warning}`);
   if (warnings.length > 0) console.info();
 

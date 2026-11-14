@@ -3,7 +3,7 @@
  *
  * A pinned/ignored file wins whole-file on conflict, so when upstream ALSO changed it since the
  * merge-base, upstream's hunks are dropped silently. `analyzeRefs` flags exactly those files
- * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehind` selects them for display,
+ * (`upstreamChanged` + `upstreamChangedLines`), `findProtectedBehindUpstream` selects them for display,
  * and `printSyncComplete` lists `MergeResult.protectedConflicts` at the end of a sync. The diffs
  * themselves are on the review page, so the list prints no `git diff` lines. The analyze section
  * is covered in `analyze-report.test.ts`.
@@ -12,7 +12,7 @@ import fs from 'node:fs';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import type { AnalyzedFile, MergeResult } from '../src/config/types';
 import { analyzeRefs } from '../src/services/analyze-core';
-import { findProtectedBehind, printSyncComplete } from '../src/utils/display';
+import { findProtectedBehindUpstream, printSyncComplete } from '../src/utils/display';
 import { getMergeBase } from '../src/utils/git';
 import { captureInfo, createRepo, exec, analyzedFile as file, write } from './helpers/test-env';
 
@@ -143,7 +143,7 @@ describe('analyzeRefs upstreamChanged', () => {
   });
 });
 
-describe('findProtectedBehind', () => {
+describe('findProtectedBehindUpstream', () => {
   it('selects flagged files and skips managed and generated ones', () => {
     const files = [
       file({ path: 'frontend/src/styling/tailwind.css', status: 'pinned', isPinned: true, upstreamChanged: true }),
@@ -153,13 +153,15 @@ describe('findProtectedBehind', () => {
       file({ path: 'ahead.ts', status: 'ahead', isPinned: true }),
       file({ path: 'plain.ts', status: 'behind' }),
     ];
-    expect(findProtectedBehind(files).map((f) => f.path)).toEqual(['frontend/src/styling/tailwind.css', 'own/a.ts']);
+    expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual([
+      'frontend/src/styling/tailwind.css',
+      'own/a.ts',
+    ]);
   });
 });
 
 describe('printSyncComplete protected conflicts', () => {
   const baseResult = (): MergeResult => ({
-    success: true,
     files: [],
     conflicts: [],
     summary: {

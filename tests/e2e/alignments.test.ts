@@ -1,7 +1,6 @@
 /**
- * E2E tests for upstream alignments: the sync keeps `cella/alignments/` (and the old
- * `cella/migrations/`) out of the fork, records the alignments that arrive as pending, and
- * `cella align --mark` clears them.
+ * E2E tests for upstream alignments: the sync keeps `cella/alignments/` out of the fork, records
+ * the alignments that arrive as pending, and `cella align --mark` clears them.
  */
 import { execSync } from 'node:child_process';
 import fs from 'node:fs';
@@ -64,34 +63,6 @@ describe('alignments e2e', () => {
     expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
     expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
     expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
-  });
-
-  it('gives an app synced before the alignments only the ones upstream holds after deleting its notes', async () => {
-    const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.forkPath, encoding: 'utf8' }).trim();
-
-    // An older sync point: upstream kept migration notes, and an older sync copied them into the fork
-    makeCommit(env.upstreamPath, {
-      files: { 'cella/migrations/README.md': '# Migrations\n', [`cella/migrations/${OLD}/README.md`]: readme('Old') },
-      message: 'feat: old migration note',
-    });
-    fetchUpstream(env.forkPath);
-    git('merge -q --ff-only cella-upstream/main');
-
-    // Upstream deletes every note and starts the alignments
-    deleteFileAndCommit(env.upstreamPath, `cella/migrations/${OLD}/README.md`, 'chore: drop the old note');
-    deleteFileAndCommit(env.upstreamPath, 'cella/migrations/README.md', 'chore: drop the notes readme');
-    makeCommit(env.upstreamPath, {
-      files: { [`cella/alignments/${NEW}/README.md`]: readme('First alignment') },
-      message: 'refactor!: migration notes become alignments',
-    });
-    fetchUpstream(env.forkPath);
-
-    const result = await runSync(buildRuntimeConfig(env, { service: 'upgrade' }));
-
-    expect(result.alignments).toEqual({ total: 1, arrived: [NEW], open: [NEW] });
-    expect(pending(env.forkPath)).toEqual({ pending: [NEW] });
-    expect(fileExists(env.forkPath, 'cella/migrations')).toBe(false);
-    expect(fileExists(env.forkPath, 'cella/alignments')).toBe(false);
   });
 
   it('removes the copy when the sync stops at conflicts, and the rerun keeps it gone', async () => {

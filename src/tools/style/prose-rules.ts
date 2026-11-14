@@ -1,7 +1,8 @@
+import { isGeneratedFile } from '../../utils/managed-files';
 import { blankOut, type Finding } from './repo';
 
 /** A wording rule, read in every source comment. */
-export interface ProseRule {
+interface ProseRule {
   /** The rule id each finding prints in brackets. */
   name: string;
   pattern: RegExp;
@@ -28,10 +29,7 @@ const agentWording = { docs: true, exclude: /^(?:cella\/alignments\/|infra\/)/ }
  */
 export function isProseExempt(file: string, kind: 'source' | 'doc'): boolean {
   if (kind === 'doc') return file.endsWith('CHANGELOG.md');
-  return (
-    ['backend/drizzle/', 'cella/alignments/', 'sdk/gen/'].some((prefix) => file.startsWith(prefix)) ||
-    file.includes('.gen.')
-  );
+  return ['backend/drizzle/', 'cella/alignments/'].some((prefix) => file.startsWith(prefix)) || isGeneratedFile(file);
 }
 
 /** The rules the comment and doc checks apply; each gets its line in the README. */
@@ -84,7 +82,7 @@ export const proseRules: ProseRule[] = [
     docs: true,
     changedLines: true,
     maxSentenceWords: 15,
-    exclude: /^(?:cella\/alignments\/|cella\/migrations\/|backend\/drizzle\/)/,
+    exclude: /^(?:cella\/alignments\/|backend\/drizzle\/)/,
   },
 ];
 

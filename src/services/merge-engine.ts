@@ -19,11 +19,11 @@ import {
   type UpstreamOverridesReport,
 } from '../config/types';
 import {
+  ALIGNMENTS_DIR,
   arrivedAlignmentIds,
   listAlignmentIds,
   PENDING_FILE,
   readPending,
-  UPSTREAM_ONLY_DIRS,
   writePending,
 } from '../utils/alignments';
 import { readReleaseAgeMinutes } from '../utils/audit-utils';
@@ -394,7 +394,7 @@ async function prepareUpstream(
     getWorkingTreeChangeCount(forkPath),
     getUpstreamStatus(forkPath),
   ]);
-  onStep?.('checkout', formatCheckoutStep({ forkPath, branch, headSha, changeCount, upstream: upstreamStatus }));
+  onStep?.('checkout', formatCheckoutStep({ branch, headSha, changeCount, upstream: upstreamStatus }));
 
   onProgress?.('setting up upstream remote...');
   const { track: configTrack, branchRef } = resolveUpstream(config.settings);
@@ -451,7 +451,7 @@ async function prepareUpstream(
   const upstreamGitHubUrl = getGitHubBaseUrl(config.settings.upstreamUrl) ?? undefined;
 
   // Effective merge base (handles a stale base from previous squash syncs).
-  const mergeBase = (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base;
+  const mergeBase = await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef);
   const mergeRef = config.unpinned ? await getMergeBase(forkPath, 'HEAD', upstreamRef) : mergeBase;
 
   const upstreamCommit = await getCommitInfo(forkPath, upstreamRef);
@@ -518,7 +518,6 @@ function resultMeta(config: RuntimeConfig, ctx: UpstreamContext) {
   return {
     upstreamBranch: config.settings.upstreamBranch ?? 'main',
     upstreamRef: ctx.upstreamRef,
-    upstreamTag: ctx.releaseTag,
     upstreamGitHubUrl: ctx.upstreamGitHubUrl,
     upstreamCommit: ctx.upstreamCommit,
     upstreamCommitCount: ctx.commitCount,
@@ -603,16 +602,14 @@ function alignmentsResult(
 }
 
 /**
- * Remove the fork's copy of an upstream-only folder (forks that synced it before it became
+ * Remove the fork's copy of the alignments folder (forks that synced it before it became
  * upstream-only, and new apps whose scaffold cloned it). Staged with the sync.
  */
 async function removeUpstreamOnlyCopy(forkPath: string, onStep?: StepCallback): Promise<void> {
-  for (const dir of UPSTREAM_ONLY_DIRS) {
-    if (!existsSync(join(forkPath, dir))) continue;
-    await git(['rm', '-r', '-q', '--ignore-unmatch', '--', dir], forkPath);
-    await rm(join(forkPath, dir), { recursive: true, force: true });
-    onStep?.('alignments', `removed ${dir}/: alignments stay upstream, list them with pnpm cella align`);
-  }
+  if (!existsSync(join(forkPath, ALIGNMENTS_DIR))) return;
+  await git(['rm', '-r', '-q', '--ignore-unmatch', '--', ALIGNMENTS_DIR], forkPath);
+  await rm(join(forkPath, ALIGNMENTS_DIR), { recursive: true, force: true });
+  onStep?.('alignments', `removed ${ALIGNMENTS_DIR}/: alignments stay upstream, list them with pnpm cella align`);
 }
 
 /**
@@ -692,7 +689,6 @@ async function runSyncMerge(
   }
 
   return {
-    success: remainingConflicts.length === 0,
     files: analyzedFiles,
     summary,
     conflicts: remainingConflicts,
@@ -732,7 +728,6 @@ async function runAnalyzePreview(
   );
 
   return {
-    success: true,
     files: analyzedFiles,
     summary: calculateSummary(analyzedFiles),
     // For analyze mode, count diverged files as potential conflicts

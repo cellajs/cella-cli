@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { dirname, join, relative } from 'node:path';
 import { importFromWorkspace } from '../../utils/app-facts';
+import { isGeneratedFile } from '../../utils/managed-files';
 import { splitToken, type Token } from './class-tokens';
 import { type Finding, lineColumn, repoRoot, ts } from './repo';
 import { parseSource } from './source-comments';
@@ -33,7 +34,7 @@ interface TailwindNode {
 }
 
 /** The loaded design system plus the class names that stylesheets, scripts and arbitrary selectors use. */
-export interface TailwindContext {
+interface TailwindContext {
   /** Repo-relative stylesheet that imports Tailwind. */
   entry: string;
   /** Absent when loading failed, as on an `@apply` of an unknown class; `loadError` then holds Tailwind's message. */
@@ -60,7 +61,7 @@ interface ClassText {
 }
 
 function isFrontendScript(file: string): boolean {
-  return /^frontend\/src\/.*\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !file.includes('.gen.');
+  return /^frontend\/src\/.*\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !isGeneratedFile(file);
 }
 
 function isFrontendStylesheet(file: string): boolean {

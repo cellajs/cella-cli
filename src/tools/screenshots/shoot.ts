@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import pc from '../../utils/colors';
@@ -11,7 +11,7 @@ import type { TestbedHandle } from '../testbed';
 import { appSchema, baseSchema, type Device, type Format, type Shot } from './define';
 
 /** The shot list with the app's delta applied. */
-export interface ShotList {
+interface ShotList {
   format: Format;
   devices: Record<string, Device>;
   suppress: { alerts: string[]; hints: string[] };
@@ -90,9 +90,6 @@ interface Written {
   pixels: string;
 }
 
-const hasMfaScript = (forkPath: string) =>
-  Boolean(JSON.parse(readFileSync(join(forkPath, 'backend/package.json'), 'utf8')).scripts?.['showcase:mfa']);
-
 /**
  * Shoots the list on a testbed, a light and a dark shot each unless a shot names one mode, and prints every file with
  * its pixel and file size.
@@ -134,19 +131,6 @@ export async function shoot(forkPath: string, list: ShotList, testbed: TestbedHa
   };
 
   try {
-    // MFA on for the shot user and a share of their members, so the account page and member tables show both states.
-    // The showcase seed does that itself; an app without one does it through its `showcase:mfa` script, where it has it.
-    // Nobody can sign in with the factors it adds, which is why it runs on a testbed only.
-    if (testbed.data === 'seed' && hasMfaScript(forkPath)) {
-      const showcase = spawnSync('pnpm', ['--silent', '--filter', 'backend', 'showcase:mfa', email], {
-        cwd: forkPath,
-        env: testbed.env,
-        encoding: 'utf8',
-      });
-      if (showcase.status !== 0) throw new Error(`showcase:mfa failed:\n${showcase.stdout}\n${showcase.stderr}`);
-      printStep('mfa', showcase.stdout.trim().split('\n').at(-1));
-    }
-
     for (const prepare of list.prepare) await prepare(signedIn(user));
     const values: Record<string, string | null> = {};
     for (const [name, resolve] of Object.entries(list.placeholders)) values[name] = await resolve(signedIn(user));

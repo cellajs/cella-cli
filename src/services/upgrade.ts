@@ -15,7 +15,7 @@ import {
   buildTemporarySyncBranch,
   isTemporarySyncBranch,
   resolveReleaseBase,
-  TEMPORARY_BRANCH_PREFIXES,
+  UPGRADE_BRANCH_PREFIX,
 } from '../utils/config';
 import {
   COMMIT_LIST_MAX,
@@ -200,7 +200,7 @@ async function returnToBase(forkPath: string, base: string): Promise<string> {
 }
 
 /** A sync's merge result, with the review page the run wrote. */
-export interface SyncRunResult extends MergeResult {
+interface SyncRunResult extends MergeResult {
   reviewPage?: ReviewPageReport;
 }
 
@@ -227,7 +227,7 @@ export async function runSync(
     throw error;
   }
 
-  if (result.success) {
+  if (result.conflicts.length === 0) {
     spinnerSuccess();
   } else {
     spinnerFail('upgrade merge completed with conflicts');
@@ -764,7 +764,7 @@ async function guardAgainstOpenSyncPr(config: RuntimeConfig): Promise<'continue'
 
   if (!ghAvailable() || !process.stdout.isTTY) return 'continue';
 
-  const open = listOpenSyncPrs(forkPath, TEMPORARY_BRANCH_PREFIXES);
+  const open = listOpenSyncPrs(forkPath, UPGRADE_BRANCH_PREFIX);
   if (open.length === 0) return 'continue';
 
   const many = open.length > 1;

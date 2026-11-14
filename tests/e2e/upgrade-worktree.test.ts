@@ -150,20 +150,6 @@ describe('upgrade from a linked worktree', () => {
       expect(exec('git rev-parse --abbrev-ref HEAD', env.forkPath)).toBe('main');
     });
 
-    it('ships a branch CLI 0.5 cut under cella/sync/, so a cycle started before the rename finishes', async () => {
-      const worktreePath = setupForkWithWorktree(env);
-      makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(syncConfig(env, worktreePath));
-      exec('git branch -q -m cella/sync/20260101-0000', worktreePath);
-      const committed = exec('git rev-parse HEAD', worktreePath);
-
-      await runUpgradeCommand(syncConfig(env, worktreePath));
-
-      expect(exec('git ls-remote --heads origin cella/sync/20260101-0000', worktreePath).split(/\s+/)[0]).toBe(
-        committed,
-      );
-    });
-
     it('titles the PR after the sync commit when drift-triage commits sit on top', async () => {
       const worktreePath = setupForkWithWorktree(env);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });

@@ -108,11 +108,11 @@ describe('owedAlignmentFindings', () => {
     "      'backend/drizzle',",
     '      // App identity',
     "      'frontend/src/modules/common/logo-art.tsx',",
-    "      'locales/en/app.json',",
+    "      'shared/locales/en/app.json',",
     '    ],',
     '    pinned: [',
     "      'backend/src/modules.ts',",
-    "      'json/text-blocks.json',",
+    "      'shared/json/text-blocks.json',",
     '    ],',
     '  },',
     '});',
@@ -126,9 +126,9 @@ describe('owedAlignmentFindings', () => {
       'shared/config',
       'backend/drizzle',
       'frontend/src/modules/common/logo-art.tsx',
-      'locales/en/app.json',
+      'shared/locales/en/app.json',
       'backend/src/modules.ts',
-      'json/text-blocks.json',
+      'shared/json/text-blocks.json',
     ]);
   });
 
@@ -147,8 +147,8 @@ describe('owedAlignmentFindings', () => {
       rule([
         'README.md',
         'shared/config/config.default.ts',
-        'locales/en/app.json',
-        'json/text-blocks.json',
+        'shared/locales/en/app.json',
+        'shared/json/text-blocks.json',
         'backend/drizzle/README.md',
         'backend/src/modules/auth/x.ts',
       ]),

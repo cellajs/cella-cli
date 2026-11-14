@@ -25,21 +25,8 @@ export const DEFAULT_BRANCH = 'main';
  */
 export const UPGRADE_BRANCH_PREFIX = 'cella/upgrade';
 
-/** Branch prefixes of a cycle in progress or an open PR: CLI 0.5 cut its branches under `cella/sync`. */
-export const TEMPORARY_BRANCH_PREFIXES = [UPGRADE_BRANCH_PREFIX, 'cella/sync'];
-
 /** The package.json keys that merge when a config omits `packageJsonKeys`. */
 export const DEFAULT_PACKAGE_JSON_KEYS: PackageJsonKey[] = ['dependencies', 'devDependencies'];
-
-/** Settings renamed in 0.6, by their old name: `loadConfig` reads them under the new one. */
-const RENAMED_SETTINGS = { packageJsonSync: 'packageJsonKeys', syncWithPackages: 'mergePackageJson' } as const;
-
-/** A warning per renamed setting the config still uses. */
-export function renamedSettingWarnings(config: CellaCliConfig): string[] {
-  return Object.entries(RENAMED_SETTINGS)
-    .filter(([old]) => old in config.settings)
-    .map(([old, current]) => `settings.${old} is renamed to ${current}: rename it in ${CONFIG_FILE}`);
-}
 
 /** Whether the repo at `repoPath` is upstream cella itself (its root package.json is named 'cella'). */
 export function isUpstreamRepo(repoPath: string): boolean {
@@ -48,7 +35,7 @@ export function isUpstreamRepo(repoPath: string): boolean {
 
 /** Whether `branch` is one of the temporary integration branches `cella upgrade` cuts. */
 export function isTemporarySyncBranch(branch: string): boolean {
-  return TEMPORARY_BRANCH_PREFIXES.some((prefix) => branch.startsWith(`${prefix}/`));
+  return branch.startsWith(`${UPGRADE_BRANCH_PREFIX}/`);
 }
 
 /**
@@ -122,9 +109,6 @@ export async function loadConfig(forkPath: string): Promise<CellaCliConfig> {
     throw new Error(`invalid ${configPath}:\n${z.prettifyError(result.error)}`);
   }
   const config: CellaCliConfig = result.data;
-  // Settings renamed in 0.6 keep working under their old names (see RENAMED_SETTINGS).
-  config.settings.packageJsonKeys ??= config.settings.packageJsonSync;
-  config.settings.mergePackageJson ??= config.settings.syncWithPackages;
 
   // Auto-derive fork-owned module folders (modules declaring `owner: 'app'`) and merge
   // them into ignored. This keeps app modules as fork territory: upstream never

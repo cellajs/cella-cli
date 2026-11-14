@@ -129,7 +129,6 @@ function fixture(): MergeResult {
     }),
   ];
   return {
-    success: true,
     files,
     summary: {
       managed: 0,

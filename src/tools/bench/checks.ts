@@ -3,7 +3,7 @@ import { count, ms } from './report';
 import { type CheckResult, type Checks, splitMetricKey } from './types';
 
 /** What the checks read of a finished run. */
-export interface CheckInput {
+interface CheckInput {
   counters: Record<string, number>;
   distributions: Record<string, Distribution>;
   short: boolean;

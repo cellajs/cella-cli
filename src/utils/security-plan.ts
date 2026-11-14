@@ -24,7 +24,7 @@ export interface Advisory {
 }
 
 /** What can be done about an item. */
-export type Remedy =
+type Remedy =
   /** A published, installable version outside every vulnerable range. */
   | { kind: 'override'; target: string; breaking: boolean }
   /** The fix exists but is younger than the release age. */
@@ -33,7 +33,7 @@ export type Remedy =
   | { kind: 'none' };
 
 /** How an item relates to the settings from before this run. */
-export type Standing =
+type Standing =
   /** An override of the same line was in place: applied again without asking. */
   | 'carried'
   /** Its advisories were ignored and stay so. */

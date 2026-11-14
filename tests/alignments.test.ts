@@ -64,11 +64,6 @@ describe('parseAlignment', () => {
     const unknownCatch = readme.replace('caughtBy: nothing', 'caughtBy: review');
     expect(parseAlignment('20260101T0000-x', unknownCatch, ['README.md']).caughtBy).toBeNull();
   });
-
-  it('reads `syncBreaking`, the field name alignments up to cella 0.27 carry at an older upstream ref', () => {
-    const older = readme.replace('breaking: true', 'syncBreaking: true');
-    expect(parseAlignment('20260101T0000-x', older, ['README.md']).breaking).toBe(true);
-  });
 });
 
 describe('grepAlignmentTerms', () => {
@@ -107,10 +102,9 @@ describe('formatAlignmentsLine', () => {
 });
 
 describe('isUpstreamOnly', () => {
-  it('matches the alignments folder and the old notes folder, and nothing beside them', () => {
+  it('matches the alignments folder, and nothing beside it', () => {
     expect(isUpstreamOnly('cella/alignments')).toBe(true);
     expect(isUpstreamOnly('cella/alignments/20260101T0000-x/README.md')).toBe(true);
-    expect(isUpstreamOnly('cella/migrations/20260101T0000-x/README.md')).toBe(true);
     expect(isUpstreamOnly('cella/cella.alignments.json')).toBe(false);
     expect(isUpstreamOnly('cella/alignments-old/x.md')).toBe(false);
   });

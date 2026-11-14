@@ -6,7 +6,6 @@
  * auto-merged files.
  */
 
-import process from 'node:process';
 import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
 import {
@@ -94,7 +93,6 @@ describe('formatMergeInProgressDetail', () => {
 
 describe('formatCheckoutStep', () => {
   const checkout = {
-    forkPath: process.cwd(),
     branch: 'main',
     headSha: 'ac6106a',
     changeCount: 0,
@@ -114,12 +112,6 @@ describe('formatCheckoutStep', () => {
 
     expect(stripVTControlCharacters(out)).toBe(
       'main @ ac6106a · 1 uncommitted change, not included in the analysis · 2 ahead, 0 behind origin/main',
-    );
-  });
-
-  it('names the repo when it is not the current directory', () => {
-    expect(stripVTControlCharacters(formatCheckoutStep({ ...checkout, forkPath: '/elsewhere/fork' }))).toBe(
-      'main @ ac6106a · clean\n/elsewhere/fork',
     );
   });
 });

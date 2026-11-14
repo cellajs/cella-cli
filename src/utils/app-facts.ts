@@ -18,10 +18,10 @@ const appConfigSchema = z.object({
 });
 
 /** The part of the app's development config the develop commands read. */
-export type AppFacts = z.infer<typeof appConfigSchema>;
+type AppFacts = z.infer<typeof appConfigSchema>;
 
 /** The app's local database helpers (`shared/src/local-database.ts`), as the develop commands call them. */
-export interface LocalDatabases {
+interface LocalDatabases {
   port: (database: string) => number;
   url: (database: string, role: 'postgres' | 'runtime_role' | 'admin_role') => string;
   /** The env `backend/compose.yaml` reads: the project name and each database's host port. */
@@ -43,10 +43,6 @@ export async function importFromApp(
   setEnv('NODE_ENV', mode);
   return import(pathToFileURL(path).href);
 }
-
-/** An app path a template alignment moved: `current`, or `legacy` in an app that has only the old one. */
-export const movedPath = (forkPath: string, current: string, legacy: string): string =>
-  !existsSync(join(forkPath, current)) && existsSync(join(forkPath, legacy)) ? legacy : current;
 
 /**
  * The app's config in development mode, from its own `shared` package. In a linked worktree the import claims that

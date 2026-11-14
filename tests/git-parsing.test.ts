@@ -200,92 +200,35 @@ describe('git parsing', () => {
       write(repoPath, { 'cella/cella.manifest.json': `${JSON.stringify({ upstream: { commit: sha } })}\n` });
     }
 
-    it('uses git merge-base when no stored ref exists', async () => {
+    it('uses git merge-base when no manifest is committed', async () => {
       createFeatureBranch();
 
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      expect(result.isStale).toBe(false);
-      expect(result.storedRef).toBeNull();
-      expect(result.base).toBeTruthy();
-    });
-
-    it('prefers stored ref when it is newer than git merge-base', async () => {
-      const featureHash = createFeatureBranch();
-
-      // Store a ref that's the feature branch tip (newer than merge-base)
-      await storeLastSyncRef(repoPath, featureHash);
-
-      // Simulate a completed (squash) sync: the user commits, advancing HEAD past
-      // the HEAD recorded by storeLastSyncRef. This is what marks the sync as done.
-      makeCommit(repoPath, { files: { 'synced.txt': 'synced\n' }, message: 'squash sync' });
-
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      // Stored ref (feature tip) is a descendant of merge-base (branch point)
-      expect(result.storedRef).toBe(featureHash);
-      expect(result.isStale).toBe(true);
-      expect(result.base).toBe(featureHash);
-    });
-
-    it('ignores stored ref left behind by an aborted merge (HEAD unchanged)', async () => {
-      const featureHash = createFeatureBranch();
-      const gitBase = exec('git merge-base main feature', repoPath);
-
-      // Store the ref but do NOT advance HEAD — this mirrors a `git merge --abort`
-      // where the staged sync ref persists but no merge commit was created.
-      await storeLastSyncRef(repoPath, featureHash);
-
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      // Guard must discard the stale ref and fall back to git's natural merge-base.
-      expect(result.storedRef).toBeNull();
-      expect(result.isStale).toBe(false);
-      expect(result.base).toBe(gitBase);
-    });
-
-    it('trusts stored ref when current HEAD committed the matching sync manifest', async () => {
-      const featureHash = createFeatureBranch();
-
-      // Simulate a squash-merged sync on main. The upstream commit is not in main's ancestry,
-      // but the committed manifest records it as integrated.
-      writeManifest(featureHash);
-      exec('git add -A && git commit -m "sync manifest"', repoPath);
-
-      // A later aborted rerun can record the current HEAD as last-sync-head. The committed
-      // manifest proves this is still a valid squash-sync base, not an unintegrated stale ref.
-      await storeLastSyncRef(repoPath, featureHash);
-
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      expect(result.storedRef).toBe(featureHash);
-      expect(result.isStale).toBe(true);
-      expect(result.base).toBe(featureHash);
+      expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(
+        exec('git merge-base main feature', repoPath),
+      );
     });
 
     it('recovers the squash-sync base from the committed manifest alone (fresh clone, no local refs)', async () => {
       const featureHash = createFeatureBranch();
 
       // Commit a manifest recording the squash-synced upstream commit, without storing any
-      // local refs — the state of a fresh clone or a second maintainer's machine.
+      // local refs: the state of a fresh clone or a second maintainer's machine.
       writeManifest(featureHash);
       exec('git add -A && git commit -m "sync manifest"', repoPath);
 
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      expect(result.storedRef).toBe(featureHash);
-      expect(result.isStale).toBe(true);
-      expect(result.base).toBe(featureHash);
+      expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(featureHash);
     });
 
     it('does not trust a manifest that only exists in the working tree (aborted sync)', async () => {
       const featureHash = createFeatureBranch();
       const gitBase = exec('git merge-base main feature', repoPath);
 
-      // An aborted sync can leave the manifest in the working tree and the refs recorded at an
-      // unadvanced HEAD. Nothing was committed, so nothing was integrated.
+      // An aborted sync can leave the manifest in the working tree and the ref recorded.
+      // Nothing was committed, so nothing was integrated.
       writeManifest(featureHash);
       await storeLastSyncRef(repoPath, featureHash);
 
-      const result = await getEffectiveMergeBase(repoPath, 'main', 'feature');
-      expect(result.storedRef).toBeNull();
-      expect(result.isStale).toBe(false);
-      expect(result.base).toBe(gitBase);
+      expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(gitBase);
     });
   });
 

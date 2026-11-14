@@ -103,8 +103,6 @@ const alignmentExempt = [
   'frontend/src/routes/routeTree.gen.ts',
   'frontend/src/styling/gradients.css',
   'infra/',
-  'json/',
-  'locales/',
   'sdk/gen',
   'shared/config',
   'shared/json/',

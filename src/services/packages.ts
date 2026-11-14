@@ -335,7 +335,7 @@ async function discoverPackageLocations(forkPath: string, upstreamRef: string): 
  */
 async function resolveMergeBase(forkPath: string, upstreamRef: string): Promise<string | null> {
   try {
-    return (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)).base || null;
+    return (await getEffectiveMergeBase(forkPath, 'HEAD', upstreamRef)) || null;
   } catch {
     return null;
   }
