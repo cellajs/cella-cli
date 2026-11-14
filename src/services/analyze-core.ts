@@ -324,19 +324,23 @@ export async function analyzeRefs(
       }
     }
 
-    // Protected file where BOTH sides changed since the merge-base (a local edit or deletion,
-    // and incoming content that differs from base). Local wins whole-file, so incoming's
-    // hunks are dropped; the flag lets analyze/sync surface the loss. A protected file
+    // Protected file where BOTH sides changed since the merge-base (a local edit, or a deletion
+    // of a pinned file, and incoming content that differs from base). Local wins whole-file, so
+    // incoming's hunks are dropped; the flag lets analyze/sync surface the loss. A protected file
     // that only changed locally is plain `ahead`; one that only changed incoming (`behind`
     // with the local copy still equal to base) is reported separately as a masking pin.
     const upstreamChanged =
-      (fileIsPinned || fileIsIgnored) && inUpstream && upstreamHash !== baseHash && forkHash !== baseHash;
+      (fileIsPinned || (fileIsIgnored && inFork)) && inUpstream && upstreamHash !== baseHash && forkHash !== baseHash;
 
     // Ignored file only incoming changed, added or deleted since the merge-base (the local copy,
-    // or its absence, still equals base). Nothing local is dropped, but ignored paths never sync,
-    // so the change would stay unseen. The pinned counterpart is the masking pin (`behind`).
+    // or its absence, still equals base), or one incoming changed that the fork does not have:
+    // an app's own screenshots it never kept. Nothing local is dropped, but ignored paths never
+    // sync, so the change would stay unseen. The pinned counterpart is the masking pin (`behind`).
     const upstreamOnly =
-      fileIsIgnored && isReportableIgnored(filePath) && upstreamHash !== baseHash && forkHash === baseHash;
+      fileIsIgnored &&
+      isReportableIgnored(filePath) &&
+      upstreamHash !== baseHash &&
+      (forkHash === baseHash || (!inFork && inUpstream));
 
     push(status, { upstreamChanged: upstreamChanged || undefined, upstreamOnly: upstreamOnly || undefined });
   }
@@ -356,7 +360,7 @@ export async function analyzeRefs(
       const entry = stat.get(file.path);
       if (entry && entry.additions !== null && entry.deletions !== null) {
         file.upstreamChangedLines = entry.additions + entry.deletions;
-      }
+      } else if (entry) file.upstreamBinary = true;
     }
   }
 

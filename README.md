@@ -560,13 +560,15 @@ missing new upstream utilities that merged components rely on), so both commands
   changed; generated output the fork regenerates itself (`sdk/gen`, `*.gen.*` files) is left out.
   `--list`/`--json` include them in `--scope all` and `--scope protected` (`--json` adds
   `upstreamChanged` and `upstreamChangedLines`).
-- `upgrade` prints the same list at the end of its summary, right when the drop happens.
+- `upgrade` prints the same list at the end of its summary, right when the drop happens. Ignored
+  images and other binaries, which an app replaces whole, share one line.
 
 ```
-⚠ 3 protected files kept the fork version, dropping upstream changes:
+⚠ 5 protected files kept the fork version, dropping upstream changes:
   ⨀ frontend/src/styling/tailwind.css · 21 lines changed upstream
   ⨂ shared/config/default.ts · 4 lines changed upstream
   ⨂ shared/config/staging.ts · 2 lines changed upstream
+  ⨂ 2 ignored binary files, such as frontend/public/static/marketing/app-1.webp
   pinned/ignored files where upstream also changed since the last upgrade; the fork side wins on conflict, so review what upstream changed and adopt what you need.
 ```
 
@@ -590,8 +592,9 @@ Two more kinds of upstream change never reach the fork on their own. `analyze` l
 after its merge summary:
 
 - **Ignored paths changed upstream.** Upstream changed, added or deleted a file under an `ignored`
-  entry (app-owned module folders included) and the fork left it untouched. No conflict marks it,
-  so this is where new config keys and version bumps under `shared/config` show up. In `upgrade`
+  entry (app-owned module folders included) and the fork left it untouched or does not have it.
+  No conflict marks it, so this is where new config keys and version bumps under `shared/config`
+  show up. In `upgrade`
   each `ignored` entry gets one line with a file count, and the [review page](#review-page) shows
   the diffs. Files
   both sides changed stay in the section above, and generated output the fork regenerates itself

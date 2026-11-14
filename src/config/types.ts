@@ -347,6 +347,8 @@ export interface AnalyzedFile {
   upstreamChanged?: boolean;
   /** For `upstreamChanged` and `upstreamOnly` files: lines upstream changed since the merge-base (undefined for binary) */
   upstreamChangedLines?: number;
+  /** For `upstreamChanged` and `upstreamOnly` files: upstream's change is binary, which has no line count. */
+  upstreamBinary?: boolean;
   /**
    * Ignored files only: upstream changed, added or deleted the file since the merge-base and the
    * fork did not touch it. Ignored paths never sync, so without this flag the change stays unseen
