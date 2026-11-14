@@ -464,6 +464,8 @@ function printProtectedConflicts(result: MergeResult): void {
   if (paths.length === 0) return;
 
   const byPath = new Map(result.files.map((file) => [file.path, file]));
+  // An ignored image or other binary the app keeps its own of has nothing to adopt: one line counts them.
+  const binaries = paths.filter((path) => byPath.get(path)?.isIgnored && byPath.get(path)?.upstreamBinary);
   console.info();
   console.info(
     `${warningMark} ${pc.yellow(
@@ -471,9 +473,15 @@ function printProtectedConflicts(result: MergeResult): void {
     )}`,
   );
   for (const path of paths) {
+    if (binaries.includes(path)) continue;
     const file = byPath.get(path);
     const icon = file ? protectionIcon(file) : statusConfig.pinned.icon;
     console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
+  }
+  if (binaries.length > 0) {
+    console.info(
+      `  ${statusConfig.ignored.icon} ${plural(binaries.length, 'ignored binary file')}, such as ${binaries[0]}`,
+    );
   }
   console.info(pc.dim(`  ${PROTECTED_BEHIND_HINT}`));
 }

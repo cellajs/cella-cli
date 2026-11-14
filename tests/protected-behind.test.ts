@@ -25,6 +25,8 @@ import { captureInfo, createRepo, exec, analyzedFile as file, write } from './he
  * - plain.ts:      unprotected, upstream changed     → behind, never flagged
  * - stale.css:     pinned, fork dropped 2 base lines, upstream untouched → ahead, 2 lines absent
  * - own/stale.ts:  ignored, same shape as stale.css  → ignored, never annotated
+ * - own/shot.webp: ignored binary the fork deleted, upstream changed → upstreamOnly, not flagged
+ * - own/logo.png:  ignored binary both changed       → flagged as binary
  */
 function createScenarioRepo(): string {
   const dir = createRepo('cella-protected-behind-');
@@ -37,6 +39,8 @@ function createScenarioRepo(): string {
     'plain.ts': 'a\n',
     'stale.css': 'a\nb\nc\n',
     'own/stale.ts': 'a\nb\n',
+    'own/shot.webp': 'RIFF\0base',
+    'own/logo.png': 'PNG\0base',
   });
   exec('git add -A && git commit -q -m base', dir);
 
@@ -46,6 +50,8 @@ function createScenarioRepo(): string {
     'masking.css': 'a\nupstream\n',
     'own/mine.ts': 'a\nupstream\n',
     'plain.ts': 'a\nupstream\n',
+    'own/shot.webp': 'RIFF\0upstream',
+    'own/logo.png': 'PNG\0upstream',
   });
   exec('git add -A && git commit -q -m upstream', dir);
 
@@ -56,7 +62,9 @@ function createScenarioRepo(): string {
     'own/mine.ts': 'a\nfork\n',
     'stale.css': 'a\nfork\n', // b, c gone: 2 upstream lines absent
     'own/stale.ts': 'a\n',
+    'own/logo.png': 'PNG\0fork',
   });
+  fs.rmSync(`${dir}/own/shot.webp`);
   exec('git add -A && git commit -q -m fork', dir);
 
   return dir;
@@ -106,6 +114,12 @@ describe('analyzeRefs upstreamChanged', () => {
     expect(ignored?.status).toBe('ignored');
     expect(ignored?.upstreamChanged).toBe(true);
     expect(ignored?.upstreamChangedLines).toBe(1);
+  });
+
+  it('reports an ignored file the fork does not have as upstream-only, and marks a binary', () => {
+    expect(byPath.get('own/shot.webp')).toMatchObject({ upstreamOnly: true, upstreamBinary: true });
+    expect(byPath.get('own/shot.webp')?.upstreamChanged).toBeUndefined();
+    expect(byPath.get('own/logo.png')).toMatchObject({ upstreamChanged: true, upstreamBinary: true });
   });
 
   it('never flags unprotected files', () => {
@@ -185,6 +199,19 @@ describe('printSyncComplete protected conflicts', () => {
     expect(out).toContain('21 lines changed upstream');
     expect(out).toContain('adopt what you need');
     expect(out).not.toContain('git diff');
+  });
+
+  it('counts ignored binaries in one line', () => {
+    const result = baseResult();
+    const shots = ['public/shot-1.webp', 'public/shot-2.webp'];
+    result.files = shots.map((path) =>
+      file({ path, status: 'ignored', isIgnored: true, upstreamChanged: true, upstreamBinary: true }),
+    );
+    result.protectedConflicts = shots;
+
+    const out = capture(result);
+    expect(out).toContain('2 ignored binary files, such as public/shot-1.webp');
+    expect(out).not.toContain('public/shot-2.webp');
   });
 
   it('stays silent when nothing was dropped', () => {
