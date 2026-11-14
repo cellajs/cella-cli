@@ -4,7 +4,6 @@
     "lib": ["es2024", "es2025.regexp", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
-    "ignoreDeprecations": "6.0",
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "resolveJsonModule": true,
@@ -20,10 +19,7 @@
     "noEmit": true,
     "declaration": true,
     "composite": false,
-    "types": ["node"],
-    "paths": {
-      "#/*": ["./src/*"]
-    }
+    "types": ["node"]
   },
   "include": ["src", "tests", "index.ts", "index.js", "tsdown.config.ts"]
 }

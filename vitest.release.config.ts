@@ -1,19 +1,12 @@
-import { resolve } from 'node:path';
 import { defineConfig } from 'vitest/config';
 
-// Dedicated config for the release smoke test. It packs the tarball, installs it into a
-// temp app, and verifies the published executable plus config export.
+// The release smoke test alone: it packs the package, installs it into a throwaway app and runs the installed files
 export default defineConfig({
-  resolve: {
-    alias: {
-      '#': resolve(__dirname, './src'),
-    },
-  },
   test: {
     environment: 'node',
     include: ['tests/release-smoke.test.ts'],
     exclude: ['**/node_modules/**'],
-    testTimeout: 300000,
+    testTimeout: 300000, // 5 minutes: pack and install
     onConsoleLog: () => false,
   },
 });

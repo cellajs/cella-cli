@@ -11,12 +11,14 @@
   "homepage": "https://cellajs.com",
   "author": "CellaJS <info@cellajs.com>",
   "engines": {
-    "node": "26.x"
+    "node": ">=26"
   },
+  "os": [
+    "darwin",
+    "linux"
+  ],
   "type": "module",
-  "main": "./dist/index.js",
   "exports": {
-    ".": "./dist/index.js",
     "./config": {
       "types": "./dist/config.d.ts",
       "import": "./dist/config.js"
@@ -54,9 +56,6 @@
   ],
   "bin": {
     "cella": "index.js"
-  },
-  "imports": {
-    "#/*": "./src/*"
   },
   "scripts": {
     "start": "tsx index.ts",
@@ -108,7 +107,7 @@
     "cella",
     "cellajs",
     "cli",
-    "sync",
+    "upgrade",
     "template"
   ],
   "packageManager": "pnpm@11.28.7",

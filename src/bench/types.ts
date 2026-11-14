@@ -26,9 +26,9 @@ export function splitMetricKey(key: string): { name: string; stat: Stat | null }
 /** What a run must meet. Percentages are 0-100; latencies are milliseconds. */
 export interface Checks<C extends string, H extends string> {
   thresholds?: Partial<Record<MetricKey<H>, number>>;
-  /** Highest share of VUs that may fail: created minus completed, over created. */
+  /** Highest share of VUs that may fail, in percent: created minus completed, over created. */
   maxErrorShare?: number;
-  /** Highest share of responses that may be other than 2xx; 1 when unset. */
+  /** Highest share of responses that may be other than 2xx, in percent; 1 when unset. */
   maxRejectedShare?: number;
   /** Counters that must have counted (full runs only: a short run plays each role once). */
   expect?: readonly C[];
