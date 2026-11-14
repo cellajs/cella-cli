@@ -8,7 +8,7 @@
 
 import { spawnSync } from 'node:child_process';
 import { select } from '@inquirer/prompts';
-import { type CommitRangeEntry, type MergeResult, type RuntimeConfig, SYNC_APPLIED_STATUSES } from '../config/types';
+import type { CommitRangeEntry, MergeResult, RuntimeConfig } from '../config/types';
 import { alignmentUrl, listAlignmentIds, readAlignment, readPending } from '../utils/alignments';
 import pc from '../utils/colors';
 import {
@@ -56,17 +56,19 @@ import {
   isClean,
   listBranchMergeCommits,
   listCommitsBetween,
+  mergeAbort,
   mergeInProgress,
   pullFastForward,
   pushBranch,
   readManifestAtRef,
   readManifestBaseAtRef,
   readPackageVersionAtRef,
+  revParse,
   stageAll,
   switchBranch,
   switchDetached,
 } from '../utils/git';
-import { readSyncManifest } from '../utils/manifest';
+import { readManifestBase, readSyncManifest } from '../utils/manifest';
 import { alignmentsStep, readOpenAlignments } from './align';
 import {
   BehindSyncPointError,
@@ -238,7 +240,7 @@ export async function runSync(
     console.info();
   }
 
-  const staged = result.files.some((file) => SYNC_APPLIED_STATUSES.includes(file.status));
+  const staged = await mergeInProgress(config.forkPath);
   const stagedBranch =
     options?.stagedBranch && result.conflicts.length === 0 && staged ? options.stagedBranch : undefined;
   printSyncComplete(result, { stagedBranch });
@@ -679,6 +681,46 @@ async function commitSyncMerge(config: RuntimeConfig, branch: string, run?: Sync
 }
 
 /**
+ * Whether the merge in progress is one the engine finished: the manifest it writes last records
+ * MERGE_HEAD as the upstream commit. A run stopped by ctrl-c or a throw leaves a merge without it.
+ */
+async function engineFinishedMerge(forkPath: string): Promise<boolean> {
+  // MERGE_HEAD of a release tag names the tag object
+  const [recorded, merged] = await Promise.all([readManifestBase(forkPath), revParse(forkPath, 'MERGE_HEAD^{commit}')]);
+  return recorded !== null && recorded === merged;
+}
+
+/**
+ * Handle a merge in progress the engine did not finish. On a branch without a committed upgrade it
+ * is the engine's own, stopped by ctrl-c or a throw: the merge goes, and the branch with it, which
+ * would ship empty. On top of a committed upgrade it is a merge of the app's own, left to git.
+ */
+async function handleUnfinishedMerge(config: RuntimeConfig, branch: string): Promise<void> {
+  const { forkPath } = config;
+  const base = resolveReleaseBase(config.settings);
+  const cutPoint = await getMergeBase(forkPath, 'HEAD', await resolveCutBase(forkPath, base));
+  const [committed, atCut] = await Promise.all([
+    readManifestBaseAtRef(forkPath, 'HEAD'),
+    readManifestBaseAtRef(forkPath, cutPoint),
+  ]);
+
+  console.info();
+  if (committed !== atCut) {
+    console.info(pc.yellow(`'${branch}' has a merge in progress that \`cella upgrade\` did not start.`));
+    console.info(pc.dim('finish it with `git commit` or undo it with `git merge --abort`, then rerun to ship.'));
+    return;
+  }
+
+  await mergeAbort(forkPath);
+  const position = await returnToBase(forkPath, base);
+  await deleteBranch(forkPath, branch);
+  console.info(
+    pc.yellow(`an earlier run stopped before it finished the merge on '${branch}': undid it and removed the branch.`),
+  );
+  console.info(pc.dim(`${position}: run \`pnpm cella upgrade\` again to start a fresh upgrade.`));
+}
+
+/**
  * Merge the open sync PR(s) so the trunk carries the recorded sync point before a new cycle cuts
  * from it. The newest PR is a content superset of any older ones (each cycle re-syncs from the
  * same stale trunk base), so the newest is squash-merged and the rest are closed. A merge GitHub
@@ -695,7 +737,7 @@ async function mergeOpenSyncPrs(config: RuntimeConfig, open: GhPullRequest[]): P
   if (!merged.ok) {
     console.info();
     console.info(pc.yellow(`could not merge #${newest.number}: resolve it first, then re-run \`pnpm cella upgrade\`:`));
-    if (merged.output) console.info(pc.dim(merged.output.replace(/^/gm, '  ')));
+    if (merged.error) console.info(pc.dim(merged.error.replace(/^/gm, '  ')));
     console.info(pc.dim(`  ${newest.url}`));
     return 'cancel';
   }
@@ -768,7 +810,8 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<void> {
 
   // Resume path: finish the merge an earlier run left staged on this branch.
   if (onSyncBranch && (await mergeInProgress(forkPath))) {
-    await commitSyncMerge(config, currentBranch);
+    if (await engineFinishedMerge(forkPath)) await commitSyncMerge(config, currentBranch);
+    else await handleUnfinishedMerge(config, currentBranch);
     return;
   }
 

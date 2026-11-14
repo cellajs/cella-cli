@@ -11,6 +11,7 @@ import { promisify } from 'node:util';
 import type { CommitRangeEntry } from '../config/types';
 import { getEnvSnapshot } from './env';
 import { MANIFEST_FILE, parseSyncManifest, readManifestBase, type SyncManifest } from './manifest';
+import { onShutdown } from './signals';
 
 const execFileAsync = promisify(execFile);
 
@@ -100,7 +101,7 @@ export async function branchExists(cwd: string, branch: string): Promise<boolean
  * callers that would switch to a shared branch such as the trunk check here first.
  */
 export async function getBranchWorktree(cwd: string, branch: string): Promise<string | null> {
-  const output = await git(['worktree', 'list', '--porcelain'], cwd, { ignoreErrors: true });
+  const output = await git(['worktree', 'list', '--porcelain'], cwd);
   let worktree: string | null = null;
   for (const line of output.split('\n')) {
     if (line.startsWith('worktree ')) worktree = line.slice('worktree '.length);
@@ -124,12 +125,9 @@ export async function deleteBranch(cwd: string, branch: string): Promise<void> {
   await git(['branch', '-D', branch], cwd, { ignoreErrors: true });
 }
 
-/**
- * Fast-forward the current branch from its upstream tracking branch.
- * Best-effort: ignores errors (e.g. no origin, offline, or nothing to pull).
- */
+/** Fast-forward the current branch from its upstream tracking branch. */
 export async function pullFastForward(cwd: string): Promise<void> {
-  await git(['pull', '--ff-only'], cwd, { ignoreErrors: true, skipEditor: true });
+  await git(['pull', '--ff-only'], cwd, { skipEditor: true });
 }
 
 /** How the current branch compares to its upstream tracking branch. */
@@ -171,9 +169,7 @@ export async function getUpstreamStatus(cwd: string, branch?: string): Promise<U
   const remote = upstream.split('/')[0];
   await git(['fetch', remote], cwd, { ignoreErrors: true, skipEditor: true });
 
-  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${upstream}`], cwd, {
-    ignoreErrors: true,
-  });
+  const counts = await git(['rev-list', '--left-right', '--count', `${local}...${upstream}`], cwd);
   const [ahead, behind] = counts.split(/\s+/).map((n) => Number.parseInt(n, 10) || 0);
   return { upstream, ahead: ahead ?? 0, behind: behind ?? 0 };
 }
@@ -201,7 +197,7 @@ export async function pushBranch(
  * exist inside a merged-in history (e.g. upstream's internal merges) don't count.
  */
 export async function listBranchMergeCommits(cwd: string, baseRef: string): Promise<string[]> {
-  const out = await git(['rev-list', '--merges', '--first-parent', `${baseRef}..HEAD`], cwd, { ignoreErrors: true });
+  const out = await git(['rev-list', '--merges', '--first-parent', `${baseRef}..HEAD`], cwd);
   return out ? out.split('\n').filter(Boolean) : [];
 }
 
@@ -310,9 +306,7 @@ export async function resolveLatestReleaseTag(
   remoteName: string,
 ): Promise<{ tag: string; ref: string } | null> {
   const prefix = `refs/${remoteName}/tags/`;
-  const output = await git(['for-each-ref', '--sort=-version:refname', '--format=%(refname)', prefix], cwd, {
-    ignoreErrors: true,
-  });
+  const output = await git(['for-each-ref', '--sort=-version:refname', '--format=%(refname)', prefix], cwd);
   if (!output) return null;
   for (const line of output.split('\n')) {
     const ref = line.trim();
@@ -368,7 +362,6 @@ export async function isPublishedUpstream(
       `refs/${remoteName}/tags/v[0-9]*`,
     ],
     cwd,
-    { ignoreErrors: true },
   );
   return containing !== '';
 }
@@ -476,13 +469,13 @@ export async function merge(cwd: string, ref: string): Promise<{ success: boolea
 }
 
 export async function getConflictedFiles(cwd: string): Promise<string[]> {
-  const output = await git(['diff', '--name-only', '--diff-filter=U'], cwd, { ignoreErrors: true });
+  const output = await git(['diff', '--name-only', '--diff-filter=U'], cwd);
   if (!output) return [];
   return output.split('\n').filter(Boolean);
 }
 
 export async function mergeAbort(cwd: string): Promise<void> {
-  await git(['merge', '--abort'], cwd, { ignoreErrors: true });
+  await git(['merge', '--abort'], cwd);
 }
 
 export async function fileExistsAtRef(cwd: string, ref: string, filePath: string): Promise<boolean> {
@@ -564,9 +557,7 @@ export async function getFileChanges(
   baseRef: string,
   targetRef: string,
 ): Promise<Map<string, FileChange>> {
-  const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd, {
-    ignoreErrors: true,
-  });
+  const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd);
   const changes = new Map<string, FileChange>();
 
   // diff-tree prints the all-zero hash for a missing side (added/deleted files).
@@ -643,17 +634,12 @@ export async function getFileHashesAtRef(cwd: string, ref: string): Promise<Map<
 }
 
 /**
- * Tracked delete (`git rm -f`), recording a deletion in the merge result. With `cached`, the paths
- * leave the index only and the working tree is untouched. Best-effort: never throws.
+ * Tracked delete (`git rm -f`), recording a deletion in the merge result. A path the index lacks is
+ * skipped, which git otherwise refuses for the whole batch. With `cached`, the paths leave the index
+ * only and the working tree is untouched.
  */
 export async function gitRm(cwd: string, paths: string[], options: { cached?: boolean } = {}): Promise<void> {
-  await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--', ...paths], cwd, { ignoreErrors: true });
-}
-
-/** Files staged as new additions vs HEAD (diff-filter=A): absent at HEAD, brought in by a merge. */
-export async function getStagedNewFiles(cwd: string): Promise<string[]> {
-  const output = await git(['diff', '--cached', '--name-only', '--diff-filter=A'], cwd, { ignoreErrors: true });
-  return output ? output.split('\n').filter(Boolean) : [];
+  await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--ignore-unmatch', '--', ...paths], cwd);
 }
 
 /** Move a file (`git mv -f`), creating parent directories as needed. */
@@ -835,7 +821,7 @@ async function readRootTrailerBase(cwd: string, headRef: string): Promise<string
  * exists in the full history, and the 3-way file analysis walks an incomplete commit graph.
  */
 async function isShallowRepository(cwd: string): Promise<boolean> {
-  const out = await git(['rev-parse', '--is-shallow-repository'], cwd, { ignoreErrors: true });
+  const out = await git(['rev-parse', '--is-shallow-repository'], cwd);
   return out === 'true';
 }
 
@@ -987,7 +973,8 @@ export async function getEffectiveMergeBase(
  * last true merge ancestor: hunks the fork already integrated (or deliberately resolved away)
  * re-apply as clean auto-merges or re-conflict on every sync. The graft adds `baseSha` as an
  * extra parent of the `headRef` commit via `git replace --graft`; replace refs are local-only
- * and the ref is deleted right after `fn`, so nothing ever leaks into pushed history.
+ * and the ref is deleted right after `fn`, or when ctrl-c or a kill ends the CLI during it, so
+ * nothing ever leaks into pushed history.
  *
  * Runs `fn` without grafting when the graft is unnecessary or unsafe:
  * - `baseSha` is already an ancestor of `headRef` (git's own merge-base is not stale), or
@@ -1007,16 +994,21 @@ export async function withTemporarySyncBaseGraft<T>(
   if (await isAncestor(cwd, baseSha, headSha)) return fn();
 
   // Never clobber an existing replacement object for this commit.
-  const existingReplacement = await git(['replace', '-l', headSha], cwd, { ignoreErrors: true });
+  const existingReplacement = await git(['replace', '-l', headSha], cwd);
   if (existingReplacement) return fn();
 
-  const parentsRaw = await git(['log', '-1', '--format=%P', headSha], cwd, { ignoreErrors: true });
+  const parentsRaw = await git(['log', '-1', '--format=%P', headSha], cwd);
   const parents = parentsRaw ? parentsRaw.split(/\s+/) : [];
 
   await git(['replace', '-f', '--graft', headSha, ...parents, baseSha], cwd);
+  const removeGraft = async () => {
+    await git(['replace', '-d', headSha], cwd, { ignoreErrors: true });
+  };
+  const forget = onShutdown(removeGraft);
   try {
     return await fn();
   } finally {
-    await git(['replace', '-d', headSha], cwd, { ignoreErrors: true });
+    forget();
+    await removeGraft();
   }
 }

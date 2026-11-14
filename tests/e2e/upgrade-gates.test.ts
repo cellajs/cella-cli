@@ -1,11 +1,12 @@
 /**
- * Tests for `cella upgrade` runs that stop before the merge.
+ * Tests for `cella upgrade` runs that stop before the merge or have nothing to commit.
  *
  * A fresh cycle cuts its temporary branch first and resolves upstream after. A gate that stops the
  * run there (upstream changed its CLI config, upstream needs a newer CLI, upstream is behind the
  * last sync point) drops that branch again, so the fork ends where it started and a rerun starts a
- * fresh cycle instead of shipping an empty sync branch. Full `runUpgradeCommand` runs, with `pnpm`
- * (install + check) stubbed and `gh` reported missing.
+ * fresh cycle instead of shipping an empty sync branch. A run with nothing upstream to merge, and
+ * a rerun that finds a merge an earlier run never finished, end the same way. Full
+ * `runUpgradeCommand` runs, with `pnpm` (install + check) stubbed and `gh` reported missing.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -190,6 +191,31 @@ describe('sync stops before the merge', () => {
       await expect(run).rejects.toThrow(/behind the last upgrade at[\s\S]*Pick a newer --ref/);
       expectUntouched('main', head);
     });
+  });
+
+  it('leaves an app whose only change since the last upgrade is in an ignored path where it started', async () => {
+    const config = buildRuntimeConfig(env, { service: 'upgrade', ignored: ['docs'] });
+    makeCommit(env.upstreamPath, { files: { 'feature.ts': 'export const f = 1;\n' }, message: 'feat: feature' });
+    await runUpgradeCommand(config);
+    landSyncBranch();
+    const head = makeCommit(env.forkPath, { files: { 'docs/guide.md': '# App guide\n' }, message: 'docs: app guide' });
+
+    await runUpgradeCommand(config);
+
+    expectUntouched('main', head);
+  });
+
+  it('never commits a merge on an upgrade branch that the engine did not finish', async () => {
+    makeCommit(env.upstreamPath, { files: { 'feature.ts': 'export const f = 1;\n' }, message: 'feat: feature' });
+    const head = exec('git rev-parse HEAD', env.forkPath);
+    // A run stopped right after the merge: protected files not yet restored and no upgrade recorded
+    exec('git switch -q -c cella/upgrade/20260101-0000', env.forkPath);
+    exec('git fetch -q cella-upstream && git merge -q --no-ff --no-commit cella-upstream/main', env.forkPath);
+
+    await runUpgradeCommand(buildRuntimeConfig(env, { service: 'upgrade' }));
+
+    expectUntouched('main', head);
+    expect(lines.join('\n')).toContain("stopped before it finished the merge on 'cella/upgrade/20260101-0000'");
   });
 
   it('drops the branch when upstream needs a newer CLI', async () => {

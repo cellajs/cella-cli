@@ -1,8 +1,9 @@
 /**
- * Merge engine, shared by analyze and sync. Analyze classifies every file from git refs and never
- * touches the fork. Sync merges in the fork itself (`git merge --no-commit`), resolves pinned and
- * ignored files to the fork side and leaves the merge staged, conflicts keeping their markers for
- * IDE 3-way resolution.
+ * Merge engine, shared by analyze and sync. Analyze classifies every file from git refs and leaves
+ * the app's branches and working tree unchanged; like sync, it fetches upstream and may record the
+ * sync base in local refs. Sync merges in the fork itself (`git merge --no-commit`), resolves pinned
+ * and ignored files to the fork side and leaves the merge staged, conflicts keeping their markers
+ * for IDE 3-way resolution.
  */
 
 import { existsSync } from 'node:fs';
@@ -55,7 +56,6 @@ import {
   getEffectiveMergeBase,
   getMergeBase,
   getShortSha,
-  getStagedNewFiles,
   getUpstreamStatus,
   getWorkingTreeChangeCount,
   git,
@@ -66,6 +66,7 @@ import {
   listCommitsBetween,
   merge,
   mergeAbort,
+  mergeInProgress,
   moveFromRef,
   removeFileFromWorktree,
   removeFileFully,
@@ -295,18 +296,6 @@ async function applyDirectMerge(
   const autoMergedFiles = analyzedFiles
     .filter((file) => file.status === 'diverged' && !remainingConflictSet.has(file.path))
     .map((file) => file.path);
-
-  // Safety net: during a merge, the batched `git rm` can silently fail on newly added files, leaving
-  // ignored files staged as added in the index and deleted from the working tree (AD).
-  const stagedNewFiles = await getStagedNewFiles(forkPath);
-  const staleIgnoredFiles = stagedNewFiles.filter((f) => isIgnored(f, config));
-  if (staleIgnoredFiles.length > 0) {
-    onProgress?.(`cleaning up ${staleIgnoredFiles.length} ignored files still in index...`);
-    await gitRm(forkPath, staleIgnoredFiles, { cached: true });
-    for (const filePath of staleIgnoredFiles) {
-      await removeFileFromWorktree(forkPath, filePath);
-    }
-  }
 
   return { remainingConflicts, analyzedFiles, autoMergedFiles, protectedConflicts: [...protectedConflicts] };
 }
@@ -658,7 +647,8 @@ async function runSyncMerge(
   const totalResolved = analyzedFiles.filter((file) => SYNC_APPLIED_STATUSES.includes(file.status)).length;
 
   // Record the sync point in lockstep: the local `refs/cella/last-upgrade` ref plus the manifest,
-  // staged so it rides in the upgrade commit.
+  // staged so it rides in the upgrade commit. The manifest is the last write: one naming MERGE_HEAD
+  // tells a later run that this one finished the merge.
   const syncManifest: SyncManifest = {
     upstream: {
       repo: upstreamGitHubUrl ? upstreamGitHubUrl.replace('https://github.com/', '') : undefined,
@@ -674,29 +664,30 @@ async function runSyncMerge(
     },
   };
   const recordSyncPoint = async () => {
-    await storeLastSyncRef(forkPath, upstreamCommit.hash);
-    await writeSyncManifest(forkPath, syncManifest);
-    await stagePath(forkPath, MANIFEST_FILE);
     // Alignments that arrived join the fork's pending list; an empty list deletes the file.
     if (alignments) {
       await writePending(forkPath, pendingAfterSync(alignments));
       await stagePath(forkPath, PENDING_FILE);
     }
     await removeUpstreamOnlyCopy(forkPath, onStep);
+    await storeLastSyncRef(forkPath, upstreamCommit.hash);
+    await writeSyncManifest(forkPath, syncManifest);
+    await stagePath(forkPath, MANIFEST_FILE);
   };
 
   // MERGE_HEAD stays in both staged cases: the IDE shows a 3-way merge, `git merge --abort` works,
   // and the finishing rerun tells a staged sync from a dirty tree, then commits it single-parent.
+  // Upstream already in HEAD starts no merge, whatever the fork changed in ignored files.
+  const merging = await mergeInProgress(forkPath);
   if (remainingConflicts.length > 0) {
     await recordSyncPoint();
     onStep?.('merged', formatMergeInProgressDetail(remainingConflicts.length, autoMergedFiles, { forkPath }, 100));
-  } else if (totalResolved > 0) {
+  } else if (merging && totalResolved > 0) {
     const label = synced > 0 ? `${synced} files from upstream` : 'upstream changes';
     await recordSyncPoint();
     onStep?.('upgraded', `${label} (staged, commit to finish)`);
   } else {
-    // Nothing changed: clean up the merge state.
-    await mergeAbort(forkPath);
+    if (merging) await mergeAbort(forkPath);
     onStep?.('up to date', 'no upstream changes to merge');
   }
 
@@ -713,7 +704,7 @@ async function runSyncMerge(
   };
 }
 
-/** ANALYZE MODE: classify every file from git refs; the fork is never touched. */
+/** ANALYZE MODE: classify every file from git refs; the app's branches and working tree stay unchanged. */
 async function runAnalyzePreview(
   config: RuntimeConfig,
   ctx: UpstreamContext,
@@ -735,7 +726,10 @@ async function runAnalyzePreview(
   await enrichChangeInfo(forkPath, analyzedFiles, ctx.mergeBase, 'HEAD', ctx.upstreamRef);
   const protectedConflicts = analyzedFiles.filter((f) => f.upstreamChanged).map((f) => f.path);
   const reports = await upstreamOnlyReports(config, ctx, analyzedFiles);
-  onStep?.('analyzed', `${plural(analyzedFiles.length, 'file')}${pc.dim(' · dry run, nothing changed')}`);
+  onStep?.(
+    'analyzed',
+    `${plural(analyzedFiles.length, 'file')}${pc.dim(' · dry run, branches and working tree unchanged')}`,
+  );
 
   return {
     success: true,
