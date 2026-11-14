@@ -5,15 +5,15 @@
  * crosswise, and a copy whose content pairs nowhere arrives as delete plus add. For a protected
  * file the pair decides which local bytes land where, so a wrong pair crosses app files
  * (projectcampus: its nl/app.json content arrived as nl/about.json) and a missing one drops the
- * app's copy for upstream's. `repairIncomingRenames` re-aims the pairs by path, and `analyzeRefs`
+ * app's copy for upstream's. `repairIncomingRenames` re-aims the pairs by path, and `classifyFiles`
  * classifies a pinned path that is new in upstream as `behind`, so upstream's copy arrives as the
  * app's first one.
  */
 import { describe, expect, it } from 'vitest';
-import { analyzeRefs, repairIncomingRenames } from '../../src/upstream/classify';
+import { analyzeRefs, classifyFiles, repairIncomingRenames } from '../../src/upstream/classify';
 import type { FileChange } from '../../src/utils/git';
 import { getMergeBase } from '../../src/utils/git';
-import { createRepo, exec, write } from '../helpers/test-env';
+import { createRepo, exec, trees, write } from '../helpers/test-env';
 
 const rename = (oldPath: string): FileChange => ({ status: 'R', oldPath, baseHash: 'base', targetHash: 'target' });
 const added: FileChange = { status: 'A', baseHash: null, targetHash: 'target' };
@@ -160,23 +160,56 @@ describe('analyzeRefs protected moves', () => {
       expect(file?.renamedFrom, name).toBe(`locales/nl/${name}`);
     }
   });
+});
 
-  it('classifies a pinned path new in upstream as behind, so the first copy arrives', async () => {
-    const repoPath = createRepo('cella-pinned-arrival-', { 'src/index.ts': 'export {};\n' });
-    exec('git checkout -q -b upstream', repoPath);
-    write(repoPath, { 'seeds/showcase.json': '{"organizations":[]}\n' });
-    exec('git add -A && git commit -q -m "feat: showcase seed"', repoPath);
-    exec('git checkout -q main', repoPath);
+describe('classifyFiles', () => {
+  const unprotected = { isIgnored: () => false, isPinned: () => false };
 
-    const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
-    const files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
+  it('classifies a pinned path new in upstream as behind, so the first copy arrives', () => {
+    const base = { 'src/index.ts': 'export {};' };
+    const files = classifyFiles(trees(base, base, { ...base, 'seeds/showcase.json': '{}' }), {
       isIgnored: () => false,
       isPinned: (path) => path === 'seeds/showcase.json',
     });
-    const file = files.find((entry) => entry.path === 'seeds/showcase.json');
 
-    expect(file?.status).toBe('behind');
-    expect(file?.isPinned).toBe(true);
-    expect(file?.existsInApp).toBe(false);
+    expect(files.find((file) => file.path === 'seeds/showcase.json')).toMatchObject({
+      status: 'behind',
+      resolution: 'take',
+      isPinned: true,
+      existsInApp: false,
+    });
+  });
+
+  it('keeps an app-only file whose content upstream adds at another path', () => {
+    const base = { 'src/index.ts': 'export {};' };
+    const app = { ...base, 'app/keep/.gitkeep': '', 'src/own.ts': 'export {};' };
+    const files = classifyFiles(
+      trees(base, app, { ...base, 'assets/.gitkeep': '', 'src/new.ts': 'export {};' }),
+      unprotected,
+    );
+
+    for (const path of ['app/keep/.gitkeep', 'src/own.ts']) {
+      expect(
+        files.find((file) => file.path === path),
+        path,
+      ).toMatchObject({ status: 'local', resolution: 'none' });
+    }
+  });
+
+  it('flags an upstream edit a protected move drops, and no edit the app already has', () => {
+    const base = { 'cfg/a.ts': 'base', 'cfg/b.ts': 'base b' };
+    const app = { 'cfg/a.ts': 'base', 'cfg/b.ts': 'edited b' };
+    const upstream = { 'shared/a.ts': 'edited', 'shared/b.ts': 'edited b' };
+    const moves = { 'shared/a.ts': 'cfg/a.ts', 'shared/b.ts': 'cfg/b.ts' };
+    const files = classifyFiles(trees(base, app, upstream, moves), {
+      isIgnored: () => false,
+      isPinned: (path) => path.startsWith('cfg/'),
+    });
+
+    expect(files.find((file) => file.path === 'shared/a.ts')).toMatchObject({
+      resolution: 'move',
+      upstreamChanged: true,
+    });
+    expect(files.find((file) => file.path === 'shared/b.ts')?.upstreamChanged).toBeUndefined();
   });
 });

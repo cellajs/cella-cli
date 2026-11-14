@@ -11,7 +11,9 @@ import os from 'node:os';
 import path from 'node:path';
 import { vi } from 'vitest';
 import type { CellaCliConfig, RuntimeConfig } from '../../src/config/types';
+import type { Trees } from '../../src/upstream/classify';
 import type { AnalyzedFile, FileStatus } from '../../src/upstream/model';
+import type { FileChange } from '../../src/utils/git';
 
 /** Git config for test commits */
 export const gitUser = 'git config user.email "test@cellajs.com" && git config user.name "Cella Test"';
@@ -261,5 +263,45 @@ export function captureInfo(print: () => void): string {
 
 /** An analyzed file, unprotected and present on both sides unless `overrides` say otherwise. */
 export function analyzedFile(overrides: Partial<AnalyzedFile> & { path: string; status: FileStatus }): AnalyzedFile {
-  return { isIgnored: false, isPinned: false, existsInApp: true, existsInUpstream: true, ...overrides };
+  return {
+    resolution: 'none',
+    isIgnored: false,
+    isPinned: false,
+    existsInApp: true,
+    existsInUpstream: true,
+    ...overrides,
+  };
+}
+
+/**
+ * The trees `classifyFiles` compares, from file contents at the merge-base, the app and upstream; a blob's hash is its
+ * content. `upstreamMoves` maps a path upstream moved a file to onto the path it came from.
+ */
+export function trees(
+  base: Record<string, string>,
+  app: Record<string, string>,
+  upstream: Record<string, string>,
+  upstreamMoves: Record<string, string> = {},
+): Trees {
+  const changes = (tip: Record<string, string>) =>
+    new Map(
+      [...new Set([...Object.keys(base), ...Object.keys(tip)])].flatMap((path): [string, FileChange][] => {
+        const [from = null, to = null] = [base[path], tip[path]];
+        if (from === to) return [];
+        return [[path, { status: from === null ? 'A' : to === null ? 'D' : 'M', baseHash: from, targetHash: to }]];
+      }),
+    );
+  const hashes = (tree: Record<string, string>) => new Map(Object.entries(tree));
+  const upstreamChanges = changes(upstream);
+  for (const [to, from] of Object.entries(upstreamMoves)) {
+    upstreamChanges.delete(from);
+    upstreamChanges.set(to, { status: 'R', oldPath: from, baseHash: base[from], targetHash: upstream[to] });
+  }
+  return {
+    base: hashes(base),
+    app: hashes(app),
+    upstream: hashes(upstream),
+    appChanges: changes(app),
+    upstreamChanges,
+  };
 }

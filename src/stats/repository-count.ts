@@ -25,7 +25,10 @@ const sourcePathspecs = [...sourceExtensions].map((ext) => `*.${ext}`);
 /** File and LOC stats for the repository; one `git grep -c ''` call yields paths and line counts. */
 async function collectStats(repoRoot: string): Promise<StatsResult> {
   // Tracked source files with line counts (respects .gitignore, ~15ms).
-  const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], repoRoot, { ignoreErrors: true });
+  const output = await git(['grep', '-c', '', '--', ...sourcePathspecs], repoRoot, {
+    ignoreErrors: true,
+    env: { GIT_LITERAL_PATHSPECS: '0' },
+  });
 
   const packages = await getWorkspacePackages(repoRoot);
 

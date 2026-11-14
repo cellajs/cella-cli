@@ -2,20 +2,17 @@
  * Tests for upstream-only changes to ignored paths.
  *
  * Ignored paths never upgrade. When both sides changed a file, `upstreamChanged` puts it in the
- * protected-but-behind section; when only upstream changed, added or deleted it, `analyzeRefs`
+ * protected-but-behind section; when only upstream changed, added or deleted it, `classifyFiles`
  * flags it `upstreamOnly`, `groupIgnoredUpstreamChanges` groups it by its `ignored` entry, and
  * `printIgnoredUpstreamChanges` prints one line per entry.
  */
-import fs from 'node:fs';
-import path from 'node:path';
-import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { analyzeRefs } from '../../src/upstream/classify';
-import type { AnalyzedFile, MergeResult } from '../../src/upstream/model';
+import { describe, expect, it } from 'vitest';
+import { classifyFiles } from '../../src/upstream/classify';
+import type { MergeResult } from '../../src/upstream/model';
 import { groupIgnoredUpstreamChanges, isUnderAnyFolder } from '../../src/upstream/protection';
 import { findProtectedBehindUpstream, printIgnoredUpstreamChanges } from '../../src/upstream/report';
-import { getMergeBase } from '../../src/utils/git';
 import { isGeneratedFile } from '../../src/utils/repo-files';
-import { captureInfo, createRepo, exec, write } from '../helpers/test-env';
+import { captureInfo, trees } from '../helpers/test-env';
 
 const ignored = [
   'own',
@@ -27,7 +24,7 @@ const ignored = [
 ];
 
 /**
- * Repo with a `main` (app) and `upstream` branch off one base commit, `own` and `own/nested` ignored:
+ * The merge-base, with `own` and `own/nested` ignored:
  * - own/changed.ts:      upstream changed, app untouched → upstreamOnly
  * - own/new.ts:          upstream added                   → upstreamOnly, new
  * - own/gone.ts:         upstream deleted, app untouched → upstreamOnly, deleted
@@ -40,70 +37,41 @@ const ignored = [
  * - sdk/gen/sdk.ts, frontend/src/routes/routeTree.gen.ts: upstream changed → generated, never flagged
  * - backend/drizzle/0001_init.sql: upstream changed, 0002_add_column.sql added → upstreamOnly
  */
-function createScenarioRepo(): string {
-  const dir = createRepo('cella-ignored-upstream-');
-
-  write(dir, {
-    'own/changed.ts': 'a\n',
-    'own/gone.ts': 'a\n',
-    'own/both.ts': 'a\n',
-    'own/app-only.ts': 'a\n',
-    'own/package.json': '{}\n',
-    'own/nested/deep.ts': 'a\n',
-    'untouched/keep.ts': 'a\n',
-    'plain.ts': 'a\n',
-    'sdk/gen/sdk.ts': 'export const sdk = 1;\n',
-    'frontend/src/routes/routeTree.gen.ts': 'export const routeTree = [];\n',
-    'backend/drizzle/0001_init.sql': 'CREATE TABLE users (id text);\n',
-  });
-  exec('git add -A && git commit -q -m base', dir);
-
-  exec('git checkout -q -b upstream', dir);
-  write(dir, {
-    'own/changed.ts': 'a\nnewKey: true\n',
-    'own/new.ts': 'export const added = true;\n',
-  });
-  fs.rmSync(path.join(dir, 'own/gone.ts'));
-  write(dir, {
-    'own/both.ts': 'a\nupstream\n',
-    'own/package.json': '{ "version": "2" }\n',
-    'own/nested/deep.ts': 'a\nupstream\n',
-    'plain.ts': 'a\nupstream\n',
-    'sdk/gen/sdk.ts': 'export const sdk = 2;\n',
-    'frontend/src/routes/routeTree.gen.ts': "export const routeTree = ['/about'];\n",
-    'backend/drizzle/0001_init.sql': 'CREATE TABLE users (id text PRIMARY KEY);\n',
-    'backend/drizzle/0002_add_column.sql': 'ALTER TABLE users ADD COLUMN name text;\n',
-  });
-  exec('git add -A && git commit -q -m upstream', dir);
-
-  exec('git checkout -q main', dir);
-  write(dir, {
-    'own/both.ts': 'a\nfork\n',
-    'own/app-only.ts': 'a\nfork\n',
-  });
-  exec('git add -A && git commit -q -m app', dir);
-
-  return dir;
-}
+const base = {
+  'own/changed.ts': 'a',
+  'own/gone.ts': 'a',
+  'own/both.ts': 'a',
+  'own/app-only.ts': 'a',
+  'own/package.json': '{}',
+  'own/nested/deep.ts': 'a',
+  'untouched/keep.ts': 'a',
+  'plain.ts': 'a',
+  'sdk/gen/sdk.ts': 'sdk 1',
+  'frontend/src/routes/routeTree.gen.ts': 'routes 1',
+  'backend/drizzle/0001_init.sql': 'init 1',
+};
+const { 'own/gone.ts': _gone, ...upstreamKept } = base;
+const upstream = {
+  ...upstreamKept,
+  'own/changed.ts': 'a newKey',
+  'own/new.ts': 'added',
+  'own/both.ts': 'a upstream',
+  'own/package.json': '{ "version": "2" }',
+  'own/nested/deep.ts': 'a upstream',
+  'plain.ts': 'a upstream',
+  'sdk/gen/sdk.ts': 'sdk 2',
+  'frontend/src/routes/routeTree.gen.ts': 'routes 2',
+  'backend/drizzle/0001_init.sql': 'init 2',
+  'backend/drizzle/0002_add_column.sql': 'add column',
+};
+const app = { ...base, 'own/both.ts': 'a fork', 'own/app-only.ts': 'a fork' };
 
 describe('ignored paths only upstream changed', () => {
-  let repoPath: string;
-  let files: AnalyzedFile[];
-  let byPath: Map<string, AnalyzedFile>;
-
-  beforeEach(async () => {
-    repoPath = createScenarioRepo();
-    const mergeBase = await getMergeBase(repoPath, 'main', 'upstream');
-    files = await analyzeRefs(repoPath, 'main', 'upstream', mergeBase, {
-      isIgnored: (p) => isUnderAnyFolder(p, ignored),
-      isPinned: () => false,
-    });
-    byPath = new Map(files.map((f) => [f.path, f]));
+  const files = classifyFiles(trees(base, app, upstream), {
+    isIgnored: (p) => isUnderAnyFolder(p, ignored),
+    isPinned: () => false,
   });
-
-  afterEach(() => {
-    fs.rmSync(repoPath, { recursive: true, force: true });
-  });
+  const byPath = new Map(files.map((f) => [f.path, f]));
 
   it('flags changed, added and deleted files the app left alone', () => {
     for (const p of ['own/changed.ts', 'own/new.ts', 'own/gone.ts', 'own/nested/deep.ts']) {

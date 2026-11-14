@@ -10,14 +10,14 @@ import {
 } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import { isManagedFile } from './managed-files';
-import type { AnalysisSummary, AnalyzedFile, FileStatus, UpstreamContext } from './model';
+import type { AnalysisSummary, AnalyzedFile, MergeResult, UpstreamContext } from './model';
 import { isIgnored, isPinned } from './protection';
 
-/** Predicates that steer classification (direction-specific). */
-interface AnalyzePredicates {
+/** The protection rules the classifier applies (direction-specific). */
+interface Protection {
   /** True if the file is inside owned/ignored territory (never merged). */
   isIgnored: (path: string) => boolean;
-  /** True if the file is pinned (local wins on conflict). */
+  /** True if the file is pinned (the app's copy wins). */
   isPinned: (path: string) => boolean;
 }
 
@@ -135,227 +135,201 @@ export function repairIncomingRenames(changes: Map<string, FileChange>, context:
   }
 }
 
-type ProgressCallback = (message: string) => void;
+/** The three trees the classifier compares: blob hash by path, and each side's changes since the merge-base. */
+export interface Trees {
+  base: Map<string, string>;
+  app: Map<string, string>;
+  upstream: Map<string, string>;
+  appChanges: Map<string, FileChange>;
+  upstreamChanges: Map<string, FileChange>;
+}
+
+/** Read the trees {@link classifyFiles} compares, with git plumbing on refs only, never the working tree. */
+export async function readTrees(
+  repoRoot: string,
+  appRef: string,
+  upstreamRef: string,
+  baseRef: string,
+): Promise<Trees> {
+  // Changes between base and each tip; rename detection runs at -M90%.
+  const [base, app, upstream, appChanges, upstreamChanges] = await Promise.all([
+    getFileHashesAtRef(repoRoot, baseRef),
+    getFileHashesAtRef(repoRoot, appRef),
+    getFileHashesAtRef(repoRoot, upstreamRef),
+    getFileChanges(repoRoot, baseRef, appRef),
+    getFileChanges(repoRoot, baseRef, upstreamRef),
+  ]);
+  return { base, app, upstream, appChanges, upstreamChanges };
+}
+
+/** One path's classification, before the fields every file carries. */
+type Verdict = Pick<AnalyzedFile, 'status' | 'resolution'> &
+  Pick<Partial<AnalyzedFile>, 'renamedFrom' | 'upstreamChanged' | 'upstreamOnly'>;
 
 /**
- * Classify every file changed between a "local" and an "incoming" ref from a shared merge-base, in a
- * repo that reaches all three, with git plumbing on refs only, never the working tree. Upgrade runs it
- * with local = app HEAD and incoming = upstream, adopt with local = cella branch and incoming = fork
- * branch; `existsInApp`/`existsInUpstream` map to local/incoming.
+ * A path upstream moved a file to. A renamed directory (e.g. config/ → shared/) can leave the app's
+ * pinned list naming the old path, so both paths count for pinned/ignored. `appMoved` holds the
+ * paths the app moved a file away from.
  */
-export async function analyzeRefs(
-  repoPath: string,
-  localRef: string,
-  incomingRef: string,
-  mergeBaseRef: string,
-  predicates: AnalyzePredicates,
-  onProgress?: ProgressCallback,
-): Promise<AnalyzedFile[]> {
-  onProgress?.('collecting file hashes (batch)...');
+function classifyMove(
+  path: string,
+  oldPath: string,
+  trees: Trees,
+  protection: Protection,
+  appMoved: ReadonlySet<string>,
+): Verdict {
+  const { base, app, upstream } = trees;
+  const differsAtPath = app.get(path) !== upstream.get(path);
+  const ownAtPath = app.has(path) && differsAtPath;
+  if ([path, oldPath].some((entry) => protection.isIgnored(entry) || protection.isPinned(entry))) {
+    // The app's copy moves along; with no copy at the old path, the app's version of the new path stays.
+    // A copy at both paths leaves git's conflict, so the move never overwrites the app's own file.
+    const resolution = !app.has(oldPath) ? 'keep' : ownAtPath ? 'merge' : 'move';
+    const landing = resolution === 'move' ? app.get(oldPath) : app.get(path);
+    // Upstream moved a file the app never touched into (or within) ignored territory.
+    const upstreamOnly =
+      protection.isIgnored(path) && app.get(oldPath) === base.get(oldPath) && isReportableIgnored(path);
+    // Upstream changed the content beyond the move, and the copy the app keeps differs from it.
+    const dropped =
+      resolution !== 'merge' && upstream.get(path) !== base.get(oldPath) && landing !== upstream.get(path);
+    return {
+      status: 'pinned',
+      resolution,
+      renamedFrom: oldPath,
+      upstreamChanged: (dropped && !upstreamOnly) || undefined,
+      upstreamOnly: upstreamOnly || undefined,
+    };
+  }
+  // The app edited or moved the old file, or has its own at the new path: git merges or conflicts.
+  const appTouched = app.has(oldPath) ? app.get(oldPath) !== base.get(oldPath) : appMoved.has(oldPath) && differsAtPath;
+  if (appTouched || ownAtPath) return { status: 'diverged', resolution: 'merge', renamedFrom: oldPath };
+  // With the old path absent in the app (deleted), upstream's file still arrives at the new path.
+  return { status: app.has(oldPath) ? 'renamed' : 'behind', resolution: 'take', renamedFrom: oldPath };
+}
 
-  const [appHashes, upstreamHashes, baseHashes] = await Promise.all([
-    getFileHashesAtRef(repoPath, localRef),
-    getFileHashesAtRef(repoPath, incomingRef),
-    getFileHashesAtRef(repoPath, mergeBaseRef),
-  ]);
+/**
+ * A path upstream did not move, by who changed it since the merge-base; a deletion counts as a
+ * change. `appMoved` holds the paths the app moved a file away from.
+ */
+function classifyPath(path: string, trees: Trees, protection: Protection, appMoved: ReadonlySet<string>): Verdict {
+  const [baseHash, appHash, upstreamHash] = [trees.base.get(path), trees.app.get(path), trees.upstream.get(path)];
+  const upstreamChanged = upstreamHash !== baseHash;
+  // Ignored paths never merge: the app's copy, or its absence, stays wherever upstream changed them.
+  if (protection.isIgnored(path)) return { status: 'ignored', resolution: upstreamChanged ? 'keep' : 'none' };
+  if (appHash === upstreamHash) return { status: 'identical', resolution: 'none' };
+  const pinned = protection.isPinned(path);
 
-  // Changes between base and each tip; rename detection runs at -M90%.
-  const upstreamChanges = await getFileChanges(repoPath, mergeBaseRef, incomingRef);
-  const appChanges = await getFileChanges(repoPath, mergeBaseRef, localRef);
+  if (!upstreamChanged) {
+    // Changed in the app alone: the merge leaves it as the app has it.
+    if (appHash === undefined) return { status: 'deleted', resolution: 'none' };
+    return { status: baseHash === undefined ? 'local' : pinned ? 'ahead' : 'drifted', resolution: 'none' };
+  }
+  if (appHash === baseHash) {
+    // Changed upstream alone: upstream's version arrives, its deletion included. A pinned copy stays
+    // (a masking pin), except at a path new in upstream: pinned before its first arrival, as an
+    // alignment can ask, upstream's copy arrives as the app's first one. A managed file follows
+    // upstream's deletion: the package merge reads only the files upstream still has.
+    const kept = pinned && baseHash !== undefined && (upstreamHash !== undefined || !isManagedFile(path));
+    if (kept) return { status: 'behind', resolution: 'keep' };
+    return { status: 'behind', resolution: upstreamHash === undefined ? 'remove' : 'take' };
+  }
+  // Both changed: a pin keeps the app's version, a deletion included (re-adding it would resurface it
+  // every upgrade). Unpinned, git merges: upstream's change to a file the app deleted arrives, and to
+  // one the app moved lands in the moved copy; an app change against upstream's deletion stays git's
+  // modify/delete conflict for the review.
+  if (pinned) return { status: appHash === undefined ? 'deleted' : 'pinned', resolution: 'keep' };
+  if (appHash === undefined && !appMoved.has(path)) return { status: 'behind', resolution: 'take' };
+  return { status: 'diverged', resolution: 'merge' };
+}
 
+/**
+ * The flags of a protected path whose upstream change the upgrade drops. Both sides changed it (a
+ * local edit or deletion, and upstream content that differs from base): the app wins whole-file, so
+ * upstream's hunks are dropped (`upstreamChanged`). An ignored file only upstream changed, added or
+ * deleted, or one upstream changed that the app does not have (an app's own screenshots it never
+ * kept): nothing local is dropped, but ignored paths never upgrade, so the change would stay unseen
+ * (`upstreamOnly`). A protected file only the app changed is plain `ahead`; the pinned counterpart of
+ * `upstreamOnly` is the masking pin (`behind`).
+ */
+function droppedUpstreamChange(
+  path: string,
+  trees: Trees,
+  protection: Protection,
+): Pick<Verdict, 'upstreamChanged' | 'upstreamOnly'> {
+  const [baseHash, appHash, upstreamHash] = [trees.base.get(path), trees.app.get(path), trees.upstream.get(path)];
+  if (upstreamHash === baseHash || upstreamHash === appHash) return {};
+  const appChanged = appHash !== baseHash;
+  const ignored = protection.isIgnored(path);
+  if (ignored && (!appChanged || appHash === undefined)) return isReportableIgnored(path) ? { upstreamOnly: true } : {};
+  return appChanged && (ignored || protection.isPinned(path)) ? { upstreamChanged: true } : {};
+}
+
+/**
+ * Classify every file of the three trees: its status, and its resolution, what the upgrade does with
+ * it. Upgrade compares the app at HEAD with upstream, adopt cella's branch (the app side) with the
+ * fork's (the upstream side).
+ */
+export function classifyFiles(trees: Trees, protection: Protection): AnalyzedFile[] {
+  const upstreamChanges = new Map(trees.upstreamChanges);
   // Content pairing can cross same-named copies or miss one; a protected move must follow the path.
   repairIncomingRenames(upstreamChanges, {
-    basePaths: new Set(baseHashes.keys()),
-    incomingPaths: new Set(upstreamHashes.keys()),
-    localPaths: new Set(appHashes.keys()),
-    isProtected: (path) => predicates.isIgnored(path) || predicates.isPinned(path),
+    basePaths: new Set(trees.base.keys()),
+    incomingPaths: new Set(trees.upstream.keys()),
+    localPaths: new Set(trees.app.keys()),
+    isProtected: (path) => protection.isIgnored(path) || protection.isPinned(path),
   });
 
-  // oldPath -> newPath for renames in incoming.
-  const upstreamRenames = new Map<string, string>();
-  for (const [newPath, change] of upstreamChanges) {
-    if (change.status === 'R' && change.oldPath) {
-      upstreamRenames.set(change.oldPath, newPath);
-    }
-  }
+  const movedFrom = new Map<string, string>();
+  for (const [path, change] of upstreamChanges)
+    if (change.status === 'R' && change.oldPath) movedFrom.set(path, change.oldPath);
+  const oldPaths = new Set(movedFrom.values());
+  const changed = new Set([...trees.appChanges.keys(), ...upstreamChanges.keys()]);
+  const appMoved = new Set<string>();
+  for (const change of trees.appChanges.values())
+    if (change.status === 'R' && change.oldPath) appMoved.add(change.oldPath);
 
-  const allFiles = new Set([...appHashes.keys(), ...upstreamHashes.keys(), ...upstreamRenames.keys()]);
+  return [...new Set([...trees.app.keys(), ...trees.upstream.keys()])].flatMap((path): AnalyzedFile[] => {
+    const oldPath = movedFrom.get(path);
+    // Old paths of upstream moves are classified at the new path.
+    if (oldPath === undefined && oldPaths.has(path)) return [];
+    const existsInApp = trees.app.has(path);
+    const existsInUpstream = trees.upstream.has(path);
+    const verdict: Verdict =
+      oldPath !== undefined
+        ? classifyMove(path, oldPath, trees, protection, appMoved)
+        : !changed.has(path) && existsInApp && existsInUpstream
+          ? { status: 'identical', resolution: 'none' }
+          : { ...classifyPath(path, trees, protection, appMoved), ...droppedUpstreamChange(path, trees, protection) };
+    return [
+      {
+        path,
+        ...verdict,
+        isIgnored: protection.isIgnored(path),
+        isPinned: protection.isPinned(path),
+        existsInApp,
+        existsInUpstream,
+      },
+    ];
+  });
+}
 
-  const changedFiles = new Set([...upstreamChanges.keys(), ...appChanges.keys(), ...upstreamRenames.keys()]);
-
-  // Content hashes present anywhere in incoming, for O(1) rename-source lookups below.
-  const upstreamHashSet = new Set(upstreamHashes.values());
-
-  onProgress?.(
-    `analyzing ${changedFiles.size} changed files (${allFiles.size - changedFiles.size} identical skipped)...`,
-  );
-
-  const analyzedFiles: AnalyzedFile[] = [];
-  const handledOldPaths = new Set<string>();
-  // Protected files flagged `upstreamChanged` via a rename: their numstat at the new path
-  // would count the whole file as added, so they get no line count.
-  const renamedProtected = new Set<string>();
-  let processed = 0;
-
-  for (const filePath of allFiles) {
-    if (handledOldPaths.has(filePath)) continue;
-
-    const inApp = appHashes.has(filePath);
-    const inUpstream = upstreamHashes.has(filePath);
-
-    const fileIsIgnored = predicates.isIgnored(filePath);
-    const fileIsPinned = predicates.isPinned(filePath);
-
-    const upstreamChange = upstreamChanges.get(filePath);
-    const isUpstreamRename = upstreamChange?.status === 'R' && upstreamChange.oldPath;
-
-    const renamedToPath = upstreamRenames.get(filePath);
-
-    const push = (status: FileStatus, extra: Partial<AnalyzedFile> = {}) =>
-      analyzedFiles.push({
-        path: filePath,
-        status,
-        isIgnored: fileIsIgnored,
-        isPinned: fileIsPinned,
-        existsInApp: inApp,
-        existsInUpstream: inUpstream,
-        ...extra,
-      });
-
-    if (!changedFiles.has(filePath) && inApp && inUpstream) {
-      push('identical');
-      continue;
-    }
-
-    processed++;
-    if (processed % 100 === 0) {
-      onProgress?.(`analyzing ${processed}/${changedFiles.size} changed files...`);
-    }
-
-    const appHash = appHashes.get(filePath) ?? null;
-    const upstreamHash = upstreamHashes.get(filePath) ?? null;
-    const baseHash = baseHashes.get(filePath) ?? null;
-
-    let status: FileStatus;
-    let renamedFrom: string | undefined;
-
-    if (isUpstreamRename && upstreamChange.oldPath) {
-      const oldPath = upstreamChange.oldPath;
-      const oldPathInApp = appHashes.has(oldPath);
-      const appOldHash = appHashes.get(oldPath) ?? null;
-      const baseOldHash = baseHashes.get(oldPath) ?? null;
-
-      handledOldPaths.add(oldPath);
-
-      const appModifiedOld = appOldHash !== baseOldHash;
-
-      // A renamed directory (e.g. config/ → shared/) can leave the local pinned
-      // list referencing the old path, so both paths count for pinned/ignored.
-      const oldPathPinned = predicates.isPinned(oldPath);
-
-      let upstreamChanged: boolean | undefined;
-      if (fileIsPinned || fileIsIgnored || oldPathPinned || predicates.isIgnored(oldPath)) {
-        // Protected: local's version is kept at the new path, where `applyDirectMerge` moves it from the old one.
-        status = 'pinned';
-        if (oldPathInApp) renamedFrom = oldPath;
-        // Local edited the old file and incoming changed its content beyond the rename.
-        if (appModifiedOld && upstreamHash !== baseOldHash) {
-          upstreamChanged = true;
-          renamedProtected.add(filePath);
-        }
-      } else if (!oldPathInApp) {
-        // Old path absent locally (deleted or moved): plain behind, git's merge handles it.
-        status = 'behind';
-      } else if (appModifiedOld) {
-        // Local modified the old file: diverged, git's merge surfaces the conflict.
-        status = 'diverged';
-        renamedFrom = oldPath;
-      } else {
-        // Unmodified old file locally: a clean rename to apply.
-        status = 'renamed';
-        renamedFrom = oldPath;
-      }
-
-      // Incoming moved a file into (or within) ignored territory and the local side never
-      // touched the source: an upstream-only change at the new path.
-      const upstreamOnly = fileIsIgnored && !appModifiedOld && isReportableIgnored(filePath);
-
-      push(status, { existsInUpstream: true, renamedFrom, upstreamChanged, upstreamOnly: upstreamOnly || undefined });
-      continue;
-    }
-
-    // Old paths of incoming renames are handled at the new path.
-    if (renamedToPath) {
-      handledOldPaths.add(filePath);
-      continue;
-    }
-
-    if (fileIsIgnored) {
-      status = 'ignored';
-    } else if (!inApp && inUpstream) {
-      // Missing locally: a pinned path at base, or one at base that incoming left untouched, is a
-      // local deletion that stays deleted (re-adding it would resurface it every upgrade). A path new
-      // in incoming, a pinned one included (pinned before its first arrival, as an alignment can
-      // ask), or one incoming modified after the local side deleted it, comes from incoming.
-      const locallyDeleted = baseHash !== null && upstreamHash === baseHash;
-      status = (fileIsPinned && baseHash !== null) || locallyDeleted ? 'deleted' : 'behind';
-    } else if (inApp && !inUpstream) {
-      if (baseHash !== null) {
-        // In base, deleted by incoming: the deletion merges unless the file is pinned, or the local
-        // side changed it, which keeps git's modify/delete conflict for the review.
-        status = fileIsPinned ? 'ahead' : appHash !== baseHash ? 'diverged' : 'behind';
-      } else {
-        // Local file (never existed in merge-base). If its exact content exists at a
-        // different path in incoming, it is likely the source of a rename we couldn't
-        // detect due to a squash merge-base: treated as behind so the rename applies.
-        // (This file is absent from incoming, so any hash match is at another path.)
-        status = appHash && upstreamHashSet.has(appHash) ? 'behind' : 'local';
-      }
-    } else if (appHash === upstreamHash) {
-      status = 'identical';
-    } else {
-      const appChanged = appHash !== baseHash;
-      const upstreamChanged = upstreamHash !== baseHash;
-
-      if (appChanged && upstreamChanged) {
-        status = fileIsPinned ? 'pinned' : 'diverged';
-      } else if (appChanged && !upstreamChanged) {
-        status = fileIsPinned ? 'ahead' : 'drifted';
-      } else {
-        status = 'behind';
-      }
-    }
-
-    // Protected file where BOTH sides changed since the merge-base (a local edit, or a deletion
-    // of a pinned file, and incoming content that differs from base). Local wins whole-file, so
-    // incoming's hunks are dropped; the flag lets analyze/upgrade surface the loss. A protected file
-    // that only changed locally is plain `ahead`; one that only changed incoming (`behind`
-    // with the local copy still equal to base) is reported separately as a masking pin.
-    const upstreamChanged =
-      (fileIsPinned || (fileIsIgnored && inApp)) && inUpstream && upstreamHash !== baseHash && appHash !== baseHash;
-
-    // Ignored file only incoming changed, added or deleted since the merge-base (the local copy,
-    // or its absence, still equals base), or one incoming changed that the app does not have:
-    // an app's own screenshots it never kept. Nothing local is dropped, but ignored paths never
-    // upgrade, so the change would stay unseen. The pinned counterpart is the masking pin (`behind`).
-    const upstreamOnly =
-      fileIsIgnored &&
-      isReportableIgnored(filePath) &&
-      upstreamHash !== baseHash &&
-      (appHash === baseHash || (!inApp && inUpstream));
-
-    push(status, { upstreamChanged: upstreamChanged || undefined, upstreamOnly: upstreamOnly || undefined });
-  }
-
-  // Size the incoming changes the upgrade leaves out: one numstat call limited to the flagged paths.
-  const flagged = analyzedFiles.filter(
-    (file) => (file.upstreamChanged && !renamedProtected.has(file.path)) || file.upstreamOnly,
-  );
+/**
+ * Size, in place, the upstream changes the upgrade leaves out: the lines upstream changed in each
+ * flagged file since the merge-base, and the lines upstream has that a pinned `ahead` file lacks.
+ */
+async function countUpstreamLines(
+  repoRoot: string,
+  files: AnalyzedFile[],
+  refs: { appRef: string; upstreamRef: string; baseRef: string },
+): Promise<void> {
+  // One numstat call limited to the flagged paths. A protected file upstream moved gets no count:
+  // its numstat at the new path would count the whole file as added.
+  const flagged = files.filter((file) => (file.upstreamChanged && !file.renamedFrom) || file.upstreamOnly);
   if (flagged.length > 0) {
     const stat = await getDiffStat(
-      repoPath,
-      mergeBaseRef,
-      incomingRef,
+      repoRoot,
+      refs.baseRef,
+      refs.upstreamRef,
       flagged.map((file) => file.path),
     );
     for (const file of flagged) {
@@ -366,24 +340,16 @@ export async function analyzeRefs(
     }
   }
 
-  // Retroactive signal for pinned `ahead` files (incoming untouched since the merge-base, so
-  // the check above cannot fire): count lines incoming has that local lacks, relative to
-  // the tips, not the upgrade point. Pinned only; ignored territory is noise by design.
-  const stale = analyzedFiles.filter(
-    (file) =>
-      file.status === 'ahead' &&
-      file.isPinned &&
-      !file.isIgnored &&
-      file.existsInApp &&
-      file.existsInUpstream &&
-      appHashes.get(file.path) !== upstreamHashes.get(file.path),
-  );
+  // Retroactive signal for pinned `ahead` files (upstream untouched since the merge-base, so the
+  // count above cannot fire): lines upstream has that the app lacks, relative to the tips, not the
+  // upgrade point. Pinned only; ignored territory is noise by design.
+  const stale = files.filter((file) => file.status === 'ahead');
   if (stale.length > 0) {
-    // from = incoming, to = local: numstat deletions are incoming lines absent locally
+    // from = upstream, to = app: numstat deletions are upstream lines absent in the app
     const stat = await getDiffStat(
-      repoPath,
-      incomingRef,
-      localRef,
+      repoRoot,
+      refs.upstreamRef,
+      refs.appRef,
       stale.map((file) => file.path),
     );
     for (const file of stale) {
@@ -391,8 +357,22 @@ export async function analyzeRefs(
       if (deletions !== null && deletions !== undefined) file.upstreamLinesAbsent = deletions;
     }
   }
+}
 
-  return analyzedFiles;
+/**
+ * Classify every file changed between the app and upstream refs from a shared merge-base, in a repo
+ * that reaches all three, and size the upstream changes the upgrade leaves out.
+ */
+export async function analyzeRefs(
+  repoRoot: string,
+  appRef: string,
+  upstreamRef: string,
+  baseRef: string,
+  protection: Protection,
+): Promise<AnalyzedFile[]> {
+  const files = classifyFiles(await readTrees(repoRoot, appRef, upstreamRef, baseRef), protection);
+  await countUpstreamLines(repoRoot, files, { appRef, upstreamRef, baseRef });
+  return files;
 }
 
 /**
@@ -435,8 +415,8 @@ export async function enrichChangeInfo(
   }
 }
 
-/** Classifier predicates for the upgrade direction (local = app, incoming = upstream); `--unpinned` pins the managed files alone. */
-export function upgradePredicates(config: RuntimeConfig): AnalyzePredicates {
+/** Protection for the upgrade direction (the app at HEAD, upstream incoming); `--unpinned` pins the managed files alone. */
+function upgradeProtection(config: RuntimeConfig): Protection {
   return {
     isIgnored: (path) => isIgnored(path, config),
     isPinned: (path) => (config.unpinned ? isManagedFile(path) : isPinned(path, config)),
@@ -446,11 +426,11 @@ export function upgradePredicates(config: RuntimeConfig): AnalyzePredicates {
 /** Classify every file the upgrade compares: the app at HEAD against upstream at the run's ref, from the merge's base. */
 export function classifyUpgrade(config: RuntimeConfig, upstream: UpstreamContext): Promise<AnalyzedFile[]> {
   spinnerText('analyzing files...');
-  return analyzeRefs(config.repoRoot, 'HEAD', upstream.ref, upstream.mergeRef, upgradePredicates(config), spinnerText);
+  return analyzeRefs(config.repoRoot, 'HEAD', upstream.ref, upstream.mergeRef, upgradeProtection(config));
 }
 
 /** Counts by status; a changed managed file counts as `managed`. */
-export function summarize(files: AnalyzedFile[]): AnalysisSummary {
+function summarize(files: AnalyzedFile[]): AnalysisSummary {
   const summary: AnalysisSummary = {
     managed: 0,
     identical: 0,
@@ -467,4 +447,17 @@ export function summarize(files: AnalyzedFile[]): AnalysisSummary {
   for (const file of files)
     summary[file.status !== 'identical' && isManagedFile(file.path) ? 'managed' : file.status]++;
   return summary;
+}
+
+/** The result fields analyze and upgrade read off the same classified files. */
+export function classifiedResult(files: AnalyzedFile[]): Pick<MergeResult, 'files' | 'summary' | 'protectedConflicts'> {
+  const protectedConflicts = files.filter((file) => file.upstreamChanged).map((file) => file.path);
+  return { files, summary: summarize(files), protectedConflicts };
+}
+
+/** Files the upgrade changes from upstream: upstream's copy, its deletion or git's merge of both sides. */
+export function changedFromUpstream(files: AnalyzedFile[]): AnalyzedFile[] {
+  return files.filter(
+    (file) => file.resolution === 'take' || file.resolution === 'remove' || file.resolution === 'merge',
+  );
 }

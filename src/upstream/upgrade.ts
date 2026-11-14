@@ -15,7 +15,7 @@ import {
 } from '../utils/display';
 import { commitSquash, getConflictedFiles, getCurrentBranch, isClean, mergeInProgress, stageAll } from '../utils/git';
 import { applyDirectMerge, settleMerge } from './apply';
-import { classifyUpgrade, summarize } from './classify';
+import { classifiedResult, classifyUpgrade } from './classify';
 import {
   assertAheadOfUpgradePoint,
   assertCliVersion,
@@ -124,7 +124,7 @@ export async function runUpgrade(
 
     const alignments = await readAlignmentsInRange(repoRoot, upstream);
     const files = await classifyUpgrade(config, upstream);
-    const applied = await applyDirectMerge(repoRoot, upstream.ref, upstream.mergeRef, config, files, spinnerText);
+    const applied = await applyDirectMerge(repoRoot, upstream.ref, upstream.mergeRef, files, spinnerText);
     const staged = await settleMerge(repoRoot, files, applied);
     if (config.packageJsonKeys !== false) await runPackages(config, upstream, applied.remainingConflicts);
 
@@ -132,11 +132,9 @@ export async function runUpgrade(
     if (staged) await recordUpgrade(repoRoot, upstream, open);
 
     result = {
-      files,
-      summary: summarize(files),
+      ...classifiedResult(files),
       conflicts: applied.remainingConflicts,
       autoMergedFiles: applied.autoMergedFiles,
-      protectedConflicts: applied.protectedConflicts,
       ...(await readUpstreamReports(config, upstream, files)),
       alignments: { ...alignments, open },
     };

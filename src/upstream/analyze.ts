@@ -4,7 +4,7 @@ import { createSpinner, type NextStep, plural, printNextSteps, printStep, writeS
 import { gitHubRepo, readRemoteUrl } from '../utils/git';
 import { alignmentsStep } from './align';
 import { printAnalysisFileGroups } from './analyze-report';
-import { classifyUpgrade, enrichChangeInfo, summarize } from './classify';
+import { changedFromUpstream, classifiedResult, classifyUpgrade, enrichChangeInfo } from './classify';
 import { assertAheadOfUpgradePoint, assertCliVersion } from './gates';
 import { configFile } from './managed-files';
 import type { MergeResult } from './model';
@@ -80,11 +80,9 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
   const files = await classifyUpgrade(config, upstream);
   await enrichChangeInfo(repoRoot, files, upstream.mergeBase, 'HEAD', upstream.ref);
   const result: MergeResult = {
-    files,
-    summary: summarize(files),
-    // Every diverged file may conflict.
-    conflicts: files.filter((file) => file.status === 'diverged').map((file) => file.path),
-    protectedConflicts: files.filter((file) => file.upstreamChanged).map((file) => file.path),
+    ...classifiedResult(files),
+    // The files git merges, each of which may conflict.
+    conflicts: files.filter((file) => file.resolution === 'merge').map((file) => file.path),
     ...(await readUpstreamReports(config, upstream, files)),
     // The arrivals open only once the upgrade lands.
     alignments,
@@ -159,11 +157,11 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
 /** The `upgrade` step: what the upgrade would change, left out when upstream has nothing new. */
 function upgradeStep(result: MergeResult): NextStep | undefined {
   if (!result.upstreamCommitCount) return undefined;
-  const { behind, diverged, renamed } = result.summary;
+  const changed = changedFromUpstream(result.files);
+  const merges = changed.filter((file) => file.resolution === 'merge').length;
   const changes = [
-    behind > 0 ? `${behind} update` : '',
-    diverged > 0 ? `${diverged} merge` : '',
-    renamed > 0 ? `${renamed} rename` : '',
+    changed.length > merges ? `${changed.length - merges} update` : '',
+    merges > 0 ? `${merges} merge` : '',
   ].filter(Boolean);
   return {
     label: 'upgrade',

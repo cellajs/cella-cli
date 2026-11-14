@@ -148,7 +148,7 @@ export async function collectBranchStats(repoRoot: string, since: string): Promi
   const patch = await git(
     ['diff', '-U0', '--no-renames', '--no-color', ...range, '--', ...codeExtensions.map((ext) => `*.${ext}`)],
     repoRoot,
-    { ignoreErrors: true },
+    { ignoreErrors: true, env: { GIT_LITERAL_PATHSPECS: '0' } },
   );
   const sourceContent =
     kinds.source.files > 0 && !patch ? null : countLineContent(patch, (path) => kindOf.get(path) === 'source');

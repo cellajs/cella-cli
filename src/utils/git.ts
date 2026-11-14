@@ -31,10 +31,14 @@ interface GitCommandOptions {
   env?: Record<string, string>;
 }
 
-/** Executes a git command and returns trimmed stdout. */
+/**
+ * Executes a git command and returns trimmed stdout. Pathspecs are literal, so a file name with glob
+ * characters (`[id].tsx`) names that file alone; a caller that globs sets `GIT_LITERAL_PATHSPECS: '0'`.
+ */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
     ...getEnvSnapshot(),
+    GIT_LITERAL_PATHSPECS: '1',
     ...(options.skipEditor ? { GIT_EDITOR: 'true' } : {}),
     ...options.env,
   };
@@ -422,15 +426,12 @@ export async function restoreWorktreeFromRef(cwd: string, ref: string, filePath:
   await git(['restore', `--source=${ref}`, '--worktree', '--', filePath], cwd);
 }
 
-/**
- * Restore paths from a ref into the working tree only, in batches, leaving the index untouched.
- * Paths are taken literally, so a file name with glob characters (`[id].tsx`) restores that file.
- */
+/** Restore paths from a ref into the working tree only, in batches, leaving the index untouched. */
 export async function batchRestoreWorktreeFromRef(cwd: string, ref: string, filePaths: string[]): Promise<void> {
   const batchSize = 200;
   for (let i = 0; i < filePaths.length; i += batchSize) {
     const batch = filePaths.slice(i, i + batchSize);
-    await git(['--literal-pathspecs', 'restore', `--source=${ref}`, '--worktree', '--', ...batch], cwd);
+    await git(['restore', `--source=${ref}`, '--worktree', '--', ...batch], cwd);
   }
 }
 
@@ -450,7 +451,7 @@ export async function listIdenticalToRef(cwd: string, ref: string): Promise<Set<
 
 /** Tracked paths under `paths` whose working tree copy differs from `ref` (renames not detected). */
 export async function listChangedSinceRef(cwd: string, ref: string, paths: string[]): Promise<string[]> {
-  const out = await git(['--literal-pathspecs', 'diff', '--name-only', '--no-renames', '-z', ref, '--', ...paths], cwd);
+  const out = await git(['diff', '--name-only', '--no-renames', '-z', ref, '--', ...paths], cwd);
   return out.split('\0').filter(Boolean);
 }
 
@@ -474,6 +475,10 @@ export interface FileChange {
  * Files changed between two refs (`git diff-tree -r -M90%`), as filePath -> FileChange.
  * Status codes: A=added, D=deleted, M=modified, T=type-changed, R=renamed (90% similarity
  * threshold). A rename is keyed by its NEW path, with `oldPath` stored in the value.
+ *
+ * The upgrade's classifier pairs moves here: which protected copies move with upstream (strict on
+ * purpose, as a wrong pair puts a pinned file at an unrelated path) and the report's labels. git's
+ * merge follows moves at its own 50%, so a move it follows may be labelled a deletion plus an addition.
  */
 export async function getFileChanges(
   cwd: string,
@@ -565,30 +570,19 @@ export async function gitRm(cwd: string, paths: string[], options: { cached?: bo
   await git(['rm', ...(options.cached ? ['--cached'] : []), '-f', '--ignore-unmatch', '--', ...paths], cwd);
 }
 
-/** Move a file (`git mv -f`), creating parent directories as needed. */
-export async function gitMv(cwd: string, oldPath: string, newPath: string): Promise<void> {
-  const newDir = dirname(join(cwd, newPath));
-  await mkdir(newDir, { recursive: true });
-
-  await git(['mv', '-f', oldPath, newPath], cwd);
-}
-
 /**
  * Moves the copy of `from` that `ref` holds to `to`, staged in the index and written to the worktree, and removes
- * `from`. Any merge stages at `to` give way to it; the blob is copied by id, so binary files stay intact.
+ * `from`. Any merge stages at `to` give way to it; the blob is copied by id, so binary files stay intact. `from` goes
+ * first: on a case-insensitive file system a move by case alone names one file.
  */
 export async function moveFromRef(cwd: string, ref: string, from: string, to: string): Promise<void> {
   const [mode, , blob] = (await git(['ls-tree', ref, '--', from], cwd)).split(/\s+/);
   if (!blob) throw new Error(`${ref} holds no ${from}`);
+  await removeFilesFully(cwd, [from]);
   await gitRm(cwd, [to], { cached: true });
   await git(['update-index', '--add', '--cacheinfo', `${mode},${blob},${to}`], cwd);
   await mkdir(dirname(join(cwd, to)), { recursive: true });
   await git(['checkout-index', '-f', '--', to], cwd);
-  await removeFileFully(cwd, from);
-}
-
-export async function fileExistsInWorktree(cwd: string, filePath: string): Promise<boolean> {
-  return existsSync(join(cwd, filePath));
 }
 
 /**
@@ -606,12 +600,12 @@ export async function removeFileFromWorktree(cwd: string, filePath: string): Pro
 }
 
 /**
- * Fully remove a file: tracked delete from the index (git rm) plus filesystem removal
+ * Fully remove files: tracked delete from the index (git rm) plus filesystem removal
  * for cases git rm leaves behind (e.g. during a merge), including empty parent dirs.
  */
-export async function removeFileFully(cwd: string, filePath: string): Promise<void> {
-  await gitRm(cwd, [filePath]);
-  await removeFileFromWorktree(cwd, filePath);
+export async function removeFilesFully(cwd: string, paths: string[]): Promise<void> {
+  await gitRm(cwd, paths);
+  for (const path of paths) await removeFileFromWorktree(cwd, path);
 }
 
 /**

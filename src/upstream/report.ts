@@ -24,6 +24,7 @@ import {
 import { fitText, padVisible, shortAge, terminalColumns } from '../utils/layout';
 import { isGeneratedFile } from '../utils/repo-files';
 import { alignmentsStep, readOpenAlignments } from './align';
+import { changedFromUpstream } from './classify';
 import { compareUpstreamOverrides } from './config-gate';
 import { configFile, isManagedFile } from './managed-files';
 import type { AnalysisSummary, AnalyzedFile, FileStatus, MergeResult, UpstreamContext } from './model';
@@ -361,12 +362,12 @@ function formatUpstreamChangedLines(file: AnalyzedFile): string {
 }
 
 export function printUpgradeComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
-  const updated = result.files.filter((file) => file.status === 'behind' || file.status === 'diverged').length;
-  const diverged = result.files.filter((file) => file.status === 'diverged').length;
-  const merged = result.autoMergedFiles?.length ?? Math.max(0, diverged - result.conflicts.length);
+  const updated = changedFromUpstream(result.files);
+  const merges = updated.filter((file) => file.resolution === 'merge').length;
+  const merged = result.autoMergedFiles?.length ?? Math.max(0, merges - result.conflicts.length);
   const conflicts = result.conflicts.length;
 
-  const counts = `${plural(updated, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
+  const counts = `${plural(updated.length, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
   console.info();
   if (options.stagedBranch) {
     console.info(`${checkMark} upgrade merge staged on '${options.stagedBranch}'`);
@@ -478,22 +479,15 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
 
 /**
  * A pinned file whose app content is byte-identical to the previous upstream (status
- * `behind`) never actually diverged: the pin is silently freezing it at the old upstream
- * version and dropping upstream's new changes. Because the app copy equals the old
+ * `behind`, resolution `keep`) never actually diverged: the pin is silently freezing it at the old
+ * upstream version and dropping upstream's new changes, a deletion included. Because the app copy equals the old
  * upstream, this produces no merge conflict and no type error, so it slips through unseen
  * (e.g. a pinned nav-config losing new upstream entries). These are the pins worth a look.
  * Managed files (package.json, the lockfile, the CLI config) are always pinned but stay out:
  * the package merge reconciles their keys, so the pin masks nothing there.
  */
 export function findMaskingPins(files: AnalyzedFile[]): AnalyzedFile[] {
-  return files.filter(
-    (file) =>
-      file.isPinned &&
-      !isManagedFile(file.path) &&
-      file.status === 'behind' &&
-      file.existsInApp &&
-      file.existsInUpstream,
-  );
+  return files.filter((file) => file.status === 'behind' && file.resolution === 'keep' && !isManagedFile(file.path));
 }
 
 /**

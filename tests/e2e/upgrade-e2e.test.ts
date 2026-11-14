@@ -363,6 +363,22 @@ describe('upgrade e2e', () => {
       expect(fileExists(env.repoRoot, 'README.md')).toBe(false);
     });
 
+    it.each([
+      ['left unchanged', '# Test Repo\n', 'behind'],
+      ['changed', '# App readme\n', 'pinned'],
+    ])('keeps a pinned file the app %s when upstream deletes it beside other changes', async (_, content, status) => {
+      makeCommit(env.repoRoot, { files: { 'README.md': content, 'app.ts': 'app\n' }, message: 'feat: app' });
+      makeCommit(env.upstreamPath, { files: { 'util.ts': 'util\n' }, message: 'feat: util' });
+      deleteFileAndCommit(env.upstreamPath, 'README.md', 'chore: drop readme');
+      fetchUpstream(env.repoRoot);
+
+      const result = await runUpgrade(buildRuntimeConfig(env, { pinned: ['README.md'] }));
+
+      expect(result.files.find((f) => f.path === 'README.md')?.status).toBe(status);
+      expect(readRepoFile(env.repoRoot, 'README.md')).toBe(content);
+      expect(fileExists(env.repoRoot, 'util.ts')).toBe(true);
+    });
+
     it('handles file renames from upstream with git mv', async () => {
       // Add a file in a subdirectory to upstream first
       makeCommit(env.upstreamPath, {
@@ -500,6 +516,17 @@ describe('upgrade e2e', () => {
       expect(localFile).toBeDefined();
       expect(localFile?.status).toBe('local');
       expect(result.summary.local).toBeGreaterThanOrEqual(1);
+    });
+
+    it('keeps an app-only file that is a copy of an upstream file at another path', async () => {
+      makeCommit(env.repoRoot, { files: { 'docs/readme-copy.md': '# Test Repo\n' }, message: 'docs: readme copy' });
+      makeCommit(env.upstreamPath, { files: { 'upstream-util.ts': '// util\n' }, message: 'chore: util' });
+      fetchUpstream(env.repoRoot);
+
+      const result = await runUpgrade(buildRuntimeConfig(env));
+
+      expect(result.files.find((f) => f.path === 'docs/readme-copy.md')?.status).toBe('local');
+      expect(readRepoFile(env.repoRoot, 'docs/readme-copy.md')).toBe('# Test Repo\n');
     });
   });
 
@@ -870,6 +897,124 @@ describe('upgrade e2e', () => {
       await expect(runUpgrade(buildRuntimeConfig(env, { ref: 'v0.1.0' }))).rejects.toThrow(/Pick a newer --ref/);
       expect(readRepoFile(env.repoRoot, 'version.ts')).toBe('v2\n');
       expect(execSync('git status --porcelain', { cwd: env.repoRoot }).toString()).toBe('');
+    });
+  });
+
+  describe('files git merges', () => {
+    const text = `${Array.from({ length: 10 }, (_, i) => `export const line${i} = ${i};`).join('\n')}\n`;
+    const edit = (content: string, line: number, value: string) =>
+      content.replace(`line${line} = ${line};`, `line${line} = '${value}';`);
+
+    /** Files both sides start from: committed upstream and fast-forwarded into the app. */
+    function share(files: Record<string, string>): void {
+      makeCommit(env.upstreamPath, { files, message: 'chore: shared files' });
+      fetchUpstream(env.repoRoot);
+      execSync('git merge -q --ff-only cella-upstream/main', { cwd: env.repoRoot });
+    }
+    const commit = (repo: string, command: string) =>
+      execSync(`${command} && git add -A && git commit -q -m "chore: change"`, { cwd: repo });
+    const upgrade = (options: Parameters<typeof buildRuntimeConfig>[1] = {}) => {
+      fetchUpstream(env.repoRoot);
+      return runUpgrade(buildRuntimeConfig(env, options));
+    };
+    const tracked = (path: string) => execSync(`git ls-files -- ${path}`, { cwd: env.repoRoot }).toString();
+
+    it('removes a workspace upstream deleted, its package.json included', async () => {
+      share({ 'packages/old/package.json': '{ "name": "old" }\n', 'packages/old/index.ts': 'export {};\n' });
+      commit(env.upstreamPath, 'git rm -rq packages/old');
+
+      expect((await upgrade()).conflicts).toEqual([]);
+      expect(tracked('packages')).toBe('');
+    });
+
+    it('leaves the folder the app put where upstream moved a file away', async () => {
+      share({ tool: 'echo tool\n' });
+      commit(env.repoRoot, 'git rm -q tool && mkdir tool && printf "export {};\\n" > tool/index.ts');
+      commit(env.upstreamPath, 'mkdir -p bin && git mv tool bin/tool');
+
+      await upgrade();
+      expect(readRepoFile(env.repoRoot, 'tool/index.ts')).toBe('export {};\n');
+    });
+
+    it('keeps a file the app moved where upstream moved it elsewhere, as a conflict', async () => {
+      share({ 'a.ts': text });
+      commit(env.repoRoot, 'git mv a.ts b.ts');
+      commit(env.upstreamPath, 'git mv a.ts c.ts');
+
+      expect((await upgrade()).conflicts.length).toBeGreaterThan(0);
+      expect(readRepoFile(env.repoRoot, 'b.ts')).toBe(text);
+    });
+
+    it.each([[[]], [['cfg']]])(
+      "never overwrites the app's own file where upstream moves one, pinned %j",
+      async (pinned) => {
+        share({ 'cfg/a.ts': text });
+        makeCommit(env.repoRoot, { files: { 'shared/a.ts': 'export const own = true;\n' }, message: 'feat: own' });
+        commit(env.upstreamPath, 'mkdir -p shared && git mv cfg/a.ts shared/a.ts');
+
+        expect((await upgrade({ pinned })).conflicts).toContain('shared/a.ts');
+        expect(readRepoFile(env.repoRoot, 'shared/a.ts')).toContain('export const own = true;');
+      },
+    );
+
+    it('keeps the edit of a move the app made ahead of upstream', async () => {
+      share({ 'a.ts': text });
+      commit(env.repoRoot, `git mv a.ts b.ts && printf "export const app = 1;\\n" >> b.ts`);
+      commit(env.upstreamPath, 'git mv a.ts b.ts');
+
+      await upgrade();
+      expect(readRepoFile(env.repoRoot, 'b.ts')).toBe(`${text}export const app = 1;\n`);
+    });
+
+    it("keeps the app's edit to a file upstream moves and edits", async () => {
+      share({ 'a.ts': text });
+      makeCommit(env.repoRoot, { files: { 'a.ts': edit(text, 0, 'app') }, message: 'feat: app edit' });
+      commit(env.upstreamPath, 'git mv a.ts b.ts');
+      makeCommit(env.upstreamPath, { files: { 'b.ts': edit(edit(text, 4, 'up'), 8, 'up') }, message: 'feat: edit' });
+
+      expect((await upgrade()).conflicts).toEqual([]);
+      expect(tracked('a.ts')).toBe('');
+      expect(readRepoFile(env.repoRoot, 'b.ts')).toBe(edit(edit(edit(text, 0, 'app'), 4, 'up'), 8, 'up'));
+    });
+
+    it('merges an upstream edit into the file the app moved', async () => {
+      share({ 'a.ts': text });
+      commit(env.repoRoot, 'git mv a.ts b.ts');
+      makeCommit(env.upstreamPath, { files: { 'a.ts': edit(text, 0, 'up') }, message: 'feat: edit' });
+
+      expect((await upgrade()).conflicts).toEqual([]);
+      expect(tracked('a.ts')).toBe('');
+      expect(readRepoFile(env.repoRoot, 'b.ts')).toBe(edit(text, 0, 'up'));
+    });
+
+    it('passes paths with glob characters to git literally', async () => {
+      share({ 'r/[ab].ts': 'export const t = 1;\n' });
+      makeCommit(env.repoRoot, { files: { 'r/a.ts': 'export const own = 1;\n' }, message: 'feat: own' });
+      commit(env.upstreamPath, "git rm -q 'r/[ab].ts'");
+
+      await upgrade();
+      expect(tracked('r')).toBe('r/a.ts\n');
+    });
+
+    it('keeps a pinned file upstream renames by case alone', async () => {
+      share({ 'docs/Guide.md': '# Guide\n' });
+      makeCommit(env.repoRoot, { files: { 'docs/Guide.md': '# App guide\n' }, message: 'docs: app guide' });
+      commit(env.upstreamPath, 'git mv docs/Guide.md docs/GUIDE.md');
+
+      await upgrade({ pinned: ['docs'] });
+      expect(tracked('docs')).toBe('docs/GUIDE.md\n');
+      expect(readRepoFile(env.repoRoot, 'docs/GUIDE.md')).toBe('# App guide\n');
+    });
+
+    it('restores protected files when upstream turns a file into a folder', async () => {
+      share({ tool: 'echo tool\n', 'own/a.ts': 'base\n' });
+      makeCommit(env.repoRoot, { files: { 'own/a.ts': 'app\n' }, message: 'feat: own' });
+      commit(env.upstreamPath, 'git rm -q tool && mkdir tool && printf "export {};\\n" > tool/index.ts');
+      makeCommit(env.upstreamPath, { files: { 'own/a.ts': 'upstream\n' }, message: 'feat: own' });
+
+      await upgrade({ ignored: ['own'] });
+      expect(readRepoFile(env.repoRoot, 'own/a.ts')).toBe('app\n');
+      expect(readRepoFile(env.repoRoot, 'tool/index.ts')).toBe('export {};\n');
     });
   });
 

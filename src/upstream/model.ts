@@ -1,22 +1,35 @@
 import type { CommitRangeEntry } from '../utils/git';
 
-/** File status after analysis */
+/** Who changed a file since the upgrade point, as `analyze --json` prints it; a deletion counts as a change. */
 export type FileStatus =
-  | 'identical' // No changes needed
-  | 'ahead' // The app is ahead, protected (pinned/ignored)
-  | 'local' // Local file (never existed upstream)
-  | 'drifted' // The app is ahead, NOT protected (at risk)
-  | 'behind' // Upstream has changes to merge
-  | 'diverged' // Both changed, will merge
-  | 'pinned' // The app wins on conflict
-  | 'ignored' // Excluded from the upgrade entirely
-  | 'deleted' // The app deleted it, it stays deleted
-  | 'renamed'; // Upstream renamed file
+  | 'identical' // The app matches upstream
+  | 'ahead' // Pinned, the app changed it and upstream did not
+  | 'local' // Only in the app, never in upstream
+  | 'drifted' // The app changed it and upstream did not, unprotected
+  | 'behind' // Upstream changed it and the app did not; a pinned copy stays (a masking pin)
+  | 'diverged' // Both changed it, unprotected
+  | 'pinned' // Pinned and both changed it, or protected and upstream moved it
+  | 'ignored' // Under an ignored path, whoever changed it
+  | 'deleted' // The app deleted it, and the deletion stays
+  | 'renamed'; // Upstream moved a file the app left unchanged
+
+/**
+ * What the upgrade does with a file, decided by the classifier; analyze reports the same. git's merge
+ * carries out `none`, `take`, `merge` and `remove`; the upgrade itself only `keep` and `move`.
+ */
+export type Resolution =
+  | 'none' // the merge leaves the file as the app has it
+  | 'take' // upstream's copy, at its new path when `renamedFrom` is set
+  | 'merge' // git's 3-way result stands, a conflict keeps its markers
+  | 'keep' // the app's copy, or its absence, whatever the merge brought
+  | 'move' // the app's copy at `renamedFrom` moves to the path upstream moved it to
+  | 'remove'; // the app's copy goes, as upstream deleted it
 
 /** Analyzed file with status and metadata */
 export interface AnalyzedFile {
   path: string;
   status: FileStatus;
+  resolution: Resolution;
   /** True if file is in ignored list */
   isIgnored: boolean;
   /** True if file is in pinned list */
@@ -37,11 +50,11 @@ export interface AnalyzedFile {
   upstreamChangedTs?: number;
   /** For diverged files: short commit hash of the upstream change */
   upstreamCommit?: string;
-  /** For renamed files: the original path before rename */
+  /** The path upstream moved the file from; `move` carries the app's copy from it. */
   renamedFrom?: string;
   /**
-   * Protected (pinned/ignored) files only: both sides changed since the merge-base. The app
-   * side wins whole-file, so upstream's changes to this path are dropped by the upgrade.
+   * Protected (pinned/ignored) files only: both sides changed since the merge-base, a deletion
+   * included. The app side wins whole-file, so upstream's changes to this path are dropped by the upgrade.
    */
   upstreamChanged?: boolean;
   /** For `upstreamChanged` and `upstreamOnly` files: lines upstream changed since the merge-base (undefined for binary) */
