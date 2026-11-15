@@ -15,4 +15,5 @@ export type {
   SseEvent,
   SseOptions,
   Vu,
+  VuClient,
 } from '../bench/types';

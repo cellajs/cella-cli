@@ -18,6 +18,7 @@ import {
   type Scenario,
   splitMetricKey,
   type Vu,
+  type VuClient,
   type VuFn,
 } from './types';
 
@@ -158,7 +159,7 @@ interface RunState {
   errors: Record<string, { message: string }>;
 }
 
-/** Starts one VU of `fn`: it counts as created, then completed or failed, and closes its connections when it settles. */
+/** Starts one VU of `fn`: it counts as created, then completed or failed, and closes its clients' connections when it settles. */
 function launch(
   state: RunState,
   fn: VuFn<string, string>,
@@ -166,17 +167,25 @@ function launch(
   target: string,
 ): void {
   const { metrics, stop, display } = state;
-  const client = createHttpClient(target, metrics, stop.signal);
   const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
+  const sse: VuClient['sse'] = (url, onEvent, sseOptions = {}) =>
+    readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal);
+  const clients: ReturnType<typeof createHttpClient>[] = [];
+  const client = (): VuClient => {
+    const http = createHttpClient(target, metrics, stop.signal);
+    clients.push(http);
+    return { http, sse };
+  };
+  const own = client();
   metrics.counter('vusers.created');
   state.active++;
   Promise.resolve()
     .then(() =>
       fn({
         ...vu,
+        ...own,
         signal: stop.signal,
-        http: client,
-        sse: (url, onEvent, sseOptions = {}) => readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal),
+        client,
         think: (thinkMs) => delay(thinkMs, undefined, { signal: stop.signal }),
         counter: (counter, n) => metrics.counter(counter, n),
         histogram: (histogram, value) => metrics.histogram(histogram, value),
@@ -196,7 +205,7 @@ function launch(
       },
     )
     .finally(async () => {
-      await client.close();
+      await Promise.all(clients.map((http) => http.close()));
       state.active--;
       if (state.active === 0) state.onIdle?.();
     });

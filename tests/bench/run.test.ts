@@ -1,9 +1,9 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
-import type { AddressInfo } from 'node:net';
+import type { AddressInfo, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { baselineFile } from '../../src/bench/baseline';
 import { defineScenario, runScenario } from '../../src/bench/run';
 
@@ -106,6 +106,26 @@ describe('runScenario', () => {
     });
     const result = await runScenario(scenario, { name: 'forget', target, dataDir, output });
     expect(result.summary.endpoints['GET /ok']).toMatchObject({ requests: 2, codes: { 200: 2 }, errors: 0 });
+  });
+
+  it('gives each extra client of a VU a connection of its own, counted in the run and closed with the VU', async () => {
+    const sockets = new Set<Socket>();
+    const track = (socket: Socket) => sockets.add(socket);
+    server.on('connection', track);
+    const scenario = defineScenario({
+      description: 'three people in one VU',
+      async run(vu) {
+        const people = [vu, vu.client(), vu.client()];
+        await Promise.all(people.map((person) => person.http.get('/ok', { name: 'GET /ok' })));
+      },
+    });
+    const result = await runScenario(scenario, { name: 'clients', target, dataDir, output });
+    server.off('connection', track);
+
+    expect(result.summary.endpoints['GET /ok']).toMatchObject({ requests: 3, codes: { 200: 3 } });
+    expect(sockets.size).toBe(3);
+    // The server closes an idle keep-alive socket only after 5 s.
+    await vi.waitFor(() => expect([...sockets].every((socket) => socket.destroyed)).toBe(true));
   });
 
   it('plays each role once in a short run, reads streams, and adds the app checks', async () => {
