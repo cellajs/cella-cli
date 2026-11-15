@@ -29,6 +29,13 @@ function distribution(histogram: RecordableHistogram): Distribution {
   };
 }
 
+/** Percentiles of samples a scenario held itself, in milliseconds, recorded as the run's histograms record theirs. */
+export function distributionOf(values: readonly number[]): Distribution {
+  const histogram = createHistogram();
+  for (const value of values) histogram.record(toMicros(value));
+  return distribution(histogram);
+}
+
 interface Pair {
   total: RecordableHistogram;
   interval: RecordableHistogram;
