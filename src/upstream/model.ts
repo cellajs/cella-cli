@@ -150,6 +150,8 @@ export interface OverrideListChanges {
   removed: string[];
   /** Entries upstream renamed that the app never carried under either path: informational, never a stop. */
   moved?: { from: string; to: string }[];
+  /** Entries the app carries that upstream renamed; `coveredBy`, the app entry that already protects the new path, makes it no stop. */
+  renamed?: { from: string; to: string; coveredBy?: string }[];
 }
 
 /**

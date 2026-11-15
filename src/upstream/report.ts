@@ -466,6 +466,10 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
     for (const entry of report[list].removed) {
       lines.push(`  ${pc.red('−')} ${list}: ${entry}${pc.dim(' · dropped upstream, still in your config')}`);
     }
+    for (const { from, to, coveredBy } of report[list].renamed ?? []) {
+      const advice = coveredBy ? `'${coveredBy}' protects it already: drop the old entry` : 'rename it in your config';
+      lines.push(`  ${pc.yellow('~')} ${list}: ${from} → ${to}${pc.dim(` · renamed upstream, ${advice}`)}`);
+    }
     for (const { from, to } of report[list].moved ?? []) {
       lines.push(pc.dim(`  ~ ${list}: ${from} → ${to} · renamed upstream, your config never had it`));
     }
