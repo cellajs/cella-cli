@@ -76,12 +76,32 @@ describe('repairIncomingRenames', () => {
     const news = ['shared/nl/common.json', 'shared/nl/plain.json', 'src/new-name.ts'];
     repairIncomingRenames(
       changes,
-      context({ base: olds, incoming: news, local: olds, unprotected: ['locales/nl/plain.json'] }),
+      context({
+        base: olds,
+        incoming: news,
+        local: olds,
+        unprotected: ['locales/nl/plain.json', 'shared/nl/plain.json'],
+      }),
     );
 
     expect(changes.get('shared/nl/plain.json')).toEqual(added);
     expect(changes.get('locales/nl/plain.json')).toEqual(deleted);
     expect(changes.get('src/new-name.ts')?.oldPath).toBe('src/old-name.ts');
+  });
+
+  // raak, cella#1847: auth/legal/legal-section.tsx moved into the app-owned marketing module at 86% and was lost.
+  it('pairs an unprotected copy incoming moves into protected territory as delete plus add', () => {
+    const changes = new Map<string, FileChange>([
+      ['marketing/legal/terms.tsx', rename('auth/legal/terms.tsx')],
+      ['marketing/legal/section.tsx', added],
+      ['auth/legal/section.tsx', deleted],
+    ]);
+    const olds = ['auth/legal/terms.tsx', 'auth/legal/section.tsx'];
+    const news = ['marketing/legal/terms.tsx', 'marketing/legal/section.tsx'];
+    repairIncomingRenames(changes, context({ base: olds, incoming: news, local: olds, unprotected: olds }));
+
+    expect(changes.get('marketing/legal/section.tsx')?.oldPath).toBe('auth/legal/section.tsx');
+    expect(changes.has('auth/legal/section.tsx')).toBe(false);
   });
 
   it('keeps git pairing whole when the repaired pairs would collide', () => {
@@ -211,5 +231,28 @@ describe('classifyFiles', () => {
       upstreamChanged: true,
     });
     expect(files.find((file) => file.path === 'shared/b.ts')?.upstreamChanged).toBeUndefined();
+  });
+
+  it('takes upstream for a template copy moved into ignored territory, and keeps an edited one', () => {
+    const base = { 'auth/legal/terms.tsx': 'base', 'auth/legal/privacy.tsx': 'base privacy' };
+    const app = { 'auth/legal/terms.tsx': 'base', 'auth/legal/privacy.tsx': 'app privacy' };
+    const upstream = { 'marketing/legal/terms.tsx': 'moved', 'marketing/legal/privacy.tsx': 'moved privacy' };
+    const moves = {
+      'marketing/legal/terms.tsx': 'auth/legal/terms.tsx',
+      'marketing/legal/privacy.tsx': 'auth/legal/privacy.tsx',
+    };
+    const files = classifyFiles(trees(base, app, upstream, moves), {
+      isIgnored: (path) => path.startsWith('marketing/'),
+      isPinned: () => false,
+    });
+
+    expect(files.find((file) => file.path === 'marketing/legal/terms.tsx')).toMatchObject({
+      status: 'renamed',
+      resolution: 'take',
+    });
+    expect(files.find((file) => file.path === 'marketing/legal/privacy.tsx')).toMatchObject({
+      resolution: 'move',
+      upstreamChanged: true,
+    });
   });
 });

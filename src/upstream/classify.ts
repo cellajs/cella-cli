@@ -68,8 +68,9 @@ const joinDir = (dir: string, name: string) => (dir ? `${dir}/${name}` : name);
  * wrong path; a copy whose content pairs nowhere arrives as delete plus add, which would drop the
  * local copy for incoming's. A pair whose basename changes is re-aimed at the same-named path new
  * in incoming, in the directory its own files moved to, else in the one git's pairing points at;
- * crossed pairs swap in one pass, and any collision keeps git's pairing whole. A protected local
- * path incoming deleted is then paired with the same-named path added where its directory went.
+ * crossed pairs swap in one pass, and any collision keeps git's pairing whole. A local path
+ * incoming deleted is then paired with the same-named path added where its directory went, when
+ * either path is protected: unpaired, a move into protected territory drops the file at both paths.
  */
 export function repairIncomingRenames(changes: Map<string, FileChange>, context: RenameRepairContext): void {
   const dirMoves = directoryMoves(changes);
@@ -121,11 +122,11 @@ export function repairIncomingRenames(changes: Map<string, FileChange>, context:
   }
 
   for (const oldPath of context.localPaths) {
-    if (context.incomingPaths.has(oldPath) || !context.basePaths.has(oldPath)) continue;
-    if (renameSources.has(oldPath) || !context.isProtected(oldPath)) continue;
+    if (context.incomingPaths.has(oldPath) || !context.basePaths.has(oldPath) || renameSources.has(oldPath)) continue;
     const mappedDir = dirMoves.get(dirnameOf(oldPath));
     if (mappedDir === undefined) continue;
     const target = joinDir(mappedDir, basenameOf(oldPath));
+    if (!context.isProtected(oldPath) && !context.isProtected(target)) continue;
     if (!context.incomingPaths.has(target) || context.basePaths.has(target) || changes.get(target)?.status !== 'A')
       continue;
 
@@ -181,7 +182,11 @@ function classifyMove(
   const { base, app, upstream } = trees;
   const differsAtPath = app.get(path) !== upstream.get(path);
   const ownAtPath = app.has(path) && differsAtPath;
-  if ([path, oldPath].some((entry) => protection.isIgnored(entry) || protection.isPinned(entry))) {
+  const isProtected = (entry: string) => protection.isIgnored(entry) || protection.isPinned(entry);
+  // A template copy the app never edited follows upstream's move: the app has nothing of its own to keep.
+  const untouchedArrival =
+    !isProtected(oldPath) && app.has(oldPath) && app.get(oldPath) === base.get(oldPath) && !ownAtPath;
+  if ((isProtected(path) || isProtected(oldPath)) && !untouchedArrival) {
     // The app's copy moves along; with no copy at the old path, the app's version of the new path stays.
     // A copy at both paths leaves git's conflict, so the move never overwrites the app's own file.
     const resolution = !app.has(oldPath) ? 'keep' : ownAtPath ? 'merge' : 'move';

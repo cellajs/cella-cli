@@ -474,8 +474,8 @@ During analysis and upgrade, files are displayed with status indicators:
 | ! | `drifted` | App changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream changed, app did not | Will update from upstream; a pinned file keeps the app copy (masking pin) |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
-| ⨀ | `pinned` | Pinned and both changed (a deletion counts), or protected and moved upstream | Protected, keeping app: review, see below |
-| → | `renamed` | Upstream moved a file the app left unchanged | Takes upstream's copy at the new path |
+| ⨀ | `pinned` | Pinned and both changed (a deletion counts), moved upstream from a protected path, or edited by the app and moved into one | Protected, keeping app: review, see below |
+| → | `renamed` | Upstream moved a file the app left unchanged from an unprotected path | Takes upstream's copy at the new path |
 | ✗ | `deleted` | App deleted it | Stays deleted |
 | + | `local` | Only in app, never in upstream | No action needed |
 
