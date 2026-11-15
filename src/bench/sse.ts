@@ -1,4 +1,5 @@
 import { performance } from 'node:perf_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
 import { counted, errorCode } from './http';
 import type { Metrics } from './metrics';
 import type { SseEvent, SseOptions } from './types';
@@ -52,7 +53,8 @@ export function createSseParser(onEvent: (event: SseEvent) => void): (chunk: str
 /**
  * Reads an event stream with `fetch` until it ends or a signal aborts. The connect counts as a request of its endpoint
  * (status, and the time from the call to the headers in `sse.connect_time`); a transport error rejects, a non-2xx
- * status resolves at once.
+ * status resolves at once. An emulated round trip of `rttMs` holds the connect a full round trip and each event half
+ * of one; the stream resolves once every held event was handed to `onEvent`, and an abort drops them.
  */
 export async function readSse(
   url: string,
@@ -60,6 +62,7 @@ export async function readSse(
   options: SseOptions,
   metrics: Metrics,
   vuSignal: AbortSignal,
+  rttMs = 0,
 ): Promise<number> {
   const label = options.name ?? `SSE ${new URL(url).pathname}`;
   const stats = metrics.endpoint(label);
@@ -78,6 +81,7 @@ export async function readSse(
 
   let res: Response;
   try {
+    if (rttMs > 0) await delay(rttMs, undefined, { signal });
     res = await fetch(url, { headers: { accept: 'text/event-stream', ...options.headers }, signal });
   } catch (error) {
     clearTimeout(timer);
@@ -98,12 +102,21 @@ export async function readSse(
     return res.status;
   }
 
-  const push = createSseParser(onEvent);
+  // Each held event waits for its own half round trip and for the event before it.
+  let delivered = Promise.resolve();
+  const hold = (event: SseEvent) => {
+    delivered = Promise.all([delivered, delay(rttMs / 2, undefined, { signal })]).then(() => onEvent(event));
+    // A throw of `onEvent` stops the stream, as it does without a round trip.
+    delivered.catch((error) => !signal.aborted && connect.abort(error));
+  };
+  const push = createSseParser(rttMs > 0 ? hold : onEvent);
   const decoder = new TextDecoder();
   try {
     for await (const chunk of res.body) push(decoder.decode(chunk, { stream: true }));
+    await delivered;
   } catch (error) {
     if (!signal.aborted) throw error;
+    if (connect.signal.aborted) throw connect.signal.reason;
   }
   return res.status;
 }

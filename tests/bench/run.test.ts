@@ -3,6 +3,7 @@ import { createServer, type Server } from 'node:http';
 import type { AddressInfo, Socket } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { performance } from 'node:perf_hooks';
 import { afterAll, beforeAll, describe, expect, it, vi } from 'vitest';
 import { baselineFile } from '../../src/bench/baseline';
 import { defineScenario, runScenario } from '../../src/bench/run';
@@ -126,6 +127,40 @@ describe('runScenario', () => {
     expect(sockets.size).toBe(3);
     // The server closes an idle keep-alive socket only after 5 s.
     await vi.waitFor(() => expect([...sockets].every((socket) => socket.destroyed)).toBe(true));
+  });
+
+  it('keeps a round trip out of the time to first byte and in the total time', async () => {
+    const scenario = defineScenario({
+      description: 'five requests in a row',
+      async run(vu) {
+        for (let i = 0; i < 5; i++) await vu.http.get('/ok', { name: 'GET /ok' });
+      },
+    });
+    const near = await runScenario(scenario, { name: 'rtt-0', target, dataDir, output });
+    const far = await runScenario(scenario, { name: 'rtt-60', target, dataDir, output, rttMs: 60 });
+    const [nearOk, farOk] = [near, far].map((result) => result.summary.endpoints['GET /ok']);
+
+    expect(Math.abs(farOk.ttfb.p50 - nearOk.ttfb.p50)).toBeLessThan(15);
+    expect(nearOk.total.max).toBeLessThan(30);
+    expect(farOk.total.min).toBeGreaterThanOrEqual(59);
+    expect(far.current.rttMs).toBe(60);
+  });
+
+  it('holds a stream connect a round trip and each event half of one, in order, before the stream resolves', async () => {
+    const seen: [what: string, atMs: number][] = [];
+    const scenario = defineScenario({
+      description: 'a stream 60 ms away',
+      async run(vu) {
+        const started = performance.now();
+        await vu.sse('/stream', ({ data }) => seen.push([data, performance.now() - started]));
+        seen.push(['resolved', performance.now() - started]);
+      },
+    });
+    const result = await runScenario(scenario, { name: 'stream-rtt', target, dataDir, output, rttMs: 60 });
+
+    expect(seen.map(([what]) => what)).toEqual(['{"seq":1}', '{"seq":2}', 'resolved']);
+    expect(seen[0][1]).toBeGreaterThanOrEqual(89);
+    expect(result.summary.endpoints['SSE /stream'].ttfb.min).toBeGreaterThanOrEqual(59);
   });
 
   it('plays each role once in a short run, reads streams, and adds the app checks', async () => {

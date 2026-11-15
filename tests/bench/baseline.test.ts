@@ -56,6 +56,17 @@ describe('baselines', () => {
     expect(loadBaseline(dir, 'page-load')).toEqual({ baseline: null, older: 0 });
   });
 
+  it('compares only with entries of the same round trip, an entry without one at 0', () => {
+    const dir = tempDir();
+    const near = entry();
+    const far = entry({ rttMs: 50, timestamp: '2026-10-21T10:00:00.000Z' });
+    saveBaseline(dir, near);
+    saveBaseline(dir, far);
+    expect(loadBaseline(dir, 'get-me').baseline).toEqual(near);
+    expect(loadBaseline(dir, 'get-me', 50).baseline).toEqual(far);
+    expect(loadBaseline(dir, 'get-me', 100).baseline).toBeNull();
+  });
+
   it('lists the primary latency first, then the HTTP percentiles and the rate', () => {
     const now = entry({
       primary: { metric: 'sync.fetch_ms.p95', value: 30 },

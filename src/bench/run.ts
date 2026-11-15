@@ -40,6 +40,8 @@ interface RunOptions {
   /** Holds `baselines/` and `logs/`. */
   dataDir: string;
   short?: boolean;
+  /** Milliseconds of network round trip every request and stream of the run emulates; 0 when unset. */
+  rttMs?: number;
   /** One result line at the end, no full summary. */
   quiet?: boolean;
   /** The app's own checks of what the run did, after the load stopped. */
@@ -55,6 +57,7 @@ export interface RunSummary {
   startedAt: string;
   durationS: number;
   short: boolean;
+  rttMs: number;
   vus: { created: number; completed: number; failed: number };
   requests: number;
   requestRate: number;
@@ -148,6 +151,7 @@ function phaseText(phase: Phase): string {
 interface RunState {
   metrics: Metrics;
   stop: AbortController;
+  rttMs: number;
   display: LiveDisplay;
   phaseName: string;
   /** VUs started and not settled. */
@@ -166,13 +170,13 @@ function launch(
   vu: Pick<Vu<string, string>, 'index' | 'role' | 'short'>,
   target: string,
 ): void {
-  const { metrics, stop, display } = state;
+  const { metrics, stop, display, rttMs } = state;
   const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
   const sse: VuClient['sse'] = (url, onEvent, sseOptions = {}) =>
-    readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal);
+    readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal, rttMs);
   const clients: ReturnType<typeof createHttpClient>[] = [];
   const client = (): VuClient => {
-    const http = createHttpClient(target, metrics, stop.signal);
+    const http = createHttpClient(target, metrics, stop.signal, rttMs);
     clients.push(http);
     return { http, sse };
   };
@@ -264,6 +268,7 @@ function liveTicker(
       liveLines({
         scenario: name,
         phase: state.phaseName,
+        rttMs: state.rttMs,
         elapsedS,
         plannedS,
         vus,
@@ -312,7 +317,13 @@ async function drain(state: RunState, scenario: AnyScenario): Promise<void> {
 function baselineEntry(
   metrics: Metrics,
   distributions: Record<string, Distribution>,
-  { name, startedAt, durationS, primaryKey }: { name: string; startedAt: Date; durationS: number; primaryKey: string },
+  {
+    name,
+    startedAt,
+    durationS,
+    primaryKey,
+    rttMs,
+  }: { name: string; startedAt: Date; durationS: number; primaryKey: string; rttMs: number },
 ): BaselineEntry {
   const requests = metrics.get('http.requests');
   const http = distributions['http.response_time'];
@@ -321,6 +332,7 @@ function baselineEntry(
     runner: runnerEpoch,
     timestamp: startedAt.toISOString(),
     scenario: name,
+    rttMs,
     requests,
     requestRate: Math.round((requests / durationS) * 10) / 10,
     mean: http?.mean ?? 0,
@@ -353,7 +365,7 @@ function baselineEntry(
  * interval and the summary go to a JSONL log.
  */
 export async function runScenario(scenario: AnyScenario, options: RunOptions): Promise<RunResult> {
-  const { name, target, dataDir, short = false, quiet = false } = options;
+  const { name, target, dataDir, short = false, quiet = false, rttMs = 0 } = options;
   const output = options.output ?? process.stdout;
   const startedAt = new Date();
   const logFile = logFileFor(dataDir, name, startedAt);
@@ -364,6 +376,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   const state: RunState = {
     metrics: new Metrics(),
     stop: new AbortController(),
+    rttMs,
     display: new LiveDisplay(Boolean(output.isTTY), output),
     phaseName: phases[0]?.name ?? '',
     active: 0,
@@ -408,8 +421,8 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
   display.clear();
   const ok = checks.every((check) => check.ok);
 
-  const current = baselineEntry(metrics, distributions, { name, startedAt, durationS, primaryKey });
-  const { baseline, older } = short ? { baseline: null, older: 0 } : loadBaseline(dataDir, name);
+  const current = baselineEntry(metrics, distributions, { name, startedAt, durationS, primaryKey, rttMs });
+  const { baseline, older } = short ? { baseline: null, older: 0 } : loadBaseline(dataDir, name, rttMs);
   const saved = !short && ok ? saveBaseline(dataDir, current) : null;
   const summary: RunSummary = {
     type: 'summary',
@@ -418,6 +431,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     startedAt: startedAt.toISOString(),
     durationS,
     short,
+    rttMs,
     vus: { created: current.vusersCreated, completed: metrics.get('vusers.completed'), failed: current.vusersFailed },
     requests: current.requests,
     requestRate: current.requestRate,

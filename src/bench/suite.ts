@@ -125,6 +125,7 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
       target: bench.target,
       dataDir: request.dataDir,
       short: request.short,
+      rttMs: request.rttMs,
       quiet: request.all,
       afterRun: async (outcome) => {
         if (!bench.afterEach) return [];

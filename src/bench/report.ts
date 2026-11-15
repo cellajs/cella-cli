@@ -71,6 +71,7 @@ export class LiveDisplay {
 interface LiveState {
   scenario: string;
   phase: string;
+  rttMs: number;
   elapsedS: number;
   /** Seconds the phases take; null for a single-run scenario. */
   plannedS: number | null;
@@ -84,11 +85,13 @@ interface LiveState {
   lagP99: number;
 }
 
+const rttText = (rttMs: number) => (rttMs > 0 ? ` · rtt ${rttMs} ms` : '');
+
 export function liveLines(state: LiveState): string[] {
   const { vus, counters } = state;
   const time =
     state.plannedS === null ? seconds(state.elapsedS) : `${seconds(state.elapsedS)}/${seconds(state.plannedS)}`;
-  const head = `${pc.bold(state.scenario)} ${pc.dim(`· ${state.phase} · ${time}`)}`;
+  const head = `${pc.bold(state.scenario)} ${pc.dim(`· ${state.phase} · ${time}${rttText(state.rttMs)}`)}`;
 
   const parts = [
     `vus +${count(vus.started)} ▸${count(vus.active)} ✓${count(vus.completed)} ${vus.failed > 0 ? pc.red(`✗${count(vus.failed)}`) : '✗0'}`,
@@ -147,7 +150,7 @@ export function summaryLines(view: SummaryView): string[] {
   const vus = `${count(view.vus.created)} VUs (✓${count(view.vus.completed)} ✗${count(view.vus.failed)})`;
   const reqs = view.requests > 0 ? ` · ${count(view.requests)} requests · ${count(view.requestRate)} req/s` : '';
   lines.push(
-    `${pc.bold(view.scenario)}${view.short ? pc.dim(' (short)') : ''} · ${view.durationS.toFixed(1)} s · ${vus}${reqs}`,
+    `${pc.bold(view.scenario)}${view.short ? pc.dim(' (short)') : ''}${rttText(view.rttMs)} · ${view.durationS.toFixed(1)} s · ${vus}${reqs}`,
   );
 
   const labels = Object.keys(view.endpoints);
@@ -205,7 +208,7 @@ export function summaryLines(view: SummaryView): string[] {
       );
     } else {
       const older = view.olderBaselines > 0 ? `, ${view.olderBaselines} older-runner entries kept` : '';
-      lines.push(pc.dim(`  no comparable baseline: first ${runnerEpoch} run${older}`));
+      lines.push(pc.dim(`  no comparable baseline: first ${runnerEpoch} run${rttText(view.rttMs)}${older}`));
     }
     if (view.saved !== null) lines.push(pc.dim(`  baseline saved (${view.saved} run${view.saved === 1 ? '' : 's'})`));
   }
