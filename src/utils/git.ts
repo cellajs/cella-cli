@@ -258,10 +258,14 @@ export async function getWorkingTreeChangeCount(cwd: string): Promise<number> {
   return status.split('\n').filter(Boolean).length;
 }
 
-/** Add the remote, or point an existing one at `url` (`remote add` fails when it exists). */
+/**
+ * Add the remote, or point an existing one at `url` (`remote add` fails when it exists). Its fetches never write
+ * `refs/tags`, a plain `git fetch` of it included: upstream's release tags share names with the app's own.
+ */
 export async function ensureRemote(cwd: string, remoteName: string, url: string): Promise<void> {
   await git(['remote', 'add', remoteName, url], cwd, { ignoreErrors: true });
   await git(['remote', 'set-url', remoteName, url], cwd);
+  await git(['config', `remote.${remoteName}.tagopt`, '--no-tags'], cwd);
 }
 
 export async function fetchRemote(cwd: string, remoteName: string): Promise<void> {
