@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.8.1](https://github.com/cellajs/cella-cli/compare/cli-0.8.0...cli-0.8.1) (2026-11-16)
+
+
+### 🎉 New features
+
+* **bench:** --rtt emulates a network round trip on every request and stream, and baselines compare within one ([f90170c](https://github.com/cellajs/cella-cli/commit/f90170c4a5a213803ff1c6eb702d4e2f918ff99b))
+* **bench:** distributionOf gives the percentiles of samples a scenario held ([f90170c](https://github.com/cellajs/cella-cli/commit/f90170c4a5a213803ff1c6eb702d4e2f918ff99b))
+* **bench:** vu.client() gives a VU one more simulated person on a connection of its own ([f90170c](https://github.com/cellajs/cella-cli/commit/f90170c4a5a213803ff1c6eb702d4e2f918ff99b))
+
+
+### 🐞 Bug fixes
+
+* **bench:** a stream its VU left open ends with the VU ([f90170c](https://github.com/cellajs/cella-cli/commit/f90170c4a5a213803ff1c6eb702d4e2f918ff99b))
+* **upgrade:** a fetch of the upstream remote never writes the app's refs/tags ([ca48987](https://github.com/cellajs/cella-cli/commit/ca48987c83b0b90a95c30394b15c0a7fb840b3c5))
+* **upgrade:** a template file upstream moves into a protected path arrives with upstream's content ([ca48987](https://github.com/cellajs/cella-cli/commit/ca48987c83b0b90a95c30394b15c0a7fb840b3c5))
+* **upgrade:** the config gate reports a renamed entry as a rename, and stops only when nothing protects the new path ([ca48987](https://github.com/cellajs/cella-cli/commit/ca48987c83b0b90a95c30394b15c0a7fb840b3c5))
+
 ## [0.8.0](https://github.com/cellajs/cella-cli/compare/cli-0.7.4...cli-0.8.0) (2026-11-14)
 
 
