@@ -55,7 +55,7 @@ export interface HttpResponse {
   json(): unknown;
 }
 
-/** Requests over one keep-alive connection per VU. Resolves for every status; rejects on a transport error or timeout. */
+/** Requests over one keep-alive connection. Resolves for every status; rejects on a transport error or timeout. */
 export interface HttpClient {
   get(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
   post(url: string, options?: HttpRequestOptions): Promise<HttpResponse>;
@@ -75,17 +75,23 @@ export interface SseOptions {
   name?: string;
 }
 
+/** What one simulated person sends and reads with. */
+export interface VuClient {
+  http: HttpClient;
+  /** Reads an event stream until it ends or the VU's `signal` aborts; resolves to the response status. Its time to headers is `sse.connect_time`. */
+  sse(url: string, onEvent: (event: SseEvent) => void, options?: SseOptions): Promise<number>;
+}
+
 /** What one virtual user gets. A throw marks it failed and counts `errors.<code>`. */
-export interface Vu<C extends string = string, H extends string = string> {
+export interface Vu<C extends string = string, H extends string = string> extends VuClient {
   /** Arrival number from 0, unique in the run. */
   index: number;
   role: string | null;
   short: boolean;
   /** Aborts when the run stops before this VU is done. */
   signal: AbortSignal;
-  http: HttpClient;
-  /** Reads an event stream until it ends or `signal` aborts; resolves to the response status. Its time to headers is `sse.connect_time`. */
-  sse(url: string, onEvent: (event: SseEvent) => void, options?: SseOptions): Promise<number>;
+  /** An HTTP client and an event-stream reader for one more simulated person: a keep-alive connection of its own, counted in this run's metrics. Closed with the VU. */
+  client(): VuClient;
   think(ms: number): Promise<void>;
   counter(name: C, n?: number): void;
   histogram(name: H, value: number): void;

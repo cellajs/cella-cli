@@ -20,6 +20,7 @@ interface BenchOptions {
   all: boolean;
   short: boolean;
   skipSeed: boolean;
+  rttMs: number;
   /** Run on a testbed: this checkout's running one, else one started for the run and stopped after. */
   isolated: boolean;
 }
@@ -43,6 +44,7 @@ async function launchBench(repoRoot: string, options: BenchOptions): Promise<num
     all: options.all,
     short: options.short,
     skipSeed: options.skipSeed,
+    rttMs: options.rttMs,
     scenariosDir,
     dataDir: toolDir(repoRoot, 'bench', 'repository'),
   };
@@ -62,16 +64,20 @@ export const benchCommand: Command<BenchOptions> = {
     ['--short', 'smoke run: one VU per role, no thresholds, no baselines'],
     ['--isolated', 'run on a testbed, not on the stack `pnpm dev` runs'],
     ['--skip-seed', 'keep the bench data the last run seeded'],
+    ['--rtt <ms>', 'emulate a network round trip of <ms> on every request and stream'],
   ],
   parse: ({ operands, opts }) => {
     const [scenario, ...extra] = operands;
     if (extra.length > 0) throw new Error(`unexpected argument '${extra[0]}'. bench runs one scenario, or --all`);
     if (scenario && opts.all === true) throw new Error('name a scenario or pass --all, not both');
+    const rttMs = opts.rtt === undefined ? 0 : Number(opts.rtt);
+    if (!Number.isInteger(rttMs) || rttMs < 0) throw new Error('--rtt takes a whole number of milliseconds, 0 or more');
     return {
       scenario,
       all: opts.all === true,
       short: opts.short === true,
       skipSeed: opts.skipSeed === true,
+      rttMs,
       isolated: opts.isolated === true,
     };
   },

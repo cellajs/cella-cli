@@ -108,8 +108,8 @@ Heavy runtimes come from the app: Playwright from `frontend`, with its Chromium 
 `pnpm cella bench` load-tests the app with the scenarios in `backend/bench/scenarios/`. New virtual users arrive on
 schedule whether or not earlier ones are done, a live line shows what the last interval did, and the summary ends in
 checks: the responses the stack rejected, failed users, latency thresholds, the scenario's own counters, and the app's
-checks of what the stack recorded. A passing full run is saved as the scenario's baseline, and the next run compares
-with it.
+checks of what the stack recorded. A passing full run is saved as the scenario's baseline, and the next run at the
+same emulated round trip (`--rtt`) compares with it.
 
 A run measures the stack this checkout runs with `pnpm dev`, or a [testbed](#testbed) with `--isolated`, and one run at
 a time holds it. Baselines, logs and locks live in `cella-bench/` in the git directory every worktree shares.

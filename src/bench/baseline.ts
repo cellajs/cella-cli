@@ -21,6 +21,8 @@ export interface BaselineEntry {
   runner: typeof runnerEpoch;
   timestamp: string;
   scenario: string;
+  /** The emulated round trip in milliseconds; an entry without one ran at 0. */
+  rttMs?: number;
   requests: number;
   requestRate: number;
   mean: number;
@@ -59,11 +61,16 @@ function readEntries(file: string): unknown[] {
 
 export const baselineFile = (dir: string, scenario: string) => join(dir, 'baselines', `${scenario}.json`);
 
-/** The newest entry of this runner epoch, with the count of older-epoch entries kept beside it. */
-export function loadBaseline(dir: string, scenario: string): { baseline: BaselineEntry | null; older: number } {
+/** The newest entry of this runner epoch and round trip, with the count of older-epoch entries kept beside it. */
+export function loadBaseline(
+  dir: string,
+  scenario: string,
+  rttMs = 0,
+): { baseline: BaselineEntry | null; older: number } {
   const entries = readEntries(baselineFile(dir, scenario));
   const comparable = entries.filter(isComparable);
-  return { baseline: comparable.at(-1) ?? null, older: entries.length - comparable.length };
+  const baseline = comparable.findLast((entry) => (entry.rttMs ?? 0) === rttMs) ?? null;
+  return { baseline, older: entries.length - comparable.length };
 }
 
 /**

@@ -9,6 +9,8 @@ export interface BenchRequest {
   all: boolean;
   short: boolean;
   skipSeed: boolean;
+  /** Milliseconds of network round trip every request and stream emulates; 0 for none. */
+  rttMs: number;
   /** Absolute path of the folder whose `<name>.ts` modules are the scenarios. */
   scenariosDir: string;
   /** Holds `baselines/`, `logs/` and `locks/`. */

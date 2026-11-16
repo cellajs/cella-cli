@@ -1,6 +1,7 @@
 import http from 'node:http';
 import https from 'node:https';
 import { performance } from 'node:perf_hooks';
+import { setTimeout as delay } from 'node:timers/promises';
 import type { Metrics } from './metrics';
 import type { HttpClient, HttpRequestOptions, HttpResponse } from './types';
 
@@ -25,15 +26,19 @@ function defaultLabel(method: string, url: URL): string {
 }
 
 /**
- * An HTTP client for one VU: one keep-alive connection (`maxSockets: 1`, as Artillery gives each VU), every body read
- * to its end. `http.response_time` is the time from the request's last byte sent to the response's first byte, the
- * time to first byte as Artillery measures it; `http.total_time` runs from the call to the last body byte.
+ * An HTTP client for one simulated person: one keep-alive connection (`maxSockets: 1`, as Artillery gives each VU),
+ * every body read to its end. `http.response_time` is the time from the request's last byte sent to the response's
+ * first byte, the time to first byte as Artillery measures it; `http.total_time` runs from the call to the resolve.
+ * An emulated round trip of `rttMs` holds each request half of it before it is sent and half after its last body byte,
+ * both outside `http.response_time`.
  */
 export function createHttpClient(
   target: string,
   metrics: Metrics,
   signal: AbortSignal,
+  rttMs = 0,
 ): HttpClient & { close(): Promise<void> } {
+  const halfRttMs = rttMs / 2;
   const agents = new Map<string, http.Agent>();
   const agentFor = (url: URL) => {
     let agent = agents.get(url.protocol);
@@ -49,7 +54,12 @@ export function createHttpClient(
 
   /** Requests not settled yet, a VU's fire-and-forget ones included. */
   const inFlight = new Set<Promise<unknown>>();
-  const send = (method: string, path: string, options: HttpRequestOptions = {}): Promise<HttpResponse> => {
+  const exchange = (
+    method: string,
+    path: string,
+    options: HttpRequestOptions,
+    started: number,
+  ): Promise<HttpResponse> => {
     const url = new URL(/^https?:\/\//.test(path) ? path : `${target}${path}`);
     const label = options.name ?? defaultLabel(method, url);
     const stats = metrics.endpoint(label);
@@ -63,7 +73,7 @@ export function createHttpClient(
 
     return new Promise<HttpResponse>((resolve, reject) => {
       if (signal.aborted) return reject(codedError('EABORTED', 'the run stopped'));
-      const started = performance.now();
+      const requestedAt = performance.now();
       let connectedAt = 0;
       let sentAt = 0;
       let settled = false;
@@ -110,17 +120,21 @@ export function createHttpClient(
           clearTimeout(timer);
           signal.removeEventListener('abort', onAbort);
           const status = res.statusCode ?? 0;
-          const ttfb = firstByteAt - Math.max(sentAt || started, connectedAt);
-          metrics.response(label, status, 'http.response_time', ttfb, performance.now() - started);
+          const ttfb = firstByteAt - Math.max(sentAt || requestedAt, connectedAt);
           const buffer = Buffer.concat(chunks);
-          resolve({
-            status,
-            ok: status >= 200 && status < 300,
-            headers: res.headers,
-            body: buffer,
-            text: () => buffer.toString('utf8'),
-            json: () => JSON.parse(buffer.toString('utf8')),
-          });
+          const deliver = () => {
+            metrics.response(label, status, 'http.response_time', ttfb, performance.now() - started);
+            resolve({
+              status,
+              ok: status >= 200 && status < 300,
+              headers: res.headers,
+              body: buffer,
+              text: () => buffer.toString('utf8'),
+              json: () => JSON.parse(buffer.toString('utf8')),
+            });
+          };
+          if (halfRttMs > 0) setTimeout(deliver, halfRttMs);
+          else deliver();
         });
       });
 
@@ -128,6 +142,15 @@ export function createHttpClient(
       metrics.counter('http.requests');
       req.end(body);
     });
+  };
+
+  const send = (method: string, path: string, options: HttpRequestOptions = {}): Promise<HttpResponse> => {
+    const started = performance.now();
+    if (halfRttMs === 0) return exchange(method, path, options, started);
+    return delay(halfRttMs, undefined, { signal }).then(
+      () => exchange(method, path, options, started),
+      () => Promise.reject(codedError('EABORTED', 'the run stopped')),
+    );
   };
 
   const request = (method: string, path: string, options?: HttpRequestOptions) => {

@@ -1,4 +1,4 @@
-export type { Distribution } from '../bench/metrics';
+export { type Distribution, distributionOf } from '../bench/metrics';
 export { defineScenario } from '../bench/run';
 export { type AppChecks, type Bench, runBench } from '../bench/suite';
 export type {
@@ -15,4 +15,5 @@ export type {
   SseEvent,
   SseOptions,
   Vu,
+  VuClient,
 } from '../bench/types';
