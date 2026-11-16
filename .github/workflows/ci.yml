@@ -87,3 +87,7 @@ jobs:
 
       - name: Run tests
         run: pnpm test
+
+      # What the publish job runs: a PR that changes a subpath's exports fails here, not at the release.
+      - name: Release smoke
+        run: pnpm test:release

@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 /** The runtime names each subpath exports, which apps import: a name leaves only in a major release. */
 const subpathExports: Record<string, string[]> = {
   './config': ['defineConfig'],
-  './bench': ['defineScenario', 'runBench'],
+  './bench': ['defineScenario', 'distributionOf', 'runBench'],
   './style': [
     'classTexts',
     'classTokens',
