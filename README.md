@@ -474,8 +474,8 @@ During analysis and upgrade, files are displayed with status indicators:
 | ! | `drifted` | App changed, not protected | At risk, consider pinning |
 | ↓ | `behind` | Upstream changed, app did not | Will update from upstream; a pinned file keeps the app copy (masking pin) |
 | ⇅ | `diverged` | Both sides changed | Will merge from upstream |
-| ⨀ | `pinned` | Pinned and both changed (a deletion counts), or protected and moved upstream | Protected, keeping app: review, see below |
-| → | `renamed` | Upstream moved a file the app left unchanged | Takes upstream's copy at the new path |
+| ⨀ | `pinned` | Pinned and both changed (a deletion counts), moved upstream from a protected path, or edited by the app and moved into one | Protected, keeping app: review, see below |
+| → | `renamed` | Upstream moved a file the app left unchanged from an unprotected path | Takes upstream's copy at the new path |
 | ✗ | `deleted` | App deleted it | Stays deleted |
 | + | `local` | Only in app, never in upstream | No action needed |
 
@@ -516,12 +516,13 @@ Two more kinds of upstream change never reach the app on their own, and both com
   keys and version bumps under `shared/config` show up.
 - **Upstream CLI config changes.** Entries upstream adds to its own `pinned`, `ignored` or `packageJsonKeys` never
   arrive, because `cella/cella.config.ts` never merges. The report names each entry upstream added that your config
-  lacks (`+`) and each entry upstream dropped that your config still has (`−`). It reads upstream's config without
-  running it.
+  lacks (`+`), each entry upstream dropped that your config still has (`−`), and each entry of yours upstream renamed
+  (`~`). It reads upstream's config without running it.
 
 `upgrade` stops before a new merge when it finds such config entries. The merge runs on your config: with a list that is
 behind, a path upstream now ignores or pins would arrive as an ordinary merged file. Add or drop the entries that fit
-your app, commit and rerun, or pass `--keep-config` to merge with your config as it stands. The rerun that commits an
+your app, commit and rerun, or pass `--keep-config` to merge with your config as it stands. A rename into a path your
+config or an app-owned module already protects is no stop: drop the old entry. The rerun that commits an
 already staged merge never stops for this.
 
 ### Review page

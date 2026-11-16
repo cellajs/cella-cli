@@ -129,8 +129,9 @@ export function parseOverrideLists(source: string): OverrideLists | null {
 /**
  * Compare upstream's lists at the merge-base and at the incoming ref against the app's lists.
  *
- * - added: new upstream entries the app list lacks (an exact entry or a parent folder covers it).
+ * - added: new upstream entries the app lacks (an exact entry or a parent folder covers it; an ignored folder covers a pin).
  * - removed: entries upstream dropped that the app list still carries verbatim.
+ * - renamed: entries the app carries that upstream dropped for a same-named new entry.
  *
  * `packageJsonKeys` compare by name, and not at all when a side could not be read. Entries
  * upstream had all along are never reported, whether or not the app has them.
@@ -145,25 +146,39 @@ export function diffOverrideLists(
     const baseSet = new Set(base[key].map(normalizeEntry).filter(Boolean));
     const incomingSet = new Set(incoming[key].map(normalizeEntry).filter(Boolean));
     const appEntries = app[key].map(normalizeEntry).filter(Boolean);
-    const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry) && !isUnderAnyFolder(entry, appEntries));
+    const covering =
+      key === 'pinned' ? [...appEntries, ...app.ignored.map(normalizeEntry).filter(Boolean)] : appEntries;
+    const coveredBy = (entry: string) => covering.find((folder) => isUnderAnyFolder(entry, [folder]));
+    const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry));
+    const dropped = [...baseSet].filter((entry) => !incomingSet.has(entry));
+    const takeSameNamed = (source: string, candidates: string[]) => {
+      const at = candidates.findIndex((entry) => basenameOf(entry) === basenameOf(source));
+      return at === -1 ? undefined : candidates.splice(at, 1)[0];
+    };
 
-    // A new entry that renames a base entry the app never carried asks nothing of the app.
-    const renameSources = [...baseSet].filter(
-      (entry) => !incomingSet.has(entry) && !appEntries.includes(entry) && !isUnderAnyFolder(entry, appEntries),
-    );
-    const moved: { from: string; to: string }[] = [];
-    const added = newEntries.filter((entry) => {
-      const sourceAt = renameSources.findIndex((source) => basenameOf(source) === basenameOf(entry));
-      if (sourceAt === -1) return true;
-      moved.push({ from: renameSources[sourceAt], to: entry });
-      renameSources.splice(sourceAt, 1);
+    const renamed: NonNullable<OverrideListChanges['renamed']> = [];
+    const removed = dropped.filter((entry) => {
+      if (!appEntries.includes(entry)) return false;
+      const to = takeSameNamed(entry, newEntries);
+      if (to === undefined) return true;
+      const cover = coveredBy(to);
+      renamed.push(cover === undefined ? { from: entry, to } : { from: entry, to, coveredBy: cover });
       return false;
     });
 
+    // A new entry that renames a base entry the app never carried asks nothing of the app.
+    const uncovered = newEntries.filter((entry) => coveredBy(entry) === undefined);
+    const moved: { from: string; to: string }[] = [];
+    for (const from of dropped.filter((entry) => !appEntries.includes(entry) && !isUnderAnyFolder(entry, appEntries))) {
+      const to = takeSameNamed(from, uncovered);
+      if (to !== undefined) moved.push({ from, to });
+    }
+
     return {
-      added,
-      removed: [...baseSet].filter((entry) => !incomingSet.has(entry) && appEntries.includes(entry)),
+      added: uncovered,
+      removed,
       ...(moved.length > 0 ? { moved } : {}),
+      ...(renamed.length > 0 ? { renamed } : {}),
     };
   };
   const diffKeys = (): OverrideListChanges => {
@@ -207,15 +222,23 @@ export async function compareUpstreamOverrides(
   };
   const changes = diffOverrideLists(base, incoming, app);
   const count = Object.values(changes).reduce(
-    (n, list) => n + list.added.length + list.removed.length + (list.moved?.length ?? 0),
+    (n, list) => n + list.added.length + list.removed.length + (list.moved?.length ?? 0) + (list.renamed?.length ?? 0),
     0,
   );
   return count > 0 ? { type: 'changes', ...changes } : undefined;
 }
 
-/** Whether the report holds entries the app must follow by hand; `moved` entries alone never block a merge. */
+/**
+ * Whether the report holds entries the app must follow by hand. `moved` entries never block a merge, nor a rename
+ * whose new path an app entry already protects; any other rename does, since the old entry would protect nothing after it.
+ */
 export function hasBlockingOverrideChanges(report: UpstreamOverridesReport): boolean {
   if (report.type !== 'changes') return false;
   const lists = [report.pinned, report.ignored, report.packageJsonKeys];
-  return lists.some((list) => list.added.length > 0 || list.removed.length > 0);
+  return lists.some(
+    (list) =>
+      list.added.length > 0 ||
+      list.removed.length > 0 ||
+      (list.renamed ?? []).some((entry) => entry.coveredBy === undefined),
+  );
 }

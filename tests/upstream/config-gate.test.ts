@@ -166,10 +166,29 @@ describe('diffOverrideLists', () => {
     });
     expect(hasBlockingOverrideChanges({ type: 'changes', ...changes })).toBe(false);
 
-    // The app carrying the old path keeps the entry blocking: its config names a path that is gone.
+    // The app carrying the old path keeps the rename blocking: after the merge the old entry protects nothing.
     const carrying = diffOverrideLists(before, after, { ...app, pinned: ['a.ts', 'json/text-blocks.json'] });
-    expect(carrying.pinned).toEqual({ added: ['shared/json/text-blocks.json'], removed: ['json/text-blocks.json'] });
+    expect(carrying.pinned).toEqual({
+      added: [],
+      removed: [],
+      renamed: [{ from: 'json/text-blocks.json', to: 'shared/json/text-blocks.json' }],
+    });
     expect(hasBlockingOverrideChanges({ type: 'changes', ...carrying })).toBe(true);
+  });
+
+  // raak, cella#1847: a pin moved into the app-owned marketing module stopped the upgrade as "dropped upstream".
+  it('reports a carried rename into a folder the app ignores as covered, which blocks nothing', () => {
+    const before = { pinned: ['auth/legal/legal-config.ts'], ignored: [], packageJsonKeys: defaultKeys };
+    const after = { pinned: ['marketing/legal/legal-config.ts'], ignored: [], packageJsonKeys: defaultKeys };
+    const app = { pinned: ['auth/legal/legal-config.ts'], ignored: ['marketing'], packageJsonKeys: defaultKeys };
+
+    const changes = diffOverrideLists(before, after, app);
+    expect(changes.pinned).toEqual({
+      added: [],
+      removed: [],
+      renamed: [{ from: 'auth/legal/legal-config.ts', to: 'marketing/legal/legal-config.ts', coveredBy: 'marketing' }],
+    });
+    expect(hasBlockingOverrideChanges({ type: 'changes', ...changes })).toBe(false);
   });
 
   it('reports packageJsonKeys keys upstream added that the app lacks and dropped that the app still lists', () => {
