@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.2](https://github.com/cellajs/cella-cli/compare/cli-0.8.1...cli-0.8.2) (2026-11-16)
+
+
+### 🐞 Bug fixes
+
+* **release:** the release smoke names distributionOf, and CI runs the smoke on every PR ([#99](https://github.com/cellajs/cella-cli/issues/99)) ([f08efa6](https://github.com/cellajs/cella-cli/commit/f08efa63459a8f706782fe7b772271528b1b737f))
+
 ## [0.8.1](https://github.com/cellajs/cella-cli/compare/cli-0.8.0...cli-0.8.1) (2026-11-16)
 
 
