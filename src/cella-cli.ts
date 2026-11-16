@@ -13,7 +13,7 @@ import type { MenuContext } from './command';
 import { isUpstreamRepo, loadConfig } from './config/load';
 import { configFile } from './upstream/managed-files';
 import pc from './utils/colors';
-import { printHeader, setJsonMode } from './utils/display';
+import { printHeader, printLogo, setJsonMode } from './utils/display';
 import { errorMessage } from './utils/errors';
 import { installSignalHandlers } from './utils/signals';
 
@@ -25,13 +25,18 @@ async function readMenuContext(repoRoot: string): Promise<MenuContext> {
 
 async function main(): Promise<number> {
   const repoRoot = process.cwd();
-  const { command, options, machineOutput } =
-    parseCommandLine(process.argv) ?? (await promptForCommand(await readMenuContext(repoRoot)));
+  const named = parseCommandLine(process.argv);
+  // The menu opens under the logo and the header; a command named on the command line prints the header alone
+  if (!named) {
+    printLogo();
+    printHeader();
+  }
+  const { command, options, machineOutput } = named ?? (await promptForCommand(await readMenuContext(repoRoot)));
 
   if (machineOutput) setJsonMode(true);
   // A gate prints its verdict alone: CI logs and agents read it
   const gate = command.group === 'gate';
-  if (!gate) printHeader();
+  if (named && !gate) printHeader();
 
   if (!command.outsideGit && !existsSync(join(repoRoot, '.git'))) {
     throw new Error(`not a git repository: ${repoRoot}`);

@@ -137,6 +137,9 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
   return selection;
 }
 
+/** A menu without the question mark and the key hints: the header above it says where you are, as the infra CLI's menus do. */
+const plainMenu = { prefix: '', style: { keysHelpTip: () => '' } };
+
 /** The command picked from the menu, with a job when it has several the menu can run. */
 export async function promptForCommand(context: MenuContext): Promise<Selection> {
   const entries = commands.filter((command) => command.group !== 'gate' && (command.inMenu?.(context) ?? true));
@@ -144,15 +147,16 @@ export async function promptForCommand(context: MenuContext): Promise<Selection>
   const label = (name: string) => name.padEnd(width);
 
   const picked = await select<string>({
-    message: 'choose a command:',
+    message: '',
     choices: [
       ...entries.map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
       { type: 'separator' as const, separator: menuDivider },
-      { value: 'exit', name: pc.red(`${label('exit')}${pc.dim('quit without doing anything')}`) },
+      { value: 'exit', name: 'quit' },
     ],
-    // The page grows with the terminal, less the three rows of the question and key hints; seven is Inquirer's default
-    pageSize: Math.max(7, (process.stdout.rows || 24) - 3),
+    // The page grows with the terminal, less the empty question line and one row to spare; seven is Inquirer's default
+    pageSize: Math.max(7, (process.stdout.rows || 24) - 2),
     loop: false,
+    theme: plainMenu,
   });
 
   const command = entries.find((entry) => entry.name === picked);
@@ -181,6 +185,7 @@ export async function promptForCommand(context: MenuContext): Promise<Selection>
             name: `${name.padEnd(14)}${pc.dim(description)}`,
           })),
           loop: false,
+          theme: { style: plainMenu.style },
         })
       : runnable[0]?.[0];
   console.info();
