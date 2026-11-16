@@ -56,6 +56,22 @@ export function writeStdout(text: string): void {
   process.stdout.write(text.endsWith('\n') ? text : `${text}\n`);
 }
 
+const logo = [
+  '                      _ _',
+  '▒▓█████▓▒     ___ ___| | | __ _',
+  '▒▓█   █▓▒    / __/ _ \\ | |/ _` |',
+  '▒▓█   █▓▒   | (_|  __/ | | (_| |',
+  '▒▓█████▓▒    \\___\\___|_|_|\\__,_|',
+];
+
+/** The logo and the package description, which open the menu above the header. */
+export function printLogo(): void {
+  console.info();
+  for (const line of logo) console.info(pc.cyan(line));
+  console.info();
+  console.info(pc.dim(packageJson.description));
+}
+
 export function printHeader(): void {
   const left = '⧈ cella cli';
   const versionLabel = ` · v${version}`;
