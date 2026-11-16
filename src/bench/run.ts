@@ -172,8 +172,11 @@ function launch(
 ): void {
   const { metrics, stop, display, rttMs } = state;
   const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
+  // A stream the VU left open ends with it: an open one would keep the process from exiting.
+  const ended = new AbortController();
+  const streamSignal = AbortSignal.any([stop.signal, ended.signal]);
   const sse: VuClient['sse'] = (url, onEvent, sseOptions = {}) =>
-    readSse(resolveUrl(url), onEvent, sseOptions, metrics, stop.signal, rttMs);
+    readSse(resolveUrl(url), onEvent, sseOptions, metrics, streamSignal, rttMs);
   const clients: ReturnType<typeof createHttpClient>[] = [];
   const client = (): VuClient => {
     const http = createHttpClient(target, metrics, stop.signal, rttMs);
@@ -209,6 +212,7 @@ function launch(
       },
     )
     .finally(async () => {
+      ended.abort();
       await Promise.all(clients.map((http) => http.close()));
       state.active--;
       if (state.active === 0) state.onIdle?.();

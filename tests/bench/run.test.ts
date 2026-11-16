@@ -26,6 +26,10 @@ beforeAll(async () => {
       res.write('event: change\ndata: {"seq":1}\n\n');
       return setTimeout(() => res.end('event: change\ndata: {"seq":2}\n\n'), 20);
     }
+    if (req.url === '/stream-open') {
+      res.writeHead(200, { 'content-type': 'text/event-stream' });
+      return res.write('event: change\ndata: {"seq":1}\n\n');
+    }
     // `/hang` never answers.
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
@@ -127,6 +131,25 @@ describe('runScenario', () => {
     expect(sockets.size).toBe(3);
     // The server closes an idle keep-alive socket only after 5 s.
     await vi.waitFor(() => expect([...sockets].every((socket) => socket.destroyed)).toBe(true));
+  });
+
+  it('ends a stream its VU left open, also when the VU throws', async () => {
+    const closed = new Promise<void>((resolve) =>
+      server.once('request', (req) => req.url === '/stream-open' && req.once('close', resolve)),
+    );
+    const scenario = defineScenario({
+      description: 'a stream left open',
+      async run(vu) {
+        await new Promise<void>(
+          (heard) => void vu.client().sse('/stream-open', () => heard(), { name: 'SSE /stream-open' }),
+        );
+        throw new Error('the scenario gave up');
+      },
+    });
+    const result = await runScenario(scenario, { name: 'open-stream', target, dataDir, output });
+
+    expect(result.summary.counters['vusers.failed']).toBe(1);
+    await closed;
   });
 
   it('keeps a round trip out of the time to first byte and in the total time', async () => {
