@@ -9,7 +9,7 @@ export const auditCommand: Command<'report' | 'fix', 'report' | 'fix'> = {
   // Outside a repository `git ls-files` finds no Dockerfile, and only the image pins go unread
   outsideGit: true,
   jobs: [
-    ['report', 'the outdated packages, runtime pins and security plan: no prompts, and nothing is written'],
+    ['report', 'the outdated packages, runtime pins and security plan; in a terminal it then asks to update'],
     ['fix', 'ask which updates and security decisions to take, then write them with one install'],
   ],
   parse: ({ job }) => job,

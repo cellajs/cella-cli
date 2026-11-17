@@ -557,9 +557,10 @@ a package.json without `type` gets upstream's. Set it yourself (for example `"co
 
 ## Audit
 
-`pnpm cella audit` reports the outdated packages, the runtime pins and the security plan, with no prompts, and writes
-nothing. Outside a git repository it finds no Dockerfile, and only the image pins go unread. `pnpm cella audit fix`
-works in two layers, in this order:
+`pnpm cella audit` reports the outdated packages, the runtime pins and the security plan. In a terminal it then asks
+whether to update packages: no, the default, writes nothing, and yes goes on as `audit fix` does. Outside a git
+repository it finds no Dockerfile, and only the image pins go unread. `pnpm cella audit fix` works in two layers, in
+this order:
 
 1. **Updates.** It lists the outdated packages and runtime pins in one table and asks once which to update. Rows with a
    high or critical advisory start ticked; submitting with nothing ticked skips this layer.
