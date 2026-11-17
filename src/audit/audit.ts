@@ -12,7 +12,7 @@ import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { checkbox, Separator } from '@inquirer/prompts';
 import pc from '../utils/colors';
-import { checkMark, createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
+import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
 import {
   type OutdatedPackage,
@@ -26,7 +26,7 @@ import {
 import { isBreakingJump } from '../utils/versions';
 import { readTopLevel } from '../utils/workspace-yaml';
 import { fetchFeeds, missingNodeImages } from './feeds';
-import { formatDependents, middleTruncate, printAdvisoryRows, severityDot } from './format';
+import { formatDependents, installedVerdict, middleTruncate, printAdvisoryRows, severityDot } from './format';
 import { type LocalToolCheck, planLocalTools, readLocalTools } from './machine';
 import {
   applyRuntimeUpdate,
@@ -123,7 +123,8 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
     printLocalTools(planLocalTools(tools, feeds, { releaseAgeMinutes, now }));
 
     // A report asks nothing and writes nothing
-    if (!fix || rows.length === 0) return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes }));
+    if (!fix || rows.length === 0)
+      return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes, installed: advisories }));
 
     printReported(advisories);
     const selected = await promptForUpdates(rows);
@@ -319,8 +320,9 @@ function printReported(advisories: Advisory[] | null): void {
     console.info();
     return;
   }
+  const note = 'with the current overrides and ignores';
   if (advisories.length === 0) {
-    console.info(`${checkMark} pnpm audit reports nothing ${pc.dim('· with the current overrides and ignores')}`);
+    console.info(installedVerdict(0, note));
     console.info();
     return;
   }
@@ -333,7 +335,7 @@ function printReported(advisories: Advisory[] | null): void {
     note: `${formatDependents([...new Set(own.flatMap((advisory) => advisory.via))])}${own.some((advisory) => advisory.direct) ? ' (direct)' : ''}`,
   }));
   rows.sort((a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity));
-  printAdvisoryRows(`${pc.bold('pnpm audit')} ${pc.dim('· with the current overrides and ignores')}`, rows);
+  printAdvisoryRows(installedVerdict(rows.length, note), rows);
 }
 
 /** The grouped checkbox choices: runtimes, pinned packages, then the regular ones. A red dot starts ticked. */

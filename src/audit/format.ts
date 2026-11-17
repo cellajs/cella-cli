@@ -3,6 +3,7 @@
  */
 
 import pc from '../utils/colors';
+import { checkMark, plural, warningMark } from '../utils/display';
 import type { VulnerabilitySeverity } from '../utils/pnpm';
 
 const dots: Record<VulnerabilitySeverity, string> = {
@@ -27,6 +28,18 @@ export function middleTruncate(str: string, maxLen: number): string {
 export function formatDependents(dependents: string[]): string {
   if (dependents.length <= 1) return dependents[0] ?? '';
   return `${dependents[0]} +${dependents.length - 1}`;
+}
+
+/**
+ * The verdict on the workspace as installed, with its overrides and ignores in place: whether pnpm
+ * audit reports any package there, followed by a dim note.
+ */
+export function installedVerdict(vulnerable: number, note: string): string {
+  const verdict =
+    vulnerable === 0
+      ? `${checkMark} installed: no open vulnerabilities`
+      : `${warningMark} installed: ${plural(vulnerable, 'vulnerable package')}`;
+  return note ? `${verdict} ${pc.dim(`· ${note}`)}` : verdict;
 }
 
 /** A titled block of packages with advisories: severity dot, name, severity, versions and a dim note. */

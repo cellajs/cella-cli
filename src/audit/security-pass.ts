@@ -10,11 +10,12 @@ import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, write
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
 import { confirm, select } from '@inquirer/prompts';
+import semver from 'semver';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, divider, plural, spinnerText, warningMark } from '../utils/display';
 import { fetchPublishTimes, runPnpm, runPnpmAudit, runPnpmJson } from '../utils/pnpm';
 import { type AuditSettings, readAuditSettings, readPatchFiles, writeAuditSettings } from '../utils/workspace-yaml';
-import { formatDependents, middleTruncate, printAdvisoryRows } from './format';
+import { formatDependents, installedVerdict, middleTruncate, printAdvisoryRows } from './format';
 import {
   type Advisory,
   advisoriesFromAudit,
@@ -101,10 +102,17 @@ function lockedVersions(lock: string, name: string): string[] {
   return [...new Set(versions)];
 }
 
-/** `installed → fix`, flagged when the fix is a breaking jump; the installed version alone without a fix. */
-function versionsText(item: SecurityItem): string {
+/**
+ * `installed → fix`, flagged when the fix is a breaking jump; the installed version alone without a
+ * fix. A package an override fixes shows what `lock` holds, next to what resolves without the override.
+ */
+function versionsText(item: SecurityItem, lock: string): string {
   if (item.remedy.type === 'none') return item.installed;
-  return `${item.installed} → ${item.remedy.target}${isBreaking(item) ? ' ⚠' : ''}`;
+  const mark = isBreaking(item) ? ' ⚠' : '';
+  if (item.standing !== 'carried') return `${item.installed} → ${item.remedy.target}${mark}`;
+  const targets = Object.values(item.overrides);
+  const held = lockedVersions(lock, item.module).filter((v) => targets.some((target) => semver.satisfies(v, target)));
+  return `${held.join(', ') || item.remedy.target}${mark} (${item.installed} without it)`;
 }
 
 /** One line of context for an item that is not simply fixed by its override. */
@@ -116,13 +124,13 @@ function noteText(item: SecurityItem, releaseAgeHours: number): string {
   return '';
 }
 
-function printGroup(title: string, items: SecurityItem[], releaseAgeHours: number): void {
+function printGroup(title: string, items: SecurityItem[], lock: string, releaseAgeHours: number): void {
   printAdvisoryRows(
     pc.bold(`${title} (${items.length})`),
     items.map((item) => ({
       module: item.module,
       severity: item.severity,
-      versions: versionsText(item),
+      versions: versionsText(item, lock),
       note: [`${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`, noteText(item, releaseAgeHours)]
         .filter(Boolean)
         .join(' · '),
@@ -261,7 +269,16 @@ function writeWorkspace(repoRoot: string, files: Record<string, string>, install
  */
 export async function runSecurityPass(
   repoRoot: string,
-  options: { apply: boolean; releaseAgeMinutes: number; edits?: WorkspaceEdits },
+  options: {
+    apply: boolean;
+    releaseAgeMinutes: number;
+    edits?: WorkspaceEdits;
+    /**
+     * What pnpm audit reports on the workspace as installed, which opens the section: null when it
+     * gave no answer, left out when the caller printed it already.
+     */
+    installed?: Advisory[] | null;
+  },
 ): Promise<SecurityPassOutcome> {
   const { releaseAgeMinutes, edits = noEdits } = options;
   const workspaceYaml = readOr(join(repoRoot, workspaceFile), '');
@@ -331,6 +348,8 @@ export async function runSecurityPass(
       lasting,
       advisories,
       bareLock: bare.lock,
+      lock: readOr(join(repoRoot, lockFile), ''),
+      installed: options.installed,
       releaseAgeHours,
     });
     if (!options.apply) {
@@ -409,9 +428,12 @@ function printPlan(plan: {
   lasting: Record<string, string>;
   advisories: Advisory[];
   bareLock: string;
+  /** The workspace's own lockfile. */
+  lock: string;
+  installed?: Advisory[] | null;
   releaseAgeHours: number;
 }): boolean {
-  const { items, previous, releaseAgeHours } = plan;
+  const { items, previous, lock, releaseAgeHours } = plan;
   const kept = items.filter((item) => item.standing === 'carried');
   const undecided = items.filter(needsDecision);
   const added = items.filter((item) => item.standing === 'new' && !needsDecision(item));
@@ -434,16 +456,31 @@ function printPlan(plan: {
 
   console.info(pc.bold('security'));
   console.info(divider);
-  if (items.length === 0 && droppedOverrides.length === 0 && droppedIgnores.length === 0) {
-    console.info(`${checkMark} no vulnerabilities found`);
+  if (plan.installed !== undefined) {
+    const note = [
+      kept.length > 0 ? `${kept.length} fixed by an override` : '',
+      ignored.length > 0 ? `${ignored.length} ignored` : '',
+    ]
+      .filter(Boolean)
+      .join(' · ');
+    const vulnerable = new Set(plan.installed?.map((advisory) => advisory.module)).size;
+    console.info(
+      plan.installed ? installedVerdict(vulnerable, note) : `${warningMark} installed: pnpm audit gave no answer`,
+    );
     console.info();
+  }
+  if (items.length === 0 && droppedOverrides.length === 0 && droppedIgnores.length === 0) {
+    if (plan.installed === undefined) {
+      console.info(`${checkMark} no vulnerabilities found`);
+      console.info();
+    }
     return false;
   }
 
-  printGroup('override kept', kept, releaseAgeHours);
-  printGroup('fix available', added, releaseAgeHours);
-  printGroup('needs a decision', undecided, releaseAgeHours);
-  printGroup('ignored', ignored, releaseAgeHours);
+  printGroup('fixed by an override', kept, lock, releaseAgeHours);
+  printGroup('fix available', added, lock, releaseAgeHours);
+  printGroup('needs a decision', undecided, lock, releaseAgeHours);
+  printGroup('ignored', ignored, lock, releaseAgeHours);
   printDropped('override dropped', droppedOverrides);
   printDropped('ignore dropped', droppedIgnores);
 
