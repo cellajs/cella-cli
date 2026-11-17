@@ -617,6 +617,10 @@ without them in a temporary copy, and puts back only the ones a current advisory
 now resolves to a fixed version is gone after the next run. The workspace changes once, at the end, and only when the
 outcome differs from what is there.
 
+The security report opens with what `pnpm audit` finds in the workspace as installed, overrides and ignores in place: no open
+vulnerabilities, or how many packages are vulnerable. A package an override fixes shows the version the lockfile holds,
+next to the one that resolves without the override.
+
 | Setting | What the audit owns | What it leaves alone |
 |---------|---------------------|----------------------|
 | `overrides` | keys with a version selector: `pkg@<1.2.3` | keys without one (`pkg`) and parent-scoped keys (`parent>pkg`) |
