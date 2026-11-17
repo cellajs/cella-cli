@@ -3,11 +3,11 @@ import { basename, join } from 'node:path';
 import process from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
-import { select } from '@inquirer/prompts';
 import pc from '../utils/colors';
-import { createSpinner, menuDivider, printStep, spinnerFail, warningMark } from '../utils/display';
+import { createSpinner, printStep, spinnerFail, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
 import { errorMessage } from '../utils/errors';
+import { pickFromMenu } from '../utils/menu';
 import { acquireLock } from './lock';
 import { type SuiteRow, suiteLines } from './report';
 import { type BenchRequest, benchRequestEnv } from './request';
@@ -56,27 +56,18 @@ async function loadScenario(dir: string, name: string): Promise<Scenario> {
   return scenario;
 }
 
-/** A scenario picked from a list of all of them with their descriptions; undefined for exit. */
+/** A scenario picked from a list of all of them with their descriptions; undefined once the list is left. */
 async function pickScenario(dir: string): Promise<string | undefined> {
   const names = readdirSync(dir)
     .filter((file) => file.endsWith('.ts'))
     .map((file) => basename(file, '.ts'))
     .sort();
-  const choices = [];
+  const entries = [];
   for (const name of names) {
     const { description } = await loadScenario(dir, name);
-    choices.push({ value: name, name: `${name.padEnd(22)}${pc.dim(description)}` });
+    entries.push({ value: name, label: name, description });
   }
-  const picked = await select({
-    message: 'select a scenario',
-    choices: [
-      ...choices,
-      { type: 'separator' as const, separator: menuDivider },
-      { value: '', name: pc.red(`${'exit'.padEnd(22)}${pc.dim('quit without running')}`) },
-    ],
-    loop: false,
-  });
-  return picked || undefined;
+  return pickFromMenu(entries, 'bench');
 }
 
 async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Promise<number> {

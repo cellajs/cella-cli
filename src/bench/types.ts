@@ -110,6 +110,7 @@ export interface Role<C extends string, H extends string> {
 }
 
 interface ScenarioBase<C extends string, H extends string> {
+  /** One line beside the scenario's name in the bench list and its run line: what it asks, without the name again. */
   description: string;
   /** Every counter the scenario counts: `vu.counter`, `expect` and `forbid` accept these names only. */
   counters?: readonly C[];
