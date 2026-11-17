@@ -10,7 +10,7 @@
 
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
-import { checkbox, Separator } from '@inquirer/prompts';
+import { checkbox, confirm, Separator } from '@inquirer/prompts';
 import pc from '../utils/colors';
 import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import { getEnv } from '../utils/env';
@@ -84,7 +84,8 @@ async function readRuntimes(repoRoot: string, now: number) {
 }
 
 /**
- * Report the updates and the security plan; with `fix`, ask which to take and write them.
+ * Report the updates and the security plan, and in a terminal offer to take them; with `fix`, ask which to take and
+ * write them.
  * @returns 1 when a step gave no answer or failed, 0 for a report, a cancelled prompt and a written fix
  */
 export async function runAudit(repoRoot: string, fix: boolean): Promise<number> {
@@ -122,11 +123,14 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
     console.info();
     printLocalTools(planLocalTools(tools, feeds, { releaseAgeMinutes, now }));
 
-    // A report asks nothing and writes nothing
-    if (!fix || rows.length === 0)
-      return exitCode(await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes, installed: advisories }));
-
-    printReported(advisories);
+    if (!fix || rows.length === 0) {
+      const outcome = await runSecurityPass(repoRoot, { apply: fix, releaseAgeMinutes, installed: advisories });
+      // A report writes nothing: a yes to its closing question runs the update step of `audit fix`
+      const offered = !fix && rows.length > 0 && outcome !== 'failed';
+      if (!offered || !(await confirmUpdate())) return exitCode(outcome);
+    } else {
+      printReported(advisories);
+    }
     const selected = await promptForUpdates(rows);
     if (!selected) return 0;
     const chosen = rows.filter((row) => selected.includes(row.key));
@@ -365,6 +369,18 @@ function updateChoices(rows: UpdateRow[]): Array<{ name: string; value: string; 
   return groups.flatMap(([label, group]) =>
     group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)],
   );
+}
+
+/** The question that ends a report: false without a terminal, and when it is declined or cancelled. */
+async function confirmUpdate(): Promise<boolean> {
+  if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+  try {
+    const answer = await confirm({ message: 'update packages?', default: false });
+    console.info();
+    return answer;
+  } catch {
+    return false;
+  }
 }
 
 /** The one prompt of the update step; null when it was cancelled. Submitting with nothing ticked skips the updates. */
