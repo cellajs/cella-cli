@@ -1,5 +1,14 @@
 # Changelog
 
+## [0.8.3](https://github.com/cellajs/cella-cli/compare/cli-0.8.2...cli-0.8.3) (2026-11-17)
+
+
+### 🎉 New features
+
+* **audit:** a report in a terminal ends by asking whether to update packages ([#104](https://github.com/cellajs/cella-cli/issues/104)) ([43fe665](https://github.com/cellajs/cella-cli/commit/43fe6656ddb8d7e32694cff90e40d77ab2556053))
+* **audit:** the security report opens with a verdict on the installed workspace ([#103](https://github.com/cellajs/cella-cli/issues/103)) ([1def56d](https://github.com/cellajs/cella-cli/commit/1def56dd7b083ad2b28f941033125568ae3d637b))
+* **menu:** the menu opens under the cella logo, with no question line and a plain quit ([#101](https://github.com/cellajs/cella-cli/issues/101)) ([7ff7e4d](https://github.com/cellajs/cella-cli/commit/7ff7e4d7da7b26f7b90e0eea2e1814a02b23c4d0))
+
 ## [0.8.2](https://github.com/cellajs/cella-cli/compare/cli-0.8.1...cli-0.8.2) (2026-11-16)
 
 
