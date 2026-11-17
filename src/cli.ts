@@ -3,12 +3,11 @@
  */
 
 import process from 'node:process';
-import { select } from '@inquirer/prompts';
 import { Command as CommanderCommand, Option } from 'commander';
 import type { Command, CommandGroup, MenuContext } from './command';
 import { commands } from './commands';
-import pc from './utils/colors';
-import { menuDivider, version } from './utils/display';
+import { version } from './utils/display';
+import { pickFromMenu } from './utils/menu';
 
 /** A command with the options it parsed; `machineOutput` when one of them keeps stdout for the payload. */
 export interface Selection {
@@ -137,34 +136,20 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
   return selection;
 }
 
-/** A menu without the question mark and the key hints: the header above it says where you are, as the infra CLI's menus do. */
-const plainMenu = { prefix: '', style: { keysHelpTip: () => '' } };
+/** Ends the run once a menu is left. */
+function quitMenu(): never {
+  console.info();
+  process.exit(0);
+}
 
 /** The command picked from the menu, with a job when it has several the menu can run. */
 export async function promptForCommand(context: MenuContext): Promise<Selection> {
   const entries = commands.filter((command) => command.group !== 'gate' && (command.inMenu?.(context) ?? true));
-  const width = Math.max(...entries.map((entry) => entry.name.length)) + 3;
-  const label = (name: string) => name.padEnd(width);
-
-  const picked = await select<string>({
-    message: '',
-    choices: [
-      ...entries.map((entry) => ({ value: entry.name, name: `${label(entry.name)}${pc.dim(entry.description)}` })),
-      { type: 'separator' as const, separator: menuDivider },
-      { value: 'exit', name: 'quit' },
-    ],
-    // The page grows with the terminal, less the empty question line and one row to spare; seven is Inquirer's default
-    pageSize: Math.max(7, (process.stdout.rows || 24) - 2),
-    loop: false,
-    theme: plainMenu,
-  });
-
+  const picked = await pickFromMenu(
+    entries.map(({ name, description }) => ({ value: name, label: name, description })),
+  );
   const command = entries.find((entry) => entry.name === picked);
-  if (!command) {
-    console.info(pc.dim('exiting...'));
-    console.info();
-    process.exit(0);
-  }
+  if (!command) quitMenu();
 
   const parse = (job: string | undefined) => command.parse({ job, operands: [], opts: {}, passthrough: [] });
   // The menu passes no words: a job that needs them, such as `align show <id>`, runs from the command line only
@@ -178,16 +163,10 @@ export async function promptForCommand(context: MenuContext): Promise<Selection>
   });
   const job =
     runnable.length > 1
-      ? await select<string>({
-          message: `${command.name}:`,
-          choices: runnable.map(([name, description]) => ({
-            value: name,
-            name: `${name.padEnd(14)}${pc.dim(description)}`,
-          })),
-          loop: false,
-          theme: { style: plainMenu.style },
-        })
+      ? ((await pickFromMenu(
+          runnable.map(([name, description]) => ({ value: name, label: name, description })),
+          command.name,
+        )) ?? quitMenu())
       : runnable[0]?.[0];
-  console.info();
   return { command, options: parse(job), machineOutput: false };
 }
