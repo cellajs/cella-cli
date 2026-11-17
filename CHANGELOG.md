@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.4](https://github.com/cellajs/cella-cli/compare/cli-0.8.3...cli-0.8.4) (2026-11-17)
+
+
+### 🐞 Bug fixes
+
+* **bench:** the scenario list is drawn like the menu, and every menu erases itself once answered ([#105](https://github.com/cellajs/cella-cli/issues/105)) ([9d190dd](https://github.com/cellajs/cella-cli/commit/9d190dd394e84bc912e341c74ed9f7026395ab0f))
+
 ## [0.8.3](https://github.com/cellajs/cella-cli/compare/cli-0.8.2...cli-0.8.3) (2026-11-17)
 
 
