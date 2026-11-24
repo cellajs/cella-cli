@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { detachedCommentRule } from '../../src/style/comment-rules';
 import { docRules } from '../../src/style/doc-rules';
 import { wordingRules } from '../../src/style/wording-rules';
-import { check } from '../helpers/style-repo';
+import { check, makeRepo } from '../helpers/style-repo';
 
 const singular = ['invar', 'iant'].join('');
 const dash = '\u2014';
@@ -93,6 +93,35 @@ describe('doc and wording rules', () => {
     expect(found('guide.md', `${words(79)} \`code counts nothing\` [label](target)`)).toEqual([]);
     expect(found('cella/skills/x/SKILL.md', words(81))).toEqual([]);
     expect(found('cella/alignments/x/README.md', words(81))).toEqual([]);
+  });
+
+  it('finds a ## heading over 25 rendered characters on a docs page and in a Markdown file one imports, nowhere else', () => {
+    const page = 'frontend/src/content/docs/guides/sync.mdx';
+    const pageSource = [
+      'import Content from "../../../../../docs/SYNC.md";',
+      '',
+      `## ${'a'.repeat(26)}`,
+      '<Content />',
+    ].join('\n');
+    const headings = [
+      `## ${'b'.repeat(25)}`,
+      `## [${'c'.repeat(26)}](https://example.com/a-target-that-counts-for-nothing)`,
+      `## \`${'d'.repeat(12)}\` **${'e'.repeat(12)}**`,
+      `### ${'f'.repeat(40)}`,
+      '```md',
+      `## ${'g'.repeat(40)}`,
+      '```',
+    ].join('\n');
+    const files = [page, 'docs/SYNC.md', 'docs/OTHER.md'];
+    const root = makeRepo({ [page]: pageSource, 'docs/SYNC.md': headings, 'docs/OTHER.md': headings });
+    const longHeadings = (file: string, source: string) =>
+      check(docRules, file, source, { root, files })
+        .filter(({ rule }) => rule === 'long-heading')
+        .map(({ line, term }) => ({ line, term }));
+
+    expect(longHeadings(page, pageSource)).toEqual([{ line: 3, term: '26 characters' }]);
+    expect(longHeadings('docs/SYNC.md', headings)).toEqual([{ line: 2, term: '26 characters' }]);
+    expect(longHeadings('docs/OTHER.md', headings)).toEqual([]);
   });
 
   it('finds a ", so" tail outside "so that", and never in alignments', () => {

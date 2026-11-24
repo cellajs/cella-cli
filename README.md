@@ -266,6 +266,7 @@ Two rules read only what the template has. `alignment` checks the shape of every
 | `detached-long-comment` | a comment of more than three prose lines outside a statement and not directly above a declaration; a licence header passes | source and config files |
 | `code-in-link` | inline code in a link label | Markdown and MDX |
 | `long-paragraph` | a prose paragraph of more than 80 words, inline code and link targets uncounted | Markdown and MDX, outside `cella/alignments/` and `cella/skills/` |
+| `long-heading` | a `##` heading that renders more than 25 characters, a link counted by its label | the docs pages under `frontend/src/content/docs/` and the Markdown files they import, changelogs excepted |
 | `consequence-tail` | `, so` joining a reason and its consequence | comments, Markdown and MDX prose, on the lines the branch changed since its merge base with `origin/main`, in an app outside the lines upstream's copy of the file holds; alignments and migration notes exempt |
 | `source-control-term` | the CLI's source-control term | file paths and text, outside the `fork:` markers and the exempt files |
 | `product-name` | `cella_*`, `Cella*`, `_cella-*`, `cellajs.com` | `backend/src`, `shared/src` and `frontend/src`, outside tests, marketing and content |
