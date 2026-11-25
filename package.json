@@ -52,7 +52,12 @@
       "import": "./dist/infra.js"
     },
     "./infra/program": {
+      "types": "./dist/infra-program.d.ts",
       "import": "./dist/infra-program.js"
+    },
+    "./infra/contract": {
+      "types": "./dist/infra-contract.d.ts",
+      "import": "./dist/infra-contract.js"
     },
     "./package.json": "./package.json"
   },

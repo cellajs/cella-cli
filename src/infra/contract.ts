@@ -1,0 +1,12 @@
+/**
+ * What an app's own tests read of the engine to check its files against it: the proxy's Caddyfile and headers, the apex
+ * redirect its shared code copies, the runtime secrets its env schemas declare, and the operator actions its docs name.
+ */
+
+export { deriveInfra, redirectedApexOrigin } from './lib/naming';
+export { actionLabel, isOperatorActionId, MENU_ROWS, type MenuRowId, menuRow, OPERATOR_ACTIONS, type OperatorActionId } from './lib/operator-actions';
+export { type RuntimeSecretDefinition, runtimeSecretConsumers, runtimeSecrets, runtimeSecretsForConsumer } from './lib/runtime-secrets';
+export type { SecretManagerSecret } from './lib/scaleway/scaleway-secret-manager';
+export { engineAssetsDir } from './lib/utils/paths';
+export { type EnsureSecretsClient, ensureSecrets, generateSecretValue } from './tasks/ensure-secrets';
+export { SECURITY_HEADERS } from './tasks/smoke';

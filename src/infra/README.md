@@ -8,22 +8,22 @@ The Infra CLI sets up a cella app on [Scaleway](https://www.scaleway.com/) in on
 
 ## What it does
 
-`infra/` is the deploy engine that apps built from cella share through template upgrades. It has four parts:
+This folder is the deploy engine that apps built from cella share: it ships in `@cellajs/cli`, and an app takes a new engine as a version bump. It has four parts:
 
 - **Pulumi program:** the foundation, such as the network, the database and the main job with its schedule.
 - **Deploy:** makes and deletes the machines through the Scaleway API.
 - **Agent:** runs on every machine.
 - **CLI:** an operator runs it on their own machine.
 
-The engine names no app. What an app deploys lives in the registries under [config/](config/), which an upgrade merges like every other template file. They are the app's part of infra: engine code reads them only as `infra/config/<file>`, the package's one export, and an app changes them without editing engine code.
+The engine names no app. What an app deploys lives in its own `infra` workspace: the registries under `config/` ([the template's](https://github.com/cellajs/cella/tree/main/infra/config)), its stack files and environment records. The package takes that workspace as a peer: engine code reads it only as `infra/config/<file>`, and an app's config calls the helpers `@cellajs/cli/infra` exports.
 
 ## How a release flows
 
-**Setup** (`pnpm cella infra`) is a wizard that takes an empty Scaleway account to a provisioned environment in one sitting, along the launch checklist ([fresh installation](../cella/docs/deployment/FRESH_INSTALLATION.md)).
+**Setup** (`pnpm cella infra`) is a wizard that takes an empty Scaleway account to a provisioned environment in one sitting, along the launch checklist ([fresh installation](https://github.com/cellajs/cella/blob/main/cella/docs/deployment/FRESH_INSTALLATION.md)).
 
-**Apply** (`pnpm cella infra apply`) changes the foundation and publishes the **engine image**. That image holds the engine built from your checkout, with the **applied description** of the app. Every run of the main job starts from it.
+**Apply** (`pnpm cella infra apply`) changes the foundation and publishes the **engine image**. That image holds the engine at the version your lockfile pins and your checkout's `infra` workspace, with the **applied description** of the app. Every run of the main job starts from it.
 
-**Deploy**: the main job's schedule starts a run at the cadence [config/general.config.ts](config/general.config.ts) sets per environment. When the environment's target has no run yet, that run deploys it with one command of the engine image:
+**Deploy**: the main job's schedule starts a run at the cadence [config/general.config.ts](https://github.com/cellajs/cella/blob/main/infra/config/general.config.ts) sets per environment. When the environment's target has no run yet, that run deploys it with one command of the engine image:
 
 ```
 pnpm --filter infra run deploy --mode <production|staging> --sha <sha> --retry <n>
@@ -117,10 +117,10 @@ The CLI drops `SCW_OWNER_*` from its environment with a notice. A one-day operat
 
 To add a service:
 
-1. Add an entry to [config/services.config.ts](config/services.config.ts).
-2. Set its `enabled` flag and ports under `services` in [shared/config/config.default.ts](../shared/config/config.default.ts).
-3. Set its path prefix in [shared/src/config-builder/service-paths.ts](../shared/src/config-builder/service-paths.ts).
-4. List it under each runtime secret it reads in [config/runtime-secrets.config.ts](config/runtime-secrets.config.ts).
+1. Add an entry to [config/services.config.ts](https://github.com/cellajs/cella/blob/main/infra/config/services.config.ts).
+2. Set its `enabled` flag and ports under `services` in [shared/config/config.default.ts](https://github.com/cellajs/cella/blob/main/shared/config/config.default.ts).
+3. Set its path prefix in [shared/src/config-builder/service-paths.ts](https://github.com/cellajs/cella/blob/main/shared/src/config-builder/service-paths.ts).
+4. List it under each runtime secret it reads in [config/runtime-secrets.config.ts](https://github.com/cellajs/cella/blob/main/infra/config/runtime-secrets.config.ts).
 5. Ship a Docker image that answers the health path of [lib/health-contract.ts](lib/health-contract.ts) with its release.
 6. Run its migrations, if any, in a one-shot `release` step at its machine's boot.
 
@@ -130,25 +130,25 @@ To add a store:
 
 1. Write a provisioner file in [resources/stores/](resources/stores/) beside `postgres-managed.ts`.
 2. Export it from `catalog.ts`.
-3. Add an entry to [config/stores.config.ts](config/stores.config.ts).
+3. Add an entry to [config/stores.config.ts](https://github.com/cellajs/cella/blob/main/infra/config/stores.config.ts).
 
 Either change deploys after an apply, since every registry is part of the applied description.
 
 ## File map
 
-| Path                         | Holds                                                                                                                                                                                 |
-| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| [config/](config/)           | The registries: services, general settings, runtime secrets, managed keys, stores, env suppliers and the frontend CSP. Also engine-config.ts, where the engine reads the app's config |
-| [cli/](cli/)                 | The menu and its actions                                                                                                                                                              |
-| [resources/](resources/)     | The Pulumi program: the foundation, no machine                                                                                                                                        |
-| [tasks/](tasks/README.md)    | The deploy's steps and the operator tasks                                                                                                                                             |
-| [lib/](lib/)                 | What they share                                                                                                                                                                       |
-| [compose/](compose/)         | The Compose model, assembled from the service registry into `compose.gen.yml`                                                                                                         |
-| [agent/](agent/)             | The agent every machine runs                                                                                                                                                          |
-| [caddy/](caddy/)             | The frontend's Caddy image and its Caddyfile                                                                                                                                          |
-| [Dockerfile](Dockerfile)     | The engine image an apply builds                                                                                                                                                      |
-| [tests/](tests/README.md)    | Tests that span modules, and their helpers                                                                                                                                            |
-| [environments](environments) | What each environment deploys                                                                                                                                                         |
+| Path                                                                | Holds                                                                                                                                                                                 |
+| ------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [config/](https://github.com/cellajs/cella/blob/main/infra/config/) | The registries: services, general settings, runtime secrets, managed keys, stores, env suppliers and the frontend CSP. Also engine-config.ts, where the engine reads the app's config |
+| [cli/](cli/)                                                        | The menu and its actions                                                                                                                                                              |
+| [resources/](resources/)                                            | The Pulumi program: the foundation, no machine                                                                                                                                        |
+| [tasks/](tasks/README.md)                                           | The deploy's steps and the operator tasks                                                                                                                                             |
+| [lib/](lib/)                                                        | What they share                                                                                                                                                                       |
+| [compose/](compose/)                                                | The Compose model, assembled from the service registry into `compose.gen.yml`                                                                                                         |
+| [agent/](agent/)                                                    | The agent every machine runs                                                                                                                                                          |
+| [caddy/](caddy/)                                                    | The frontend's Caddy image and its Caddyfile                                                                                                                                          |
+| [Dockerfile](Dockerfile)                                            | The engine image an apply builds                                                                                                                                                      |
+| [tests/](tests/README.md)                                           | Tests that span modules, and their helpers                                                                                                                                            |
+| [environments](environments)                                        | What each environment deploys                                                                                                                                                         |
 
 ## Vocabulary
 
@@ -193,4 +193,4 @@ One name per concept across code and docs:
 | **manifest**            | The `manifest` key of a machine's user data: its role, its release and the drain order, which the agent polls.                                                                                                                                                                      |
 | **boot account**        | The boot log a machine uploads to the boot-diag bucket through its link at the end of its first boot.                                                                                                                                                                               |
 | **internal route**      | A private, ACL-guarded LB frontend to a service's `internalPort` listener: an address that survives switches and no public pool reaches.                                                                                                                                            |
-| **engine config**       | The app's config as the engine reads it, in [config/engine-config.ts](config/engine-config.ts): the shared `appConfig` of the mode, with the app's own slug.                                                                                                                        |
+| **engine config**       | The app's config as the engine reads it, in [config/engine-config.ts](https://github.com/cellajs/cella/blob/main/infra/config/engine-config.ts): the shared `appConfig` of the mode, with the app's own slug.                                                                       |

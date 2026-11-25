@@ -6,7 +6,7 @@ services:
   backend:
     image: ${REGISTRY}/backend:${BACKEND_TAG:-latest}
     pull_policy: never
-    profiles: [ backend ]
+    profiles: [backend]
     depends_on:
       backend-release:
         condition: service_completed_successfully
@@ -16,14 +16,14 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4000:4000"
-      - "4005:4005"
-      - "4001:4001"
-      - "4002:4002"
-      - "4003:4003"
-      - "4004:4004"
-      - "4006:4006"
-    stop_grace_period: "30s"
+      - '4000:4000'
+      - '4005:4005'
+      - '4001:4001'
+      - '4002:4002'
+      - '4003:4003'
+      - '4004:4004'
+      - '4006:4006'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -35,11 +35,11 @@ services:
       APP_ORIGIN: ${APP_ORIGIN}
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4000/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4000/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "15s"
+      start_period: '15s'
     x-service:
       slug: backend
       healthPort: 4000
@@ -60,8 +60,8 @@ services:
   backend-release:
     image: ${REGISTRY}/backend:${BACKEND_TAG:-latest}
     pull_policy: never
-    profiles: [ backend ]
-    restart: "no"
+    profiles: [backend]
+    restart: 'no'
     cap_drop:
       - ALL
     security_opt:
@@ -79,15 +79,15 @@ services:
   cdc:
     image: ${REGISTRY}/cdc:${CDC_TAG:-latest}
     pull_policy: never
-    profiles: [ cdc ]
+    profiles: [cdc]
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4001:4001"
-    stop_grace_period: "30s"
+      - '4001:4001'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -99,11 +99,11 @@ services:
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
       APP_ORIGIN: ${APP_ORIGIN}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4001/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4001/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "10s"
+      start_period: '10s'
     x-service:
       slug: cdc
       healthPort: 4001
@@ -119,15 +119,15 @@ services:
   yjs:
     image: ${REGISTRY}/yjs:${YJS_TAG:-latest}
     pull_policy: never
-    profiles: [ yjs ]
+    profiles: [yjs]
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4002:4002"
-    stop_grace_period: "30s"
+      - '4002:4002'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -139,11 +139,11 @@ services:
       APP_ORIGIN: ${APP_ORIGIN}
       BACKEND_INTERNAL_URL: ${BACKEND_INTERNAL_URL}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4002/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4002/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "10s"
+      start_period: '10s'
     x-service:
       slug: yjs
       healthPort: 4002
@@ -163,15 +163,15 @@ services:
   mcp:
     image: ${REGISTRY}/backend:${MCP_TAG:-latest}
     pull_policy: never
-    profiles: [ mcp ]
+    profiles: [mcp]
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4003:4003"
-    stop_grace_period: "30s"
+      - '4003:4003'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -183,11 +183,11 @@ services:
       SERVICE: mcp
       APP_ORIGIN: ${APP_ORIGIN}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4003/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4003/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "15s"
+      start_period: '15s'
     x-service:
       slug: mcp
       healthPort: 4003
@@ -203,15 +203,15 @@ services:
   oauth:
     image: ${REGISTRY}/backend:${OAUTH_TAG:-latest}
     pull_policy: never
-    profiles: [ oauth ]
+    profiles: [oauth]
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4004:4004"
-    stop_grace_period: "30s"
+      - '4004:4004'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -223,11 +223,11 @@ services:
       SERVICE: oauth
       APP_ORIGIN: ${APP_ORIGIN}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4004/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4004/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "15s"
+      start_period: '15s'
     x-service:
       slug: oauth
       healthPort: 4004
@@ -243,15 +243,15 @@ services:
   jobs:
     image: ${REGISTRY}/backend:${JOBS_TAG:-latest}
     pull_policy: never
-    profiles: [ jobs ]
+    profiles: [jobs]
     restart: unless-stopped
     cap_drop:
       - ALL
     security_opt:
       - no-new-privileges:true
     ports:
-      - "4006:4006"
-    stop_grace_period: "30s"
+      - '4006:4006'
+    stop_grace_period: '30s'
     env_file:
       - .env
       - path: .env.runtime
@@ -263,11 +263,11 @@ services:
       SERVICE: jobs
       APP_ORIGIN: ${APP_ORIGIN}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:4006/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4006/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "15s"
+      start_period: '15s'
     x-service:
       slug: jobs
       healthPort: 4006
@@ -280,7 +280,7 @@ services:
   frontend:
     image: ${REGISTRY}/frontend:${FRONTEND_TAG:-latest}
     pull_policy: never
-    profiles: [ frontend ]
+    profiles: [frontend]
     restart: unless-stopped
     cap_drop:
       - ALL
@@ -289,19 +289,19 @@ services:
     security_opt:
       - no-new-privileges:true
     ports:
-      - "80:80"
-    stop_grace_period: "30s"
+      - '80:80'
+    stop_grace_period: '30s'
     environment:
       FRONTEND_CSP: ${FRONTEND_CSP}
       FRONTEND_EMBED_CSP: ${FRONTEND_EMBED_CSP}
       FRONTEND_PERMISSIONS_POLICY: ${FRONTEND_PERMISSIONS_POLICY}
       ORIGIN_HOST: ${ORIGIN_HOST}
     healthcheck:
-      test: [ "CMD", "wget", "-qO-", "http://127.0.0.1:80/health" ]
-      interval: "5s"
-      timeout: "5s"
+      test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:80/health']
+      interval: '5s'
+      timeout: '5s'
       retries: 3
-      start_period: "10s"
+      start_period: '10s'
     x-service:
       slug: frontend
       healthPort: 80
@@ -316,11 +316,11 @@ services:
   infra-agent:
     image: ${REGISTRY}/infra-agent:${AGENT_TAG}
     pull_policy: never
-    profiles: [ agent ]
-    restart: "no"
+    profiles: [agent]
+    restart: 'no'
     command:
       - agent
-      - "--plan"
+      - '--plan'
       - ${AGENT_DIR}/boot-plan.json
     network_mode: host
     cap_drop:

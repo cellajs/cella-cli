@@ -6,6 +6,9 @@ import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config
  */
 export const ENGINE_ASSETS = '/engine-assets';
 
+/** The frontend proxy's Dockerfile, which an app's service registry names for its `frontend` entry. */
+export const frontendProxyDockerfile = `${ENGINE_ASSETS}/caddy/Dockerfile`;
+
 /** What the script reads from `/etc/builder.env`: no key of Scaleway's. */
 export interface BuilderValues {
   SHA: string;

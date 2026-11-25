@@ -1,5 +1,8 @@
 import { basename, dirname } from 'node:path';
 import { ENGINE_ASSETS } from '../lib/builder/builder-machine';
+
+export { frontendProxyDockerfile } from '../lib/builder/builder-machine';
+
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import { AGENT_IMAGE_NAME } from '../lib/deploy/release-archives';
 import { parseServiceRows } from '../lib/utils/service-rows';
@@ -29,9 +32,6 @@ export interface BakeOptions {
   /** The folder each image's archive is written to, as `<name>.tar`. */
   archiveDir: string;
 }
-
-/** The frontend proxy's Dockerfile, which an app's service registry names for its `frontend` entry. */
-export const frontendProxyDockerfile = `${ENGINE_ASSETS}/caddy/Dockerfile`;
 
 /**
  * A `docker buildx bake` definition covering every app image and the agent, in two groups: `services` bakes while the release's

@@ -1,6 +1,8 @@
 import { parseAclInput } from '../../lib/db-exposure-acl';
-import { DB_INSTANCE_RESOURCE } from '../../lib/db-public-endpoint';
 import type { ProvisionContext, ProvisionedStore, StoreProvisioner, StoreSecretContribution } from '../../lib/stores';
+
+/** Pulumi resource name of the managed PostgreSQL instance, which the database exposure actions address by URN. */
+export const DB_INSTANCE_RESOURCE = 'main-postgres';
 
 /** Configuration for a managed Scaleway PostgreSQL store. */
 export interface PostgresManagedConfig {

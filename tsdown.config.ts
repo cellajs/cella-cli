@@ -13,6 +13,7 @@ export default defineConfig([
       pentest: 'src/exports/pentest.ts',
       infra: 'src/infra/exports.ts',
       'infra-program': 'src/infra/program.ts',
+      'infra-contract': 'src/infra/contract.ts',
     },
     // The exports map names .js and .d.ts files
     fixedExtension: false,

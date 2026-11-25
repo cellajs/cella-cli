@@ -8,7 +8,9 @@
       "index.ts",
       "tsdown.config.ts",
       "vitest.config.ts",
-      "vitest.release.config.ts"
+      "vitest.release.config.ts",
+      // Generator output: the engine's drift check holds it to what compose synth writes
+      "!src/infra/tests/fixtures/app/compose.gen.yml"
     ]
   },
   "assist": {
