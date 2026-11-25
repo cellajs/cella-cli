@@ -96,3 +96,8 @@ export function toolDir(repoRoot: string, tool: string, scope: 'checkout' | 'rep
   const gitDir = execFileSync('git', ['rev-parse', flag], { cwd: repoRoot, encoding: 'utf8' }).trim();
   return join(resolve(repoRoot, gitDir), `cella-${tool}`);
 }
+
+/** The name and version in the app's root `package.json`. */
+export function rootPackage(repoRoot: string): { name: string; version: string } {
+  return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
+}
