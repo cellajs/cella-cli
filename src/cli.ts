@@ -19,6 +19,7 @@ export interface Selection {
 const groupHeadings: Record<CommandGroup, string> = {
   develop: 'Develop commands:',
   security: 'Security commands:',
+  operate: 'Operate commands:',
   upstream: 'Upstream commands:',
   gate: 'Gate commands:',
 };
@@ -40,6 +41,17 @@ function addCommand(
     .command(declared.name)
     .description(declared.description)
     .helpGroup(groupHeadings[declared.group]);
+  if (declared.handsOver) {
+    const [words, description] = declared.passthrough ?? ['words', 'what the program it hands over to reads'];
+    command.helpOption(false).allowUnknownOption().allowExcessArguments().argument(`[${words}...]`, description);
+    // The words as typed, in order: the program the command hands them to parses them, `--help` included
+    command.action(() => {
+      const passthrough = argv.slice(argv.indexOf(declared.name, 2) + 1);
+      const options = declared.parse({ job: undefined, operands: [], opts: {}, passthrough });
+      pick({ command: declared, options, machineOutput: false });
+    });
+    return;
+  }
   const jobLines = declared.jobs.map(
     ([name, description], i) => `${name}${i === 0 ? ' (default)' : ''}: ${description}`,
   );
@@ -118,6 +130,7 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
         '  $ cella upgrade --ref 4f7d87c',
         '  $ cella align run 20261001T2116-tailwind-class-conventions -- rewrite frontend/src',
         '  $ cella align mark 20261002T0614-config-switch',
+        '  $ cella infra apply --mode production',
         '  $ cella audit',
         '  $ cella stats --since origin/main --md',
         '  $ cella adopt --fork raak --json',

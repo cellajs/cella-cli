@@ -11,6 +11,7 @@ import { CommanderError } from 'commander';
 import { parseCommandLine, promptForCommand } from './cli';
 import type { MenuContext } from './command';
 import { isUpstreamRepo, loadConfig } from './config/load';
+import { infraManifest } from './infra';
 import { configFile } from './upstream/managed-files';
 import pc from './utils/colors';
 import { printHeader, printLogo, setJsonMode } from './utils/display';
@@ -20,7 +21,11 @@ import { installSignalHandlers } from './utils/signals';
 /** The menu runs in any repository: it reads the app's config only when there is one. */
 async function readMenuContext(repoRoot: string): Promise<MenuContext> {
   const config = existsSync(join(repoRoot, configFile)) ? await loadConfig(repoRoot) : undefined;
-  return { hasForks: (config?.forks?.length ?? 0) > 0, isUpstreamRepo: isUpstreamRepo(repoRoot) };
+  return {
+    hasForks: (config?.forks?.length ?? 0) > 0,
+    isUpstreamRepo: isUpstreamRepo(repoRoot),
+    hasInfra: existsSync(join(repoRoot, infraManifest)),
+  };
 }
 
 async function main(): Promise<number> {
@@ -34,9 +39,9 @@ async function main(): Promise<number> {
   const { command, options, machineOutput } = named ?? (await promptForCommand(await readMenuContext(repoRoot)));
 
   if (machineOutput) setJsonMode(true);
-  // A gate prints its verdict alone: CI logs and agents read it
-  const gate = command.group === 'gate';
-  if (named && !gate) printHeader();
+  // A gate prints its verdict alone: CI logs and agents read it. A command that hands over leaves all output to the program
+  const quiet = command.group === 'gate' || command.handsOver === true;
+  if (named && !quiet) printHeader();
 
   if (!command.outsideGit && !existsSync(join(repoRoot, '.git'))) {
     throw new Error(`not a git repository: ${repoRoot}`);
@@ -45,7 +50,7 @@ async function main(): Promise<number> {
     ? await command.run(repoRoot, options, await loadConfig(repoRoot))
     : await command.run(repoRoot, options);
 
-  if (!gate) console.info();
+  if (!quiet) console.info();
   return code;
 }
 

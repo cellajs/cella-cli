@@ -3,6 +3,7 @@ import { auditCommand } from './audit';
 import { benchCommand } from './bench';
 import type { Command } from './command';
 import { i18nCommand } from './i18n';
+import { infraCommand } from './infra';
 import { pentestCommand } from './pentest';
 import { shootCommand } from './screenshots';
 import { statsCommand } from './stats';
@@ -20,6 +21,7 @@ export const commands: Command[] = [
   statsCommand,
   auditCommand,
   pentestCommand,
+  infraCommand,
   analyzeCommand,
   upgradeCommand,
   alignCommand,
