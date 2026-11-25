@@ -1,0 +1,344 @@
+{
+  "entityTypes": ["user", "organization", "attachment"],
+  "channelEntityTypes": ["organization"],
+  "productEntityTypes": ["attachment"],
+  "seenTrackedProductTypes": ["attachment"],
+  "attachmentUploadTargets": ["organization"],
+  "memberStatProductTypes": ["attachment"],
+  "switchedOffProductTypes": [],
+  "numberedProducts": {
+    "attachment": "a"
+  },
+  "entityIdColumnKeys": {
+    "user": "userId",
+    "organization": "organizationId",
+    "attachment": "attachmentId"
+  },
+  "entityActions": ["create", "read", "update", "delete"],
+  "resourceTypes": ["request", "membership", "invitation", "tenant", "system_role", "service_account", "api_key", "oauth_client"],
+  "productEmbeddings": [],
+  "menuStructure": [
+    {
+      "entityType": "organization",
+      "subentityType": null
+    }
+  ],
+  "navigation": {
+    "navBar": true,
+    "menu": "all",
+    "pageTabs": {}
+  },
+  "surfaces": {},
+  "defaultRestrictions": {
+    "quotas": {
+      "organization": 1,
+      "user": 1000,
+      "attachment": 100,
+      "serviceAccount": 20,
+      "apiKey": 100,
+      "ltiConnection": 3
+    },
+    "rateLimits": {
+      "apiPointsPerHour": 1000,
+      "invitationEmailsPerDay": 250
+    },
+    "allowUnregisteredClients": false
+  },
+  "selfServiceTenantsPerUser": 10,
+  "tenantKinds": {
+    "live": {
+      "listed": true,
+      "counted": true,
+      "invitations": true,
+      "publicSharing": true,
+      "operatorNotices": true
+    },
+    "test": {
+      "listed": false,
+      "counted": false,
+      "invitations": true,
+      "publicSharing": true,
+      "operatorNotices": false
+    },
+    "demo": {
+      "listed": false,
+      "counted": false,
+      "invitations": false,
+      "publicSharing": false,
+      "operatorNotices": false,
+      "restrictions": {
+        "quotas": {
+          "attachment": 1
+        }
+      }
+    }
+  },
+  "demo": {
+    "perDay": 500
+  },
+  "retention": {
+    "activityDays": 90,
+    "deletedItemsDays": 120,
+    "unreferencedItemsDays": 30,
+    "deletedTenantDays": 120,
+    "demoTenantDays": 2,
+    "sessionDaysAfterExpiry": 30,
+    "tokenDaysAfterExpiry": 30,
+    "deviceDaysSinceSignIn": 400,
+    "apiKeyDaysAfterEnd": 30,
+    "oidcPayloadDaysAfterUse": 30,
+    "requestDays": 365,
+    "invitationDays": 120,
+    "declinedInvitationHoldDays": 30,
+    "rateLimitDaysAfterWindow": 1,
+    "pushSubscriptionDaysUnseen": 400,
+    "pendingLtiConnectionDays": 1,
+    "unlaunchedLtiAccountDays": 30,
+    "backupDays": 7
+  },
+  "systemRoles": ["admin"],
+  "name": "Cella",
+  "slug": "cella",
+  "domain": "cellajs.com",
+  "description": "A TypeScript template to build collaborative web apps with sync engine. MIT licensed.",
+  "keywords": "starter kit, fullstack, monorepo, typescript, hono, honojs, drizzle, baseui, react, postgres, pwa, offline, instant updates, realtime data, sync engine",
+  "asciiArt": [
+    "                         _ _",
+    "   ▒▓█████▓▒     ___ ___| | | __ _",
+    "   ▒▓█   █▓▒    / __/ _ \\ | |/ _` |",
+    "   ▒▓█   █▓▒   | (_|  __/ | | (_| |",
+    "   ▒▓█████▓▒    \\___\\___|_|_|\\__,_|"
+  ],
+  "origin": "https://www.cellajs.com",
+  "devAppIndex": 0,
+  "services": {
+    "frontend": {
+      "enabled": true,
+      "port": 3000,
+      "publicUrl": "https://www.cellajs.com"
+    },
+    "backend": {
+      "enabled": true,
+      "port": 4000,
+      "internalPort": 4005,
+      "publicUrl": "https://www.cellajs.com/api"
+    },
+    "cdc": {
+      "enabled": true,
+      "port": 4001
+    },
+    "yjs": {
+      "enabled": true,
+      "port": 4002,
+      "publicUrl": "wss://www.cellajs.com/yjs"
+    },
+    "mcp": {
+      "enabled": false,
+      "port": 4003,
+      "publicUrl": "https://www.cellajs.com/mcp"
+    },
+    "oauth": {
+      "enabled": false,
+      "port": 4004,
+      "publicUrl": "https://www.cellajs.com/oauth"
+    },
+    "jobs": {
+      "enabled": true,
+      "port": 4006
+    }
+  },
+  "singleVM": true,
+  "aboutUrl": "/about",
+  "statusUrl": "",
+  "productionUrl": "https://www.cellajs.com",
+  "repositoryUrl": "https://github.com/cellajs/cella",
+  "defaultRedirectPath": "/home",
+  "senderEmail": "notifications@shareworks.nl",
+  "supportEmail": "info@cellajs.com",
+  "securityEmail": "security@cellajs.com",
+  "has": {
+    "pwa": true,
+    "push": false,
+    "commentEmails": false,
+    "selfRegistration": false,
+    "waitlist": false,
+    "uploads": true,
+    "chatSupport": false,
+    "demos": false,
+    "ltiPlatform": false,
+    "publicCounts": false
+  },
+  "apiVersion": "v1",
+  "cookieVersion": "v3",
+  "clientCacheVersion": 55,
+  "enabledAuthStrategies": ["passkey", "oauth", "totp", "magic", "sso"],
+  "enabledOAuthProviders": ["github"],
+  "ltiFrameAncestors": [],
+  "federations": {
+    "surfconext": {
+      "name": "SURFconext",
+      "logoUrl": "/static/auth/surfconext-logo.svg",
+      "issuer": "https://connect.surfconext.nl",
+      "idpMetadataUrl": "https://metadata.surfconext.nl/idps-metadata.xml",
+      "sandbox": {
+        "issuer": "https://connect.test.surfconext.nl",
+        "idpMetadataUrl": "https://metadata.test.surfconext.nl/idps-metadata.xml"
+      },
+      "scopes": ["openid"],
+      "clientAuthMethod": "client_secret_basic",
+      "tenantClaim": "schac_home_organization",
+      "snapshotClaims": ["eduperson_affiliation", "eduperson_scoped_affiliation"],
+      "addressAuthority": true,
+      "mfaAcr": ["https://refeds.org/profile/mfa"]
+    }
+  },
+  "tokenKinds": [
+    "oauth-verification",
+    "invitation",
+    "confirm-mfa",
+    "magic",
+    "oauth-connect",
+    "step-up",
+    "lti-registration",
+    "lti-tool-registration",
+    "lti-launch",
+    "lti-nonce",
+    "lti-handoff"
+  ],
+  "maxSessionsPerUser": 10,
+  "maxEmbeddedSessionsPerUser": 50,
+  "maxDevicesPerUser": 50,
+  "maxPushSubscriptionsPerUser": 20,
+  "totp": {
+    "intervalInSeconds": 30,
+    "gracePeriodInSeconds": 30,
+    "digits": 6
+  },
+  "apiDescription": "⚠️ ATTENTION: PRERELEASE! This API is organized into modules based on logical domains.",
+  "pageSizes": {
+    "default": 40,
+    "users": 100,
+    "members": 40,
+    "organizations": 40,
+    "requests": 40,
+    "attachments": 40,
+    "invitations": 20
+  },
+  "maxBodySize": 1048576,
+  "s3": {
+    "region": "nl-ams",
+    "host": "s3.nl-ams.scw.cloud",
+    "publicBucketName": "cella-public",
+    "privateBucketName": "cella-private",
+    "publicCDNUrl": "https://cella-public.s3.nl-ams.scw.cloud",
+    "privateCDNUrl": "https://cella-private.s3.nl-ams.scw.cloud"
+  },
+  "uploadTemplateIds": ["thumbnail", "banner", "attachment", "newsletter"],
+  "mediaAssetOrigin": "",
+  "uppy": {
+    "defaultRestrictions": {
+      "maxFileSize": 10485760,
+      "maxNumberOfFiles": 1,
+      "allowedFileTypes": [".jpg", ".jpeg", ".png"],
+      "maxTotalFileSize": 104857600,
+      "minFileSize": null,
+      "minNumberOfFiles": null,
+      "requiredMetaFields": []
+    }
+  },
+  "localBlobStorage": {
+    "enabled": true,
+    "maxFileSize": 10485760,
+    "maxTotalSize": 1073741824,
+    "allowedContentTypes": [],
+    "excludedContentTypes": ["video/*"],
+    "downloadConcurrency": 2,
+    "downloadRetryAttempts": 3,
+    "uploadRetryAttempts": 3,
+    "uploadRetryDelays": [60000, 300000, 900000]
+  },
+  "gleapToken": "1ZoAxCRA83h5pj7qtRSvuz7rNNN9iXDd",
+  "mapStyleUrls": {
+    "light": "https://tiles.openfreemap.org/styles/positron",
+    "dark": "https://tiles.openfreemap.org/styles/dark"
+  },
+  "mapZoom": 3,
+  "maplePublicIngestKey": "maple_pk_LnUSK6-_5j3orVrlZ1Hv6I1pxzDh3SJ5",
+  "pushServiceHosts": ["fcm.googleapis.com", "updates.push.services.mozilla.com", "web.push.apple.com", "*.notify.windows.com"],
+  "theme": {
+    "navigation": {
+      "sidebarTextLabels": false,
+      "sidebarWidthExpanded": "16rem",
+      "sidebarWidthCollapsed": "4rem",
+      "sheetPanelWidth": "20rem"
+    },
+    "colors": {},
+    "strokeWidth": 1.75,
+    "email": {
+      "button": "#262626",
+      "buttonEdge": "#808080",
+      "buttonLabel": "#ffffff",
+      "darkButton": "#fafafa",
+      "darkButtonLabel": "#262626"
+    },
+    "screenSizes": {
+      "xs": "420px",
+      "sm": "640px",
+      "md": "768px",
+      "lg": "1024px",
+      "xl": "1280px",
+      "2xl": "1400px"
+    }
+  },
+  "placeholderColors": [
+    "bg-blue-300",
+    "bg-lime-300",
+    "bg-orange-300",
+    "bg-yellow-300",
+    "bg-green-300",
+    "bg-teal-300",
+    "bg-indigo-300",
+    "bg-purple-300",
+    "bg-pink-300",
+    "bg-red-300"
+  ],
+  "defaultLanguageCode": "en",
+  "languageCodes": ["en", "nl"],
+  "commonRegionCodes": ["FR", "DE", "NL", "UA", "US", "GB"],
+  "listDatePrecision": "day",
+  "company": {
+    "name": "CellaJS",
+    "email": "info@cellajs.com",
+    "phone": "+31 6 12345678",
+    "address": {
+      "streetAddress": "Drizzle Road 42",
+      "postalCode": "90210 JS",
+      "city": "Hono City",
+      "regionCode": "NL",
+      "directionsUrl": "https://goo.gl/maps/SQlrh",
+      "coordinates": {
+        "lat": 51.92760809717153,
+        "lng": 4.47421039909924
+      }
+    },
+    "registration": "Chamber of Commerce (KvK): 578 25 920",
+    "vatNumber": "NL001234567B01",
+    "scheduleCallUrl": "https://cal.com/flip-van-haaren",
+    "socialUrl": "https://bsky.app/profile/flipvh.bsky.social",
+    "chatUrl": "https://matrix.to/#/!fvwljIbZIqzhNvjKvk:matrix.org"
+  },
+  "defaultUserFlags": {},
+  "defaultOrganizationFlags": {},
+  "defaultSetupConfig": {},
+  "mode": "production",
+  "isLocal": false,
+  "isDeployed": true,
+  "appSlug": "cella",
+  "frontendUrl": "https://www.cellajs.com",
+  "backendUrl": "https://www.cellajs.com/api",
+  "backendAuthUrl": "https://www.cellajs.com/api/auth",
+  "yjsUrl": "wss://www.cellajs.com/yjs",
+  "mcpUrl": "https://www.cellajs.com/mcp",
+  "oauthUrl": "https://www.cellajs.com/oauth",
+  "devPortOffset": 0
+}

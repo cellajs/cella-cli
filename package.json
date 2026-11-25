@@ -47,6 +47,13 @@
       "types": "./dist/pentest.d.ts",
       "import": "./dist/pentest.js"
     },
+    "./infra": {
+      "types": "./dist/infra.d.ts",
+      "import": "./dist/infra.js"
+    },
+    "./infra/program": {
+      "import": "./dist/infra-program.js"
+    },
     "./package.json": "./package.json"
   },
   "files": [
@@ -83,15 +90,45 @@
     "yaml": "^2.9.1",
     "zod": "^4.6.7"
   },
+  "peerDependencies": {
+    "infra": "*",
+    "@pulumi/pulumi": "^3.277.0",
+    "@pulumiverse/scaleway": "^1.62.1",
+    "@aws-sdk/client-s3": "^3.1176.0",
+    "@aws-sdk/s3-request-presigner": "^3.1176.0"
+  },
+  "peerDependenciesMeta": {
+    "infra": {
+      "optional": true
+    },
+    "@pulumi/pulumi": {
+      "optional": true
+    },
+    "@pulumiverse/scaleway": {
+      "optional": true
+    },
+    "@aws-sdk/client-s3": {
+      "optional": true
+    },
+    "@aws-sdk/s3-request-presigner": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@aws-sdk/client-s3": "^3.1176.0",
+    "@aws-sdk/s3-request-presigner": "^3.1176.0",
     "@biomejs/biome": "^2.6.7",
     "@commitlint/cli": "^21.2.4",
     "@commitlint/config-conventional": "^21.2.4",
     "@evilmartians/lefthook": "^2.2.2",
+    "@pulumi/pulumi": "^3.277.0",
+    "@pulumiverse/scaleway": "^1.62.1",
     "@tailwindcss/node": "^4.3.5",
     "@types/node": "26.6.6",
     "@types/semver": "^7.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
+    "ajv": "^8.20.0",
+    "infra": "link:src/infra/tests/fixtures/app",
     "playwright": "^1.65.0",
     "rimraf": "^6.1.4",
     "tailwindcss": "^4.3.5",

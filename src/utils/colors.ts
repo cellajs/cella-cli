@@ -2,7 +2,20 @@ import process from 'node:process';
 import { styleText } from 'node:util';
 import { getEnv, hasEnv } from './env';
 
-type ColorStyle = 'blue' | 'bold' | 'cyan' | 'dim' | 'gray' | 'green' | 'magenta' | 'red' | 'white' | 'yellow';
+type ColorStyle =
+  | 'blue'
+  | 'bold'
+  | 'cyan'
+  | 'dim'
+  | 'gray'
+  | 'green'
+  | 'greenBright'
+  | 'magenta'
+  | 'red'
+  | 'underline'
+  | 'white'
+  | 'yellow'
+  | 'yellowBright';
 
 function colorsEnabled(): boolean {
   if (hasEnv('NO_COLOR')) return false;
@@ -23,10 +36,13 @@ const pc = {
   dim: (text: string) => applyStyle('dim', text),
   gray: (text: string) => applyStyle('gray', text),
   green: (text: string) => applyStyle('green', text),
+  greenBright: (text: string) => applyStyle('greenBright', text),
   magenta: (text: string) => applyStyle('magenta', text),
   red: (text: string) => applyStyle('red', text),
+  underline: (text: string) => applyStyle('underline', text),
   white: (text: string) => applyStyle('white', text),
   yellow: (text: string) => applyStyle('yellow', text),
+  yellowBright: (text: string) => applyStyle('yellowBright', text),
 };
 
 export default pc;

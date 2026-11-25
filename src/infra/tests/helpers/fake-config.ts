@@ -1,0 +1,43 @@
+import type { EngineConfig } from '../../lib/engine-config';
+
+/** Minimal cella-shaped EngineConfig fixture for pure derivation tests. */
+export function fakeConfig(overrides: Partial<EngineConfig> = {}): EngineConfig {
+  return {
+    slug: 'cella',
+    appSlug: 'cella',
+    mode: 'production',
+    domain: 'cellajs.com',
+    frontendUrl: 'https://www.cellajs.com',
+    backendUrl: 'https://www.cellajs.com/api',
+    singleVM: false,
+    services: {
+      frontend: { enabled: true, publicUrl: 'https://www.cellajs.com' },
+      backend: { enabled: true, publicUrl: 'https://www.cellajs.com/api' },
+      cdc: { enabled: true },
+      yjs: { enabled: false, publicUrl: 'wss://www.cellajs.com/yjs' },
+      mcp: { enabled: false, publicUrl: 'https://www.cellajs.com/mcp' },
+      oauth: { enabled: false, publicUrl: 'https://www.cellajs.com/oauth' },
+    },
+    s3: {
+      host: 's3.nl-ams.scw.cloud',
+      region: 'nl-ams',
+      publicBucketName: 'cella-public',
+      privateBucketName: 'cella-private',
+      publicCDNUrl: 'https://cella-public.s3.nl-ams.scw.cloud',
+      privateCDNUrl: 'https://cella-private.s3.nl-ams.scw.cloud',
+    },
+    retention: { backupDays: 7 },
+    has: { ltiPlatform: false },
+    ltiFrameAncestors: [],
+    ...overrides,
+  };
+}
+
+/** A minimal valid `defineServices` entry to hang port and path variations on. */
+export const fakeService = {
+  image: 'r/x:latest',
+  port: 4000,
+  startPeriod: '10s',
+  replacementStrategy: 'start-first',
+  instanceType: 'DEV1-S',
+} as const;
