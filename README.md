@@ -35,6 +35,7 @@ git repository except `audit`, which runs in any folder. The upstream commands, 
 | | `stats` | Count files by kind, in the repository or in what a branch changed |
 | Security | `audit` | Outdated packages, runtime pins and the security overrides a fresh audit asks for; `audit fix` updates them |
 | | `pentest` | Scan a throwaway testbed: a cross-tenant access probe, then Nuclei and ZAP |
+| Operate | `infra` | Set up, apply and deploy the app's environments: hands its words to the app's `infra` workspace, whose CLI prints the run |
 | Upstream | `analyze` | A dry run of the next upgrade |
 | | `upgrade` | Merge upstream onto a fresh branch and open a squash-merge PR |
 | | `align` | The upstream alignments this app has not handled yet: list, read, run their codemods, record them |
@@ -42,7 +43,10 @@ git repository except `audit`, which runs in any folder. The upstream commands, 
 | Gate | `style` | The style check: terminology, docs, comments and frontend code |
 
 The menu leaves out `testbed`, which `pnpm testbed` runs, and `style`, which scripts and CI run. It shows `adopt` only
-when `cella.config.ts` lists `forks`.
+when `cella.config.ts` lists `forks`, and `infra` only when the app has an `infra` workspace.
+
+`pnpm cella infra` passes every word after `infra` as typed, `--help` included, and prints nothing of its own. Ctrl-C
+reaches the infra CLI, and the command exits once that has ended its work.
 
 ## Compatibility
 

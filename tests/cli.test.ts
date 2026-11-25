@@ -111,6 +111,15 @@ describe('parseCommandLine', () => {
     expect(() => parse('a11y', 'report', '--states', 'home')).toThrow(/--states goes with `a11y audit`/);
   });
 
+  it('hands every word after infra to the infra CLI as typed, its help included', () => {
+    expect(parse('infra', 'apply', '--mode', 'production', '--once')).toEqual({
+      words: ['apply', '--mode', 'production', '--once'],
+    });
+    expect(parse('infra', '--help')).toEqual({ words: ['--help'] });
+    expect(parse('infra', 'status', '--json')).toEqual({ words: ['status', '--json'] });
+    expect(parse('infra')).toEqual({ words: [] });
+  });
+
   it('reports with a bare audit and writes with audit fix', () => {
     expect(parse('audit')).toBe('report');
     expect(parse('audit', 'fix')).toBe('fix');
@@ -131,7 +140,7 @@ describe('promptForCommand', () => {
   it('offers what the app allows, and asks for a job only among the ones that run without words', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     selectMock.mockResolvedValueOnce('align');
-    expect((await promptForCommand({ hasForks: false, isUpstreamRepo: false })).options).toEqual({
+    expect((await promptForCommand({ hasForks: false, isUpstreamRepo: false, hasInfra: false })).options).toEqual({
       job: 'list',
       all: false,
       json: false,
@@ -141,11 +150,13 @@ describe('promptForCommand', () => {
     expect(offered()).not.toContain('adopt');
     expect(offered()).not.toContain('testbed');
     expect(offered()).not.toContain('style');
+    expect(offered()).not.toContain('infra');
 
     selectMock.mockReset();
     selectMock.mockResolvedValueOnce('audit').mockResolvedValueOnce('fix');
-    expect((await promptForCommand({ hasForks: true, isUpstreamRepo: true })).options).toBe('fix');
+    expect((await promptForCommand({ hasForks: true, isUpstreamRepo: true, hasInfra: true })).options).toBe('fix');
     expect(offered()).toContain('adopt');
+    expect(offered()).toContain('infra');
     expect(offered()).not.toContain('analyze');
   });
 });
@@ -169,6 +180,7 @@ describe('exit codes', () => {
     ['an unknown job', 2, repo, ['testbed', 'restart']],
     ['a command outside a git repository', 2, plain, ['stats']],
     ['an adopt with no forks to adopt from', 1, repo, ['adopt']],
+    ['an infra in an app without an infra workspace', 2, repo, ['infra', 'status']],
   ])('%s exits %i', (_, code, cwd, args) => {
     const run = spawnSync(join(cli, 'node_modules/.bin/tsx'), [join(cli, 'index.ts'), ...args], { cwd });
     expect(run.status).toBe(code);

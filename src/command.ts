@@ -1,7 +1,7 @@
 import type { CellaCliConfig } from './config/types';
 
 /** A command's `--help` heading and menu place; a gate shows in `--help` only, since scripts and CI run it. */
-export type CommandGroup = 'develop' | 'security' | 'upstream' | 'gate';
+export type CommandGroup = 'develop' | 'security' | 'operate' | 'upstream' | 'gate';
 
 /** Flags or an argument in commander's notation, with its line in `--help`. */
 export type CommandOption = [flags: string, description: string];
@@ -12,6 +12,8 @@ export interface MenuContext {
   hasForks: boolean;
   /** The checkout is the template itself, which has no upstream to upgrade from. */
   isUpstreamRepo: boolean;
+  /** The app has an `infra` workspace. */
+  hasInfra: boolean;
 }
 
 interface CommandBase<Options, Job extends string | undefined> {
@@ -22,6 +24,11 @@ interface CommandBase<Options, Job extends string | undefined> {
   inMenu?: (context: MenuContext) => boolean;
   /** Runs outside a git repository too: the entry skips its git check. */
   outsideGit?: true;
+  /**
+   * Hands every word after its name, unparsed, to a program the app runs, which prints all the run shows: the entry
+   * adds no header or closing line, and `--help` after the name is that program's.
+   */
+  handsOver?: true;
   /**
    * The jobs its first operand names, the default first. The entry refuses any other and hands the default to `parse`
    * when none is named; the menu asks for one that runs without words. Empty: the command has one job.
