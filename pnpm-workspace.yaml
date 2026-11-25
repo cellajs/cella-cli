@@ -6,3 +6,5 @@ overrides:
 allowBuilds:
   '@evilmartians/lefthook': true
   esbuild: true
+  # Pulumi's gRPC stack asks to build protobufjs; it runs from its published files.
+  protobufjs: false

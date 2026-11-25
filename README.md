@@ -35,7 +35,7 @@ git repository except `audit`, which runs in any folder. The upstream commands, 
 | | `stats` | Count files by kind, in the repository or in what a branch changed |
 | Security | `audit` | Outdated packages, runtime pins and the security overrides a fresh audit asks for; `audit fix` updates them |
 | | `pentest` | Scan a throwaway testbed: a cross-tenant access probe, then Nuclei and ZAP |
-| Operate | `infra` | Set up, apply and deploy the app's environments: hands its words to the app's `infra` workspace, whose CLI prints the run |
+| Operate | `infra` | Set up, apply and deploy the app's environments on Scaleway: the deploy engine, described in [src/infra/README.md](src/infra/README.md) |
 | Upstream | `analyze` | A dry run of the next upgrade |
 | | `upgrade` | Merge upstream onto a fresh branch and open a squash-merge PR |
 | | `align` | The upstream alignments this app has not handled yet: list, read, run their codemods, record them |
@@ -45,8 +45,10 @@ git repository except `audit`, which runs in any folder. The upstream commands, 
 The menu leaves out `testbed`, which `pnpm testbed` runs, and `style`, which scripts and CI run. It shows `adopt` only
 when `cella.config.ts` lists `forks`, and `infra` only when the app has an `infra` workspace.
 
-`pnpm cella infra` passes every word after `infra` as typed, `--help` included, and prints nothing of its own. Ctrl-C
-reaches the infra CLI, and the command exits once that has ended its work.
+`pnpm cella infra` hands every word after `infra` to the deploy engine as typed, `--help` included, and prints nothing
+of its own. A first word that names a task (`main-job`, `deploy`, `description-hash` and the others the app's `infra`
+scripts list) runs that task; any other runs the infra CLI. Ctrl-C reaches the engine, which ends its own work and
+then the process.
 
 ## Compatibility
 
@@ -54,8 +56,8 @@ Across 1.x releases these stay as they are, and a change to one waits for 2.0:
 
 - the command names and what each does, and their flags
 - the keys of `cella/cella.config.ts` and of the adapter files in `cella/`
-- the package's subpaths (`config`, `bench`, `style`, `drive`, `a11y`, `screenshots`, `pentest`) and the names they
-  export
+- the package's subpaths (`config`, `bench`, `style`, `drive`, `a11y`, `screenshots`, `pentest`, `infra`,
+  `infra/program`, `infra/contract`) and the names they export
 - the `--json` payloads
 - the exit codes
 - the files the upgrade keeps in the app, `cella/cella.manifest.json` and `cella/cella.alignments.json`, and the ref

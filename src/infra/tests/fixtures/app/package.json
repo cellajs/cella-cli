@@ -1,0 +1,9 @@
+{
+  "name": "infra",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./config/*": "./config/*.ts",
+    "./package.json": "./package.json"
+  }
+}

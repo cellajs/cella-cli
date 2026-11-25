@@ -11,7 +11,7 @@ import { CommanderError } from 'commander';
 import { parseCommandLine, promptForCommand } from './cli';
 import type { MenuContext } from './command';
 import { isUpstreamRepo, loadConfig } from './config/load';
-import { infraManifest } from './infra';
+import { hasInfraWorkspace } from './infra/command';
 import { configFile } from './upstream/managed-files';
 import pc from './utils/colors';
 import { printHeader, printLogo, setJsonMode } from './utils/display';
@@ -24,7 +24,7 @@ async function readMenuContext(repoRoot: string): Promise<MenuContext> {
   return {
     hasForks: (config?.forks?.length ?? 0) > 0,
     isUpstreamRepo: isUpstreamRepo(repoRoot),
-    hasInfra: existsSync(join(repoRoot, infraManifest)),
+    hasInfra: hasInfraWorkspace(repoRoot),
   };
 }
 

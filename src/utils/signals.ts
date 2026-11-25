@@ -10,6 +10,8 @@ export function onShutdown(cleanup: Cleanup): () => void {
   return () => cleanups.delete(cleanup);
 }
 
+const installed: [NodeJS.Signals, () => void][] = [];
+
 /**
  * SIGINT exits 130 and SIGTERM 143, as a shell reports a process the signal ended, after the registered cleanups ran,
  * newest first. A second signal during cleanup ends the CLI at once.
@@ -25,6 +27,11 @@ export function installSignalHandlers(): void {
     }
     process.exit(code);
   };
-  process.once('SIGINT', handle(130));
-  process.once('SIGTERM', handle(143));
+  installed.push(['SIGINT', handle(130)], ['SIGTERM', handle(143)]);
+  for (const [signal, handler] of installed) process.once(signal, handler);
+}
+
+/** Leaves ctrl-c and a kill to code the CLI runs in its own process, which ends its work and the process itself. */
+export function handOverSignals(): void {
+  for (const [signal, handler] of installed.splice(0)) process.off(signal, handler);
 }

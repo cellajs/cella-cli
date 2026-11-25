@@ -22,6 +22,20 @@ const subpathExports: Record<string, string[]> = {
   './a11y': ['auditContrast', 'defineA11yApp', 'defineA11yBase', 'openState', 'settle'],
   './screenshots': ['defineScreenshotsApp', 'defineScreenshotsBase'],
   './pentest': ['definePentestApp', 'definePentestBase'],
+  './infra': [
+    'defineEngineConfig',
+    'defineEnvSuppliers',
+    'defineGeneral',
+    'defineManagedKeys',
+    'defineRuntimeSecrets',
+    'defineServices',
+    'defineStores',
+    'frontendProxyDockerfile',
+    'postgresManaged',
+  ],
+  // An app's infra workspace runs these: the Pulumi program, and the engine its own tests check files against
+  './infra/program': [],
+  './infra/contract': [],
 };
 
 /**
@@ -64,7 +78,10 @@ describe('release package', () => {
     }
   });
 
-  it.each(Object.entries(subpathExports))('%s exports its names', (subpath, names) => {
+  const loadsAlone = Object.entries(subpathExports).filter(
+    ([subpath]) => subpath !== './infra/program' && subpath !== './infra/contract',
+  );
+  it.each(loadsAlone)('%s exports its names', (subpath, names) => {
     const specifier = `@cellajs/cli${subpath.slice(1)}`;
     const script = `console.log(JSON.stringify(Object.keys(await import('${specifier}'))))`;
     const exported: string[] = JSON.parse(run(process.execPath, ['--input-type=module', '-e', script]));

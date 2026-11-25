@@ -3,14 +3,16 @@ name: Release
 # release-please maintains a "release PR" from Conventional Commits. Merging it
 # bumps the version, updates the CHANGELOG, creates the git tag and GitHub
 # Release. When a release is cut, the package is built and published to npm.
+# A manual run publishes a prerelease of the branch it runs on, under the `next`
+# dist-tag: an engine change reaches an app's staging before its release.
 
 permissions: {}
 
 on:
   push:
     branches: [main]
-  # Manual trigger to (re)run the publish job for the current main/tag, e.g. if a
-  # transient install/build failure blocked publishing after a release was cut.
+  # A prerelease of the branch the run is started on. A stable publish that failed
+  # is re-run from its own run.
   workflow_dispatch:
 
 concurrency:
@@ -19,6 +21,7 @@ concurrency:
 
 jobs:
   release-please:
+    if: ${{ github.event_name == 'push' }}
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -49,7 +52,8 @@ jobs:
 
   publish:
     needs: release-please
-    if: ${{ needs.release-please.outputs.release-created == 'true' || github.event_name == 'workflow_dispatch' }}
+    # always(): a manual run skips release-please, and a skipped need would skip this job too
+    if: ${{ always() && (needs.release-please.outputs.release-created == 'true' || github.event_name == 'workflow_dispatch') }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -74,10 +78,13 @@ jobs:
       - name: Build
         run: pnpm build
 
-      # Prefer OIDC trusted publishing (tokenless). Configure the npm Trusted
-      # Publisher for cellajs/cella-cli + this workflow. NPM_TOKEN is a
-      # fallback if trusted publishing is not yet set up.
+      # A prerelease takes the next patch's number with the run's, so `next` never
+      # sorts above the release it leads to.
+      - name: Version the prerelease
+        if: ${{ github.event_name == 'workflow_dispatch' }}
+        run: npm version --no-git-tag-version "$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")-next.${{ github.run_number }}"
+
+      # OIDC trusted publishing alone: npm trusts this workflow of
+      # cellajs/cella-cli, and no token exists to leak.
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --provenance
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ github.event_name == 'workflow_dispatch' && 'next' || 'latest' }}
