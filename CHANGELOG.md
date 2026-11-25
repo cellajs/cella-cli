@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.9.0](https://github.com/cellajs/cella-cli/compare/cli-0.8.4...cli-0.9.0) (2026-11-25)
+
+
+### ⚠ BREAKING CHANGES
+
+* **infra:** the deploy engine ships in the CLI, and `cella infra` runs it in process ([#111](https://github.com/cellajs/cella-cli/issues/111))
+
+### 🎉 New features
+
+* **infra:** the deploy engine ships in the CLI, and `cella infra` runs it in process ([#111](https://github.com/cellajs/cella-cli/issues/111)) ([93ff78a](https://github.com/cellajs/cella-cli/commit/93ff78a7f492df65bed6afd0db56e72aca059a1a))
+
 ## [0.8.4](https://github.com/cellajs/cella-cli/compare/cli-0.8.3...cli-0.8.4) (2026-11-25)
 
 
