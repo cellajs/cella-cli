@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.8.4](https://github.com/cellajs/cella-cli/compare/cli-0.8.3...cli-0.8.4) (2026-11-25)
+
+
+### 🎉 New features
+
+* **infra:** `cella infra` hands its words to the app's infra CLI ([#109](https://github.com/cellajs/cella-cli/issues/109)) ([9a09fe0](https://github.com/cellajs/cella-cli/commit/9a09fe0407b29caec119b19825cd82a48318f0ac))
+* **pentest:** the probe calls as a member and signed out, ZAP scans signed in, and report --pdf writes a report ([#110](https://github.com/cellajs/cella-cli/issues/110)) ([5ee0f52](https://github.com/cellajs/cella-cli/commit/5ee0f52c02b3112c3ec1f15ed0d5d82cc365e351))
+
+
+### 🐞 Bug fixes
+
+* **bench:** the scenario list is drawn like the menu, and every menu erases itself once answered ([#105](https://github.com/cellajs/cella-cli/issues/105)) ([9d190dd](https://github.com/cellajs/cella-cli/commit/9d190dd394e84bc912e341c74ed9f7026395ab0f))
+
 ## [0.8.3](https://github.com/cellajs/cella-cli/compare/cli-0.8.2...cli-0.8.3) (2026-11-17)
 
 
