@@ -213,11 +213,12 @@ database after, since the scans write rows and run into the rate limits. It refu
 
 | Check | What it does |
 |-------|--------------|
-| `probe` | Calls every read route scoped to a tenant, an organization or a user with the ids of an organization, once as its admin and once as an outsider with no membership in its tenant. Any answer to the outsider other than 403 or 404 is a finding |
+| `probe` | Calls every read route scoped to a tenant, an organization or a user with the ids of an organization, once as its admin, once signed out and once as an outsider with no membership in its tenant. A route that refuses the organization's least role is called as such a member too. Any answer to them other than 401, 403 or 404 is a finding |
 | `nuclei` | Nuclei's templates for misconfigurations and exposures against the testbed's origin, signed in |
-| `zap` | ZAP's API scan from the app's OpenAPI spec: passive rules, then a capped active scan, signed in |
+| `zap` | ZAP's API scan from the app's OpenAPI spec with the organization's ids filled in: passive rules, then a capped active scan, signed in as its admin |
 
-A run fails on a finding of high or critical severity, and every read the probe lets through to the outsider is one. A
+A run fails on a finding of high or critical severity, and every read the probe lets through to a caller but the
+admin is one. A
 scanner that failed or timed out fails it too. `pnpm cella pentest report` prints the last run's findings.
 
 The scanners run as Docker images pinned by digest, on the host network, where they reach the testbed by its own origin.
@@ -225,9 +226,14 @@ Results stay in `.git/cella-pentest/`, out of the repository, because the scanne
 the run signs out at the end.
 
 `cella/pentest.ts` describes the app: the query that picks the seeded users, the operations a scan must skip because
-they end its session or delete what it needs, the guards that mark a route as scoped, and what fills each route's ids.
-`cella/pentest.app.ts` adds the app's own skips, guards and ids, and its `remove` drops base entries the app does not
-have. A route whose ids nothing fills is listed as not probed: the report says what the probe did not reach.
+they end its session or delete what it needs, the guards that mark a route as scoped, what fills each route's ids, the
+routes the least role is refused, and the findings the app accepts, each with its reason. `cella/pentest.app.ts` adds
+the app's own entries, and its `remove` drops base entries the app does not have.
+
+`pnpm cella pentest report --pdf` writes the last run as a self-run penetration test report for a customer: the app's
+version and commit, scope, method, every finding with its status, and the routes the probe did not reach, as a PDF
+beside the run's results. It is built from the run's summary alone, never from scanner output, and it refuses to write
+when its text holds a session, a local address or an id the run filled in. A route whose ids nothing fills is listed as not probed: the report says what the probe did not reach.
 
 ## Style
 

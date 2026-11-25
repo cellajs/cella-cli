@@ -1,5 +1,6 @@
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { rootPackage } from '../utils/app';
 import { auditContrast } from './adapter';
 import { type Criterion, criteria } from './criteria';
 
@@ -53,11 +54,6 @@ export interface Ledger {
 
 /** Committed, and `ignored` for upgrades: each app keeps its own. */
 export const ledgerFile = 'cella/a11y-ledger.json';
-
-/** The root package's name and version. The name is the same in every mode, where the config slug is not. */
-export function rootPackage(repoRoot: string): { name: string; version: string } {
-  return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
-}
 
 /**
  * Decides a row from its evidence. Any failure makes it Partially Supports; only rows whose checks all ran and passed
