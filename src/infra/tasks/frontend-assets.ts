@@ -55,10 +55,9 @@ function contentHeaders(key: string): { ContentType: string; ContentEncoding?: '
 const hashedPrefix = 'assets/';
 
 /**
- * Content-hashed, immutable paths: existence of the key proves the content
- * matches. Only /assets/ qualifies; /static/ keys keep stable names with
- * changing content (docs.gen JSON, openapi.json, flags), so existence proves
- * nothing there.
+ * Content-hashed paths, cached as immutable. Only /assets/ qualifies; /static/
+ * keys keep stable names with changing content (docs.gen JSON, openapi.json,
+ * flags). A name proves no content: the upload compares ETags for every key.
  */
 export function isHashedPath(key: string): boolean {
   return key.startsWith(hashedPrefix);
@@ -120,9 +119,9 @@ async function eachConcurrently<T>(items: readonly T[], work: (item: T) => Promi
 
 /**
  * Upload a release's frontend files with the deploy key: the bundle first, then the file list and the entry files under the release's
- * prefix, which the publish copies to the root after version verification. Hashed paths get a 1-year immutable cache and skip upload when
- * the key already exists (content-addressed names make that check exact). Stable-named keys (static/, favicon, robots.txt) change content
- * under the same name: they get a short cache and skip only when the remote ETag matches the local MD5.
+ * prefix, which the publish copies to the root after version verification. Hashed paths get a 1-year immutable cache, stable-named keys
+ * (static/, favicon, robots.txt) a short one. A file is skipped only when the bucket's ETag is its local MD5: a key that writes the
+ * bucket can put other content under any name.
  */
 export async function uploadFrontendAssets(opts: UploadAssetsOptions): Promise<{ uploaded: number; skipped: number }> {
   const log = opts.log ?? ((message: string) => console.info(message));
@@ -136,9 +135,8 @@ export async function uploadFrontendAssets(opts: UploadAssetsOptions): Promise<{
   let uploaded = 0;
   let skipped = 0;
   await eachConcurrently(keys, async (key) => {
-    const hashed = isHashedPath(key);
-    const body = hashed && remoteEtags.has(key) ? undefined : readFileSync(join(opts.distDir, key));
-    if (!body || (!hashed && remoteEtags.get(key) === createHash('md5').update(body).digest('hex'))) {
+    const body = readFileSync(join(opts.distDir, key));
+    if (remoteEtags.get(key) === createHash('md5').update(body).digest('hex')) {
       skipped++;
       return;
     }
@@ -148,7 +146,7 @@ export async function uploadFrontendAssets(opts: UploadAssetsOptions): Promise<{
         Key: key,
         Body: body,
         ...contentHeaders(key),
-        CacheControl: hashed ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
+        CacheControl: isHashedPath(key) ? 'public, max-age=31536000, immutable' : 'public, max-age=3600',
       }),
     );
     uploaded++;

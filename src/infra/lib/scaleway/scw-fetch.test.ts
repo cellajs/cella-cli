@@ -12,7 +12,14 @@ describe('carriesSecretValues', () => {
     expect(carriesSecretValues('https://api.scaleway.com/iam/v1alpha1/api-keys/SCWXXX')).toBe(true);
   });
 
+  it('flags database user endpoints (create and update bodies carry the role password)', () => {
+    expect(carriesSecretValues('https://api.scaleway.com/rdb/v1/regions/fr-par/instances/uuid/users')).toBe(true);
+    expect(carriesSecretValues('https://api.scaleway.com/rdb/v1/regions/fr-par/instances/uuid/users/admin_role')).toBe(true);
+    expect(carriesSecretValues('https://api.scaleway.com/rdb/v1/regions/fr-par/instances/uuid/users?name=admin_role')).toBe(true);
+  });
+
   it('leaves value-free endpoints loggable for debugging', () => {
+    expect(carriesSecretValues('https://api.scaleway.com/rdb/v1/regions/fr-par/instances/uuid/databases')).toBe(false);
     expect(carriesSecretValues('https://api.scaleway.com/iam/v1alpha1/applications?name=x')).toBe(false);
     expect(carriesSecretValues('https://api.scaleway.com/domain/v2beta1/dns-zones')).toBe(false);
     expect(carriesSecretValues('https://api.scaleway.com/instance/v1/zones/fr-par-1/servers')).toBe(false);

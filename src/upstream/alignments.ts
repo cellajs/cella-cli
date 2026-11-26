@@ -13,9 +13,10 @@
  */
 
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import { git, splitPrNumber } from '../utils/git';
+import { writeOwnedFile } from '../utils/repo-files';
 
 /** Upstream folder holding one subfolder per alignment. Upstream-only: never merged into an app. */
 export const alignmentsDir = 'cella/alignments';
@@ -242,8 +243,7 @@ export async function writePending(cwd: string, ids: string[]): Promise<void> {
     await rm(path, { force: true });
     return;
   }
-  await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify({ pending }, null, 2)}\n`, 'utf8');
+  await writeOwnedFile(path, `${JSON.stringify({ pending }, null, 2)}\n`);
 }
 
 /** GitHub permalink to an alignment's README at a commit, when upstream is on GitHub. */

@@ -5,9 +5,9 @@ import { retry } from '../utils/retry.ts';
 // SCW_DEBUG only, never the generic DEBUG var: verbose mode prints API bodies into retained CI logs.
 const DEBUG = process.env.SCW_DEBUG === '1';
 
-/** True for endpoints whose bodies carry live secret values (Secret Manager access, IAM api-key minting, a machine's user data). Verbose logging redacts these bodies. */
+/** True for endpoints whose bodies carry live secret values (Secret Manager access, IAM api-key minting, a machine's user data, a database role's password). Verbose logging redacts these bodies. */
 export function carriesSecretValues(url: string): boolean {
-  return url.includes('/secret-manager/') || url.includes('/api-keys') || url.includes('/user_data/');
+  return url.includes('/secret-manager/') || url.includes('/api-keys') || url.includes('/user_data/') || /\/rdb\/.+\/users(?:[/?]|$)/.test(url);
 }
 
 const REDACTED = '[redacted: secret-bearing endpoint]';

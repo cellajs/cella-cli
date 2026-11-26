@@ -1,6 +1,6 @@
 import { existsSync } from 'node:fs';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
-import { dirname, join } from 'node:path';
+import { readFile, rm } from 'node:fs/promises';
+import { join } from 'node:path';
 import type { RuntimeConfig } from '../config/types';
 import { printProgressStep } from '../utils/display';
 import {
@@ -13,6 +13,7 @@ import {
   revParse,
   stagePath,
 } from '../utils/git';
+import { writeOwnedFile } from '../utils/repo-files';
 import { onShutdown } from '../utils/signals';
 import {
   alignmentsDir,
@@ -358,7 +359,6 @@ export async function recordUpgrade(repoRoot: string, upstream: UpstreamContext,
   };
   const manifestPath = join(repoRoot, manifestFile);
   // A fresh app may not have the cella/ folder yet on its first upgrade.
-  await mkdir(dirname(manifestPath), { recursive: true });
-  await writeFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+  await writeOwnedFile(manifestPath, `${JSON.stringify(manifest, null, 2)}\n`);
   await stagePath(repoRoot, manifestFile);
 }

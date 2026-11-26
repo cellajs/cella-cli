@@ -1,7 +1,18 @@
 import { execFileSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdir, rm, writeFile } from 'node:fs/promises';
+import { dirname, join } from 'node:path';
 import { maxBuffer } from './git';
+
+/**
+ * Write a file the CLI owns in the checkout, making its folder. Whatever is at the path goes first: a symlink
+ * that arrived with a merge would carry the write outside the checkout.
+ */
+export async function writeOwnedFile(path: string, content: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await rm(path, { force: true });
+  await writeFile(path, content, 'utf8');
+}
 
 /**
  * Repo-relative files git tracks, plus untracked ones it does not ignore, that exist on disk, each once, in

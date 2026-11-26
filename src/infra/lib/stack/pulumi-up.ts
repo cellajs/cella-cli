@@ -127,7 +127,7 @@ export async function runPulumiUpWithHint(stack: string, cwd: string, env: NodeJ
     process.stdout.write(chunk);
   });
   // With a debug log the verbose engine/provider stream goes to the file only; the terminal keeps Pulumi's normal output on stdout.
-  const debugStream = opts.debugLogPath ? createWriteStream(opts.debugLogPath, { flags: 'a' }) : undefined;
+  const debugStream = opts.debugLogPath ? createWriteStream(opts.debugLogPath, { flags: 'a', mode: 0o600 }) : undefined;
   if (opts.debugLogPath) console.info(`  ${pc.dim(`engine + provider log: ${opts.debugLogPath}`)}`);
   let stderrBuf = '';
   child.stderr?.on('data', (chunk: Buffer) => {

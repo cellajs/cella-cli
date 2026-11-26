@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { copyFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseAclInput } from '../../lib/db-exposure-acl';
@@ -80,11 +80,15 @@ export function readDbCa(env: NodeJS.ProcessEnv, stack: string): string {
   return readDatabaseOutputs(env, stack)[DB_CA_OUTPUT] ?? '';
 }
 
-/** Write the instance CA to a 0600 temp file for `sslrootcert`, so the printed break-glass DSN verifies the server certificate and hostname. Undefined when the CA output is unavailable. */
-function writeDbCaFile(env: NodeJS.ProcessEnv, stack: string, environment: string): string | undefined {
+/**
+ * Write the instance CA to a 0600 file in a folder this run creates, for `sslrootcert`: the printed break-glass DSN then verifies the
+ * server certificate and hostname. A fixed name in the shared temp folder is one another account can create first. The file stays after
+ * the CLI exits, since the printed string names it. Undefined when the CA output is unavailable.
+ */
+function writeDbCaFile(env: NodeJS.ProcessEnv, stack: string): string | undefined {
   const ca = readDbCa(env, stack);
   if (!ca) return undefined;
-  const caPath = join(tmpdir(), `cella-db-ca-${environment}.pem`);
+  const caPath = join(mkdtempSync(join(tmpdir(), 'cella-db-ca-')), 'ca.pem');
   writeFileSync(caPath, `${ca}\n`, { mode: 0o600 });
   return caPath;
 }
@@ -264,11 +268,16 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
       `${warningMark} Endpoint applied but no public DSN output yet: Scaleway may still be provisioning the load balancer. Re-run to read it.`,
     );
   } else {
+    // The printed DSN carries no password: another account on the machine reads a process's arguments, not its environment.
+    const url = new URL(dsn);
+    const password = decodeURIComponent(url.password);
+    url.password = '';
     // Verified TLS for the printed DSN, which carries the admin role and travels over the open endpoint.
-    const caPath = writeDbCaFile(env, stack, context.environment);
-    const shownDsn = caPath ? hardenPublicDsn(dsn, caPath) : dsn;
-    console.info(`\n${checkMark} ${pc.bold('Database exposed.')} Admin connection string:\n\n    ${pc.cyan(shownDsn)}\n`);
-    console.info(`  ${pc.dim('Example:')} psql "${shownDsn}"`);
+    const caPath = writeDbCaFile(env, stack);
+    const shownDsn = caPath ? hardenPublicDsn(url.href, caPath) : url.href;
+    console.info(`\n${checkMark} ${pc.bold('Database exposed.')} Admin connection string, which holds no password:\n\n    ${pc.cyan(shownDsn)}\n`);
+    const quotedPassword = `'${password.replaceAll("'", `'\\''`)}'`;
+    console.info(`  ${pc.dim('Example, setting the password for this one command:')} PGPASSWORD=${quotedPassword} psql "${shownDsn}"`);
     if (!caPath) console.warn(`  ${warningMark} CA output unavailable; DSN left encrypt-only (sslmode=require). Re-run to pick up the CA.`);
   }
   console.info(`\n  ${pc.bold(`When finished, run "${actionLabel('db-close')}": a deploy does not close it.`)}`);

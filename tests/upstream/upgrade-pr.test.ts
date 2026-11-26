@@ -7,7 +7,12 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { buildUpgradePrBody, readPackageVersionAtRef } from '../../src/upstream/pull-requests';
+import {
+  buildUpgradePrBody,
+  type GhPullRequest,
+  ownUpgradePrs,
+  readPackageVersionAtRef,
+} from '../../src/upstream/pull-requests';
 import { readManifestAtRef, readUpgradePointAtRef } from '../../src/upstream/upgrade-point';
 import { createManifestRepo, exec } from '../helpers/test-env';
 
@@ -86,6 +91,20 @@ describe('buildUpgradePrBody', () => {
     expect(body).toContain('Upgrades cella to `bbbbbbb`.');
     expect(body).toContain('- `aaaaaaa` fix: thing (#12)');
     expect(body).not.toContain('https://github.com');
+  });
+});
+
+describe('ownUpgradePrs', () => {
+  it('never offers a pull request from another repository, whatever its branch is named', () => {
+    const pr = (number: number, isCrossRepository: boolean): GhPullRequest => ({
+      number,
+      title: 'chore: upgrade',
+      headRefName: 'cella/upgrade/x',
+      url: `https://github.com/acme/app/pull/${number}`,
+      isCrossRepository,
+      author: { login: isCrossRepository ? 'stranger' : 'developer' },
+    });
+    expect(ownUpgradePrs([pr(2, true), pr(1, false)], 'cella/upgrade').map((p) => p.number)).toEqual([1]);
   });
 });
 

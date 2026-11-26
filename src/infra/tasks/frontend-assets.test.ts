@@ -75,7 +75,7 @@ describe('uploadFrontendAssets', () => {
     listCalls = 0;
     listPageSize = 1000;
     remoteObjects = [
-      { Key: 'assets/app-abc123.js', ETag: `"${md5('anything: existence alone decides hashed keys')}"` },
+      { Key: 'assets/app-abc123.js', ETag: `"${md5('hashed existing')}"` },
       // Same key, same content on the remote: ETag matches the local MD5
       { Key: 'static/docs.gen/operations.gen.json', ETag: `"${md5('[{"id":"getMe"}]')}"` },
       // Same key, but the remote holds a previous release's content
@@ -87,7 +87,7 @@ describe('uploadFrontendAssets', () => {
 
   afterEach(() => rmSync(distDir, { recursive: true, force: true }));
 
-  it('skips existing hashed keys, skips unchanged stable keys, re-uploads changed ones, and puts the entry files under the release prefix', async () => {
+  it('skips keys whose ETag is the local MD5, re-uploads changed ones, and puts the entry files under the release prefix', async () => {
     const result = await uploadFrontendAssets({ distDir, bucket: 'b', region: 'r', sha: 'c'.repeat(40), log: () => {} });
 
     expect(result).toEqual({ uploaded: 3, skipped: 2 });
@@ -96,6 +96,13 @@ describe('uploadFrontendAssets', () => {
     expect(puts['assets/app-def456.js']?.CacheControl).toBe('public, max-age=31536000, immutable');
     expect(puts['static/openapi.json']?.CacheControl).toBe('public, max-age=3600');
     expect(puts['favicon.ico']?.CacheControl).toBe('public, max-age=3600');
+  });
+
+  it('re-uploads a hashed asset the bucket holds under other content: its name proves no content', async () => {
+    remoteObjects[0] = { Key: 'assets/app-abc123.js', ETag: `"${md5('overwritten with the deploy key')}"` };
+    await uploadFrontendAssets({ distDir, bucket: 'b', region: 'r', sha: 'c'.repeat(40), log: () => {} });
+
+    expect(puts['assets/app-abc123.js']?.CacheControl).toBe('public, max-age=31536000, immutable');
   });
 
   it('walks the full listing across pages instead of probing per key', async () => {
