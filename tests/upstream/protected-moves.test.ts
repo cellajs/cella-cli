@@ -121,10 +121,7 @@ describe('repairIncomingRenames', () => {
 
   it('never re-aims onto a path that existed at the merge-base', () => {
     const changes = new Map<string, FileChange>([['b/y.json', rename('a/x.json')]]);
-    repairIncomingRenames(
-      changes,
-      context({ base: ['a/x.json', 'b/x.json'], incoming: ['b/x.json', 'b/y.json'], local: ['a/x.json'] }),
-    );
+    repairIncomingRenames(changes, context({ base: ['a/x.json', 'b/x.json'], incoming: ['b/x.json', 'b/y.json'], local: ['a/x.json'] }));
 
     expect(changes.get('b/y.json')?.oldPath).toBe('a/x.json');
     expect(changes.has('b/x.json')).toBe(false);
@@ -157,8 +154,7 @@ function createMovedFolderRepo(): string {
     'locales/nl/app.json': '{"app_title":"Fork app"}\n',
     'locales/nl/about.json': '{"about_us":"Over het fork"}\n',
     'locales/nl/appError.json': '{"fork_error":"Fork fout"}\n',
-    'locales/nl/common.json':
-      '{"back":"Terug","cancel":"Annuleren","close":"Sluiten","save":"Opslaan","fork":"Fork"}\n',
+    'locales/nl/common.json': '{"back":"Terug","cancel":"Annuleren","close":"Sluiten","save":"Opslaan","fork":"Fork"}\n',
   });
   exec('git add -A && git commit -q -m app', dir);
   return dir;
@@ -203,10 +199,7 @@ describe('classifyFiles', () => {
   it('keeps an app-only file whose content upstream adds at another path', () => {
     const base = { 'src/index.ts': 'export {};' };
     const app = { ...base, 'app/keep/.gitkeep': '', 'src/own.ts': 'export {};' };
-    const files = classifyFiles(
-      trees(base, app, { ...base, 'assets/.gitkeep': '', 'src/new.ts': 'export {};' }),
-      unprotected,
-    );
+    const files = classifyFiles(trees(base, app, { ...base, 'assets/.gitkeep': '', 'src/new.ts': 'export {};' }), unprotected);
 
     for (const path of ['app/keep/.gitkeep', 'src/own.ts']) {
       expect(

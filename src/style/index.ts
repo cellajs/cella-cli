@@ -41,13 +41,7 @@ export const styleRules: Rule[] = [
 ];
 
 /** The findings of each rule in `rules` that reads `file` and is not exempt from it, by position. */
-export function checkFile(
-  rules: Rule[],
-  file: string,
-  source: string,
-  run: StyleRun,
-  { exempt }: StyleExceptions,
-): Finding[] {
+export function checkFile(rules: Rule[], file: string, source: string, run: StyleRun, { exempt }: StyleExceptions): Finding[] {
   return rules
     .filter((rule) => rule.reads(file) && !exempt[rule.id]?.some((entry) => isUnder(file, entry)))
     .flatMap((rule) => rule.check(file, source, run))
@@ -77,10 +71,7 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
   // Alignments are written where they live: an app's own changes to its own paths owe none. Every upgraded app has an
   // upgrade manifest, and an app's scaffold can hold a copy of the alignments folder, so the folder alone does not mark
   // the template.
-  const owesAlignments =
-    paths.length === 0 &&
-    files.includes('cella/alignments/_TEMPLATE.md') &&
-    !files.includes('cella/cella.manifest.json');
+  const owesAlignments = paths.length === 0 && files.includes('cella/alignments/_TEMPLATE.md') && !files.includes('cella/cella.manifest.json');
   const branch = owesAlignments && base ? await branchChanges(root, base) : undefined;
   const run: StyleRun = {
     root,
@@ -103,9 +94,7 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
   }
 
   const changedLineRules = new Set(styleRules.filter((rule) => rule.changedLines).map((rule) => rule.id));
-  const ratchetFiles = new Set(
-    findings.filter((finding) => changedLineRules.has(finding.rule)).map(({ file }) => file),
-  );
+  const ratchetFiles = new Set(findings.filter((finding) => changedLineRules.has(finding.rule)).map(({ file }) => file));
   const ratchet = base ? await changedLines(root, base, ratchetFiles) : { changed: null, untracked: new Set<string>() };
   const kept = onChangedLines(findings, changedLineRules, ratchet.changed, ratchet.untracked);
 
@@ -116,9 +105,7 @@ async function runStyle(root: string, { paths }: StyleOptions): Promise<number> 
   }
 
   if (kept.length > 0) {
-    console.info(
-      [`[style] ${kept.length} finding(s):`, ...kept.map((finding) => `  ${formatFinding(finding)}`)].join('\n'),
-    );
+    console.info([`[style] ${kept.length} finding(s):`, ...kept.map((finding) => `  ${formatFinding(finding)}`)].join('\n'));
     return 1;
   }
   console.info('[style] OK, terminology, documentation, comments and frontend code follow the required style.');

@@ -3,8 +3,7 @@ import { check } from '../../tests/helpers/style-repo';
 import { stampRules } from './stamp-rules';
 
 const file = 'backend/src/modules/example/operations/update-example.ts';
-const rules = (source: string, path = file) =>
-  check(stampRules, path, source).map(({ rule, line, column }) => `${rule} ${line}:${column}`);
+const rules = (source: string, path = file) => check(stampRules, path, source).map(({ rule, line, column }) => `${rule} ${line}:${column}`);
 
 describe('stamp rules', () => {
   it('finds a hand-written pair in any order, apart, in shorthand or with any writer value', () => {

@@ -16,9 +16,7 @@ interface ComparableVersion {
  */
 export function parseComparableVersion(version: string): ComparableVersion | null {
   const trimmed = version.trim();
-  const match = trimmed.match(
-    /^(?:\^|~|>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/,
-  );
+  const match = trimmed.match(/^(?:\^|~|>=|<=|>|<|=)?\s*v?(\d+)(?:\.(\d+))?(?:\.(\d+))?(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/);
 
   if (!match) return null;
 

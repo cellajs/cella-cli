@@ -11,19 +11,11 @@ const dist = (p95: number): Distribution => ({
   p99: p95 * 1.5,
   max: p95 * 2,
 });
-const failed = (results: { ok: boolean; text: string }[]) =>
-  results.filter((result) => !result.ok).map((result) => result.text);
+const failed = (results: { ok: boolean; text: string }[]) => results.filter((result) => !result.ok).map((result) => result.text);
 
 describe('evaluateChecks', () => {
   it('accepts a run whose responses are all 2xx', () => {
-    expect(
-      failed(
-        evaluateChecks(
-          {},
-          { counters: { 'http.codes.200': 40, 'http.codes.204': 5 }, distributions: {}, short: false },
-        ),
-      ),
-    ).toEqual([]);
+    expect(failed(evaluateChecks({}, { counters: { 'http.codes.200': 40, 'http.codes.204': 5 }, distributions: {}, short: false }))).toEqual([]);
   });
 
   it('names the statuses of a run the stack rejected', () => {
@@ -45,12 +37,7 @@ describe('evaluateChecks', () => {
     expect(failed(at(100))).toEqual([]);
     expect(failed(at(101))).toHaveLength(1);
     expect(
-      failed(
-        evaluateChecks(
-          { maxRejectedShare: 5 },
-          { counters: { 'http.codes.200': 95, 'http.codes.500': 5 }, distributions: {}, short: false },
-        ),
-      ),
+      failed(evaluateChecks({ maxRejectedShare: 5 }, { counters: { 'http.codes.200': 95, 'http.codes.500': 5 }, distributions: {}, short: false })),
     ).toEqual([]);
   });
 
@@ -60,18 +47,14 @@ describe('evaluateChecks', () => {
 
   it('computes the VU error share as ensure did: created minus completed, over created', () => {
     const counters = { 'vusers.created': 200, 'vusers.completed': 197, 'vusers.failed': 3 };
-    expect(failed(evaluateChecks({ maxErrorShare: 1 }, { counters, distributions: {}, short: false }))).toEqual([
-      'VU failures 1.5% > 1% (3 of 200)',
-    ]);
+    expect(failed(evaluateChecks({ maxErrorShare: 1 }, { counters, distributions: {}, short: false }))).toEqual(['VU failures 1.5% > 1% (3 of 200)']);
     expect(failed(evaluateChecks({ maxErrorShare: 2 }, { counters, distributions: {}, short: false }))).toEqual([]);
   });
 
   it('compares thresholds with any recorded histogram, and skips them in a short run', () => {
     const checks = { thresholds: { 'http.response_time.p95': 500, 'yjs.peer_latency_ms.p99': 10 } };
     const distributions = { 'http.response_time': dist(400), 'yjs.peer_latency_ms': dist(20) };
-    expect(failed(evaluateChecks(checks, { counters: {}, distributions, short: false }))).toEqual([
-      'yjs.peer_latency_ms.p99 30ms > 10ms',
-    ]);
+    expect(failed(evaluateChecks(checks, { counters: {}, distributions, short: false }))).toEqual(['yjs.peer_latency_ms.p99 30ms > 10ms']);
     expect(evaluateChecks(checks, { counters: {}, distributions, short: true })).toEqual([]);
     expect(failed(evaluateChecks(checks, { counters: {}, distributions: {}, short: false }))).toEqual([
       'http.response_time.p95: nothing recorded',
@@ -86,8 +69,6 @@ describe('evaluateChecks', () => {
       'sse.changes stayed at 0',
       'sse.errors counted 3',
     ]);
-    expect(failed(evaluateChecks(checks, { counters, distributions: {}, short: true }))).toEqual([
-      'sse.errors counted 3',
-    ]);
+    expect(failed(evaluateChecks(checks, { counters, distributions: {}, short: true }))).toEqual(['sse.errors counted 3']);
   });
 });

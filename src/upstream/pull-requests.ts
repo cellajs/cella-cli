@@ -68,9 +68,7 @@ function runGh(cwd: string, args: string[]): GhResult {
  * whatever its branch is named.
  */
 export function ownUpgradePrs(prs: GhPullRequest[], prefix: string): GhPullRequest[] {
-  return prs
-    .filter((pr) => !pr.isCrossRepository && pr.headRefName.startsWith(`${prefix}/`))
-    .sort((a, b) => b.number - a.number);
+  return prs.filter((pr) => !pr.isCrossRepository && pr.headRefName.startsWith(`${prefix}/`)).sort((a, b) => b.number - a.number);
 }
 
 /**
@@ -125,12 +123,7 @@ function createPr(
   if (created.ok) return { ...created, url: created.output || undefined };
 
   const owner = repoSlug ? repoSlug.split('/')[0] : '{owner}';
-  const existing = runGh(cwd, [
-    'api',
-    `repos/${repo}/pulls?state=open&head=${owner}:${pr.head}`,
-    '--jq',
-    '.[0].html_url // empty',
-  ]);
+  const existing = runGh(cwd, ['api', `repos/${repo}/pulls?state=open&head=${owner}:${pr.head}`, '--jq', '.[0].html_url // empty']);
   return { ...created, url: existing.ok && existing.output ? existing.output : undefined };
 }
 
@@ -175,9 +168,7 @@ export async function buildUpgradeCommitMessage(repoRoot: string, upstreamRef: s
   if (!shortSha) return upgradePrTitle;
 
   const manifest = await readManifest(repoRoot);
-  const version = semver.valid(
-    manifest?.upstream.release ?? (await readPackageVersionAtRef(repoRoot, upstreamRef).catch(() => null)),
-  );
+  const version = semver.valid(manifest?.upstream.release ?? (await readPackageVersionAtRef(repoRoot, upstreamRef).catch(() => null)));
   return version ? `${upgradePrTitle} to v${version} (${shortSha})` : `${upgradePrTitle} to ${shortSha}`;
 }
 
@@ -220,8 +211,7 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
   const { repoSlug, version, fromSha, toSha, commits, totalCount, alignments } = input;
   const githubUrl = repoSlug ? gitHubRepo(repoSlug)?.url : undefined;
   const short = (sha: string) => sha.slice(0, 7);
-  const commitRef = (sha: string) =>
-    githubUrl ? `[\`${short(sha)}\`](${githubUrl}/commit/${sha})` : `\`${short(sha)}\``;
+  const commitRef = (sha: string) => (githubUrl ? `[\`${short(sha)}\`](${githubUrl}/commit/${sha})` : `\`${short(sha)}\``);
 
   const upstreamName = githubUrl ? `[${repoSlug}](${githubUrl})` : 'cella';
   const validVersion = semver.valid(version);
@@ -230,11 +220,7 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
 
   if (totalCount > 0 && fromSha) {
     const compare = githubUrl ? ` ([compare](${githubUrl}/compare/${short(fromSha)}...${short(toSha)}))` : '';
-    lines.push(
-      '',
-      `**${totalCount} upstream commit${totalCount === 1 ? '' : 's'} since the last upgrade**${compare}:`,
-      '',
-    );
+    lines.push('', `**${totalCount} upstream commit${totalCount === 1 ? '' : 's'} since the last upgrade**${compare}:`, '');
     if (totalCount > commits.length) lines.push(`- …${totalCount - commits.length} earlier commit(s) not shown`);
     for (const commit of commits) {
       lines.push(`- ${commitRef(commit.hash)} ${codeSpan(qualifyPrRefs(commit.message, repoSlug))}`);
@@ -245,15 +231,9 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
     const { total, open } = alignments;
     if (open.length === 0) lines.push('', `**Alignments**: all ${total} handled.`);
     else {
-      lines.push(
-        '',
-        `**Alignments**: ${Math.max(0, total - open.length)} of ${total} handled, open (\`pnpm cella align\`):`,
-        '',
-      );
+      lines.push('', `**Alignments**: ${Math.max(0, total - open.length)} of ${total} handled, open (\`pnpm cella align\`):`, '');
       for (const alignment of open)
-        lines.push(
-          `- ${alignment.url ? `[${codeSpan(alignment.title)}](${alignment.url})` : codeSpan(alignment.title)} (\`${alignment.id}\`)`,
-        );
+        lines.push(`- ${alignment.url ? `[${codeSpan(alignment.title)}](${alignment.url})` : codeSpan(alignment.title)} (\`${alignment.id}\`)`);
     }
   }
 
@@ -290,11 +270,7 @@ async function buildUpgradePrBodyForBranch(repoRoot: string, trunk: string): Pro
 }
 
 /** Alignments for the PR body: the total at the upgrade point and the app's open ones, with permalinks. */
-async function readPrBodyAlignments(
-  repoRoot: string,
-  toSha: string,
-  repoSlug?: string,
-): Promise<UpgradePrBodyInput['alignments']> {
+async function readPrBodyAlignments(repoRoot: string, toSha: string, repoSlug?: string): Promise<UpgradePrBodyInput['alignments']> {
   const githubUrl = repoSlug ? gitHubRepo(repoSlug)?.url : undefined;
   const [ids, pending] = await Promise.all([listAlignmentIds(repoRoot, toSha), readPending(repoRoot)]);
   const open = await Promise.all(
@@ -325,11 +301,7 @@ async function flattenUpgradeBranch(repoRoot: string, branch: string, trunk: str
   // The most recent merge's second parent is the upstream tip that was merged in.
   const message = await buildUpgradeCommitMessage(repoRoot, `${mergeCommits[0]}^2`);
 
-  console.info(
-    pc.yellow(
-      `'${branch}' contains ${mergeCommits.length} merge commit(s): the PR would list the entire upstream history.`,
-    ),
-  );
+  console.info(pc.yellow(`'${branch}' contains ${mergeCommits.length} merge commit(s): the PR would list the entire upstream history.`));
   console.info(pc.dim(`flattening '${branch}' to a single commit (same content)...`));
   await flattenBranch(repoRoot, trunk, message);
   return true;
@@ -345,12 +317,8 @@ export async function shipUpgradeBranch(config: RuntimeConfig, branch: string): 
   const { repoRoot } = config;
   if (!(await isClean(repoRoot))) {
     console.info();
-    console.info(
-      pc.yellow(
-        `upgrade branch '${branch}' has uncommitted changes.\n` +
-          'commit them first (`git commit --amend --no-edit` or a new commit).',
-      ),
-    );
+    console.info(pc.yellow(`upgrade branch '${branch}' has uncommitted changes.`));
+    console.info(pc.yellow('commit them first (`git commit --amend --no-edit` or a new commit).'));
     return 1;
   }
 
@@ -369,10 +337,7 @@ export async function shipUpgradeBranch(config: RuntimeConfig, branch: string): 
   const prTitle = upstreamCommit ? await buildUpgradeCommitMessage(repoRoot, upstreamCommit) : upgradePrTitle;
 
   const cutPoint = await getMergeBase(repoRoot, trunkRef, 'HEAD');
-  printRunChanges(
-    `'${branch}' changes what CI runs, with this repository's secrets:`,
-    await listRunChanges(repoRoot, cutPoint, 'HEAD'),
-  );
+  printRunChanges(`'${branch}' changes what CI runs, with this repository's secrets:`, await listRunChanges(repoRoot, cutPoint, 'HEAD'));
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {
     await pushBranch(repoRoot, 'origin', branch, { forceWithLease: flattened });
@@ -480,9 +445,7 @@ export async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<
     console.info(pc.dim(`  #${pr.number}  ${printable(pr.title)}  by ${printable(pr.author.login)}`));
     console.info(pc.dim(`         ${pr.url}`));
   }
-  console.info(
-    pc.dim(`  starting a new upgrade now produces a PR that re-includes ${many ? 'these' : 'those'} changes.`),
-  );
+  console.info(pc.dim(`  starting a new upgrade now produces a PR that re-includes ${many ? 'these' : 'those'} changes.`));
   console.info();
 
   const choice = await select<'merge' | 'continue' | 'cancel'>({

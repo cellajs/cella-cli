@@ -70,21 +70,18 @@ const cases: Case[] = [
   },
 ];
 
-it.each(cases)(
-  '$name',
-  ({ base, app, upstream, upstreamMoves, appMoves = {}, appEditMoves = {}, pinned = [], ignored = [], expected }) => {
-    const tree = trees(base, app, upstream, upstreamMoves);
-    for (const [to, from] of Object.entries(appMoves)) {
-      tree.appChanges.delete(from);
-      tree.appChanges.delete(to);
-      tree.appChanges.set(to, { status: 'R', oldPath: from, baseHash: base[from], targetHash: app[to] });
-    }
-    const files = classifyFiles(tree, {
-      isIgnored: (path) => isUnderAnyFolder(path, ignored),
-      isPinned: (path) => isUnderAnyFolder(path, pinned),
-    });
+it.each(cases)('$name', ({ base, app, upstream, upstreamMoves, appMoves = {}, appEditMoves = {}, pinned = [], ignored = [], expected }) => {
+  const tree = trees(base, app, upstream, upstreamMoves);
+  for (const [to, from] of Object.entries(appMoves)) {
+    tree.appChanges.delete(from);
+    tree.appChanges.delete(to);
+    tree.appChanges.set(to, { status: 'R', oldPath: from, baseHash: base[from], targetHash: app[to] });
+  }
+  const files = classifyFiles(tree, {
+    isIgnored: (path) => isUnderAnyFolder(path, ignored),
+    isPinned: (path) => isUnderAnyFolder(path, pinned),
+  });
 
-    const appMoved = new Set([...Object.values(appMoves), ...Object.values(appEditMoves)]);
-    expect(caseCollisions(tree, files, appMoved)).toEqual(expected);
-  },
-);
+  const appMoved = new Set([...Object.values(appMoves), ...Object.values(appEditMoves)]);
+  expect(caseCollisions(tree, files, appMoved)).toEqual(expected);
+});

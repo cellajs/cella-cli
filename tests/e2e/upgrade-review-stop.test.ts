@@ -53,9 +53,7 @@ describe('upgrade review stop', () => {
 
     expect(await runUpgradeCommand(config)).toBe(0);
     expect(pnpmRuns).toEqual([]);
-    expect(lines.join('\n')).toMatch(
-      /→ \.github\/workflows\/ci\.yml\n.*→ package\.json .*dependencies\.left-pad github:attacker\/left-pad/,
-    );
+    expect(lines.join('\n')).toMatch(/→ \.github\/workflows\/ci\.yml\n.*→ package\.json .*dependencies\.left-pad github:attacker\/left-pad/);
 
     expect(await runUpgradeCommand(config)).toBe(0);
     expect(pnpmRuns).toEqual([['install', '--no-frozen-lockfile'], ['check']]);

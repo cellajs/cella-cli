@@ -17,14 +17,7 @@ import { readTopLevel } from '../utils/workspace-yaml';
 import { fetchFeeds, missingNodeImages } from './feeds';
 import { formatDependents, installedVerdict, middleTruncate, printAdvisoryRows, severityDot } from './format';
 import { type LocalToolCheck, planLocalTools, readLocalTools } from './machine';
-import {
-  applyRuntimeUpdate,
-  editJsonText,
-  pinLocation,
-  planRuntimeUpdates,
-  type RuntimeUpdate,
-  readRuntimePins,
-} from './runtimes';
+import { applyRuntimeUpdate, editJsonText, pinLocation, planRuntimeUpdates, type RuntimeUpdate, readRuntimePins } from './runtimes';
 import { runSecurityPass, type SecurityPassOutcome, type WorkspaceEdits } from './security-pass';
 import { type Advisory, advisoriesFromAudit } from './security-plan';
 
@@ -99,10 +92,7 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
     const advisories = auditResult ? advisoriesFromAudit(auditResult) : null;
-    const rows = [
-      ...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []),
-      ...runtimes.updates.map(runtimeRow),
-    ];
+    const rows = [...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []), ...runtimes.updates.map(runtimeRow)];
 
     if (rows.length === 0) {
       spinnerSuccess('all packages and runtimes are up to date');
@@ -130,8 +120,7 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
     const missingImages = node ? await missingNodeImages(node.target, pins.nodeImageSuffixes) : [];
     const plan = planEdits(repoRoot, chosen, missingImages);
     for (const warning of plan.warnings) console.info(`${warningMark} ${warning}`);
-    for (const [label, items] of plan.changed)
-      console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
+    for (const [label, items] of plan.changed) console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
     if (plan.changed.size > 0) console.info();
 
     const outcome = await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits: plan.edits });
@@ -224,8 +213,7 @@ function runtimeRow(update: RuntimeUpdate): UpdateRow {
 }
 
 /** The "in" column: where a runtime is pinned, or the workspaces that depend on the package, as "first +N". */
-const inText = (row: UpdateRow): string =>
-  row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name));
+const inText = (row: UpdateRow): string => (row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name)));
 
 /** The table of updates: severity dot, name, current and latest version, where it is used, and links. */
 function printUpdateTable(rows: UpdateRow[]): void {
@@ -288,8 +276,7 @@ function printNotes(repoRoot: string, unchecked: string[]): void {
     // No workspace file: nothing is held.
   }
   if (held.length > 0) console.info(`  ${pc.dim(`held: ${held.join(', ')} · pnpm-workspace.yaml updateConfig`)}`);
-  if (unchecked.length > 0)
-    console.info(`  ${pc.dim(`not checked, no answer from the feed: ${unchecked.join(', ')}`)}`);
+  if (unchecked.length > 0) console.info(`  ${pc.dim(`not checked, no answer from the feed: ${unchecked.join(', ')}`)}`);
 }
 
 /** The tools this machine works with, each with the security fixes it misses and how to get them. */
@@ -298,9 +285,7 @@ function printLocalTools(checks: LocalToolCheck[]): void {
   console.info(pc.bold('this machine'));
   for (const tool of checks) {
     const label = `${tool.name} ${tool.version}`.padEnd(width);
-    const detail = tool.severity
-      ? `${tool.note} ${pc.dim('·')} ${tool.fix}`
-      : pc.dim(tool.note || 'no missing security fixes');
+    const detail = tool.severity ? `${tool.note} ${pc.dim('·')} ${tool.fix}` : pc.dim(tool.note || 'no missing security fixes');
     console.info(`${severityDot(tool.severity)} ${label}  ${detail}`);
   }
   console.info();
@@ -358,9 +343,7 @@ function updateChoices(rows: UpdateRow[]): Array<{ name: string; value: string; 
     // Regular packages get a heading only below another group.
     [runtimes.length + pinned.length > 0 ? pc.dim(`── packages (${regular.length}) ──`) : null, regular],
   ];
-  return groups.flatMap(([label, group]) =>
-    group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)],
-  );
+  return groups.flatMap(([label, group]) => (group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)]));
 }
 
 /** The question that ends a report: false without a terminal, and when it is declined or cancelled. */
@@ -389,8 +372,7 @@ async function promptForUpdates(rows: UpdateRow[]): Promise<string[] | null> {
         style: {
           highlight: (text: string) => text,
           keysHelpTip: (keys: [string, string][]) => keys.map(([key, action]) => `${pc.dim(key)} ${action}`).join('  '),
-          renderSelectedChoices: (selectedChoices: Array<{ value?: string }>) =>
-            pc.dim(`${selectedChoices.length} selected`),
+          renderSelectedChoices: (selectedChoices: Array<{ value?: string }>) => pc.dim(`${selectedChoices.length} selected`),
         },
       },
     });

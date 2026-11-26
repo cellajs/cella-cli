@@ -89,8 +89,7 @@ const rttText = (rttMs: number) => (rttMs > 0 ? ` · rtt ${rttMs} ms` : '');
 
 export function liveLines(state: LiveState): string[] {
   const { vus, counters } = state;
-  const time =
-    state.plannedS === null ? seconds(state.elapsedS) : `${seconds(state.elapsedS)}/${seconds(state.plannedS)}`;
+  const time = state.plannedS === null ? seconds(state.elapsedS) : `${seconds(state.elapsedS)}/${seconds(state.plannedS)}`;
   const head = `${pc.bold(state.scenario)} ${pc.dim(`· ${state.phase} · ${time}${rttText(state.rttMs)}`)}`;
 
   const parts = [
@@ -105,9 +104,7 @@ export function liveLines(state: LiveState): string[] {
       const status = /^http\.codes\.(\d)\d\d$/.exec(name)?.[1];
       if (status) classes.set(`${status}xx`, (classes.get(`${status}xx`) ?? 0) + n);
     }
-    const codes = [...classes]
-      .sort()
-      .map(([cls, n]) => (cls === '2xx' ? `${cls} ${count(n)}` : pc.yellow(`${cls} ${count(n)}`)));
+    const codes = [...classes].sort().map(([cls, n]) => (cls === '2xx' ? `${cls} ${count(n)}` : pc.yellow(`${cls} ${count(n)}`)));
     if (codes.length) parts.push(codes.join(' '));
   }
   const errors = Object.entries(counters).filter(([name]) => name.startsWith('errors.'));
@@ -122,8 +119,7 @@ export function liveLines(state: LiveState): string[] {
 }
 
 /** The run's summary as the report prints it: the scenario's own counters, and the baseline it was compared with. */
-export interface SummaryView
-  extends Omit<RunSummary, 'type' | 'runner' | 'startedAt' | 'counters' | 'generatorLagP99MaxMs' | 'attachments'> {
+export interface SummaryView extends Omit<RunSummary, 'type' | 'runner' | 'startedAt' | 'counters' | 'generatorLagP99MaxMs' | 'attachments'> {
   counters: [string, number][];
   /** False for a short or failed run: neither is compared. */
   compared: boolean;
@@ -169,19 +165,14 @@ export function summaryLines(view: SummaryView): string[] {
         `  ${pad(label, width, true)} ${pad(count(e.requests), 8)} ${pad(ms(d.p50), 8)} ${pad(ms(d.p95), 8)} ${pad(ms(d.p99), 8)} ${pad(ms(d.max), 8)} ${nonOk} ${timeouts}`,
       );
       const rejected = Object.entries(e.codes).filter(([code]) => !code.startsWith('2'));
-      if (rejected.length)
-        lines.push(pc.dim(`  ${' '.repeat(width)} ${rejected.map(([code, n]) => `${code} ×${count(n)}`).join(', ')}`));
+      if (rejected.length) lines.push(pc.dim(`  ${' '.repeat(width)} ${rejected.map(([code, n]) => `${code} ×${count(n)}`).join(', ')}`));
     }
   }
 
   const histograms = Object.entries(view.histograms);
   if (histograms.length) {
     const width = Math.max(9, ...histograms.map(([name]) => name.length));
-    lines.push(
-      pc.dim(
-        `  ${pad('histogram', width, true)} ${pad('count', 8)} ${pad('p50', 8)} ${pad('p95', 8)} ${pad('p99', 8)} ${pad('max', 8)}`,
-      ),
-    );
+    lines.push(pc.dim(`  ${pad('histogram', width, true)} ${pad('count', 8)} ${pad('p50', 8)} ${pad('p95', 8)} ${pad('p99', 8)} ${pad('max', 8)}`));
     for (const [name, d] of histograms) {
       lines.push(
         `  ${pad(name, width, true)} ${pad(count(d.count), 8)} ${pad(ms(d.p50), 8)} ${pad(ms(d.p95), 8)} ${pad(ms(d.p99), 8)} ${pad(ms(d.max), 8)}`,
@@ -189,8 +180,7 @@ export function summaryLines(view: SummaryView): string[] {
     }
   }
 
-  if (view.counters.length)
-    lines.push(`  ${view.counters.map(([name, n]) => `${name} ${pc.bold(count(n))}`).join(pc.dim(' · '))}`);
+  if (view.counters.length) lines.push(`  ${view.counters.map(([name, n]) => `${name} ${pc.bold(count(n))}`).join(pc.dim(' · '))}`);
   for (const [code, { count: n, message }] of Object.entries(view.errors)) {
     lines.push(pc.red(`  errors.${code} ${count(n)}${message ? `: ${message}` : ''}`));
   }
@@ -200,12 +190,8 @@ export function summaryLines(view: SummaryView): string[] {
 
   if (view.compared) {
     if (view.baseline) {
-      const deltas = compareBaseline(view.current, view.baseline).map(
-        (d) => `${d.label} ${deltaText(d.pct, d.lowerIsBetter)}`,
-      );
-      lines.push(
-        `  baseline ${view.baseline.timestamp.slice(0, 16).replace('T', ' ')} (${runnerEpoch}): ${deltas.join(', ')}`,
-      );
+      const deltas = compareBaseline(view.current, view.baseline).map((d) => `${d.label} ${deltaText(d.pct, d.lowerIsBetter)}`);
+      lines.push(`  baseline ${view.baseline.timestamp.slice(0, 16).replace('T', ' ')} (${runnerEpoch}): ${deltas.join(', ')}`);
     } else {
       const older = view.olderBaselines > 0 ? `, ${view.olderBaselines} older-runner entries kept` : '';
       lines.push(pc.dim(`  no comparable baseline: first ${runnerEpoch} run${rttText(view.rttMs)}${older}`));
@@ -221,9 +207,7 @@ export function compactLine(view: SummaryView): string {
   const failed = view.checks.filter((check) => !check.ok);
   const mark = failed.length ? pc.red('✗') : pc.green('✓');
   const reqs = view.requests > 0 ? ` · ${count(view.requests)} req · p95 ${ms(view.http?.p95 ?? 0)}` : '';
-  const primary = view.current.primary.metric.startsWith('http.')
-    ? ''
-    : ` · ${view.current.primary.metric} ${ms(view.current.primary.value)}`;
+  const primary = view.current.primary.metric.startsWith('http.') ? '' : ` · ${view.current.primary.metric} ${ms(view.current.primary.value)}`;
   const reasons = failed.length ? pc.red(` · ${failed.map((check) => check.text).join('; ')}`) : '';
   return `${mark} ${view.scenario}${pc.dim(`${reqs}${primary}`)}${reasons}`;
 }
@@ -244,19 +228,12 @@ export function suiteLines(rows: SuiteRow[]): string[] {
   const heads = ['Req/s', 'p50', 'p95', 'p99', 'Errors', ...extra];
   const num = (n: number) => (n === 0 ? '-' : n < 10 ? n.toFixed(1) : String(Math.round(n)));
   const lines = ['', `${pc.bold('Summary')} ${pc.dim('· all scenarios')}`, ''];
-  lines.push(
-    `  ${pc.bold(pad('Scenario', 22, true))} ${heads.map((head) => pc.bold(pad(head, 8))).join(' ')} ${pc.bold(pad('Primary Δ', 10))}`,
-  );
+  lines.push(`  ${pc.bold(pad('Scenario', 22, true))} ${heads.map((head) => pc.bold(pad(head, 8))).join(' ')} ${pc.bold(pad('Primary Δ', 10))}`);
   lines.push(`  ${'─'.repeat(22 + heads.length * 9 + 11)}`);
   for (const row of rows) {
     const { current, baseline } = row;
     const delta = baseline
-      ? deltaText(
-          baseline.primary.value === 0
-            ? null
-            : ((current.primary.value - baseline.primary.value) / baseline.primary.value) * 100,
-          true,
-        )
+      ? deltaText(baseline.primary.value === 0 ? null : ((current.primary.value - baseline.primary.value) / baseline.primary.value) * 100, true)
       : pc.dim(row.ok ? 'new' : '-');
     const cells = [current.requestRate, current.p50, current.p95, current.p99].map(num);
     cells.push(String(current.errors), ...extra.map((column) => row.columns[column] ?? '-'));

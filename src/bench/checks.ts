@@ -27,10 +27,7 @@ function statusCounts(counters: Record<string, number>): [string, number][] {
  * Evaluates a scenario's checks. The rejected-response check always runs, short runs included: the latency of a 401
  * says nothing about the endpoint. A short run skips thresholds and `expect`.
  */
-export function evaluateChecks(
-  checks: Checks<string, string>,
-  { counters, distributions, short }: CheckInput,
-): CheckResult[] {
+export function evaluateChecks(checks: Checks<string, string>, { counters, distributions, short }: CheckInput): CheckResult[] {
   const results: CheckResult[] = [];
 
   const byStatus = statusCounts(counters);

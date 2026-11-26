@@ -11,16 +11,7 @@ import { type Distribution, type EndpointSummary, Metrics } from './metrics';
 import { compactLine, LiveDisplay, liveLines, type Output, type SummaryView, summaryLines } from './report';
 import { play, roleSequencer, type ScheduleEvent, schedule } from './scheduler';
 import { readSse } from './sse';
-import {
-  type CheckResult,
-  type Phase,
-  type RunOutcome,
-  type Scenario,
-  splitMetricKey,
-  type Vu,
-  type VuClient,
-  type VuFn,
-} from './types';
+import { type CheckResult, type Phase, type RunOutcome, type Scenario, splitMetricKey, type Vu, type VuClient, type VuFn } from './types';
 
 const defaultIntervalMs = 5000;
 const lagWarnMs = 50;
@@ -82,9 +73,7 @@ interface RunResult {
 }
 
 /** Identity: types a scenario module and checks its counter and histogram names, nothing at runtime. */
-export function defineScenario<const C extends string = never, const H extends string = never>(
-  scenario: Scenario<C, H>,
-): Scenario<C, H> {
+export function defineScenario<const C extends string = never, const H extends string = never>(scenario: Scenario<C, H>): Scenario<C, H> {
   return scenario;
 }
 
@@ -120,10 +109,7 @@ function plan(scenario: AnyScenario, short: boolean): Plan {
     return { role: scenario.roles ? role.name : null, fn: role.vu };
   };
   if (short) {
-    const events: ScheduleEvent[] = [
-      { kind: 'phase', at: 0, phase: 0 },
-      ...roles.map((): ScheduleEvent => ({ kind: 'arrival', at: 0, phase: 0 })),
-    ];
+    const events: ScheduleEvent[] = [{ kind: 'phase', at: 0, phase: 0 }, ...roles.map((): ScheduleEvent => ({ kind: 'arrival', at: 0, phase: 0 }))];
     return { events, phases: [{ name: 'smoke', duration: 1 }], plannedS: 1, pick };
   }
   const plannedS = scenario.phases.reduce((sum, phase) => sum + phase.duration, 0);
@@ -164,19 +150,13 @@ interface RunState {
 }
 
 /** Starts one VU of `fn`: it counts as created, then completed or failed, and closes its clients' connections when it settles. */
-function launch(
-  state: RunState,
-  fn: VuFn<string, string>,
-  vu: Pick<Vu<string, string>, 'index' | 'role' | 'short'>,
-  target: string,
-): void {
+function launch(state: RunState, fn: VuFn<string, string>, vu: Pick<Vu<string, string>, 'index' | 'role' | 'short'>, target: string): void {
   const { metrics, stop, display, rttMs } = state;
   const resolveUrl = (url: string) => (/^[a-z]+:\/\//.test(url) ? url : `${target}${url}`);
   // A stream the VU left open ends with it: an open one would keep the process from exiting.
   const ended = new AbortController();
   const streamSignal = AbortSignal.any([stop.signal, ended.signal]);
-  const sse: VuClient['sse'] = (url, onEvent, sseOptions = {}) =>
-    readSse(resolveUrl(url), onEvent, sseOptions, metrics, streamSignal, rttMs);
+  const sse: VuClient['sse'] = (url, onEvent, sseOptions = {}) => readSse(resolveUrl(url), onEvent, sseOptions, metrics, streamSignal, rttMs);
   const clients: ReturnType<typeof createHttpClient>[] = [];
   const client = (): VuClient => {
     const http = createHttpClient(target, metrics, stop.signal, rttMs);
@@ -306,8 +286,7 @@ async function drain(state: RunState, scenario: AnyScenario): Promise<void> {
   });
   // The timers are cancelled once the VUs are done: a pending one would keep the process alive.
   const timers = new AbortController();
-  const wait = (seconds: number) =>
-    delay(seconds * 1000, 'timeout' as const, { signal: timers.signal }).catch(() => null);
+  const wait = (seconds: number) => delay(seconds * 1000, 'timeout' as const, { signal: timers.signal }).catch(() => null);
   const timedOut = Number.isFinite(drainS) ? wait(drainS) : new Promise<never>(() => {});
   if ((await Promise.race([idle, timedOut])) === 'timeout') {
     state.display.log(`  ⚠ ${state.active} VUs still running after ${drainS} s: aborted`);
@@ -321,13 +300,7 @@ async function drain(state: RunState, scenario: AnyScenario): Promise<void> {
 function baselineEntry(
   metrics: Metrics,
   distributions: Record<string, Distribution>,
-  {
-    name,
-    startedAt,
-    durationS,
-    primaryKey,
-    rttMs,
-  }: { name: string; startedAt: Date; durationS: number; primaryKey: string; rttMs: number },
+  { name, startedAt, durationS, primaryKey, rttMs }: { name: string; startedAt: Date; durationS: number; primaryKey: string; rttMs: number },
 ): BaselineEntry {
   const requests = metrics.get('http.requests');
   const http = distributions['http.response_time'];
@@ -401,8 +374,7 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
         return launch(state, fn, { index: index++, role, short }, target);
       }
       state.phaseName = phases[event.phase].name;
-      if (showPhases && !scenario.run && !short)
-        display.log(`  ${pc.dim('phase')} ${state.phaseName} · ${phaseText(phases[event.phase])}`);
+      if (showPhases && !scenario.run && !short) display.log(`  ${pc.dim('phase')} ${state.phaseName} · ${phaseText(phases[event.phase])}`);
     },
     state.stop.signal,
   );
@@ -441,15 +413,11 @@ export async function runScenario(scenario: AnyScenario, options: RunOptions): P
     requestRate: current.requestRate,
     http: distributions['http.response_time'] ?? null,
     endpoints: metrics.endpointSummaries(),
-    histograms: Object.fromEntries(
-      Object.entries(distributions).filter(([histogram]) => !histogram.startsWith('http.')),
-    ),
+    histograms: Object.fromEntries(Object.entries(distributions).filter(([histogram]) => !histogram.startsWith('http.'))),
     counters,
     errors: Object.fromEntries(
       Object.entries(counters).flatMap(([counter, n]) =>
-        counter.startsWith('errors.')
-          ? [[counter.slice(7), { count: n, message: state.errors[counter.slice(7)]?.message ?? '' }]]
-          : [],
+        counter.startsWith('errors.') ? [[counter.slice(7), { count: n, message: state.errors[counter.slice(7)]?.message ?? '' }]] : [],
       ),
     ),
     checks,

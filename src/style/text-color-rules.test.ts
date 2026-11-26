@@ -16,11 +16,6 @@ describe('text-color', () => {
   });
 
   it('keeps palette grays in the excepted docs paths', () => {
-    expect(
-      findings(
-        "const color = 'text-gray-600 dark:text-gray-400';",
-        'frontend/src/modules/docs/operations/method-label.tsx',
-      ),
-    ).toEqual([]);
+    expect(findings("const color = 'text-gray-600 dark:text-gray-400';", 'frontend/src/modules/docs/operations/method-label.tsx')).toEqual([]);
   });
 });

@@ -6,12 +6,7 @@ import { type Finding, isFrontendSource, lineColumn, parseSource, type Rule, typ
 type Report = (node: ts.Node, message: string) => void;
 
 function containsJsx(node: ts.Node): boolean {
-  return (
-    ts.isJsxElement(node) ||
-    ts.isJsxFragment(node) ||
-    ts.isJsxSelfClosingElement(node) ||
-    !!ts.forEachChild(node, containsJsx)
-  );
+  return ts.isJsxElement(node) || ts.isJsxFragment(node) || ts.isJsxSelfClosingElement(node) || !!ts.forEachChild(node, containsJsx);
 }
 
 /** The import declarations of a file by module, each with the names it imports: `imported` as exported, `element` the binding. */
@@ -52,9 +47,7 @@ function collectStores(sourceFile: ts.SourceFile, stores: Set<string>): void {
   const createNames = new Set(
     importsOf(sourceFile)
       .filter(({ module }) => module === 'zustand')
-      .flatMap(({ names }) =>
-        names.filter(({ imported }) => imported === 'create').map(({ element }) => element.name.text),
-      ),
+      .flatMap(({ names }) => names.filter(({ imported }) => imported === 'create').map(({ element }) => element.name.text)),
   );
   if (createNames.size === 0) return;
   for (const statement of sourceFile.statements) {
@@ -83,20 +76,13 @@ function checkStoreSelector(node: ts.Node, report: Report, _sourceFile: ts.Sourc
 function checkRouteContextSelector(node: ts.Node, report: Report, sourceFile: ts.SourceFile): void {
   if (!ts.isCallExpression(node)) return;
   const callee = node.expression;
-  const name = ts.isPropertyAccessExpression(callee)
-    ? callee.name.text
-    : ts.isIdentifier(callee)
-      ? callee.text
-      : undefined;
+  const name = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : undefined;
   if (name !== 'useRouteContext') return;
   const [options] = node.arguments;
   // Options passed by name or spread have their `select` elsewhere
   if (options && (!ts.isObjectLiteralExpression(options) || options.properties.some(ts.isSpreadAssignment))) return;
   if (options?.properties.some((property) => property.name?.getText(sourceFile) === 'select')) return;
-  report(
-    node,
-    'useRouteContext() renders again on every navigation; pass `select` and return the id or flag this component reads',
-  );
+  report(node, 'useRouteContext() renders again on every navigation; pass `select` and return the id or flag this component reads');
 }
 
 /**
@@ -107,13 +93,9 @@ function checkButtonPressCancel(node: ts.Node, report: Report, sourceFile: ts.So
   if (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) return;
   if (node.tagName.getText(sourceFile) !== 'Button') return;
   for (const attribute of node.attributes.properties) {
-    if (!ts.isJsxAttribute(attribute) || attribute.name.getText(sourceFile) !== 'className' || !attribute.initializer)
-      continue;
+    if (!ts.isJsxAttribute(attribute) || attribute.name.getText(sourceFile) !== 'className' || !attribute.initializer) continue;
     if (!/(?<![\w-])!?active:translate-y-0!?(?![\w-])/.test(attribute.initializer.getText(sourceFile))) continue;
-    report(
-      attribute,
-      'active:translate-y-0 does not cancel the press nudge, which is a transform; pass press={false} to the Button',
-    );
+    report(attribute, 'active:translate-y-0 does not cancel the press nudge, which is a transform; pass press={false} to the Button');
   }
 }
 
@@ -122,11 +104,7 @@ function checkButtonPressCancel(node: ts.Node, report: Report, sourceFile: ts.So
  * refuses an email or web address first, in a bubble of its own and in the browser's language.
  */
 function checkFormNoValidate(node: ts.Node, report: Report, sourceFile: ts.SourceFile): void {
-  if (
-    (!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) ||
-    node.tagName.getText(sourceFile) !== 'form'
-  )
-    return;
+  if ((!ts.isJsxOpeningElement(node) && !ts.isJsxSelfClosingElement(node)) || node.tagName.getText(sourceFile) !== 'form') return;
   const attributes = node.attributes.properties.filter(ts.isJsxAttribute);
   const onSubmit = attributes.find((attribute) => attribute.name.getText(sourceFile) === 'onSubmit');
   if (!onSubmit?.initializer?.getText(sourceFile).includes('handleSubmit(')) return;
@@ -148,10 +126,7 @@ function checkReorderGrip(sourceFile: ts.SourceFile, report: Report): void {
     }
   }
   if (grip && !hasHandle) {
-    report(
-      grip,
-      'render a drag grip through ReorderHandle or reorderColumn, so the keyboard and a pointer that cannot drag move it too',
-    );
+    report(grip, 'render a drag grip through ReorderHandle or reorderColumn, so the keyboard and a pointer that cannot drag move it too');
   }
 }
 
@@ -174,12 +149,7 @@ function checkMemoDependencies(node: ts.Node, report: Report): void {
   });
   for (const dependency of dependencies.elements) {
     let root: ts.Expression = dependency;
-    while (
-      ts.isPropertyAccessExpression(root) ||
-      ts.isElementAccessExpression(root) ||
-      ts.isNonNullExpression(root) ||
-      ts.isCallExpression(root)
-    ) {
+    while (ts.isPropertyAccessExpression(root) || ts.isElementAccessExpression(root) || ts.isNonNullExpression(root) || ts.isCallExpression(root)) {
       root = root.expression;
     }
     if (!ts.isIdentifier(root) || read.has(root.text)) continue;
@@ -204,11 +174,7 @@ function markCalls(sourceFile: ts.SourceFile) {
   sourceFile.forEachChild(function visit(node) {
     if (ts.isCallExpression(node)) {
       const callee = node.expression;
-      const name = ts.isPropertyAccessExpression(callee)
-        ? callee.name.text
-        : ts.isIdentifier(callee)
-          ? callee.text
-          : '';
+      const name = ts.isPropertyAccessExpression(callee) ? callee.name.text : ts.isIdentifier(callee) ? callee.text : '';
       if (Object.hasOwn(markKeepers, name)) calls.push({ node, name });
       registersRangeFetch ||= name === 'registerEntityQueryKeys' && node.arguments.length > 2;
     }
@@ -227,10 +193,7 @@ function inProductModule(root: string, file: string): boolean {
   const queryFile = join(root, `${folder}query.ts`);
   if (!productModuleFolders.has(queryFile)) {
     const source = existsSync(queryFile) ? readFileSync(queryFile, 'utf8') : '';
-    productModuleFolders.set(
-      queryFile,
-      markCalls(ts.createSourceFile(queryFile, source, ts.ScriptTarget.Latest)).registersRangeFetch,
-    );
+    productModuleFolders.set(queryFile, markCalls(ts.createSourceFile(queryFile, source, ts.ScriptTarget.Latest)).registersRangeFetch);
   }
   return productModuleFolders.get(queryFile) === true;
 }
@@ -239,8 +202,7 @@ function inProductModule(root: string, file: string): boolean {
 function checkProductCacheWrite(sourceFile: ts.SourceFile, report: Report, { root }: StyleRun): void {
   const file = sourceFile.fileName;
   const { calls, registersRangeFetch } = markCalls(sourceFile);
-  if (!calls.length || !(file.startsWith('frontend/src/query/') || registersRangeFetch || inProductModule(root, file)))
-    return;
+  if (!calls.length || !(file.startsWith('frontend/src/query/') || registersRangeFetch || inProductModule(root, file))) return;
   for (const { node, name } of calls) {
     report(node, `${name} clears the refetch mark; call ${markKeepers[name]} from ~/query/basic/cache-mutations`);
   }
@@ -268,8 +230,7 @@ function frontendRule(
     check: (file, source, run) => {
       const sourceFile = parseSource(file, source);
       const findings: Finding[] = [];
-      const report: Report = (node, message) =>
-        findings.push({ file, ...lineColumn(source, node.getStart(sourceFile)), rule: id, message });
+      const report: Report = (node, message) => findings.push({ file, ...lineColumn(source, node.getStart(sourceFile)), rule: id, message });
       inspect(sourceFile, report, run);
       return findings;
     },
@@ -277,10 +238,7 @@ function frontendRule(
 }
 
 /** A frontend rule that judges every node of the file's parse. */
-function nodeRule(
-  id: string,
-  visit: (node: ts.Node, report: Report, sourceFile: ts.SourceFile, run: StyleRun) => void,
-): Rule {
+function nodeRule(id: string, visit: (node: ts.Node, report: Report, sourceFile: ts.SourceFile, run: StyleRun) => void): Rule {
   return frontendRule(id, (sourceFile, report, run) =>
     sourceFile.forEachChild(function walk(node) {
       visit(node, report, sourceFile, run);
@@ -294,8 +252,7 @@ export const frontendRules: Rule[] = [
   frontendRule(
     'component-declaration',
     (sourceFile, report) => {
-      for (const statement of sourceFile.statements.filter(ts.isVariableStatement))
-        checkVariableStatement(statement, report);
+      for (const statement of sourceFile.statements.filter(ts.isVariableStatement)) checkVariableStatement(statement, report);
     },
     (file) => isFrontendSource(file) && file.endsWith('.tsx'),
   ),

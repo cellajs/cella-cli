@@ -78,10 +78,7 @@ export async function assertAheadOfUpgradePoint(config: RuntimeConfig, upstream:
   const { commit, mergeBase, releaseTag } = upstream;
   if (commit.hash === mergeBase || !(await isAncestor(repoRoot, commit.hash, mergeBase))) return;
 
-  const [upstreamShort, upgradePointShort] = await Promise.all([
-    getShortSha(repoRoot, commit.hash),
-    getShortSha(repoRoot, mergeBase),
-  ]);
+  const [upstreamShort, upgradePointShort] = await Promise.all([getShortSha(repoRoot, commit.hash), getShortSha(repoRoot, mergeBase)]);
   const { branchRef } = resolveUpstream(config);
   const hint = config.ref
     ? 'Pick a newer --ref.'
@@ -123,8 +120,6 @@ export class UpstreamConfigChangedError extends Error {
  */
 export async function assertUpstreamConfigFollowed(config: RuntimeConfig, upstream: UpstreamContext): Promise<void> {
   if (config.keepConfig) return;
-  const report = await compareUpstreamOverrides(config.repoRoot, upstream.mergeBase, upstream.ref, config).catch(
-    () => undefined,
-  );
+  const report = await compareUpstreamOverrides(config.repoRoot, upstream.mergeBase, upstream.ref, config).catch(() => undefined);
   if (report && hasBlockingOverrideChanges(report)) throw new UpstreamConfigChangedError(report);
 }

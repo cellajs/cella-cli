@@ -10,8 +10,7 @@ import { alignmentsStep } from '../../src/upstream/align';
 import { type NextStep, printNextSteps } from '../../src/utils/display';
 import { captureInfo, createRepo, exec, write } from '../helpers/test-env';
 
-const plain = (step: NextStep | undefined) =>
-  step ? [step.line, ...(step.details ?? [])].map((line) => stripVTControlCharacters(line)) : undefined;
+const plain = (step: NextStep | undefined) => (step ? [step.line, ...(step.details ?? [])].map((line) => stripVTControlCharacters(line)) : undefined);
 
 describe('printNextSteps', () => {
   it('numbers the steps under the section header, details lined up under each line', () => {
@@ -94,9 +93,7 @@ describe('alignmentsStep', () => {
   it('links each title to its README on GitHub', async () => {
     const step = await alignmentsStep(config(), { ref: 'HEAD', open: [ids[0]] });
 
-    expect(step?.details?.[0]).toContain(
-      `https://github.com/cellajs/cella/blob/HEAD/cella/alignments/${ids[0]}/README.md`,
-    );
+    expect(step?.details?.[0]).toContain(`https://github.com/cellajs/cella/blob/HEAD/cella/alignments/${ids[0]}/README.md`);
   });
 
   it('is left out when nothing arrives and nothing is open', async () => {

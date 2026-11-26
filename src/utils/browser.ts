@@ -35,10 +35,7 @@ interface ContextOptions extends BrowserContextOptions {
 }
 
 /** A browser context, signed in and with its UI store seeded when asked. */
-export async function newContext(
-  browser: Browser,
-  { session, uiStore, ...options }: ContextOptions = {},
-): Promise<BrowserContext> {
+export async function newContext(browser: Browser, { session, uiStore, ...options }: ContextOptions = {}): Promise<BrowserContext> {
   const context = await browser.newContext(options);
   // tsx and esbuild's keepNames wrap named functions in an `__name` helper that a page script does not have
   await context.addInitScript({ content: 'window.__name = (fn) => fn;' });

@@ -177,12 +177,7 @@ export async function getTrackingStatus(cwd: string, branch?: string): Promise<T
  * `forceWithLease` allows a rewritten branch (see `flattenBranch`) to replace the version
  * already on the remote, while still refusing to overwrite remote commits we haven't seen.
  */
-export async function pushBranch(
-  cwd: string,
-  remote: string,
-  branch: string,
-  options: { forceWithLease?: boolean } = {},
-): Promise<void> {
+export async function pushBranch(cwd: string, remote: string, branch: string, options: { forceWithLease?: boolean } = {}): Promise<void> {
   await git(['push', '-u', ...(options.forceWithLease ? ['--force-with-lease'] : []), remote, branch], cwd, {
     hooks: true,
   });
@@ -325,12 +320,7 @@ export async function countCommitsBetween(cwd: string, fromRef: string, toRef: s
  * List commits in a ref range, oldest-first to match GitHub compare ordering. With `limit`, only the
  * newest `limit` commits (git applies `-n` before `--reverse`).
  */
-export async function listCommitsBetween(
-  cwd: string,
-  fromRef: string,
-  toRef: string,
-  limit?: number,
-): Promise<CommitRangeEntry[]> {
+export async function listCommitsBetween(cwd: string, fromRef: string, toRef: string, limit?: number): Promise<CommitRangeEntry[]> {
   const args = ['log', '--format=%H%x1f%s%x1f%ar%x1f%ct', '--reverse', `${fromRef}..${toRef}`];
   if (limit) args.push(`-n${limit}`);
 
@@ -359,11 +349,7 @@ export interface FileChangeInfo {
  * Relative date and commit hash of the last change for every file in a range,
  * as filePath -> { date, hash, timestamp }; one `git log` call for the whole range.
  */
-export async function getFileChangeInfo(
-  cwd: string,
-  fromRef: string,
-  toRef: string,
-): Promise<Map<string, FileChangeInfo>> {
+export async function getFileChangeInfo(cwd: string, fromRef: string, toRef: string): Promise<Map<string, FileChangeInfo>> {
   const info = new Map<string, FileChangeInfo>();
   const output = await git(['log', '--name-only', '--format=%h %ct %ar', `${fromRef}..${toRef}`], cwd, {
     ignoreErrors: true,
@@ -496,11 +482,7 @@ export interface FileChange {
  * purpose, as a wrong pair puts a pinned file at an unrelated path) and the report's labels. git's
  * merge follows moves at its own 50%, so a move it follows may be labelled a deletion plus an addition.
  */
-export async function getFileChanges(
-  cwd: string,
-  baseRef: string,
-  targetRef: string,
-): Promise<Map<string, FileChange>> {
+export async function getFileChanges(cwd: string, baseRef: string, targetRef: string): Promise<Map<string, FileChange>> {
   const output = await git(['diff-tree', '-r', '-M90%', '--no-commit-id', baseRef, targetRef], cwd);
   const changes = new Map<string, FileChange>();
 
@@ -543,12 +525,7 @@ interface DiffStat {
  * to `paths`. Renames are not detected (`--no-renames`) so every entry is keyed by its plain
  * path, never git's `old => new` notation.
  */
-export async function getDiffStat(
-  cwd: string,
-  fromRef: string,
-  toRef: string,
-  paths: string[] = [],
-): Promise<Map<string, DiffStat>> {
+export async function getDiffStat(cwd: string, fromRef: string, toRef: string, paths: string[] = []): Promise<Map<string, DiffStat>> {
   const args = ['diff', '--numstat', '--no-renames', fromRef, toRef];
   if (paths.length > 0) args.push('--', ...paths);
   const out = await git(args, cwd, { ignoreErrors: true });
@@ -625,9 +602,7 @@ export async function assertRealFolder(cwd: string, path: string): Promise<void>
     // A folder that does not exist yet is made by the write itself
     if (!entry) return;
     if (entry.isSymbolicLink()) {
-      throw new Error(
-        `refused to change ${printable(path)}: its folder ${printable(folder)} is a symlink. Remove the link, then rerun.`,
-      );
+      throw new Error(`refused to change ${printable(path)}: its folder ${printable(folder)} is a symlink. Remove the link, then rerun.`);
     }
   }
 }

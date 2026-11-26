@@ -32,9 +32,7 @@ export function formatDependents(dependents: string[]): string {
  */
 export function installedVerdict(vulnerable: number, note: string): string {
   const verdict =
-    vulnerable === 0
-      ? `${checkMark} installed: no open vulnerabilities`
-      : `${warningMark} installed: ${plural(vulnerable, 'vulnerable package')}`;
+    vulnerable === 0 ? `${checkMark} installed: no open vulnerabilities` : `${warningMark} installed: ${plural(vulnerable, 'vulnerable package')}`;
   return note ? `${verdict} ${pc.dim(`· ${note}`)}` : verdict;
 }
 
@@ -49,9 +47,7 @@ export function printAdvisoryRows(
   console.info(title);
   for (const row of rows) {
     const name = pc.white(middleTruncate(row.module, nameWidth).padEnd(nameWidth));
-    console.info(
-      `${severityDot(row.severity)} ${name}  ${row.severity.padEnd(8)}  ${row.versions.padEnd(versionWidth)}  ${pc.dim(row.note)}`,
-    );
+    console.info(`${severityDot(row.severity)} ${name}  ${row.severity.padEnd(8)}  ${row.versions.padEnd(versionWidth)}  ${pc.dim(row.note)}`);
   }
   console.info();
 }

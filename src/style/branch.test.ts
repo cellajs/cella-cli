@@ -41,12 +41,7 @@ describe('changed lines', () => {
       rule,
       message: '',
     });
-    const findings = [
-      finding('docs/a.md', 3),
-      finding('docs/a.md', 4),
-      finding('docs/new.md', 9),
-      finding('docs/a.md', 4, 'em-dash'),
-    ];
+    const findings = [finding('docs/a.md', 3), finding('docs/a.md', 4), finding('docs/new.md', 9), finding('docs/a.md', 4, 'em-dash')];
     const kept = onChangedLines(findings, rules, changedLinesFromDiff(diff), new Set(['docs/new.md']));
     expect(kept.map(({ file, line, rule }) => `${file}:${line}:${rule}`)).toEqual([
       'docs/a.md:3:consequence-tail',

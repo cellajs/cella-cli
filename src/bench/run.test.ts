@@ -94,10 +94,7 @@ describe('runScenario', () => {
     expect(result.summary.counters['errors.ETIMEDOUT']).toBe(1);
     expect(result.summary.endpoints['GET /hang']).toMatchObject({ requests: 1, timeouts: 1 });
     expect(result.summary.vus).toEqual({ created: 1, completed: 0, failed: 1 });
-    expect(result.summary.checks.filter((check) => !check.ok).map((check) => check.id)).toEqual([
-      'responses',
-      'errorShare',
-    ]);
+    expect(result.summary.checks.filter((check) => !check.ok).map((check) => check.id)).toEqual(['responses', 'errorShare']);
     expect(existsSync(baselineFile(dataDir, 'failing'))).toBe(false);
   });
 
@@ -134,15 +131,11 @@ describe('runScenario', () => {
   });
 
   it('ends a stream its VU left open, also when the VU throws', async () => {
-    const closed = new Promise<void>((resolve) =>
-      server.once('request', (req) => req.url === '/stream-open' && req.once('close', resolve)),
-    );
+    const closed = new Promise<void>((resolve) => server.once('request', (req) => req.url === '/stream-open' && req.once('close', resolve)));
     const scenario = defineScenario({
       description: 'a stream left open',
       async run(vu) {
-        await new Promise<void>(
-          (heard) => void vu.client().sse('/stream-open', () => heard(), { name: 'SSE /stream-open' }),
-        );
+        await new Promise<void>((heard) => void vu.client().sse('/stream-open', () => heard(), { name: 'SSE /stream-open' }));
         throw new Error('the scenario gave up');
       },
     });

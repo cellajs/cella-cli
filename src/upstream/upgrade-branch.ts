@@ -73,9 +73,7 @@ async function resolveCycleStart(repoRoot: string, trunk: string, currentBranch:
   if (behind > 0) {
     const worktree = currentBranch === trunk ? null : await getBranchWorktree(repoRoot, trunk);
     if (worktree) {
-      console.info(
-        pc.dim(`'${trunk}' is ${behind} behind '${tracking}' but checked out at ${worktree}; leaving it as it is.`),
-      );
+      console.info(pc.dim(`'${trunk}' is ${behind} behind '${tracking}' but checked out at ${worktree}; leaving it as it is.`));
       return tracking;
     }
     console.info(pc.dim(`fast-forwarding '${trunk}' to '${tracking}' (${behind} behind)...`));
@@ -164,10 +162,7 @@ export async function discardUpgradeBranch(repoRoot: string, branch: UpgradeBran
  * changes stays as it is. Returns whether the branch was dropped.
  */
 export async function discardUnusedUpgradeBranch(repoRoot: string, branch: UpgradeBranch): Promise<boolean> {
-  const unused =
-    (await getCurrentBranch(repoRoot)) === branch.name &&
-    !(await mergeInProgress(repoRoot)) &&
-    (await isClean(repoRoot));
+  const unused = (await getCurrentBranch(repoRoot)) === branch.name && !(await mergeInProgress(repoRoot)) && (await isClean(repoRoot));
   if (!unused) return false;
 
   await discardUpgradeBranch(repoRoot, branch);
@@ -219,10 +214,7 @@ export async function undoUnfinishedMerge(config: RuntimeConfig, branch: string)
   const { repoRoot } = config;
   const trunk = resolveTrunk(config);
   const cutPoint = await getMergeBase(repoRoot, 'HEAD', await resolveTrunkRef(repoRoot, trunk));
-  const [committed, atCut] = await Promise.all([
-    readUpgradePointAtRef(repoRoot, 'HEAD'),
-    readUpgradePointAtRef(repoRoot, cutPoint),
-  ]);
+  const [committed, atCut] = await Promise.all([readUpgradePointAtRef(repoRoot, 'HEAD'), readUpgradePointAtRef(repoRoot, cutPoint)]);
 
   console.info();
   if (committed !== atCut) {
@@ -234,9 +226,7 @@ export async function undoUnfinishedMerge(config: RuntimeConfig, branch: string)
   await mergeAbort(repoRoot);
   const position = await returnToTrunk(repoRoot, trunk);
   await deleteBranch(repoRoot, branch);
-  console.info(
-    pc.yellow(`an earlier run stopped before it finished the merge on '${branch}': undid it and removed the branch.`),
-  );
+  console.info(pc.yellow(`an earlier run stopped before it finished the merge on '${branch}': undid it and removed the branch.`));
   console.info(pc.dim(`${position}: run \`pnpm cella upgrade\` again to start a fresh upgrade.`));
   return 0;
 }

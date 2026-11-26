@@ -41,9 +41,7 @@ describe('token-contrast', () => {
     const source = theme(['--success: oklch(0.59 0.2 142.5);', '--success-foreground: oklch(0.985 0 0);'], []);
     const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
     expect(messages).toContainEqual(
-      expect.stringMatching(
-        /^text on its fill is 3\.\d\d:1 in light mode, below 4\.5:1 \(--success-foreground on --success\)$/,
-      ),
+      expect.stringMatching(/^text on its fill is 3\.\d\d:1 in light mode, below 4\.5:1 \(--success-foreground on --success\)$/),
     );
   });
 
@@ -55,26 +53,18 @@ describe('token-contrast', () => {
 
   it('measures an alias with the color it names in each mode, so a token that points elsewhere is not skipped', () => {
     const source = theme(
-      [
-        '--foreground: oklch(0.2 0.01 285);',
-        '--secondary: oklch(0.96 0.004 285);',
-        '--secondary-foreground: var(--foreground);',
-      ],
+      ['--foreground: oklch(0.2 0.01 285);', '--secondary: oklch(0.96 0.004 285);', '--secondary-foreground: var(--foreground);'],
       ['--foreground: oklch(0.35 0.01 285);', '--secondary: oklch(0.31 0.01 285);'],
     );
     const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
-    expect(messages).toContainEqual(
-      expect.stringMatching(/in dark mode, below 4\.5:1 \(--secondary-foreground on --secondary\)$/),
-    );
+    expect(messages).toContainEqual(expect.stringMatching(/in dark mode, below 4\.5:1 \(--secondary-foreground on --secondary\)$/));
     expect(messages).not.toContainEqual(expect.stringContaining('light mode, below 4.5:1 (--secondary-foreground'));
   });
 
   it('finds the light block when --background is not its first declaration', () => {
     const source = theme(['--foreground: oklch(0.95 0 0);'], []).replace(':root {', ':root {\n    --radius: 0.5rem;');
     const messages = check([tokenContrastRule], file, source).map(({ message }) => message);
-    expect(messages).toContainEqual(
-      expect.stringMatching(/in light mode, below 4\.5:1 \(--foreground on --background\)$/),
-    );
+    expect(messages).toContainEqual(expect.stringMatching(/in light mode, below 4\.5:1 \(--foreground on --background\)$/));
   });
 
   it('reports a raised control edge below 3:1', () => {
@@ -93,15 +83,11 @@ describe('token-contrast', () => {
   });
 
   it('reports a theme that drops the raised token, which would leave nothing to measure', () => {
-    const messages = check([tokenContrastRule], file, theme(['--input: oklch(0.88 0.005 285);'], [])).map(
-      ({ message }) => message,
-    );
+    const messages = check([tokenContrastRule], file, theme(['--input: oklch(0.88 0.005 285);'], [])).map(({ message }) => message);
     expect(messages).toContainEqual(expect.stringContaining('no --edge-raised in light mode'));
   });
 
   it('ignores every other file', () => {
-    expect(
-      check([tokenContrastRule], 'frontend/src/styling/other.css', theme(['--edge-raised: oklch(0.99 0 0);'], [])),
-    ).toEqual([]);
+    expect(check([tokenContrastRule], 'frontend/src/styling/other.css', theme(['--edge-raised: oklch(0.99 0 0);'], []))).toEqual([]);
   });
 });

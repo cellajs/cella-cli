@@ -12,12 +12,7 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vitest';
 import { captureInfo, createRepo, exec, write } from '../../tests/helpers/test-env';
 import type { CellaCliConfig, PackageJsonKey } from '../config/types';
-import {
-  compareUpstreamOverrides,
-  diffOverrideLists,
-  hasBlockingOverrideChanges,
-  parseOverrideLists,
-} from './config-gate';
+import { compareUpstreamOverrides, diffOverrideLists, hasBlockingOverrideChanges, parseOverrideLists } from './config-gate';
 import type { MergeResult } from './model';
 import { printUpstreamOverrideChanges } from './report';
 
@@ -44,10 +39,7 @@ export default defineConfig({
 `;
 }
 
-function appConfig(
-  lists: { pinned?: string[]; ignored?: string[] },
-  packageJsonKeys?: PackageJsonKey[],
-): CellaCliConfig {
+function appConfig(lists: { pinned?: string[]; ignored?: string[] }, packageJsonKeys?: PackageJsonKey[]): CellaCliConfig {
   return { upstreamUrl: 'test', packageJsonKeys, ...lists };
 }
 
@@ -87,11 +79,7 @@ describe('parseOverrideLists', () => {
   });
 
   it('reads the packageJsonKeys keys, and null when the list or the 0.7 settings cannot be read statically', () => {
-    const source = configSource(
-      `'a.ts'`,
-      '',
-      `packageJsonKeys: ['dependencies', 'scripts', /* add-only */ 'exports'],`,
-    );
+    const source = configSource(`'a.ts'`, '', `packageJsonKeys: ['dependencies', 'scripts', /* add-only */ 'exports'],`);
     expect(parseOverrideLists(source)?.packageJsonKeys).toEqual(['dependencies', 'scripts', 'exports']);
 
     // An unreadable key list leaves the override lists readable
@@ -236,18 +224,10 @@ describe('compareUpstreamOverrides', () => {
 `,
     });
     const incoming = commit({
-      'cella/cella.config.ts': configSource(
-        `'a.ts',\n // Bundle composition is app-owned\n 'backend/src/bundle-config.ts'`,
-        `'README.md'`,
-      ),
+      'cella/cella.config.ts': configSource(`'a.ts',\n // Bundle composition is app-owned\n 'backend/src/bundle-config.ts'`, `'README.md'`),
     });
 
-    const report = await compareUpstreamOverrides(
-      repoPath,
-      base,
-      incoming,
-      appConfig({ pinned: ['a.ts'], ignored: ['README.md', 'old'] }),
-    );
+    const report = await compareUpstreamOverrides(repoPath, base, incoming, appConfig({ pinned: ['a.ts'], ignored: ['README.md', 'old'] }));
     expect(report).toEqual({
       type: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
@@ -260,11 +240,7 @@ describe('compareUpstreamOverrides', () => {
     repoPath = createRepo('cella-upstream-overrides-');
     const base = commit({ 'cella/cella.config.ts': configSource(`'a.ts'`, '') });
     const incoming = commit({
-      'cella/cella.config.ts': configSource(
-        `'a.ts'`,
-        '',
-        `packageJsonKeys: ['dependencies', 'devDependencies', 'exports'],`,
-      ),
+      'cella/cella.config.ts': configSource(`'a.ts'`, '', `packageJsonKeys: ['dependencies', 'devDependencies', 'exports'],`),
     });
 
     const app = appConfig({ pinned: ['a.ts'] });
@@ -312,8 +288,7 @@ describe('compareUpstreamOverrides', () => {
 });
 
 describe('printUpstreamOverrideChanges', () => {
-  const capture = (upstreamOverrides: MergeResult['upstreamOverrides']) =>
-    captureInfo(() => printUpstreamOverrideChanges({ upstreamOverrides }));
+  const capture = (upstreamOverrides: MergeResult['upstreamOverrides']) => captureInfo(() => printUpstreamOverrideChanges({ upstreamOverrides }));
 
   it('lists added and removed entries by name', () => {
     const out = capture({

@@ -1,38 +1,13 @@
-import {
-  createPrompt,
-  isDownKey,
-  isEnterKey,
-  isSpaceKey,
-  isUpKey,
-  useKeypress,
-  usePagination,
-  useState,
-} from '@inquirer/core';
+import { createPrompt, isDownKey, isEnterKey, isSpaceKey, isUpKey, useKeypress, usePagination, useState } from '@inquirer/core';
 import { select } from '@inquirer/prompts';
 import { resolveAppModuleFolders } from '../config/app-modules';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from '../config/forks';
 import { defaultBranch, isUpstreamRepo } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import {
-  checkMark,
-  createSpinner,
-  divider,
-  spinnerFail,
-  spinnerSuccess,
-  warningMark,
-  writeStdout,
-} from '../utils/display';
+import { checkMark, createSpinner, divider, spinnerFail, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import {
-  checkoutFromRef,
-  getCurrentBranch,
-  getDiffStat,
-  git,
-  gitRm,
-  removeFileFromWorktree,
-  restoreWorktreeFromRef,
-} from '../utils/git';
+import { checkoutFromRef, getCurrentBranch, getDiffStat, git, gitRm, removeFileFromWorktree, restoreWorktreeFromRef } from '../utils/git';
 import { buildContribBranch, type ContribFile, detectContributableFiles } from './adopt-branch';
 import { parseOverrideLists } from './config-gate';
 import { gitDiffFile, openInBrowser, writeDiffPage } from './diff-page';
@@ -106,12 +81,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
       try {
         const patch = await gitDiffFile(cwd, `${baseRef}..${branch}`, path);
         if (patch.length === 0) return setStatusMsg(`no changes for ${path}`);
-        const page = await writeDiffPage(
-          [{ files: [{ path, patch: patch.toString() }] }],
-          { title: path, note: `cella ← → ${forkName}` },
-          cwd,
-          path,
-        );
+        const page = await writeDiffPage([{ files: [{ path, patch: patch.toString() }] }], { title: path, note: `cella ← → ${forkName}` }, cwd, path);
         setStatusMsg(openInBrowser(page) ? `opened ${path} in browser` : `diff page: ${page}`);
       } catch (error) {
         setStatusMsg(`diff failed: ${errorMessage(error)}`);
@@ -128,8 +98,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
   });
 
   const checkedCount = items.filter((i) => i.checked).length;
-  if (promptStatus === 'done')
-    return checkedCount > 0 ? `${checkMark} ${checkedCount} files accepted` : `${checkMark} done`;
+  if (promptStatus === 'done') return checkedCount > 0 ? `${checkMark} ${checkedCount} files accepted` : `${checkMark} done`;
 
   const page = usePagination({
     items,
@@ -148,8 +117,7 @@ const contribPrompt = createPrompt<ContribItem[], ContribPromptConfig>((config, 
     loop: false,
   });
 
-  const countInfo =
-    checkedCount > 0 ? `${items.length} files, ${pc.green(`${checkedCount} selected`)}` : `${items.length} files`;
+  const countInfo = checkedCount > 0 ? `${items.length} files, ${pc.green(`${checkedCount} selected`)}` : `${items.length} files`;
   const header = `${pc.cyan('⬇')} ${config.message} ${pc.dim(`(${countInfo})`)}`;
 
   const keys: [string, string][] = [
@@ -197,9 +165,7 @@ async function selectFork(options: AdoptOptions, validated: ValidatedFork[]): Pr
 
   const choices = validated.map((v) => ({
     value: v.fork.name,
-    name: v.valid
-      ? `${v.fork.name}  ${pc.dim(`[${v.fork.pullBranch}] ${v.fork.localPath}`)}`
-      : `${v.fork.name}  ${pc.dim(v.fork.localPath)}`,
+    name: v.valid ? `${v.fork.name}  ${pc.dim(`[${v.fork.pullBranch}] ${v.fork.localPath}`)}` : `${v.fork.name}  ${pc.dim(v.fork.localPath)}`,
     disabled: v.valid ? false : (v.error ?? 'invalid'),
   }));
   const picked = await select<string>({
@@ -224,11 +190,7 @@ interface Contributions {
  * Fetch the fork's `pullBranch` and collect the files it contributes against `baseRef` on a local
  * `contrib/<fork>` branch, the most recent fork change first; no items when it offers none.
  */
-async function collectContributions(
-  config: RuntimeConfig,
-  { fork, resolvedPath }: ValidatedFork,
-  baseRef: string,
-): Promise<Contributions> {
+async function collectContributions(config: RuntimeConfig, { fork, resolvedPath }: ValidatedFork, baseRef: string): Promise<Contributions> {
   const { repoRoot } = config;
   // The fork's remote holds its committed ref, ahead of the local clone.
   await git(['fetch', fork.remoteUrl ?? resolvedPath, fork.pullBranch], repoRoot);
@@ -256,12 +218,7 @@ async function collectContributions(
 }
 
 /** Bring the selected files from `branch` into the working tree, unstaged or staged; returns one error line per file that failed. */
-async function applyContributions(
-  repoRoot: string,
-  branch: string,
-  selected: ContribItem[],
-  unstaged: boolean,
-): Promise<string[]> {
+async function applyContributions(repoRoot: string, branch: string, selected: ContribItem[], unstaged: boolean): Promise<string[]> {
   const errors: string[] = [];
   for (const { path, kind } of selected) {
     // Reject paths with traversal components (CWE-22)
@@ -271,8 +228,7 @@ async function applyContributions(
     }
     try {
       if (kind === 'deleted') await (unstaged ? removeFileFromWorktree(repoRoot, path) : gitRm(repoRoot, [path]));
-      else
-        await (unstaged ? restoreWorktreeFromRef(repoRoot, branch, path) : checkoutFromRef(repoRoot, branch, [path]));
+      else await (unstaged ? restoreWorktreeFromRef(repoRoot, branch, path) : checkoutFromRef(repoRoot, branch, [path]));
     } catch (error) {
       errors.push(`${path}: ${errorMessage(error)}`);
     }
@@ -298,12 +254,8 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
   // The comparison is a 3-way analysis against merge-base(baseRef, fork): a long-lived feature branch
   // has an older merge-base than 'main' and may show extra 'diverged' files.
   if (baseRef !== defaultBranch) {
-    console.info(
-      `${warningMark} ${pc.yellow(`not on base branch '${defaultBranch}'`)} ${pc.dim(`comparing forks against '${baseRef}'`)}`,
-    );
-    console.info(
-      `  ${pc.dim(`older merge-base may show extra 'diverged' files; switch to '${defaultBranch}' for the cleanest result`)}`,
-    );
+    console.info(`${warningMark} ${pc.yellow(`not on base branch '${defaultBranch}'`)} ${pc.dim(`comparing forks against '${baseRef}'`)}`);
+    console.info(`  ${pc.dim(`older merge-base may show extra 'diverged' files; switch to '${defaultBranch}' for the cleanest result`)}`);
     console.info('');
   }
 
@@ -381,9 +333,7 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
   console.info();
   console.info(
     pc.dim(
-      unstaged
-        ? '  files are unstaged: review, stage what you want, and commit when ready'
-        : '  files are staged: review and commit when ready',
+      unstaged ? '  files are unstaged: review, stage what you want, and commit when ready' : '  files are staged: review and commit when ready',
     ),
   );
   console.info();

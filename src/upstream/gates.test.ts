@@ -27,15 +27,7 @@ describe('cliVersionMismatch', () => {
   });
 
   it('never blocks on a range without a lower bound', () => {
-    for (const range of [
-      'workspace:*',
-      'link:../cella-cli',
-      'file:../cella-cli',
-      '*',
-      '<0.3.0',
-      '>0.2.3',
-      '^0.2.3 || ^0.3.0',
-    ]) {
+    for (const range of ['workspace:*', 'link:../cella-cli', 'file:../cella-cli', '*', '<0.3.0', '>0.2.3', '^0.2.3 || ^0.3.0']) {
       expect(cliVersionMismatch('0.1.0', range)).toBeNull();
     }
   });

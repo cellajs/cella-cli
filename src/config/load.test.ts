@@ -50,8 +50,6 @@ describe('loadConfig', () => {
 
   it('refuses a config that mixes the 0.7 shape with the current one', async () => {
     const repo = repoWithConfig(`export default { upstreamUrl: 'x.git', overrides: { pinned: ['a.ts'] } };\n`);
-    await expect(loadConfig(repo)).rejects.toThrow(
-      'mixes the 0.7 shape (settings, overrides) with top-level upstreamUrl',
-    );
+    await expect(loadConfig(repo)).rejects.toThrow('mixes the 0.7 shape (settings, overrides) with top-level upstreamUrl');
   });
 });

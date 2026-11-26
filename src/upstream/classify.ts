@@ -92,13 +92,8 @@ export function repairIncomingRenames(changes: Map<string, FileChange>, context:
   for (const pair of crossed) {
     const name = basenameOf(pair.oldPath);
     const mappedDir = dirMoves.get(dirnameOf(pair.oldPath));
-    const candidates = [
-      ...(mappedDir === undefined ? [] : [joinDir(mappedDir, name)]),
-      joinDir(dirnameOf(pair.from), name),
-    ];
-    const target = candidates.find(
-      (path) => context.incomingPaths.has(path) && !context.basePaths.has(path) && !keptTargets.has(path),
-    );
+    const candidates = [...(mappedDir === undefined ? [] : [joinDir(mappedDir, name)]), joinDir(dirnameOf(pair.from), name)];
+    const target = candidates.find((path) => context.incomingPaths.has(path) && !context.basePaths.has(path) && !keptTargets.has(path));
     desired.set(pair.from, target ?? pair.from);
   }
 
@@ -128,8 +123,7 @@ export function repairIncomingRenames(changes: Map<string, FileChange>, context:
     if (mappedDir === undefined) continue;
     const target = joinDir(mappedDir, basenameOf(oldPath));
     if (!context.isProtected(oldPath) && !context.isProtected(target)) continue;
-    if (!context.incomingPaths.has(target) || context.basePaths.has(target) || changes.get(target)?.status !== 'A')
-      continue;
+    if (!context.incomingPaths.has(target) || context.basePaths.has(target) || changes.get(target)?.status !== 'A') continue;
 
     changes.set(target, { status: 'R', oldPath, baseHash: null, targetHash: changes.get(target)?.targetHash ?? null });
     changes.delete(oldPath);
@@ -160,39 +154,29 @@ async function readTrees(repoRoot: string, appRef: string, upstreamRef: string, 
 }
 
 /** One path's classification, before the fields every file carries. */
-type Verdict = Pick<AnalyzedFile, 'status' | 'resolution'> &
-  Pick<Partial<AnalyzedFile>, 'renamedFrom' | 'upstreamChanged' | 'upstreamOnly'>;
+type Verdict = Pick<AnalyzedFile, 'status' | 'resolution'> & Pick<Partial<AnalyzedFile>, 'renamedFrom' | 'upstreamChanged' | 'upstreamOnly'>;
 
 /**
  * A path upstream moved a file to. A renamed directory (e.g. config/ → shared/) can leave the app's
  * pinned list naming the old path, so both paths count for pinned/ignored. `appMoved` holds the
  * paths the app moved a file away from.
  */
-function classifyMove(
-  path: string,
-  oldPath: string,
-  trees: Trees,
-  protection: Protection,
-  appMoved: ReadonlySet<string>,
-): Verdict {
+function classifyMove(path: string, oldPath: string, trees: Trees, protection: Protection, appMoved: ReadonlySet<string>): Verdict {
   const { base, app, upstream } = trees;
   const differsAtPath = app.get(path) !== upstream.get(path);
   const ownAtPath = app.has(path) && differsAtPath;
   const isProtected = (entry: string) => protection.isIgnored(entry) || protection.isPinned(entry);
   // A template copy the app never edited follows upstream's move: the app has nothing of its own to keep.
-  const untouchedArrival =
-    !isProtected(oldPath) && app.has(oldPath) && app.get(oldPath) === base.get(oldPath) && !ownAtPath;
+  const untouchedArrival = !isProtected(oldPath) && app.has(oldPath) && app.get(oldPath) === base.get(oldPath) && !ownAtPath;
   if ((isProtected(path) || isProtected(oldPath)) && !untouchedArrival) {
     // The app's copy moves along; with no copy at the old path, the app's version of the new path stays.
     // A copy at both paths leaves git's conflict, so the move never overwrites the app's own file.
     const resolution = !app.has(oldPath) ? 'keep' : ownAtPath ? 'merge' : 'move';
     const landing = resolution === 'move' ? app.get(oldPath) : app.get(path);
     // Upstream moved a file the app never touched into (or within) ignored territory.
-    const upstreamOnly =
-      protection.isIgnored(path) && app.get(oldPath) === base.get(oldPath) && isReportableIgnored(path);
+    const upstreamOnly = protection.isIgnored(path) && app.get(oldPath) === base.get(oldPath) && isReportableIgnored(path);
     // Upstream changed the content beyond the move, and the copy the app keeps differs from it.
-    const dropped =
-      resolution !== 'merge' && upstream.get(path) !== base.get(oldPath) && landing !== upstream.get(path);
+    const dropped = resolution !== 'merge' && upstream.get(path) !== base.get(oldPath) && landing !== upstream.get(path);
     return {
       status: 'pinned',
       resolution,
@@ -252,11 +236,7 @@ function classifyPath(path: string, trees: Trees, protection: Protection, appMov
  * (`upstreamOnly`). A protected file only the app changed is plain `ahead`; the pinned counterpart of
  * `upstreamOnly` is the masking pin (`behind`).
  */
-function droppedUpstreamChange(
-  path: string,
-  trees: Trees,
-  protection: Protection,
-): Pick<Verdict, 'upstreamChanged' | 'upstreamOnly'> {
+function droppedUpstreamChange(path: string, trees: Trees, protection: Protection): Pick<Verdict, 'upstreamChanged' | 'upstreamOnly'> {
   const [baseHash, appHash, upstreamHash] = [trees.base.get(path), trees.app.get(path), trees.upstream.get(path)];
   if (upstreamHash === baseHash || upstreamHash === appHash) return {};
   const appChanged = appHash !== baseHash;
@@ -268,8 +248,7 @@ function droppedUpstreamChange(
 /** The paths the app moved a file away from since the merge-base. */
 function appMovedFrom(trees: Trees): Set<string> {
   const moved = new Set<string>();
-  for (const change of trees.appChanges.values())
-    if (change.status === 'R' && change.oldPath) moved.add(change.oldPath);
+  for (const change of trees.appChanges.values()) if (change.status === 'R' && change.oldPath) moved.add(change.oldPath);
   return moved;
 }
 
@@ -289,8 +268,7 @@ export function classifyFiles(trees: Trees, protection: Protection): AnalyzedFil
   });
 
   const movedFrom = new Map<string, string>();
-  for (const [path, change] of upstreamChanges)
-    if (change.status === 'R' && change.oldPath) movedFrom.set(path, change.oldPath);
+  for (const [path, change] of upstreamChanges) if (change.status === 'R' && change.oldPath) movedFrom.set(path, change.oldPath);
   const oldPaths = new Set(movedFrom.values());
   const changed = new Set([...trees.appChanges.keys(), ...upstreamChanges.keys()]);
   const appMoved = appMovedFrom(trees);
@@ -336,19 +314,13 @@ const caseKey = (name: string) => name.normalize('NFC').toLowerCase();
  * resolution, but a path the app moved a file away from (`appMoved`, at git's merge threshold). Two arriving paths pair
  * too: git writes both before the upgrade restores or removes them. A pair the app already holds is none.
  */
-export function caseCollisions(
-  trees: Trees,
-  files: AnalyzedFile[],
-  appMoved: ReadonlySet<string>,
-): [arriving: string, other: string][] {
+export function caseCollisions(trees: Trees, files: AnalyzedFile[], appMoved: ReadonlySet<string>): [arriving: string, other: string][] {
   const leaves = ({ path, resolution, existsInApp }: AnalyzedFile) =>
     existsInApp
       ? resolution !== 'remove'
       : // git merges upstream's change to a path the app moved into the moved copy
         resolution === 'take' || resolution === 'move' || (resolution === 'merge' && !appMoved.has(path));
-  const arriving = [...trees.upstream]
-    .filter(([path, hash]) => hash !== trees.base.get(path) && !appMoved.has(path))
-    .map(([path]) => path);
+  const arriving = [...trees.upstream].filter(([path, hash]) => hash !== trees.base.get(path) && !appMoved.has(path)).map(([path]) => path);
   const written = new Map<string, Set<string>>();
   for (const path of [...files.filter(leaves).map((file) => file.path), ...arriving])
     for (const name of withFolders(path)) {
@@ -361,8 +333,7 @@ export function caseCollisions(
   for (const path of arriving)
     for (const name of withFolders(path))
       for (const other of written.get(caseKey(name)) ?? [])
-        if (other !== name && !(held.has(name) && held.has(other)))
-          pairs.set([name, other].sort().join('\0'), [name, other]);
+        if (other !== name && !(held.has(name) && held.has(other))) pairs.set([name, other].sort().join('\0'), [name, other]);
   return [...pairs.values()];
 }
 
@@ -437,17 +408,8 @@ async function countUpstreamLines(
  * Classify every file changed between the app and upstream refs from a shared merge-base, in a repo
  * that reaches all three, size the upstream changes the upgrade leaves out, and name the case collisions.
  */
-async function classifyRefs(
-  repoRoot: string,
-  appRef: string,
-  upstreamRef: string,
-  baseRef: string,
-  protection: Protection,
-): Promise<ClassifiedRun> {
-  const [trees, appMoved] = await Promise.all([
-    readTrees(repoRoot, appRef, upstreamRef, baseRef),
-    listMovedFrom(repoRoot, baseRef, appRef),
-  ]);
+async function classifyRefs(repoRoot: string, appRef: string, upstreamRef: string, baseRef: string, protection: Protection): Promise<ClassifiedRun> {
+  const [trees, appMoved] = await Promise.all([readTrees(repoRoot, appRef, upstreamRef, baseRef), listMovedFrom(repoRoot, baseRef, appRef)]);
   const files = classifyFiles(trees, protection);
   await countUpstreamLines(repoRoot, files, { appRef, upstreamRef, baseRef });
   return { files, collisions: caseCollisions(trees, files, appMoved) };
@@ -538,8 +500,7 @@ function summarize(files: AnalyzedFile[]): AnalysisSummary {
     deleted: 0,
     renamed: 0,
   };
-  for (const file of files)
-    summary[file.status !== 'identical' && isManagedFile(file.path) ? 'managed' : file.status]++;
+  for (const file of files) summary[file.status !== 'identical' && isManagedFile(file.path) ? 'managed' : file.status]++;
   return summary;
 }
 
@@ -551,7 +512,5 @@ export function classifiedResult(files: AnalyzedFile[]): Pick<MergeResult, 'file
 
 /** Files the upgrade changes from upstream: upstream's copy, its deletion or git's merge of both sides. */
 export function changedFromUpstream(files: AnalyzedFile[]): AnalyzedFile[] {
-  return files.filter(
-    (file) => file.resolution === 'take' || file.resolution === 'remove' || file.resolution === 'merge',
-  );
+  return files.filter((file) => file.resolution === 'take' || file.resolution === 'remove' || file.resolution === 'merge');
 }

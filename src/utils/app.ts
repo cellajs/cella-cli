@@ -18,11 +18,7 @@ interface LocalDatabases {
  * @param mode the app config's mode. The config reads it once, at its first import in this process, and the dev port
  * offset applies in development mode only.
  */
-async function importFromApp(
-  repoRoot: string,
-  file: string,
-  mode: 'development' | 'production' = 'development',
-): Promise<Record<string, unknown>> {
+async function importFromApp(repoRoot: string, file: string, mode: 'development' | 'production' = 'development'): Promise<Record<string, unknown>> {
   const path = join(repoRoot, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
   process.env.NODE_ENV = mode;
@@ -34,14 +30,9 @@ async function importFromApp(
  * development import claims that worktree's port slot, as `pnpm dev` would.
  * @throws when the config does not fit `schema`
  */
-export async function loadAppConfig<T>(
-  repoRoot: string,
-  schema: z.ZodType<T>,
-  mode: 'development' | 'production' = 'development',
-): Promise<T> {
+export async function loadAppConfig<T>(repoRoot: string, schema: z.ZodType<T>, mode: 'development' | 'production' = 'development'): Promise<T> {
   const parsed = schema.safeParse((await importFromApp(repoRoot, 'shared/index.ts', mode)).appConfig);
-  if (!parsed.success)
-    throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
+  if (!parsed.success) throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
   return parsed.data;
 }
 
@@ -49,11 +40,7 @@ export async function loadAppConfig<T>(
 export async function loadLocalDatabases(repoRoot: string): Promise<LocalDatabases> {
   const module = await importFromApp(repoRoot, 'shared/src/local-database.ts');
   const { localDatabasePort, localDatabaseUrl, composeEnv } = module;
-  if (
-    typeof localDatabasePort !== 'function' ||
-    typeof localDatabaseUrl !== 'function' ||
-    typeof composeEnv !== 'function'
-  ) {
+  if (typeof localDatabasePort !== 'function' || typeof localDatabaseUrl !== 'function' || typeof composeEnv !== 'function') {
     throw new Error('shared/src/local-database.ts lacks localDatabasePort, localDatabaseUrl or composeEnv');
   }
   return {

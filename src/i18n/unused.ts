@@ -7,15 +7,7 @@ import pc from '../utils/colors';
 import { checkMark, createSpinner, plural, spinnerSuccess, warningMark, writeStdout } from '../utils/display';
 import { errorMessage } from '../utils/errors';
 import { type CodeScan, type DynamicSite, isOpenPattern, patternTest, type Site, scanCode } from './key-uses';
-import {
-  type Locales,
-  lineOf,
-  namespaceTexts,
-  pluralForm,
-  readLocales,
-  sourceLanguage,
-  withPluralForms,
-} from './locales';
+import { type Locales, lineOf, namespaceTexts, pluralForm, readLocales, sourceLanguage, withPluralForms } from './locales';
 
 /** A repository to scan: this app, or a fork named in `cella/cella.config.ts`. */
 interface Repo {
@@ -166,9 +158,7 @@ async function buildUnused(repoRoot: string): Promise<UnusedReport> {
     usedOnlyInForks: [],
     unverified: [],
     openSites: scans.flatMap((scan) =>
-      scan.dynamic
-        .filter((site) => !site.keys && isOpenPattern(site.pattern))
-        .map((site) => ({ ...site, repo: scan.repo })),
+      scan.dynamic.filter((site) => !site.keys && isOpenPattern(site.pattern)).map((site) => ({ ...site, repo: scan.repo })),
     ),
   };
   for (const [key, site] of defined) {
@@ -187,29 +177,21 @@ const listMax = 12;
 function printUnused(report: UnusedReport): void {
   const [here, ...forks] = report.repos;
   const forkLine =
-    forks.length > 0
-      ? ` · ${forks.map((fork) => fork.name).join(', ')} +${forks.reduce((sum, fork) => sum + fork.files, 0)} files`
-      : '';
-  spinnerSuccess(
-    `${here.name} ${here.files} files${forkLine} in ${(report.repos.reduce((sum, repo) => sum + repo.ms, 0) / 1000).toFixed(1)} s`,
-  );
+    forks.length > 0 ? ` · ${forks.map((fork) => fork.name).join(', ')} +${forks.reduce((sum, fork) => sum + fork.files, 0)} files` : '';
+  spinnerSuccess(`${here.name} ${here.files} files${forkLine} in ${(report.repos.reduce((sum, repo) => sum + repo.ms, 0) / 1000).toFixed(1)} s`);
   for (const fork of report.missingForks) console.info(`${warningMark} fork ${fork}: its uses are unknown`);
   console.info();
 
   const width = Math.min(48, Math.max(0, ...report.unused.slice(0, listMax).map(({ key }) => key.length)) + 2);
   console.info(`${pc.bold(forks.length > 0 ? 'unused everywhere' : 'unused')} ${pc.dim(String(report.unused.length))}`);
-  for (const { key, file, line } of report.unused.slice(0, listMax))
-    console.info(`  ${key.padEnd(width)}${pc.dim(`${file}:${line}`)}`);
-  if (report.unused.length > listMax)
-    console.info(`  ${pc.dim(`… ${report.unused.length - listMax} more, --json for the list`)}`);
+  for (const { key, file, line } of report.unused.slice(0, listMax)) console.info(`  ${key.padEnd(width)}${pc.dim(`${file}:${line}`)}`);
+  if (report.unused.length > listMax) console.info(`  ${pc.dim(`… ${report.unused.length - listMax} more, --json for the list`)}`);
 
   if (forks.length > 0) {
     console.info();
     console.info(`${pc.bold('used only in a fork')} ${pc.dim(`${report.usedOnlyInForks.length} · keep them`)}`);
-    for (const { key, repos } of report.usedOnlyInForks.slice(0, listMax))
-      console.info(`  ${key.padEnd(width)}${pc.dim(repos.join(' · '))}`);
-    if (report.usedOnlyInForks.length > listMax)
-      console.info(`  ${pc.dim(`… ${report.usedOnlyInForks.length - listMax} more`)}`);
+    for (const { key, repos } of report.usedOnlyInForks.slice(0, listMax)) console.info(`  ${key.padEnd(width)}${pc.dim(repos.join(' · '))}`);
+    if (report.usedOnlyInForks.length > listMax) console.info(`  ${pc.dim(`… ${report.usedOnlyInForks.length - listMax} more`)}`);
   }
 
   const byLiteral = report.unverified.filter(({ by }) => by === 'literal').map(({ key }) => key);
@@ -222,13 +204,11 @@ function printUnused(report: UnusedReport): void {
     const more = byLiteral.length > listMax ? `, … ${byLiteral.length - listMax} more` : '';
     console.info(`  ${pc.dim(`by a literal: ${byLiteral.slice(0, listMax).join(', ')}${more}`)}`);
   }
-  if (report.openSites.length > 0)
-    console.info(`  ${pc.dim(`${plural(report.openSites.length, 'template')} that may build any key:`)}`);
+  if (report.openSites.length > 0) console.info(`  ${pc.dim(`${plural(report.openSites.length, 'template')} that may build any key:`)}`);
   for (const site of report.openSites.slice(0, listMax)) {
     console.info(`  ${pc.dim(`${forks.length > 0 ? `${site.repo} ` : ''}${site.file}:${site.line}`)}  ${site.source}`);
   }
-  if (report.openSites.length > listMax)
-    console.info(`  ${pc.dim(`… ${report.openSites.length - listMax} more, --json for the list`)}`);
+  if (report.openSites.length > listMax) console.info(`  ${pc.dim(`… ${report.openSites.length - listMax} more, --json for the list`)}`);
   if (report.unused.length === 0) {
     console.info();
     console.info(`${checkMark} every key is used`);

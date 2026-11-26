@@ -32,9 +32,7 @@ function pageFacts() {
       .join(' ')
       .trim();
 
-  const controls = [
-    ...document.querySelectorAll('button, a[href], [role="button"], [role="link"], [role="tab"], [role="menuitem"]'),
-  ].filter(visible);
+  const controls = [...document.querySelectorAll('button, a[href], [role="button"], [role="link"], [role="tab"], [role="menuitem"]')].filter(visible);
   return {
     title: document.title,
     lang: document.documentElement.lang,
@@ -43,9 +41,7 @@ function pageFacts() {
       text: text(el).slice(0, 80),
     })),
     landmarks: [
-      ...document.querySelectorAll(
-        'main, nav, header, footer, aside, form[aria-label], [role="main"], [role="navigation"], [role="search"]',
-      ),
+      ...document.querySelectorAll('main, nav, header, footer, aside, form[aria-label], [role="main"], [role="navigation"], [role="search"]'),
     ]
       .filter(visible)
       .map((el) => `${el.getAttribute('role') ?? el.tagName.toLowerCase()}${labelOf(el) ? ` "${labelOf(el)}"` : ''}`),
@@ -80,8 +76,7 @@ function pageFacts() {
       .filter((el) => el !== document.documentElement && visible(el))
       .map((el) => ({ lang: el.getAttribute('lang'), text: text(el).slice(0, 60) })),
     liveRegions: [...document.querySelectorAll('[aria-live], [role="status"], [role="alert"], [role="log"]')].map(
-      (el) =>
-        `${el.getAttribute('role') ?? 'aria-live'}=${el.getAttribute('aria-live') ?? 'implicit'}: ${text(el).slice(0, 60)}`,
+      (el) => `${el.getAttribute('role') ?? 'aria-live'}=${el.getAttribute('aria-live') ?? 'implicit'}: ${text(el).slice(0, 60)}`,
     ),
   };
 }
@@ -93,12 +88,7 @@ function pageFacts() {
 export const reviewPacket: PageCheck = async (page, state, run) => {
   // Development-only tools are not part of the product
   const hidden = await page.addStyleTag({ content: `${devOnlySelectors.join(', ')} { display: none !important; }` });
-  writePacketFile(
-    run,
-    state.id,
-    'screenshot.png',
-    await page.screenshot({ fullPage: !state.open, animations: 'disabled' }),
-  );
+  writePacketFile(run, state.id, 'screenshot.png', await page.screenshot({ fullPage: !state.open, animations: 'disabled' }));
   writePacketFile(run, state.id, 'tree.yml', await page.locator('body').ariaSnapshot());
   writePacketFile(run, state.id, 'facts.json', `${JSON.stringify(await page.evaluate(pageFacts), null, 2)}\n`);
   await hidden.evaluate((element) => (element as Element).remove());

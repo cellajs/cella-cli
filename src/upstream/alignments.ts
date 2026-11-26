@@ -149,11 +149,9 @@ export async function arrivedAlignmentIds(cwd: string, from: string, to: string)
 
 /** The upstream commit at or before `ref` that added the alignment's README; null when git finds none. */
 export async function readAlignmentSource(cwd: string, ref: string, id: string): Promise<AlignmentSource | null> {
-  const out = await git(
-    ['log', '-1', '--diff-filter=A', '--format=%H%x09%s', ref, '--', `${alignmentsDir}/${id}/README.md`],
-    cwd,
-    { ignoreErrors: true },
-  );
+  const out = await git(['log', '-1', '--diff-filter=A', '--format=%H%x09%s', ref, '--', `${alignmentsDir}/${id}/README.md`], cwd, {
+    ignoreErrors: true,
+  });
   if (!out) return null;
   const [commit, subject = ''] = out.split('\t');
   const { pr = null } = splitPrNumber(subject);
@@ -161,21 +159,7 @@ export async function readAlignmentSource(cwd: string, ref: string, id: string):
   const nulSeparated = (text: string) => text.split('\0').filter(Boolean);
   const [changed, added] = await Promise.all([
     git(['diff-tree', '--root', '--no-commit-id', '--name-only', '--no-renames', '-r', '-z', commit], cwd),
-    git(
-      [
-        'diff-tree',
-        '--root',
-        '--no-commit-id',
-        '--name-only',
-        '--diff-filter=A',
-        '-r',
-        '-z',
-        commit,
-        '--',
-        alignmentsDir,
-      ],
-      cwd,
-    ),
+    git(['diff-tree', '--root', '--no-commit-id', '--name-only', '--diff-filter=A', '-r', '-z', commit, '--', alignmentsDir], cwd),
   ]);
   const readmeId = new RegExp(`^${alignmentsDir}/([^/]+)/README\\.md$`);
   const sharedCommit = nulSeparated(added)

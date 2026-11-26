@@ -68,13 +68,9 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
   }
 
   // Visits finish in any order; scope order keeps the ledger stable between runs
-  const position = (label: string) =>
-    scope.states.findIndex((state) => label === state.id || label.startsWith(`${state.id} (`));
+  const position = (label: string) => scope.states.findIndex((state) => label === state.id || label.startsWith(`${state.id} (`));
   findings.sort((a, b) => position(a.state) - position(b.state));
-  scans.sort(
-    (a, b) =>
-      Number(a.where.endsWith('(dark)')) - Number(b.where.endsWith('(dark)')) || position(a.where) - position(b.where),
-  );
+  scans.sort((a, b) => Number(a.where.endsWith('(dark)')) - Number(b.where.endsWith('(dark)')) || position(a.where) - position(b.where));
 
   const evidence = new EvidenceSet();
   mkdirSync(run.resultsDir, { recursive: true });
@@ -86,8 +82,7 @@ export async function runAudit(run: AuditRun, scope: Scope, testbed: TestbedHand
 
   // The ledger describes the whole scope, so a run that covered only part of it writes a separate file
   const skipped = Object.keys(errors).length;
-  const target =
-    options.states.length > 0 || skipped ? join(run.resultsDir, 'ledger-partial.json') : join(run.repoRoot, ledgerFile);
+  const target = options.states.length > 0 || skipped ? join(run.resultsDir, 'ledger-partial.json') : join(run.repoRoot, ledgerFile);
   const ledger = writeLedger(
     run.repoRoot,
     evidence.byCriterion,

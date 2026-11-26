@@ -148,9 +148,7 @@ export class Metrics {
   endpointSummaries(): Record<string, EndpointSummary> {
     const result: Record<string, EndpointSummary> = {};
     for (const [label, stats] of this.endpoints) {
-      const codes = Object.fromEntries(
-        [...stats.codes].sort(([a], [b]) => a - b).map(([code, n]) => [String(code), n]),
-      );
+      const codes = Object.fromEntries([...stats.codes].sort(([a], [b]) => a - b).map(([code, n]) => [String(code), n]));
       const nonOk = [...stats.codes].filter(([code]) => code < 200 || code > 299).reduce((sum, [, n]) => sum + n, 0);
       result[label] = {
         requests: stats.requests,

@@ -52,7 +52,7 @@
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
-    "lineWidth": 120,
+    "lineWidth": 150,
     "bracketSpacing": true
   },
   "javascript": {
@@ -67,9 +67,8 @@
   },
   "overrides": [
     {
-      // The deploy engine formats at 150 columns. Its `${VAR}` strings are Compose placeholders, not template literals.
+      // The deploy engine's `${VAR}` strings are Compose placeholders, not template literals.
       "includes": ["src/infra/**"],
-      "formatter": { "lineWidth": 150 },
       "linter": {
         "rules": {
           "suspicious": { "noTemplateCurlyInString": "off" }

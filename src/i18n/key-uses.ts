@@ -75,11 +75,7 @@ function isKeyArgument(node: ts.Node): boolean {
     const name = ts.isIdentifier(callee) ? callee.text : ts.isPropertyAccessExpression(callee) ? callee.name.text : '';
     return name === 't';
   }
-  return (
-    ts.isJsxExpression(node.parent) &&
-    ts.isJsxAttribute(node.parent.parent) &&
-    node.parent.parent.name.getText() === 'i18nKey'
-  );
+  return ts.isJsxExpression(node.parent) && ts.isJsxAttribute(node.parent.parent) && node.parent.parent.name.getText() === 'i18nKey';
 }
 
 /** Whether a node is the key of a `t()` call whose options object has a `context` property. */
@@ -90,9 +86,7 @@ function readsContext(node: ts.Node): boolean {
   return (
     !!options &&
     ts.isObjectLiteralExpression(options) &&
-    options.properties.some(
-      ({ name }) => !!name && (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === 'context',
-    )
+    options.properties.some(({ name }) => !!name && (ts.isIdentifier(name) || ts.isStringLiteral(name)) && name.text === 'context')
   );
 }
 
@@ -140,9 +134,7 @@ function resolveTemplates(repoPath: string, pending: Map<string, PendingSite[]>)
     byConfig.set(config, [...(byConfig.get(config) ?? []), file]);
   }
   for (const [config, files] of byConfig) {
-    const parsed = config
-      ? ts.getParsedCommandLineOfConfigFile(config, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })
-      : undefined;
+    const parsed = config ? ts.getParsedCommandLineOfConfigFile(config, {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} }) : undefined;
     // ts-morph's project serves the lib files its TypeScript ships without on disk
     const project = new Project({
       compilerOptions: { ...parsed?.options, noEmit: true, incremental: false, skipLibCheck: true },

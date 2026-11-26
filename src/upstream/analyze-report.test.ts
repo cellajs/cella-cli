@@ -158,9 +158,7 @@ const options: AnalyzeReportOptions = {
 
 /** The printed lines without colors or link targets. */
 function report(result: MergeResult, extra: Partial<AnalyzeReportOptions> = {}): string[] {
-  return stripVTControlCharacters(captureInfo(() => printAnalysisFileGroups(result, { ...options, ...extra }))).split(
-    '\n',
-  );
+  return stripVTControlCharacters(captureInfo(() => printAnalysisFileGroups(result, { ...options, ...extra }))).split('\n');
 }
 
 /** The raw output, link targets included. */
@@ -257,9 +255,7 @@ describe('printAnalysisFileGroups', () => {
   });
 
   it('prints nothing when no file needs a section', () => {
-    expect(
-      captureInfo(() => printAnalysisFileGroups({ ...fixture(), files: [], ignoredUpstreamChanges: [] }, options)),
-    ).toBe('');
+    expect(captureInfo(() => printAnalysisFileGroups({ ...fixture(), files: [], ignoredUpstreamChanges: [] }, options))).toBe('');
   });
 });
 

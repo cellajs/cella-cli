@@ -48,9 +48,7 @@ function renameInLocales(
 ): string[] {
   const targetFiles = locales.namespaces.get(to.namespace) ?? [];
   if (from.namespace !== to.namespace && targetFiles.length > 1) {
-    throw new Error(
-      `${to.namespace} reads ${targetFiles.join(' and ')}: move a key into it by hand, into the file it belongs to`,
-    );
+    throw new Error(`${to.namespace} reads ${targetFiles.join(' and ')}: move a key into it by hand, into the file it belongs to`);
   }
   const fromForms = new Set(withPluralForms(from.key));
   const renamed = (entry: RawEntry): RawEntry => {
@@ -74,8 +72,7 @@ function renameInLocales(
         continue;
       }
       const target = locales.files.get(`${language}/${targetFiles[0]}`);
-      if (!target)
-        throw new Error(`${language} has no ${targetFiles[0]}.json to move ${from.namespace}:${from.key} into`);
+      if (!target) throw new Error(`${language} has no ${targetFiles[0]}.json to move ${from.namespace}:${from.key} into`);
       target.entries.push(...file.entries.filter((entry) => fromForms.has(entry.key)).map(renamed));
       file.entries = file.entries.filter((entry) => !fromForms.has(entry.key));
       changed.set(target.path, target);
@@ -88,10 +85,7 @@ function renameInLocales(
 
 /** Rewrites every `'ns:old'` literal, plural forms included, in the app's code. */
 function renameInCode(repoRoot: string, from: string, to: string): { file: string; literals: number }[] {
-  const literal = new RegExp(
-    `(['"\`])${RegExp.escape(from)}((?:_(?:ordinal_)?(?:zero|one|two|few|many|other))?)(?=\\1)`,
-    'g',
-  );
+  const literal = new RegExp(`(['"\`])${RegExp.escape(from)}((?:_(?:ordinal_)?(?:zero|one|two|few|many|other))?)(?=\\1)`, 'g');
   const changed: { file: string; literals: number }[] = [];
   for (const file of listCodeFiles(repoRoot)) {
     const path = join(repoRoot, file);
@@ -131,16 +125,12 @@ async function rename(repoRoot: string, options: RenameOptions): Promise<RenameR
   // error type is typed, so the typecheck finds it
   const scan = scanCode(repoRoot, '', [...locales.namespaces.keys()], new Set([from.key]));
   const check = [
-    ...(scan.bare.get(from.key) ?? [])
-      .filter((site) => site.keyArgument)
-      .map(({ file, line }) => ({ file, line, source: `'${from.key}'` })),
+    ...(scan.bare.get(from.key) ?? []).filter((site) => site.keyArgument).map(({ file, line }) => ({ file, line, source: `'${from.key}'` })),
     ...scan.dynamic
       .filter((site) => {
         const target = site.namespace ? options.from : from.key;
         if (site.namespace && site.namespace !== from.namespace) return false;
-        return site.keys
-          ? site.keys.includes(target)
-          : !isOpenPattern(site.pattern) && patternTest(site.pattern)(target);
+        return site.keys ? site.keys.includes(target) : !isOpenPattern(site.pattern) && patternTest(site.pattern)(target);
       })
       .map(({ file, line, source }) => ({ file, line, source: `\`${source}\`` })),
   ];
@@ -155,9 +145,7 @@ export async function runRename(repoRoot: string, options: RenameOptions, json: 
     return 0;
   }
   console.info(`${checkMark} renamed ${report.from} to ${pc.bold(report.to)}`);
-  console.info(
-    `  ${pc.dim(`${report.localeFiles.join(', ')}${report.sorted ? ' · sorted by biome' : ' · pnpm lint:fix sorts the keys'}`)}`,
-  );
+  console.info(`  ${pc.dim(`${report.localeFiles.join(', ')}${report.sorted ? ' · sorted by biome' : ' · pnpm lint:fix sorts the keys'}`)}`);
   const literals = report.codeFiles.reduce((sum, file) => sum + file.literals, 0);
   console.info(`  ${pc.dim(`code: ${plural(literals, 'literal')} in ${plural(report.codeFiles.length, 'file')}`)}`);
   for (const { file, literals: count } of report.codeFiles) console.info(`    ${pc.dim(`${file} ${count}`)}`);

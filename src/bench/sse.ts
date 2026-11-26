@@ -19,8 +19,7 @@ export function createSseParser(onEvent: (event: SseEvent) => void): (chunk: str
 
   const line = (text: string) => {
     if (text === '') {
-      if (data.length > 0)
-        onEvent({ event: event || 'message', data: data.join('\n'), ...(id !== undefined && { id }) });
+      if (data.length > 0) onEvent({ event: event || 'message', data: data.join('\n'), ...(id !== undefined && { id }) });
       event = '';
       data = [];
       return;
@@ -69,10 +68,7 @@ export async function readSse(
   const connect = new AbortController();
   const signal = AbortSignal.any([vuSignal, connect.signal, ...(options.signal ? [options.signal] : [])]);
   const timer = setTimeout(
-    () =>
-      connect.abort(
-        Object.assign(new Error(`${label} sent no headers in ${connectTimeoutMs} ms`), { code: 'ETIMEDOUT' }),
-      ),
+    () => connect.abort(Object.assign(new Error(`${label} sent no headers in ${connectTimeoutMs} ms`), { code: 'ETIMEDOUT' })),
     connectTimeoutMs,
   );
   const started = performance.now();

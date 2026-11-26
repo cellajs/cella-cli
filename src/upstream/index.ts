@@ -13,11 +13,7 @@ import { runUpgradeCommand } from './upgrade';
  * and upgrade resolve the ref they merge from after their own fetch) and the run's options. Prints a warning for each
  * override entry that cannot work at that tip.
  */
-async function upstreamContext(
-  repoRoot: string,
-  config: CellaCliConfig,
-  engine: EngineOptions = {},
-): Promise<RuntimeConfig> {
+async function upstreamContext(repoRoot: string, config: CellaCliConfig, engine: EngineOptions = {}): Promise<RuntimeConfig> {
   const { branchRef } = resolveUpstream(config);
   const warnings = await validateOverrides(config, repoRoot, branchRef);
   for (const warning of warnings) console.info(`${warningMark} ${warning}`);
@@ -87,12 +83,7 @@ export const upgradeCommand: Command<EngineOptions> = {
   needsConfig: true,
   inMenu: notTemplate,
   jobs: [],
-  options: [
-    trackOption,
-    refOption,
-    ['--keep-config', 'merge with your CLI config as it stands when upstream changed its own'],
-    unpinnedOption,
-  ],
+  options: [trackOption, refOption, ['--keep-config', 'merge with your CLI config as it stands when upstream changed its own'], unpinnedOption],
   parse: ({ opts }) => ({
     track: choice(opts, 'track', ['release', 'branch']),
     ref: text(opts.ref),

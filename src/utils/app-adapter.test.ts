@@ -18,8 +18,6 @@ describe('applyDelta', () => {
       { id: 'c', from: 'app' },
       { id: 'd', from: 'app' },
     ]);
-    expect(() => applyDelta(base, { remove: ['z'] }, 'cella/a11y.app.ts')).toThrow(
-      'cella/a11y.app.ts removes z, which the base does not have',
-    );
+    expect(() => applyDelta(base, { remove: ['z'] }, 'cella/a11y.app.ts')).toThrow('cella/a11y.app.ts removes z, which the base does not have');
   });
 });

@@ -78,9 +78,7 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> 
   const currentBranch = await getCurrentBranch(repoRoot);
   if (isUpgradeBranch(currentBranch)) {
     if (!(await mergeInProgress(repoRoot))) return shipUpgradeBranch(config, currentBranch);
-    return (await upgradeFinishedMerge(repoRoot))
-      ? commitUpgradeMerge(config, currentBranch)
-      : undoUnfinishedMerge(config, currentBranch);
+    return (await upgradeFinishedMerge(repoRoot)) ? commitUpgradeMerge(config, currentBranch) : undoUnfinishedMerge(config, currentBranch);
   }
 
   if (!(await isClean(repoRoot))) {
@@ -99,8 +97,7 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> 
     const discarded = await discardUnusedUpgradeBranch(repoRoot, branch).catch(() => false);
     // Tracking a release or branch the last upgrade went past is nothing to upgrade, not a failure.
     // A pinned --ref behind the upgrade point stays an error: the run cannot do what it was asked.
-    if (discarded && error instanceof BehindUpgradePointError && !config.ref)
-      return printNothingToUpgrade(config, error);
+    if (discarded && error instanceof BehindUpgradePointError && !config.ref) return printNothingToUpgrade(config, error);
     throw error;
   }
 

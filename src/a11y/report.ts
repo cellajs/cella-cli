@@ -130,9 +130,7 @@ function staleDecisions(repoRoot: string, ledger: Ledger) {
     if (!review?.date) return [];
     const cited = new Set(review.summary.match(/[\w./-]+\.(?:tsx?|css|json)\b/g) ?? []);
     const files = [...cited].flatMap((name) => tracked.filter((file) => file.endsWith(`/${name}`)).slice(0, 1));
-    return files.filter((file) =>
-      git(['log', '-1', `--since=${review.date}T23:59:59`, '--format=%h', '--', file]).trim(),
-    );
+    return files.filter((file) => git(['log', '-1', `--since=${review.date}T23:59:59`, '--format=%h', '--', file]).trim());
   };
   return ledger.criteria
     .filter((r) => r.decidedBy === 'agent' || r.decidedBy === 'human')
@@ -141,11 +139,7 @@ function staleDecisions(repoRoot: string, ledger: Ledger) {
 }
 
 /** The checklist for the person who does the manual pass. */
-function manualPass(
-  { open, byAgent, failing }: Rows,
-  stale: ReturnType<typeof staleDecisions>,
-  resultsDir: string,
-): string {
+function manualPass({ open, byAgent, failing }: Rows, stale: ReturnType<typeof staleDecisions>, resultsDir: string): string {
   const step = (id: string) => manualSteps[id] ?? (id.startsWith('1.2.') ? manualSteps['1.2.1'] : undefined);
 
   return `# Manual accessibility pass
@@ -188,9 +182,7 @@ Name in the decision which screen readers and browsers you used; the report list
 ${open
   .map((r) => {
     const needsPerson = r.open.some((check) => check === 'manual' || check === 'review');
-    const what = needsPerson
-      ? (step(r.id) ?? 'Check the criterion by hand.')
-      : `Run the full audit; these checks did not run: ${r.open.join(', ')}.`;
+    const what = needsPerson ? (step(r.id) ?? 'Check the criterion by hand.') : `Run the full audit; these checks did not run: ${r.open.join(', ')}.`;
     const notes = r.evidence
       .filter((e) => e.result === 'review')
       .map((e) => `  - ${e.check === 'review:agent' ? 'Agent note' : 'Tool note'}: ${e.summary}`);
@@ -261,11 +253,7 @@ function publishReport(
  * unless `draft` is set, and the statement then calls the results provisional.
  * @throws when the app has no ledger yet, or `publish` meets a draft without `draft`
  */
-export async function runReport(
-  repoRoot: string,
-  resultsDir: string,
-  { publish, draft }: { publish: boolean; draft: boolean },
-): Promise<number> {
+export async function runReport(repoRoot: string, resultsDir: string, { publish, draft }: { publish: boolean; draft: boolean }): Promise<number> {
   const ledger = readLedger(repoRoot);
   const { name: product, version } = rootPackage(repoRoot);
   if (!ledger) throw new Error(`no ledger for ${product} yet: run \`pnpm cella a11y\` first`);
@@ -277,11 +265,7 @@ export async function runReport(
   mkdirSync(resultsDir, { recursive: true });
   writeFileSync(join(resultsDir, 'vpat-draft.md'), vpat);
   writeFileSync(join(resultsDir, 'manual-pass.md'), manualPass(rows, staleDecisions(repoRoot, ledger), resultsDir));
-  const html = toHtml(
-    vpat,
-    `${app.name} Accessibility Conformance Report`,
-    'tbody th{width:27%}td:nth-child(2){width:19%}',
-  );
+  const html = toHtml(vpat, `${app.name} Accessibility Conformance Report`, 'tbody th{width:27%}td:nth-child(2){width:19%}');
   writeFileSync(join(resultsDir, 'conformance-report.html'), html);
   const pdfPath = join(resultsDir, 'conformance-report.pdf');
   await writePdf(repoRoot, html, pdfPath);

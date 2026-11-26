@@ -68,12 +68,7 @@ export async function changedLines(
  * Keeps a finding of a changed-line rule only on a line the branch changed; an untracked file counts whole, and a
  * finding of any other rule passes. Without a base (`changed` is null) the changed-line rules report nothing.
  */
-export function onChangedLines(
-  findings: Finding[],
-  rules: Set<string>,
-  changed: Map<string, Set<number>> | null,
-  untracked: Set<string>,
-): Finding[] {
+export function onChangedLines(findings: Finding[], rules: Set<string>, changed: Map<string, Set<number>> | null, untracked: Set<string>): Finding[] {
   return findings.filter((finding) => {
     if (!rules.has(finding.rule)) return true;
     if (changed === null) return false;

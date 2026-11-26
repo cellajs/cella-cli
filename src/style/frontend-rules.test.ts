@@ -10,15 +10,12 @@ const root = makeRepo({
 afterAll(() => rmSync(root, { recursive: true, force: true }));
 
 const file = 'frontend/src/modules/example/use-example.ts';
-const rules = (source: string) =>
-  check(frontendRules, file, source, { root }).map(({ rule, message }) => `${rule}: ${message}`);
+const rules = (source: string) => check(frontendRules, file, source, { root }).map(({ rule, message }) => `${rule}: ${message}`);
 
 describe('memo-dependency-unread', () => {
   it('reports a dependency the callback never reads', () => {
     const source = 'const menu = useMemo(() => buildMenu(userId), [userId, recomputeKey]);';
-    expect(rules(source)).toEqual([
-      expect.stringMatching(/^memo-dependency-unread: recomputeKey is a dependency the callback never reads/),
-    ]);
+    expect(rules(source)).toEqual([expect.stringMatching(/^memo-dependency-unread: recomputeKey is a dependency the callback never reads/)]);
   });
 
   it('accepts dependencies read through a property, a call or a nested function', () => {
@@ -36,10 +33,7 @@ describe('memo-dependency-unread', () => {
 
 describe('route-context-selector', () => {
   it('reports route context read whole, through a route api or the router hook', () => {
-    const source = [
-      'const context = routeApi.useRouteContext();',
-      "const { organization } = useRouteContext({ from: '/board' });",
-    ].join('\n');
+    const source = ['const context = routeApi.useRouteContext();', "const { organization } = useRouteContext({ from: '/board' });"].join('\n');
     expect(rules(source)).toEqual([
       expect.stringMatching(/^route-context-selector: useRouteContext\(\) renders again on every navigation/),
       expect.stringMatching(/^route-context-selector: /),
@@ -61,11 +55,7 @@ describe('form-no-validate', () => {
   const found = (source: string) => check(frontendRules, component, source, { root }).map(({ rule }) => rule);
 
   it('reports a form react-hook-form validates without noValidate', () => {
-    const source = [
-      'export function ExampleForm() {',
-      '  return <form onSubmit={form.handleSubmit(onSubmit)} />;',
-      '}',
-    ].join('\n');
+    const source = ['export function ExampleForm() {', '  return <form onSubmit={form.handleSubmit(onSubmit)} />;', '}'].join('\n');
     expect(found(source)).toEqual(['form-no-validate']);
   });
 
@@ -120,8 +110,7 @@ describe('button-press-cancel', () => {
 
 describe('reorder-grip', () => {
   const component = 'frontend/src/modules/example/example.tsx';
-  const found = (source: string, path = component) =>
-    check(frontendRules, path, source, { root }).map(({ rule }) => rule);
+  const found = (source: string, path = component) => check(frontendRules, path, source, { root }).map(({ rule }) => rule);
   const gripImport = "import { GripVerticalIcon } from 'lucide-react';";
 
   it('reports a grip icon in a file that renders no reorder handle', () => {
@@ -129,12 +118,8 @@ describe('reorder-grip', () => {
   });
 
   it('accepts a grip beside ReorderHandle or reorderColumn, and in the drag preview', () => {
-    expect(
-      found(`${gripImport}\nimport { ReorderHandle } from '~/modules/common/reorder-handle/reorder-handle';`),
-    ).toEqual([]);
-    expect(found(`${gripImport}\nimport { reorderColumn } from '~/modules/common/data-table/reorder-column';`)).toEqual(
-      [],
-    );
+    expect(found(`${gripImport}\nimport { ReorderHandle } from '~/modules/common/reorder-handle/reorder-handle';`)).toEqual([]);
+    expect(found(`${gripImport}\nimport { reorderColumn } from '~/modules/common/data-table/reorder-column';`)).toEqual([]);
     expect(found(gripImport, 'frontend/src/modules/common/data-table/row-drag-preview.tsx')).toEqual([]);
   });
 });
@@ -147,9 +132,7 @@ describe('product-cache-write', () => {
 
   it('reports a direct write or cancel in query code and in the module of a synced product, which registers a range fetch', () => {
     expect(found('frontend/src/query/realtime/example.ts', write)).toEqual(['product-cache-write']);
-    expect(found('frontend/src/modules/task/query.ts', registration("'task', keys, rangeFetch"))).toEqual([
-      'product-cache-write',
-    ]);
+    expect(found('frontend/src/modules/task/query.ts', registration("'task', keys, rangeFetch"))).toEqual(['product-cache-write']);
     expect(found('frontend/src/modules/attachment/query-mutations.ts', cancel)).toEqual(['product-cache-write']);
   });
 

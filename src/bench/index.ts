@@ -47,8 +47,7 @@ async function launchBench(repoRoot: string, options: BenchOptions): Promise<num
     scenariosDir,
     dataDir: toolDir(repoRoot, 'bench', 'repository'),
   };
-  const run = (env: NodeJS.ProcessEnv) =>
-    runCommand(join(repoRoot, 'backend'), { ...env, [benchRequestEnv]: JSON.stringify(request) }, entryCommand);
+  const run = (env: NodeJS.ProcessEnv) => runCommand(join(repoRoot, 'backend'), { ...env, [benchRequestEnv]: JSON.stringify(request) }, entryCommand);
   return options.isolated ? withTestbed(repoRoot, (testbed) => run(testbed.env)) : run({ ...process.env });
 }
 

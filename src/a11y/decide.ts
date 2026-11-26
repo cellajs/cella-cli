@@ -19,9 +19,6 @@ export function runDecide(repoRoot: string, { file, decision }: DecideOptions): 
   const decisions = input.map(parseDecision);
   const ledger = recordDecisions(repoRoot, decisions);
   const count = (by: string) => ledger.criteria.filter((row) => row.decidedBy === by).length;
-  printStep(
-    'recorded',
-    `${decisions.length}; decided by the audit ${count('audit')}, by an agent ${count('agent')}, by a person ${count('human')}`,
-  );
+  printStep('recorded', `${decisions.length}; decided by the audit ${count('audit')}, by an agent ${count('agent')}, by a person ${count('human')}`);
   return 0;
 }

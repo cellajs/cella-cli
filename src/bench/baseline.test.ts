@@ -36,10 +36,7 @@ describe('baselines', () => {
   it('compares only with entries of this runner epoch', () => {
     const dir = tempDir();
     mkdirSync(join(dir, 'baselines'));
-    writeFileSync(
-      baselineFile(dir, 'get-me'),
-      JSON.stringify([{ timestamp: '2026-10-09T00:00:00.000Z', scenario: 'get-me', p95: 7 }]),
-    );
+    writeFileSync(baselineFile(dir, 'get-me'), JSON.stringify([{ timestamp: '2026-10-09T00:00:00.000Z', scenario: 'get-me', p95: 7 }]));
     expect(loadBaseline(dir, 'get-me')).toEqual({ baseline: null, older: 1 });
 
     expect(saveBaseline(dir, entry())).toBe(2);

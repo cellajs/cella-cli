@@ -3,26 +3,10 @@ import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import type { RuntimeConfig } from '../config/types';
 import { printProgressStep } from '../utils/display';
-import {
-  countCommitsBetween,
-  getCommitInfo,
-  getMergeBase,
-  git,
-  gitHubRepo,
-  isAncestor,
-  revParse,
-  stagePath,
-} from '../utils/git';
+import { countCommitsBetween, getCommitInfo, getMergeBase, git, gitHubRepo, isAncestor, revParse, stagePath } from '../utils/git';
 import { writeOwnedFile } from '../utils/repo-files';
 import { onShutdown } from '../utils/signals';
-import {
-  alignmentsDir,
-  arrivedAlignmentIds,
-  listAlignmentIds,
-  pendingFile,
-  readPending,
-  writePending,
-} from './alignments';
+import { alignmentsDir, arrivedAlignmentIds, listAlignmentIds, pendingFile, readPending, writePending } from './alignments';
 import type { MergeResult, UpstreamContext } from './model';
 import type { UpstreamRef } from './upstream-ref';
 
@@ -149,10 +133,7 @@ export async function readUpgradeRange(config: RuntimeConfig, pick: UpstreamRef)
  * Upstream's alignments at the incoming ref, the ones added since the upgrade point, and the app's
  * open list as it stands. Runs before the upgrade point moves.
  */
-export async function readAlignmentsInRange(
-  repoRoot: string,
-  upstream: UpstreamContext,
-): Promise<NonNullable<MergeResult['alignments']>> {
+export async function readAlignmentsInRange(repoRoot: string, upstream: UpstreamContext): Promise<NonNullable<MergeResult['alignments']>> {
   const [ids, arrived, open] = await Promise.all([
     listAlignmentIds(repoRoot, upstream.ref),
     arrivedAlignmentIds(repoRoot, upstream.mergeBase, upstream.ref),
@@ -293,12 +274,7 @@ export async function ensureUpgradePoint(cwd: string, headRef: string, upstreamR
  * - a replacement object already exists for the `headRef` commit (never clobber, e.g. the
  *   scaffold root graft from {@link ensureUpgradePoint} when the root commit is HEAD).
  */
-export async function withUpgradePointGraft<T>(
-  cwd: string,
-  headRef: string,
-  upgradePoint: string,
-  fn: () => Promise<T>,
-): Promise<T> {
+export async function withUpgradePointGraft<T>(cwd: string, headRef: string, upgradePoint: string, fn: () => Promise<T>): Promise<T> {
   const headSha = await revParse(cwd, headRef);
   if (!headSha || !(await commitObjectExists(cwd, upgradePoint))) return fn();
 
@@ -340,10 +316,7 @@ export async function recordUpgrade(repoRoot: string, upstream: UpstreamContext,
   if (existsSync(join(repoRoot, alignmentsDir))) {
     await git(['rm', '-r', '-q', '--ignore-unmatch', '--', alignmentsDir], repoRoot);
     await rm(join(repoRoot, alignmentsDir), { recursive: true, force: true });
-    printProgressStep(
-      'alignments',
-      `removed ${alignmentsDir}/: alignments stay upstream, list them with pnpm cella align`,
-    );
+    printProgressStep('alignments', `removed ${alignmentsDir}/: alignments stay upstream, list them with pnpm cella align`);
   }
 
   await storeUpgradePoint(repoRoot, commit.hash);

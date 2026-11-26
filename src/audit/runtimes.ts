@@ -3,15 +3,7 @@ import { basename, dirname, join } from 'node:path';
 import semver from 'semver';
 import { plural } from '../utils/display';
 import { git } from '../utils/git';
-import {
-  type BulkAdvisory,
-  type Feeds,
-  hubRepository,
-  type ImageTags,
-  minorTag,
-  type NodeRelease,
-  type Release,
-} from './feeds';
+import { type BulkAdvisory, type Feeds, hubRepository, type ImageTags, minorTag, type NodeRelease, type Release } from './feeds';
 
 /** An image tag in a Dockerfile `FROM` line. */
 interface ImagePin {
@@ -131,8 +123,7 @@ export async function readRuntimePins(repoRoot: string): Promise<RuntimePins> {
   };
 }
 
-const monthYear = (time: number): string =>
-  new Date(time).toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).toLowerCase();
+const monthYear = (time: number): string => new Date(time).toLocaleString('en', { month: 'short', year: 'numeric', timeZone: 'UTC' }).toLowerCase();
 
 /** The highest stable version above `pinned` in its major that is older than the release age. */
 export function newestAged(pinned: string, releases: Release[], cutoff: number): string | undefined {
@@ -143,9 +134,7 @@ export function newestAged(pinned: string, releases: Release[], cutoff: number):
 function nodeUpdate(node: string, releases: NodeRelease[], cutoff: number): RuntimeUpdate | null {
   const target = newestAged(node, releases, cutoff);
   if (!target) return null;
-  const security = releases.some(
-    (release) => release.security && semver.satisfies(release.version, `>${node} <=${target}`),
-  );
+  const security = releases.some((release) => release.security && semver.satisfies(release.version, `>${node} <=${target}`));
   return {
     name: 'node',
     current: node,
@@ -158,17 +147,10 @@ function nodeUpdate(node: string, releases: NodeRelease[], cutoff: number): Runt
   };
 }
 
-function pnpmUpdate(
-  pnpm: string,
-  releases: Release[],
-  advisories: BulkAdvisory[],
-  cutoff: number,
-): RuntimeUpdate | null {
+function pnpmUpdate(pnpm: string, releases: Release[], advisories: BulkAdvisory[], cutoff: number): RuntimeUpdate | null {
   const target = newestAged(pnpm, releases, cutoff);
   if (!target) return null;
-  const fixed = advisories.filter(
-    ({ vulnerable_versions: range }) => semver.satisfies(pnpm, range) && !semver.satisfies(target, range),
-  ).length;
+  const fixed = advisories.filter(({ vulnerable_versions: range }) => semver.satisfies(pnpm, range) && !semver.satisfies(target, range)).length;
   return {
     name: 'pnpm',
     current: pnpm,
@@ -206,9 +188,7 @@ function imageUpdate(pin: ImagePin, feed: ImageTags | null, now: number, cutoff:
     file: pin.file,
     severity: frozen ? 'moderate' : null,
     note: frozen && feed.pinned ? `tag frozen since ${monthYear(feed.pinned.pushedAt)}` : '',
-    releasesUrl: repository.startsWith('library/')
-      ? `https://hub.docker.com/_/${pin.image}/tags`
-      : `https://hub.docker.com/r/${repository}/tags`,
+    releasesUrl: repository.startsWith('library/') ? `https://hub.docker.com/_/${pin.image}/tags` : `https://hub.docker.com/r/${repository}/tags`,
     pin: { type: 'image', line: pin.line, ref: `${pin.image}:${pin.tag}`, to: `${pin.image}:${target.tag.name}` },
   };
 }

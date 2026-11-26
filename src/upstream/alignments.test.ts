@@ -7,14 +7,7 @@ import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, w
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import {
-  formatAlignmentsLine,
-  grepAlignmentTerms,
-  isUpstreamOnly,
-  parseAlignment,
-  pendingFile,
-  writePending,
-} from './alignments';
+import { formatAlignmentsLine, grepAlignmentTerms, isUpstreamOnly, parseAlignment, pendingFile, writePending } from './alignments';
 import { buildUpgradePrBody } from './pull-requests';
 
 const readme = [
@@ -39,9 +32,7 @@ const readme = [
 
 describe('parseAlignment', () => {
   it('reads the frontmatter, title, summary and codemod', () => {
-    expect(
-      parseAlignment('20260923T0902-principal-to-actor', readme, ['README.md', 'rename.test.ts', 'rename.ts']),
-    ).toEqual({
+    expect(parseAlignment('20260923T0902-principal-to-actor', readme, ['README.md', 'rename.test.ts', 'rename.ts'])).toEqual({
       id: '20260923T0902-principal-to-actor',
       title: 'Principal becomes actor',
       summary: 'The stored identity and the request-time value share one name.',
@@ -81,12 +72,7 @@ describe('grepAlignmentTerms', () => {
       execFileSync('git', ['init', '-q'], { cwd: repo });
       writeFileSync(
         join(repo, 'a.ts'),
-        [
-          'const rows = data.results;',
-          'if (user.onboarding_completed) {}',
-          'const principalIds = [];',
-          'principalId',
-        ].join('\n'),
+        ['const rows = data.results;', 'if (user.onboarding_completed) {}', 'const principalIds = [];', 'principalId'].join('\n'),
       );
       execFileSync('git', ['add', '.'], { cwd: repo });
       const hits = await grepAlignmentTerms(repo, ['.results', 'onboarding_', 'principalId'], () => true);
@@ -151,9 +137,7 @@ describe('buildUpgradePrBody alignments section', () => {
   });
 
   it('says so when every alignment is handled, and stays silent without alignments', () => {
-    expect(buildUpgradePrBody({ ...base, alignments: { total: 97, open: [] } })).toContain(
-      '**Alignments**: all 97 handled.',
-    );
+    expect(buildUpgradePrBody({ ...base, alignments: { total: 97, open: [] } })).toContain('**Alignments**: all 97 handled.');
     expect(buildUpgradePrBody({ ...base, alignments: { total: 0, open: [] } })).not.toContain('Alignments');
   });
 });

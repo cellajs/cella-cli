@@ -242,9 +242,7 @@ describe('runSecurityPass', () => {
 
     await runSecurityPass(repo, { apply: true, releaseAgeMinutes: 1440 });
 
-    expect(file('pnpm-workspace.yaml')).toBe(
-      'auditConfig:\n  ignoreGhsas:\n    - GHSA-nofix\noverrides:\n  needed@<2.0.0: ^2.0.0\n',
-    );
+    expect(file('pnpm-workspace.yaml')).toBe('auditConfig:\n  ignoreGhsas:\n    - GHSA-nofix\noverrides:\n  needed@<2.0.0: ^2.0.0\n');
     expect(world.installs).toEqual([]);
   });
 

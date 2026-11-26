@@ -32,9 +32,7 @@ describe('checkAlignmentReadme', () => {
       'must open with a `---` frontmatter block',
       'the title must be followed by a one-paragraph summary',
     ]);
-    expect(
-      checkAlignmentReadme(lines('---', 'breaking: false', 'clientCacheBump: false', '---', '', 'Text')).errors,
-    ).toEqual([
+    expect(checkAlignmentReadme(lines('---', 'breaking: false', 'clientCacheBump: false', '---', '', 'Text')).errors).toEqual([
       'the first line after the frontmatter must be the `# ` title',
       'the title must be followed by a one-paragraph summary',
     ]);
@@ -48,9 +46,7 @@ describe('checkAlignmentReadme', () => {
       'frontmatter is missing clientCacheBump',
     ]);
     const breaking = (...keys: string[]) =>
-      checkAlignmentReadme(
-        lines('---', 'breaking: true', 'clientCacheBump: false', ...keys, '---', '', '# Title', '', 'Summary.'),
-      ).errors;
+      checkAlignmentReadme(lines('---', 'breaking: true', 'clientCacheBump: false', ...keys, '---', '', '# Title', '', 'Summary.')).errors;
     expect(breaking()).toEqual(['a breaking alignment says how an app finds its leftovers: caughtBy']);
     expect(breaking('caughtBy: typecheck')).toEqual(['caughtBy must be one of compiler, tests, nothing']);
   });
@@ -58,9 +54,7 @@ describe('checkAlignmentReadme', () => {
 
 describe('alignment', () => {
   const messages = (files: string[], sources: Record<string, string>) =>
-    files
-      .flatMap((file) => check([alignmentRule], file, sources[file] ?? '', { files }))
-      .map(({ file, message }) => `${file}: ${message}`);
+    files.flatMap((file) => check([alignmentRule], file, sources[file] ?? '', { files })).map(({ file, message }) => `${file}: ${message}`);
 
   it('passes a well-formed alignment and ignores the files beside the folders', () => {
     const files = [
@@ -106,9 +100,7 @@ describe('owed-alignment', () => {
     'shared/json/text-blocks.json',
   ];
   const rule = (changed: string[], messages = '', added = changed) =>
-    changed
-      .flatMap((file) => check([owedAlignmentRule], file, '', { branch: { changed, added, messages }, owned }))
-      .map((finding) => finding.file);
+    changed.flatMap((file) => check([owedAlignmentRule], file, '', { branch: { changed, added, messages }, owned })).map((finding) => finding.file);
 
   it('asks for an alignment when a branch changes an app-owned path template code reads from', () => {
     expect(rule(['frontend/src/modules/common/logo-art.tsx', 'frontend/src/modules/auth/auth-layout.tsx'])).toEqual([

@@ -46,8 +46,7 @@ interface Delta {
   lowerIsBetter: boolean;
 }
 
-const isComparable = (entry: unknown): entry is BaselineEntry =>
-  (entry as { runner?: unknown } | null)?.runner === runnerEpoch;
+const isComparable = (entry: unknown): entry is BaselineEntry => (entry as { runner?: unknown } | null)?.runner === runnerEpoch;
 
 function readEntries(file: string): unknown[] {
   if (!existsSync(file)) return [];
@@ -62,11 +61,7 @@ function readEntries(file: string): unknown[] {
 export const baselineFile = (dir: string, scenario: string) => join(dir, 'baselines', `${scenario}.json`);
 
 /** The newest entry of this runner epoch and round trip, with the count of older-epoch entries kept beside it. */
-export function loadBaseline(
-  dir: string,
-  scenario: string,
-  rttMs = 0,
-): { baseline: BaselineEntry | null; older: number } {
+export function loadBaseline(dir: string, scenario: string, rttMs = 0): { baseline: BaselineEntry | null; older: number } {
   const entries = readEntries(baselineFile(dir, scenario));
   const comparable = entries.filter(isComparable);
   const baseline = comparable.findLast((entry) => (entry.rttMs ?? 0) === rttMs) ?? null;
@@ -96,15 +91,11 @@ export function compareBaseline(current: BaselineEntry, baseline: BaselineEntry)
     lowerIsBetter,
   });
   const deltas: Delta[] = [];
-  if (current.primary.metric === baseline.primary.metric)
-    deltas.push(delta(current.primary.metric, current.primary.value, baseline.primary.value));
+  if (current.primary.metric === baseline.primary.metric) deltas.push(delta(current.primary.metric, current.primary.value, baseline.primary.value));
   if (current.requests > 0) {
     if (current.primary.metric !== 'http.response_time.p50') deltas.push(delta('p50', current.p50, baseline.p50));
     if (current.primary.metric !== 'http.response_time.p95') deltas.push(delta('p95', current.p95, baseline.p95));
-    deltas.push(
-      delta('p99', current.p99, baseline.p99),
-      delta('req/s', current.requestRate, baseline.requestRate, false),
-    );
+    deltas.push(delta('p99', current.p99, baseline.p99), delta('req/s', current.requestRate, baseline.requestRate, false));
   }
   return deltas;
 }

@@ -13,14 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAlign } from '../../src/upstream/align';
 import { runUpgrade } from '../../src/upstream/upgrade';
 import { commitSquash, stageAll } from '../../src/utils/git';
-import {
-  buildRuntimeConfig,
-  createTestEnv,
-  fetchUpstream,
-  makeCommit,
-  readRepoFile,
-  type TestEnv,
-} from '../helpers/test-env';
+import { buildRuntimeConfig, createTestEnv, fetchUpstream, makeCommit, readRepoFile, type TestEnv } from '../helpers/test-env';
 
 /** Every `pnpm exec tsx` the command spawned: where, and with which arguments. */
 const { codemodRuns } = vi.hoisted(() => ({ codemodRuns: [] as Array<{ cwd: string; args: string[] }> }));
@@ -85,8 +78,7 @@ describe('align run e2e', () => {
   let upstreamCommit: string;
 
   const git = (cmd: string) => execSync(`git ${cmd}`, { cwd: env.repoRoot, encoding: 'utf8' }).trim();
-  const run = (id: string, codemodArgs: string[] = []) =>
-    runAlign(buildRuntimeConfig(env), { job: 'run', id, codemodArgs });
+  const run = (id: string, codemodArgs: string[] = []) => runAlign(buildRuntimeConfig(env), { job: 'run', id, codemodArgs });
 
   /**
    * The app has its own file and its own edit of a template file. Upstream then ships the alignments,

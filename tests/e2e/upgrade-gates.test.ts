@@ -78,10 +78,7 @@ describe('upgrade stops before the merge', () => {
       exec('git fetch -q cella-upstream && git merge -q --ff-only cella-upstream/main', env.repoRoot);
       makeCommit(env.upstreamPath, {
         files: {
-          'cella/cella.config.ts': upstreamConfig(
-            ['a.ts', 'backend/src/bundle-config.ts'],
-            ['dependencies', 'devDependencies', 'exports'],
-          ),
+          'cella/cella.config.ts': upstreamConfig(['a.ts', 'backend/src/bundle-config.ts'], ['dependencies', 'devDependencies', 'exports']),
           'backend/src/bundle-config.ts': 'export const bundle = [];\n',
           'README.md': '# Upstream readme\n',
         },
@@ -102,9 +99,7 @@ describe('upgrade stops before the merge', () => {
         type: 'changes',
         pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
       });
-      expect((stop as Error).message).toMatch(
-        /stopped before the merge, nothing changed[\s\S]*rerun with --keep-config/,
-      );
+      expect((stop as Error).message).toMatch(/stopped before the merge, nothing changed[\s\S]*rerun with --keep-config/);
       expectUntouched('work', head);
       expect(fs.existsSync(path.join(env.repoRoot, 'backend/src/bundle-config.ts'))).toBe(false);
       const out = lines.join('\n');
@@ -232,9 +227,7 @@ describe('upgrade stops before the merge', () => {
     });
     const head = exec('git rev-parse HEAD', env.repoRoot);
 
-    await expect(runUpgradeCommand(buildRuntimeConfig(env))).rejects.toThrow(
-      /upstream needs @cellajs\/cli \^999\.0\.0/,
-    );
+    await expect(runUpgradeCommand(buildRuntimeConfig(env))).rejects.toThrow(/upstream needs @cellajs\/cli \^999\.0\.0/);
 
     expectUntouched('main', head);
   });

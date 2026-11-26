@@ -32,21 +32,13 @@ function defaultLabel(method: string, url: URL): string {
  * An emulated round trip of `rttMs` holds each request half of it before it is sent and half after its last body byte,
  * both outside `http.response_time`.
  */
-export function createHttpClient(
-  target: string,
-  metrics: Metrics,
-  signal: AbortSignal,
-  rttMs = 0,
-): HttpClient & { close(): Promise<void> } {
+export function createHttpClient(target: string, metrics: Metrics, signal: AbortSignal, rttMs = 0): HttpClient & { close(): Promise<void> } {
   const halfRttMs = rttMs / 2;
   const agents = new Map<string, http.Agent>();
   const agentFor = (url: URL) => {
     let agent = agents.get(url.protocol);
     if (!agent) {
-      agent =
-        url.protocol === 'https:'
-          ? new https.Agent({ keepAlive: true, maxSockets: 1 })
-          : new http.Agent({ keepAlive: true, maxSockets: 1 });
+      agent = url.protocol === 'https:' ? new https.Agent({ keepAlive: true, maxSockets: 1 }) : new http.Agent({ keepAlive: true, maxSockets: 1 });
       agents.set(url.protocol, agent);
     }
     return agent;
@@ -54,12 +46,7 @@ export function createHttpClient(
 
   /** Requests not settled yet, a VU's fire-and-forget ones included. */
   const inFlight = new Set<Promise<unknown>>();
-  const exchange = (
-    method: string,
-    path: string,
-    options: HttpRequestOptions,
-    started: number,
-  ): Promise<HttpResponse> => {
+  const exchange = (method: string, path: string, options: HttpRequestOptions, started: number): Promise<HttpResponse> => {
     const url = new URL(/^https?:\/\//.test(path) ? path : `${target}${path}`);
     const label = options.name ?? defaultLabel(method, url);
     const stats = metrics.endpoint(label);
@@ -97,10 +84,7 @@ export function createHttpClient(
         reject(error);
       };
       const timeoutMs = options.timeout ?? defaultTimeoutMs;
-      const timer = setTimeout(
-        () => req.destroy(codedError('ETIMEDOUT', `${label} took longer than ${timeoutMs} ms`)),
-        timeoutMs,
-      );
+      const timer = setTimeout(() => req.destroy(codedError('ETIMEDOUT', `${label} took longer than ${timeoutMs} ms`)), timeoutMs);
       const onAbort = () => req.destroy(codedError('EABORTED', 'the run stopped'));
       signal.addEventListener('abort', onAbort, { once: true });
 

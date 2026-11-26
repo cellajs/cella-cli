@@ -18,15 +18,9 @@ const sourceExtensions = new Set([...scriptExtensions, '.css', '.json', '.jsonc'
 
 /** Source files whose comments the rules read: migrations, the alignment folders and generated code are history. */
 export function isCommentSource(file: string): boolean {
-  if (['backend/drizzle/', 'cella/alignments/'].some((prefix) => file.startsWith(prefix)) || isGeneratedFile(file))
-    return false;
+  if (['backend/drizzle/', 'cella/alignments/'].some((prefix) => file.startsWith(prefix)) || isGeneratedFile(file)) return false;
   const name = basename(file);
-  return (
-    sourceExtensions.has(extname(name)) ||
-    name.startsWith('Dockerfile') ||
-    name === 'Caddyfile' ||
-    name.startsWith('.env')
-  );
+  return sourceExtensions.has(extname(name)) || name.startsWith('Dockerfile') || name === 'Caddyfile' || name.startsWith('.env');
 }
 
 /**
@@ -146,11 +140,7 @@ function groupedComments(comments: Comment[], source: string): Comment[] {
   const groups: Comment[] = [];
   for (const comment of comments) {
     const previous = groups.at(-1);
-    if (
-      comment.text.startsWith('//') &&
-      previous?.text.startsWith('//') &&
-      /^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, comment.offset))
-    ) {
+    if (comment.text.startsWith('//') && previous?.text.startsWith('//') && /^[\t ]*\r?\n[\t ]*$/.test(source.slice(previous.end, comment.offset))) {
       previous.end = comment.end;
       previous.text = source.slice(previous.offset, comment.end);
       continue;

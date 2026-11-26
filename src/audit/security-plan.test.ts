@@ -20,9 +20,7 @@ const old = '2024-01-01T00:00:00Z';
 const published = (versions: string[], times: Record<string, string> = {}) =>
   Object.fromEntries(versions.map((version) => [version, times[version] ?? old]));
 
-const advisory = (
-  partial: Partial<Advisory> & Pick<Advisory, 'ghsa' | 'module' | 'range' | 'installed'>,
-): Advisory => ({
+const advisory = (partial: Partial<Advisory> & Pick<Advisory, 'ghsa' | 'module' | 'range' | 'installed'>): Advisory => ({
   severity: 'high',
   via: ['parent'],
   direct: false,
@@ -87,9 +85,7 @@ describe('advisoriesFromAudit', () => {
           vulnerable_versions: '<=3.0.3',
           url: 'https://github.com/advisories/GHSA-vfj7-8cjw-p6xm',
           github_advisory_id: 'GHSA-vfj7-8cjw-p6xm',
-          findings: [
-            { version: '3.0.3', paths: ['bench>artillery>chokidar>braces', 'frontend>vite-plugin-html>braces'] },
-          ],
+          findings: [{ version: '3.0.3', paths: ['bench>artillery>chokidar>braces', 'frontend>vite-plugin-html>braces'] }],
         },
       },
     });

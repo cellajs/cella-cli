@@ -108,9 +108,7 @@ export function readLocales(repoRoot: string): Locales {
     namespaces.set(namespace, sources);
   }
   const mergedFiles = new Set([...namespaces.values()].flat());
-  const ownFiles = [...new Set([...files.keys()].map((key) => key.split('/')[1]))].filter(
-    (file) => !mergedFiles.has(file),
-  );
+  const ownFiles = [...new Set([...files.keys()].map((key) => key.split('/')[1]))].filter((file) => !mergedFiles.has(file));
   for (const file of ownFiles.sort()) namespaces.set(file, [file]);
 
   return { dir: localesDir, languages, namespaces, files };
@@ -123,8 +121,7 @@ export function namespaceTexts(locales: Locales, language: string, namespace: st
 }
 
 /** The 1-based line of a key in a file, for a link into it. */
-export const lineOf = (file: LocaleFile, key: string): number =>
-  file.entries.findIndex((entry) => entry.key === key) + 2;
+export const lineOf = (file: LocaleFile, key: string): number => file.entries.findIndex((entry) => entry.key === key) + 2;
 
 const pluralSuffix = /_(ordinal_)?(zero|one|two|few|many|other)$/;
 
@@ -138,8 +135,5 @@ export function pluralForm(key: string): { base: string; category: string; ordin
 /** A key with every plural form i18next may look it up by. */
 export const withPluralForms = (key: string): string[] => [
   key,
-  ...['zero', 'one', 'two', 'few', 'many', 'other'].flatMap((category) => [
-    `${key}_${category}`,
-    `${key}_ordinal_${category}`,
-  ]),
+  ...['zero', 'one', 'two', 'few', 'many', 'other'].flatMap((category) => [`${key}_${category}`, `${key}_ordinal_${category}`]),
 ];

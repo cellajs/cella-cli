@@ -7,12 +7,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  buildUpgradePrBody,
-  type GhPullRequest,
-  ownUpgradePrs,
-  readPackageVersionAtRef,
-} from '../../src/upstream/pull-requests';
+import { buildUpgradePrBody, type GhPullRequest, ownUpgradePrs, readPackageVersionAtRef } from '../../src/upstream/pull-requests';
 import { readManifestAtRef, readUpgradePointAtRef } from '../../src/upstream/upgrade-point';
 import { createManifestRepo, exec } from '../helpers/test-env';
 
@@ -150,10 +145,7 @@ describe('manifest and version readers', () => {
     exec('git add -A && git commit -m "chore: manifest"', repoPath);
 
     // Worktree moves ahead (staged upgrade): the committed manifest must still win.
-    fs.writeFileSync(
-      path.join(repoPath, 'cella', 'cella.manifest.json'),
-      JSON.stringify({ upstream: { commit: shaB } }),
-    );
+    fs.writeFileSync(path.join(repoPath, 'cella', 'cella.manifest.json'), JSON.stringify({ upstream: { commit: shaB } }));
 
     const manifest = await readManifestAtRef(repoPath, 'HEAD');
     expect(manifest?.upstream.repo).toBe('cellajs/cella');

@@ -29,11 +29,7 @@ export const textColorRule: Rule = {
           );
         }
         if (paletteGray.test(base)) {
-          return finding(
-            offset,
-            token,
-            'a palette gray skips the theme and the contrast setting; use a text step such as text-muted-foreground',
-          );
+          return finding(offset, token, 'a palette gray skips the theme and the contrast setting; use a text step such as text-muted-foreground');
         }
         return [];
       });

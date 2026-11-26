@@ -132,15 +132,11 @@ export function runCodeChecks(evidence: EvidenceSet, { repoRoot, app }: AuditRun
         },
   );
 
-  const dragging = search(
-    String.raw`draggable\(|dropTargetForElements|monitorForElements|onDragStart|useDrag[^a-zA-Z]`,
-  );
+  const dragging = search(String.raw`draggable\(|dropTargetForElements|monitorForElements|onDragStart|useDrag[^a-zA-Z]`);
   evidence.add(['2.5.7'], {
     check: 'code:dragging',
     result: 'review',
-    summary: dragging.length
-      ? `Drag and drop in ${files(dragging).join(', ')}; check each has a single-pointer alternative.`
-      : 'No drag and drop.',
+    summary: dragging.length ? `Drag and drop in ${files(dragging).join(', ')}; check each has a single-pointer alternative.` : 'No drag and drop.',
     where: files(dragging),
   });
 

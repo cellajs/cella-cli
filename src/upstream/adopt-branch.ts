@@ -71,11 +71,7 @@ export async function detectContributableFiles(
  * Read mode and blob hash for a file at a ref.
  * Returns null if the path is not a regular blob at the ref.
  */
-async function readBlobInfo(
-  repoPath: string,
-  ref: string,
-  filePath: string,
-): Promise<{ mode: string; hash: string } | null> {
+async function readBlobInfo(repoPath: string, ref: string, filePath: string): Promise<{ mode: string; hash: string } | null> {
   const line = await git(['ls-tree', ref, '--', filePath], repoPath, { ignoreErrors: true });
   if (!line) return null;
   // Format: "<mode> <type> <hash>\t<path>"

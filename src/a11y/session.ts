@@ -18,20 +18,12 @@ export interface AuditSession extends SignedInRun {
 }
 
 /** Elements that exist only in development builds; scans and probes ignore them. */
-export const devOnlySelectors = [
-  '.TanStackRouterDevtools',
-  '.tsqd-parent-container',
-  '[aria-label="toggle debug toolbar"]',
-];
+export const devOnlySelectors = ['.TanStackRouterDevtools', '.tsqd-parent-container', '[aria-label="toggle debug toolbar"]'];
 
 export const defaultViewport = { width: 1280, height: 900 };
 
 /** Signs the audit user in and loads the app once, for the storage every signed-in visit starts from. */
-export async function startAudit(
-  repoRoot: string,
-  scope: Scope,
-  options: { email?: string; env?: NodeJS.ProcessEnv },
-): Promise<AuditSession> {
+export async function startAudit(repoRoot: string, scope: Scope, options: { email?: string; env?: NodeJS.ProcessEnv }): Promise<AuditSession> {
   const run = await signIn(repoRoot, scope, options);
   try {
     // Route guards read the user store, which a real sign-in fills before any deep link is opened

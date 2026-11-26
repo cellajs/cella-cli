@@ -6,13 +6,7 @@
  * validation warnings.
  */
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import {
-  createTestEnv,
-  deleteFileAndCommit,
-  fetchUpstream,
-  makeCommit,
-  type TestEnv,
-} from '../../tests/helpers/test-env';
+import { createTestEnv, deleteFileAndCommit, fetchUpstream, makeCommit, type TestEnv } from '../../tests/helpers/test-env';
 import type { CellaCliConfig } from '../config/types';
 import { configFile, isManagedFile } from './managed-files';
 import { isIgnored, isPinned, isUnderAnyFolder, validateOverrides } from './protection';
@@ -142,12 +136,8 @@ describe('overrides', () => {
     });
 
     it('warns about every ignored entry missing from the app while no upstream ref resolves', async () => {
-      const missing = ['json/ledger.json', 'docs/', 'never/existed'].map(
-        (entry) => `ignored entry not found: ${entry}`,
-      );
-      expect(await validateOverrides(buildConfig({ ignored }), env.repoRoot, 'cella-upstream/unfetched')).toEqual(
-        missing,
-      );
+      const missing = ['json/ledger.json', 'docs/', 'never/existed'].map((entry) => `ignored entry not found: ${entry}`);
+      expect(await validateOverrides(buildConfig({ ignored }), env.repoRoot, 'cella-upstream/unfetched')).toEqual(missing);
       expect(await validateOverrides(buildConfig({ ignored }), env.repoRoot)).toEqual(missing);
     });
 
@@ -161,9 +151,7 @@ describe('overrides', () => {
         expect.stringMatching(/^ignored entry uses glob .*: docs\/\*$/),
       ]);
       // Without a resolved upstream only the app-side check runs, so both missing pins warn.
-      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toContainEqual(
-        'pin not found: json/ledger.json',
-      );
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toContainEqual('pin not found: json/ledger.json');
     });
 
     it('never warns about a missing generated path: it appears with its build step', async () => {
@@ -201,13 +189,9 @@ describe('overrides', () => {
         message: 'chore: upstream pins kept',
       });
       fetchUpstream(env.repoRoot);
-      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/main')).not.toContainEqual(
-        expect.stringContaining('pin is identical'),
-      );
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/main')).not.toContainEqual(expect.stringContaining('pin is identical'));
       // Before the first fetch only the app-side checks run
-      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toEqual([
-        "pin does nothing, 'json' is ignored: json/x.json",
-      ]);
+      expect(await validateOverrides(config, env.repoRoot, 'cella-upstream/unfetched')).toEqual(["pin does nothing, 'json' is ignored: json/x.json"]);
     });
   });
 });

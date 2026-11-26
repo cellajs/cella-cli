@@ -8,16 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 const subpathExports: Record<string, string[]> = {
   './config': ['defineConfig'],
   './bench': ['defineScenario', 'distributionOf', 'runBench'],
-  './style': [
-    'classTexts',
-    'classTokens',
-    'isClassSource',
-    'lineColumn',
-    'loadTailwindNode',
-    'parseSource',
-    'repoFiles',
-    'splitToken',
-  ],
+  './style': ['classTexts', 'classTokens', 'isClassSource', 'lineColumn', 'loadTailwindNode', 'parseSource', 'repoFiles', 'splitToken'],
   './drive': ['loadPlaywright', 'mintSession', 'signOut'],
   './a11y': ['auditContrast', 'defineA11yApp', 'defineA11yBase', 'openState', 'settle'],
   './screenshots': ['defineScreenshotsApp', 'defineScreenshotsBase'],
@@ -78,9 +69,7 @@ describe('release package', () => {
     }
   });
 
-  const loadsAlone = Object.entries(subpathExports).filter(
-    ([subpath]) => subpath !== './infra/program' && subpath !== './infra/contract',
-  );
+  const loadsAlone = Object.entries(subpathExports).filter(([subpath]) => subpath !== './infra/program' && subpath !== './infra/contract');
   it.each(loadsAlone)('%s exports its names', (subpath, names) => {
     const specifier = `@cellajs/cli${subpath.slice(1)}`;
     const script = `console.log(JSON.stringify(Object.keys(await import('${specifier}'))))`;

@@ -71,12 +71,7 @@ async function readScriptsAtRef(repoRoot: string, ref: string, path: string): Pr
 }
 
 /** The scripts of an app package.json that differ from both the merge-base and upstream. */
-async function scriptSources(
-  repoRoot: string,
-  upstreamRef: string,
-  baseRef: string,
-  path: string,
-): Promise<AppSource[]> {
+async function scriptSources(repoRoot: string, upstreamRef: string, baseRef: string, path: string): Promise<AppSource[]> {
   let appScripts: Record<string, string>;
   try {
     appScripts = JSON.parse(readFileSync(join(repoRoot, path), 'utf8')).scripts ?? {};
@@ -144,15 +139,11 @@ export async function loadAppUsage(repoRoot: string, upstreamRef: string, baseRe
     else if (!isManagedFile(path) && !proseFilePattern.test(path)) sources.push(fileSource(repoRoot, path));
   }
 
-  const findIn = (scoped: AppSource[], patterns: RegExp[]) =>
-    scoped.find((source) => patterns.some((pattern) => pattern.test(source.text())))?.label;
+  const findIn = (scoped: AppSource[], patterns: RegExp[]) => scoped.find((source) => patterns.some((pattern) => pattern.test(source.text())))?.label;
 
   return {
     findPackage: (location, name) =>
-      findIn(
-        location ? sources.filter((source) => isUnderAnyFolder(source.path, [location])) : sources,
-        packagePatterns(repoRoot, location, name),
-      ),
+      findIn(location ? sources.filter((source) => isUnderAnyFolder(source.path, [location])) : sources, packagePatterns(repoRoot, location, name)),
     findScript: (name) => findIn(sources, [scriptPattern(name)]),
   };
 }

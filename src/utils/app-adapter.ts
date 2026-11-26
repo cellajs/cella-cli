@@ -53,9 +53,7 @@ export const pathSchema = z.string().startsWith('/').or(z.string().startsWith('{
 export const signInShape = {
   prepare: fn<Prepare>().optional(),
   placeholders: z.record(z.string(), fn<Placeholders[string]>()).optional(),
-  suppress: z
-    .strictObject({ alerts: z.array(z.string()).optional(), hints: z.array(z.string()).optional() })
-    .optional(),
+  suppress: z.strictObject({ alerts: z.array(z.string()).optional(), hints: z.array(z.string()).optional() }).optional(),
 };
 
 /**
@@ -163,9 +161,7 @@ export async function loadAdapter<Base, App>(
     throw new Error(`${baseFile} is missing: upgrade the app from cella to get the ${tool} adapter`);
   }
   const base = parsed(baseFile, baseSchema, await importAdapter(repoRoot, baseFile));
-  const app = existsSync(join(repoRoot, appFile))
-    ? parsed(appFile, appSchema, await importAdapter(repoRoot, appFile))
-    : undefined;
+  const app = existsSync(join(repoRoot, appFile)) ? parsed(appFile, appSchema, await importAdapter(repoRoot, appFile)) : undefined;
   return { base, app };
 }
 
@@ -174,19 +170,13 @@ export async function loadAdapter<Base, App>(
  * place or else comes last. A string is its own id, and no delta leaves the base as it is.
  * @throws when `remove` names an id the base lacks, so a renamed base entry is noticed
  */
-export function applyDelta<T extends { id: string } | string>(
-  base: T[],
-  delta: { remove?: string[]; add?: T[] } | undefined,
-  file: string,
-): T[] {
+export function applyDelta<T extends { id: string } | string>(base: T[], delta: { remove?: string[]; add?: T[] } | undefined, file: string): T[] {
   const { remove = [], add = [] } = delta ?? {};
   const idOf = (entry: T) => (typeof entry === 'string' ? entry : entry.id);
   const has = (list: T[], id: string) => list.some((entry) => idOf(entry) === id);
   const unknown = remove.filter((id) => !has(base, id));
   if (unknown.length > 0) throw new Error(`${file} removes ${unknown.join(', ')}, which the base does not have`);
-  const replaced = base
-    .filter((entry) => !remove.includes(idOf(entry)))
-    .map((entry) => add.find((added) => idOf(added) === idOf(entry)) ?? entry);
+  const replaced = base.filter((entry) => !remove.includes(idOf(entry))).map((entry) => add.find((added) => idOf(added) === idOf(entry)) ?? entry);
   return [...replaced, ...add.filter((added) => !has(base, idOf(added)))];
 }
 

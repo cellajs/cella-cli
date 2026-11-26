@@ -1,16 +1,7 @@
 import pc from '../utils/colors';
 import { checkMark, warningMark, writeStdout } from '../utils/display';
 import { type Locales, namespaceTexts, pluralForm, readLocales, sourceLanguage, textsOf } from './locales';
-import {
-  categoriesOf,
-  compare,
-  englishFor,
-  isPluralOf,
-  type Mismatch,
-  placeholdersOf,
-  pluralGaps,
-  tagsOf,
-} from './parity';
+import { categoriesOf, compare, englishFor, isPluralOf, type Mismatch, placeholdersOf, pluralGaps, tagsOf } from './parity';
 
 /** One runtime namespace in one language, measured against English. */
 interface LanguageStatus {
@@ -60,9 +51,7 @@ function measure(english: Record<string, string>, texts: Record<string, string>,
   // A plural form for a category this language never uses is no missing key: the plural gaps report it
   const expected = Object.keys(english).filter((key) => {
     const form = pluralForm(key);
-    return (
-      !form || form.ordinal || !isPluralOf(english, key) || categories.some((category) => category === form.category)
-    );
+    return !form || form.ordinal || !isPluralOf(english, key) || categories.some((category) => category === form.category);
   });
   const status: LanguageStatus = {
     translated: expected.filter((key) => key in texts).length,
@@ -89,9 +78,7 @@ function buildStatus(locales: Locales): StatusReport {
   const others = locales.languages.filter((language) => language !== sourceLanguage);
   const namespaces = [...locales.namespaces].map(([name, files]): NamespaceStatus => {
     const english = namespaceTexts(locales, sourceLanguage, name);
-    const languages = Object.fromEntries(
-      others.map((language) => [language, measure(english, namespaceTexts(locales, language, name), language)]),
-    );
+    const languages = Object.fromEntries(others.map((language) => [language, measure(english, namespaceTexts(locales, language, name), language)]));
     const overrides = Object.fromEntries(
       files.length > 1 ? locales.languages.map((language) => [language, overridesOf(locales, language, files)]) : [],
     );
@@ -106,8 +93,7 @@ const defectCount = (report: StatusReport): number =>
   report.namespaces.reduce(
     (sum, namespace) =>
       Object.values(namespace.languages).reduce(
-        (count, status) =>
-          count + status.orphans.length + status.placeholders.length + status.tags.length + status.plurals.length,
+        (count, status) => count + status.orphans.length + status.placeholders.length + status.tags.length + status.plurals.length,
         sum + namespace.plurals.length,
       ),
     0,
@@ -145,31 +131,15 @@ function printList(title: string, items: string[]): void {
   console.info(`    ${pc.dim(`${items.slice(0, listMax).join(', ')}${more}`)}`);
 }
 
-const describe = ({ key, missing, extra }: Mismatch) =>
-  [key, ...missing.map((name) => `-${name}`), ...extra.map((name) => `+${name}`)].join(' ');
+const describe = ({ key, missing, extra }: Mismatch) => [key, ...missing.map((name) => `-${name}`), ...extra.map((name) => `+${name}`)].join(' ');
 
 function printStatus(report: StatusReport, dir: string): void {
-  const label = ({ name, files }: NamespaceStatus) =>
-    files.length > 1 || files[0] !== name ? `${name} (${files.join(' + ')})` : name;
-  console.info(
-    `${pc.bold(`${dir}/`)} ${pc.dim(`${report.languages.join(', ')} · namespaces ${report.namespaces.map(label).join(', ')}`)}`,
-  );
+  const label = ({ name, files }: NamespaceStatus) => (files.length > 1 || files[0] !== name ? `${name} (${files.join(' + ')})` : name);
+  console.info(`${pc.bold(`${dir}/`)} ${pc.dim(`${report.languages.join(', ')} · namespaces ${report.namespaces.map(label).join(', ')}`)}`);
   console.info();
   console.info(pc.dim(row(columns.map(([title]) => title))));
   for (const namespace of report.namespaces) {
-    console.info(
-      row([
-        namespace.name,
-        sourceLanguage,
-        String(namespace.keys),
-        '',
-        '',
-        '',
-        '',
-        '',
-        findings(namespace.plurals.length),
-      ]),
-    );
+    console.info(row([namespace.name, sourceLanguage, String(namespace.keys), '', '', '', '', '', findings(namespace.plurals.length)]));
     for (const [language, status] of Object.entries(namespace.languages)) {
       const expected = status.translated + status.missing.length;
       console.info(
@@ -190,10 +160,7 @@ function printStatus(report: StatusReport, dir: string): void {
   console.info();
 
   for (const namespace of report.namespaces) {
-    printList(
-      `${namespace.name} ${sourceLanguage}: plural groups that lack or add a form`,
-      namespace.plurals.map(describe),
-    );
+    printList(`${namespace.name} ${sourceLanguage}: plural groups that lack or add a form`, namespace.plurals.map(describe));
     for (const [language, status] of Object.entries(namespace.languages)) {
       const where = `${namespace.name} ${language}`;
       printList(`${where}: keys English lacks`, status.orphans);
@@ -211,11 +178,7 @@ function printStatus(report: StatusReport, dir: string): void {
   }
 
   const defects = defectCount(report);
-  console.info(
-    defects === 0
-      ? `${checkMark} no orphans, placeholder, tag or plural mismatches`
-      : `${pc.red('✗')} ${defects} findings above`,
-  );
+  console.info(defects === 0 ? `${checkMark} no orphans, placeholder, tag or plural mismatches` : `${pc.red('✗')} ${defects} findings above`);
   for (const language of report.languages.filter((language) => language !== sourceLanguage)) {
     const statuses = report.namespaces.map((namespace) => namespace.languages[language]).filter((status) => !!status);
     const translated = statuses.reduce((sum, status) => sum + status.translated, 0);

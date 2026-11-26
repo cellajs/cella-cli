@@ -72,9 +72,7 @@ async function collectStats(repoRoot: string): Promise<StatsResult> {
     entry.categories[category].loc += loc;
   }
 
-  const sortedPackages = Object.fromEntries(
-    [...pkgStats.entries()].sort((a, b) => b[1].categories.source.loc - a[1].categories.source.loc),
-  );
+  const sortedPackages = Object.fromEntries([...pkgStats.entries()].sort((a, b) => b[1].categories.source.loc - a[1].categories.source.loc));
 
   return { total: entries.length, totalLoc, categories, packages: sortedPackages };
 }
@@ -95,9 +93,7 @@ function fmtPct(value: number, total: number): string {
 
 function printStats(stats: StatsResult, verbose: boolean): void {
   console.info();
-  console.info(
-    `  ${pc.bold('code files'.padEnd(13))}  ${String(stats.total)}  ${pc.dim(`(${[...sourceExtensions].join(' ')})`)}`,
-  );
+  console.info(`  ${pc.bold('code files'.padEnd(13))}  ${String(stats.total)}  ${pc.dim(`(${[...sourceExtensions].join(' ')})`)}`);
   console.info(`  ${pc.bold('lines of code')}  ${pc.cyan(formatLoc(stats.totalLoc))}`);
   console.info();
 
@@ -126,9 +122,7 @@ function printStats(stats: StatsResult, verbose: boolean): void {
   for (const [name, { categories: c }] of Object.entries(stats.packages)) {
     if (c.source.files === 0) continue;
     // Verbose: file counts per category. Plain: shares of all source & config files and lines.
-    const head = verbose
-      ? pc.dim(pad(c.source.files))
-      : `${pad(c.source.files)} ${pc.dim(fmtPct(c.source.files, source.files))}`;
+    const head = verbose ? pc.dim(pad(c.source.files)) : `${pad(c.source.files)} ${pc.dim(fmtPct(c.source.files, source.files))}`;
     const tail = verbose
       ? ` ${[c.test, c.stories, c.generated, c.json, c.source].map((cat) => pc.dim(pad(cat.files))).join(' ')}`
       : `  ${pc.dim(fmtPct(c.source.loc, source.loc))}`;

@@ -67,9 +67,7 @@ describe('formatCheckoutStep', () => {
       tracking: { tracking: 'origin/main', ahead: 2, behind: 0 },
     });
 
-    expect(stripVTControlCharacters(out)).toBe(
-      'main @ ac6106a · 1 uncommitted change, not included in the analysis · 2 ahead, 0 behind origin/main',
-    );
+    expect(stripVTControlCharacters(out)).toBe('main @ ac6106a · 1 uncommitted change, not included in the analysis · 2 ahead, 0 behind origin/main');
   });
 });
 
@@ -77,9 +75,7 @@ describe('formatUpstreamStep', () => {
   const upstream = { label: 'main', sha: 'b374861', baseSha: '3d56cca', pinned: false, commitCount: 0, commits: [] };
 
   it('says when upstream has nothing new', () => {
-    expect(stripVTControlCharacters(formatUpstreamStep(upstream))).toBe(
-      'main @ b374861 · no new commits since the last upgrade',
-    );
+    expect(stripVTControlCharacters(formatUpstreamStep(upstream))).toBe('main @ b374861 · no new commits since the last upgrade');
   });
 
   it('counts the commits since the last upgrade and marks a pinned ref', () => {

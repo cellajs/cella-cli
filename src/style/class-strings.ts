@@ -26,8 +26,7 @@ export function splitToken(token: string): { variants: string[]; base: string } 
 
 /** Calls whose arguments are class values; object keys are class names and object values conditions, as in clsx. */
 const classFunctions = new Set(['clsx', 'cn', 'cx', 'tw', 'twJoin', 'twMerge']);
-const classNamePattern =
-  /^(?:class|classes|className|classNames|classList)$|[a-z](?:Class|Classes|Class[Nn]ames?|ClassList)$/;
+const classNamePattern = /^(?:class|classes|className|classNames|classList)$|[a-z](?:Class|Classes|Class[Nn]ames?|ClassList)$/;
 type Mode = 'class' | 'clsx';
 
 /** Text of one string or template piece in a class position; `open*` marks a side that touches a `${...}` placeholder. */
@@ -43,9 +42,7 @@ interface ClassText {
 }
 
 function propertyName(name: ts.PropertyName | ts.BindingName | undefined): string | undefined {
-  return name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name))
-    ? name.text
-    : undefined;
+  return name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isPrivateIdentifier(name)) ? name.text : undefined;
 }
 
 function isClassNamed(...names: (string | undefined)[]): boolean {
@@ -109,17 +106,12 @@ export function classTexts(sourceFile: ts.SourceFile): ClassText[] {
       return;
     }
     for (const property of config.properties) {
-      if (
-        !ts.isPropertyAssignment(property) ||
-        propertyName(property.name) !== 'variants' ||
-        !ts.isObjectLiteralExpression(property.initializer)
-      ) {
+      if (!ts.isPropertyAssignment(property) || propertyName(property.name) !== 'variants' || !ts.isObjectLiteralExpression(property.initializer)) {
         walk(property);
         continue;
       }
       for (const variant of property.initializer.properties) {
-        if (ts.isPropertyAssignment(variant) && ts.isObjectLiteralExpression(variant.initializer))
-          collectObject(variant.initializer, 'class');
+        if (ts.isPropertyAssignment(variant) && ts.isObjectLiteralExpression(variant.initializer)) collectObject(variant.initializer, 'class');
         else walk(variant);
       }
     }
@@ -170,10 +162,7 @@ export function classTexts(sourceFile: ts.SourceFile): ClassText[] {
     } else if (ts.isBinaryExpression(node) && node.operatorToken.kind === ts.SyntaxKind.AmpersandAmpersandToken) {
       walk(node.left);
       collect(node.right, mode);
-    } else if (
-      ts.isBinaryExpression(node) &&
-      [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)
-    ) {
+    } else if (ts.isBinaryExpression(node) && [ts.SyntaxKind.BarBarToken, ts.SyntaxKind.QuestionQuestionToken].includes(node.operatorToken.kind)) {
       collect(node.left, mode);
       collect(node.right, mode);
     } else if (ts.isArrayLiteralExpression(node)) {
@@ -188,34 +177,22 @@ export function classTexts(sourceFile: ts.SourceFile): ClassText[] {
 
   /** Collects `node` when it starts a class position; `returns` is set inside a class-named function. */
   function collectStart(node: ts.Node, returns?: Mode): boolean {
-    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && isClassNamed(node.name.text))
-      collect(node.initializer, 'class');
+    if (ts.isJsxAttribute(node) && ts.isIdentifier(node.name) && isClassNamed(node.name.text)) collect(node.initializer, 'class');
     else if (ts.isCallExpression(node)) return collectCall(node);
-    else if (ts.isTaggedTemplateExpression(node) && ts.isIdentifier(node.tag) && node.tag.text === 'tw')
-      collect(node.template, 'class');
+    else if (ts.isTaggedTemplateExpression(node) && ts.isIdentifier(node.tag) && node.tag.text === 'tw') collect(node.template, 'class');
     else if (ts.isReturnStatement(node) && returns) collect(node.expression, returns);
     // Storybook argTypes describe controls (`className: { control: 'text' }`), never classes.
     else if (ts.isPropertyAssignment(node) && propertyName(node.name) === 'argTypes') return true;
     else if (
-      (ts.isVariableDeclaration(node) ||
-        ts.isPropertyAssignment(node) ||
-        ts.isPropertyDeclaration(node) ||
-        ts.isParameter(node)) &&
+      (ts.isVariableDeclaration(node) || ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node) || ts.isParameter(node)) &&
       node.initializer &&
       isClassNamed(propertyName(node.name))
     ) {
       walk(node.name);
       collect(node.initializer, 'class');
-    } else if (
-      ts.isBindingElement(node) &&
-      node.initializer &&
-      isClassNamed(propertyName(node.name), propertyName(node.propertyName))
-    ) {
+    } else if (ts.isBindingElement(node) && node.initializer && isClassNamed(propertyName(node.name), propertyName(node.propertyName))) {
       collect(node.initializer, 'class');
-    } else if (
-      (ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) &&
-      isClassNamed(propertyName(node.name))
-    ) {
+    } else if ((ts.isFunctionDeclaration(node) || ts.isMethodDeclaration(node)) && isClassNamed(propertyName(node.name))) {
       collectReturns(node, 'class');
     } else return false;
     return true;

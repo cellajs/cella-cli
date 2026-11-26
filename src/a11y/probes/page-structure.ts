@@ -49,9 +49,7 @@ export const pageStructure: PageCheck = async (page, state, { app }) => {
  */
 export const languageSwitch: PageCheck = async (page, state, { app, repoRoot }) => {
   if (state.open) return [];
-  const names: Record<string, string> = JSON.parse(
-    readFileSync(join(repoRoot, localesDir, app.defaultLanguageCode, 'common.json'), 'utf8'),
-  );
+  const names: Record<string, string> = JSON.parse(readFileSync(join(repoRoot, localesDir, app.defaultLanguageCode, 'common.json'), 'utf8'));
   const findings: Awaited<ReturnType<PageCheck>> = [];
 
   for (const other of app.languageCodes.filter((lng) => lng !== app.defaultLanguageCode)) {
@@ -79,9 +77,7 @@ export const languageSwitch: PageCheck = async (page, state, { app, repoRoot }) 
 export function acrossStates(findings: StateFinding[]): StateFinding[] {
   const titled = findings.filter((finding) => finding.check === titles.check);
   for (const finding of titled) {
-    const twins = titled
-      .filter((other) => other !== finding && other.value === finding.value)
-      .map((other) => other.state);
+    const twins = titled.filter((other) => other !== finding && other.value === finding.value).map((other) => other.state);
     if (twins.length) finding.problems.push(`"${finding.value}" is also the title of ${twins.join(', ')}`);
   }
 

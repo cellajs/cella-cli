@@ -16,14 +16,7 @@ import { createRepo, exec, write } from '../../tests/helpers/test-env';
 import { analyzeRefs } from './classify';
 import type { AnalyzedFile, MergeResult } from './model';
 import { groupIgnoredUpstreamChanges } from './protection';
-import {
-  existingUpgradeReviewPage,
-  type ReviewPageReport,
-  reportReviewPage,
-  reviewSections,
-  reviewStep,
-  writeReviewPage,
-} from './review-page';
+import { existingUpgradeReviewPage, type ReviewPageReport, reportReviewPage, reviewSections, reviewStep, writeReviewPage } from './review-page';
 
 /**
  * Repo with a `main` (app) and `upstream` branch off one base commit:
@@ -315,8 +308,7 @@ describe('review page', () => {
       opened: false,
       ...overrides,
     });
-    const plain = (step: { line: string; details?: string[] }) =>
-      [step.line, ...(step.details ?? [])].map((line) => stripVTControlCharacters(line));
+    const plain = (step: { line: string; details?: string[] }) => [step.line, ...(step.details ?? [])].map((line) => stripVTControlCharacters(line));
 
     it('prints the page as a file URL in full, with what is on it', () => {
       expect(plain(reviewStep(page({})))).toEqual([
@@ -328,9 +320,7 @@ describe('review page', () => {
     it('says what an upgrade page shows and that it opened', () => {
       const step = reviewStep(page({ command: 'upgrade', diffs: 7, listed: 0, opened: true }));
 
-      expect(plain(step)[1]).toBe(
-        '7 diffs: what arrived that decides what runs, and upstream changes that did not · opened in the browser',
-      );
+      expect(plain(step)[1]).toBe('7 diffs: what arrived that decides what runs, and upstream changes that did not · opened in the browser');
     });
 
     it('describes a page an earlier run wrote without counts', () => {

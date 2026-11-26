@@ -3,11 +3,7 @@ import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
 
 /** Glob patterns (relative to repo root) for module definition files. */
-const moduleFileGlobs = [
-  'backend/src/modules/*/*-module.ts',
-  'frontend/src/modules/*/*-module.ts',
-  'frontend/src/modules/*/*-module.tsx',
-];
+const moduleFileGlobs = ['backend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.tsx'];
 
 /** Call names that register a module and carry its `owner` in the first argument. */
 const moduleRegisterCalls = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);

@@ -73,12 +73,7 @@ describe('classifyLine', () => {
       'comments',
       'comments',
     ]);
-    expect(['const a = 1; // trailing', 'return a * b;', '}', '<div />'].map(classifyLine)).toEqual([
-      'code',
-      'code',
-      'code',
-      'code',
-    ]);
+    expect(['const a = 1; // trailing', 'return a * b;', '}', '<div />'].map(classifyLine)).toEqual(['code', 'code', 'code', 'code']);
   });
 });
 

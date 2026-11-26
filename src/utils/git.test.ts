@@ -8,14 +8,7 @@ import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
 import { createManifestRepo, exec, makeCommit, write } from '../../tests/helpers/test-env';
 import { getEffectiveMergeBase, readStoredUpgradePoint, storeUpgradePoint } from '../upstream/upgrade-point';
-import {
-  flattenBranch,
-  getFileChanges,
-  getFileHashesAtRef,
-  isAncestor,
-  listBranchMergeCommits,
-  listCommitsBetween,
-} from './git';
+import { flattenBranch, getFileChanges, getFileHashesAtRef, isAncestor, listBranchMergeCommits, listCommitsBetween } from './git';
 
 describe('git parsing', () => {
   let repoPath: string;
@@ -205,9 +198,7 @@ describe('git parsing', () => {
     it('uses git merge-base when no manifest is committed', async () => {
       createFeatureBranch();
 
-      expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(
-        exec('git merge-base main feature', repoPath),
-      );
+      expect(await getEffectiveMergeBase(repoPath, 'main', 'feature')).toBe(exec('git merge-base main feature', repoPath));
     });
 
     it('recovers the squash-upgrade point from the committed manifest alone (fresh clone, no local refs)', async () => {

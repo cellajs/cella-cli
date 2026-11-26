@@ -84,11 +84,7 @@ export function groupIgnoredUpstreamChanges(files: AnalyzedFile[], ignored: stri
  * change). Upstream is read at `upstreamRef` as last fetched; while it does not resolve, every
  * entry missing from the app warns and the upstream checks on pins are skipped.
  */
-export async function validateOverrides(
-  config: CellaCliConfig,
-  repoRoot: string,
-  upstreamRef?: string,
-): Promise<string[]> {
+export async function validateOverrides(config: CellaCliConfig, repoRoot: string, upstreamRef?: string): Promise<string[]> {
   const warnings: string[] = [];
   const ignored = config.ignored ?? [];
   const upstream = upstreamRef && (await revParse(repoRoot, upstreamRef)) ? upstreamRef : undefined;

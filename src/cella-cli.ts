@@ -44,9 +44,7 @@ async function main(): Promise<number> {
   if (!command.outsideGit && !existsSync(join(repoRoot, '.git'))) {
     throw new Error(`not a git repository: ${repoRoot}`);
   }
-  const code = command.needsConfig
-    ? await command.run(repoRoot, options, await loadConfig(repoRoot))
-    : await command.run(repoRoot, options);
+  const code = command.needsConfig ? await command.run(repoRoot, options, await loadConfig(repoRoot)) : await command.run(repoRoot, options);
 
   if (!quiet) console.info();
   return code;

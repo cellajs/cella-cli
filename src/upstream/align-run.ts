@@ -14,9 +14,7 @@ const restoredListMax = 20;
 
 /** Write an alignment's folder under {@link extractDir}, byte for byte; returns the folder, relative to the app. */
 async function writeAlignmentFolder(repoRoot: string, ref: string, id: string): Promise<string> {
-  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot))
-    .split('\n')
-    .filter(Boolean);
+  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot)).split('\n').filter(Boolean);
   const target = join(extractDir, id);
   for (const file of files) {
     // Byte for byte: the git helper trims its output.
@@ -44,9 +42,7 @@ export async function runAlignment(repoRoot: string, ref: string, id: string, co
   const alignment = await readAlignment(repoRoot, ref, id);
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)}`);
   if (!alignment.codemod) {
-    throw new Error(
-      `alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`,
-    );
+    throw new Error(`alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`);
   }
   const script = join(await writeAlignmentFolder(repoRoot, ref, id), alignment.codemod);
   const args = codemodArgs.length > 0 ? codemodArgs : ['inventory', ...alignment.roots];

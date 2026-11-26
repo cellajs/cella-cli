@@ -163,12 +163,7 @@ ${blocks.join('\n')}
  *
  * @returns Absolute path of the written HTML file.
  */
-export async function writeDiffPage(
-  sections: DiffPageSection[],
-  meta: DiffPageMeta,
-  repoPath: string,
-  name: string,
-): Promise<string> {
+export async function writeDiffPage(sections: DiffPageSection[], meta: DiffPageMeta, repoPath: string, name: string): Promise<string> {
   const html = await renderDiffPage(sections, meta);
   const outPath = await diffPagePath(repoPath, name);
   mkdirSync(dirname(outPath), { recursive: true });

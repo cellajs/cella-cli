@@ -58,10 +58,7 @@ async function resolvePinnedRef(config: RuntimeConfig, branchRef: string, ref: s
   const { repoRoot } = config;
   const resolved = await resolveUpstreamCommit(repoRoot, defaultUpstreamRemote, ref);
   if (!resolved) {
-    throw new Error(
-      `--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag or a branch on ` +
-        `${config.upstreamUrl}.`,
-    );
+    throw new Error(`--ref '${ref}' does not resolve to a commit. Pass a commit sha, a release tag or a branch on ` + `${config.upstreamUrl}.`);
   }
   if (!(await isPublishedUpstream(repoRoot, defaultUpstreamRemote, branchRef, resolved.sha))) {
     throw new Error(
@@ -94,11 +91,7 @@ const isReleaseTag = (tag: string) => semver.valid(tag) !== null && semver.prere
  * commit the upstream branch (`branchRef`) contains. A higher tag off the branch is named in a warning and never
  * picked. Returns the short tag name and its full ref, or null when the branch holds no release.
  */
-async function resolveLatestReleaseTag(
-  cwd: string,
-  remoteName: string,
-  branchRef: string,
-): Promise<{ tag: string; ref: string } | null> {
+async function resolveLatestReleaseTag(cwd: string, remoteName: string, branchRef: string): Promise<{ tag: string; ref: string } | null> {
   const prefix = `refs/${remoteName}/tags/`;
   const highest = async (...filter: string[]) => {
     const output = await git(['for-each-ref', '--format=%(refname)', ...filter, prefix], cwd);

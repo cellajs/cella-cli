@@ -11,12 +11,7 @@ const legacyTerm = ['fo', 'rk'].join('');
 
 describe('source-control-term', () => {
   it('finds the term in prose, casing, plurals, and identifiers', () => {
-    const source = [
-      `// ${legacyTerm}-owned`,
-      `const ${legacyTerm}Breaking = true`,
-      legacyTerm.toUpperCase(),
-      `${legacyTerm}s`,
-    ].join('\n');
+    const source = [`// ${legacyTerm}-owned`, `const ${legacyTerm}Breaking = true`, legacyTerm.toUpperCase(), `${legacyTerm}s`].join('\n');
 
     expect(check([sourceControlTermRule], 'example.ts', source).map(({ line, term }) => ({ line, term }))).toEqual([
       { line: 1, term: legacyTerm },
@@ -38,19 +33,16 @@ describe('source-control-term', () => {
       ' */',
     ].join('\n');
 
-    expect(
-      check([sourceControlTermRule], 'example.ts', source).map(({ line, column, term }) => ({ line, column, term })),
-    ).toEqual([
+    expect(check([sourceControlTermRule], 'example.ts', source).map(({ line, column, term }) => ({ line, column, term }))).toEqual([
       { line: 3, column: 18, term: legacyTerm },
       { line: 7, column: 10, term: legacyTerm },
     ]);
   });
 
   it('skips a YAML marker line, in YAML only', () => {
-    const source = [
-      `  '@babel/traverse': 7.29.0 # ${legacyTerm}: pinned until the upstream fix`,
-      `  # ${legacyTerm}: the app's own catalog`,
-    ].join('\n');
+    const source = [`  '@babel/traverse': 7.29.0 # ${legacyTerm}: pinned until the upstream fix`, `  # ${legacyTerm}: the app's own catalog`].join(
+      '\n',
+    );
 
     expect(check([sourceControlTermRule], 'pnpm-workspace.yaml', source)).toEqual([]);
     expect(check([sourceControlTermRule], 'example.ts', `class A { #${legacyTerm}: string }`)).toHaveLength(1);
@@ -91,9 +83,7 @@ describe('product-name', () => {
       `const host = \`_${name}-verification.\${domain}\`;`,
       `const url = 'https://www.${name}js.com/mcp';`,
     ].join('\n');
-    expect(
-      check([productNameRule], 'backend/src/modules/x/x.ts', source).map(({ line, term }) => ({ line, term })),
-    ).toEqual([
+    expect(check([productNameRule], 'backend/src/modules/x/x.ts', source).map(({ line, term }) => ({ line, term }))).toEqual([
       { line: 1, term: `${name}_k` },
       { line: 2, term: 'CellaT' },
       { line: 3, term: `_${name}-` },
@@ -102,11 +92,7 @@ describe('product-name', () => {
   });
 
   it('leaves prose, tags and ownership markers alone', () => {
-    const source = [
-      `// none in ${name}; apps with other vocabularies add theirs`,
-      `tags: ['me', '${name}'],`,
-      `owner: '${name}',`,
-    ].join('\n');
+    const source = [`// none in ${name}; apps with other vocabularies add theirs`, `tags: ['me', '${name}'],`, `owner: '${name}',`].join('\n');
     expect(check([productNameRule], 'backend/src/modules/x/x.ts', source)).toEqual([]);
   });
 
@@ -141,10 +127,7 @@ describe('loadExceptions', () => {
   });
 
   it('refuses a rule id no rule has and a key the shape lacks', async () => {
-    const unknownRule = appRepo(
-      'style-exceptions.ts',
-      "export const styleExceptions = { exempt: { 'no-rule': [] } };\n",
-    );
+    const unknownRule = appRepo('style-exceptions.ts', "export const styleExceptions = { exempt: { 'no-rule': [] } };\n");
     await expect(loadExceptions(unknownRule, ids)).rejects.toThrow(/no rule named no-rule/);
     const unknownKey = appRepo('style-exceptions.ts', 'export const styleExceptions = { prefixes: [] };\n');
     await expect(loadExceptions(unknownKey, ids)).rejects.toThrow(/exports no valid styleExceptions/);

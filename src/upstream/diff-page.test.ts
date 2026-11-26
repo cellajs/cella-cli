@@ -147,16 +147,9 @@ describe('diff helpers', () => {
 
   describe('writeDiffPage', () => {
     it("writes the page into the repo's git dir under a stable, flat name", async () => {
-      const pagePath = await writeDiffPage(
-        [{ files: [{ path: 'x.ts', patch: await makePatch() }] }],
-        { title: 'x.ts' },
-        repoRoot,
-        'src/utils/x.ts',
-      );
+      const pagePath = await writeDiffPage([{ files: [{ path: 'x.ts', patch: await makePatch() }] }], { title: 'x.ts' }, repoRoot, 'src/utils/x.ts');
 
-      expect(fs.realpathSync(pagePath)).toBe(
-        path.join(fs.realpathSync(repoRoot), '.git', 'cella-diff', 'src-utils-x.ts.html'),
-      );
+      expect(fs.realpathSync(pagePath)).toBe(path.join(fs.realpathSync(repoRoot), '.git', 'cella-diff', 'src-utils-x.ts.html'));
       expect(fs.readFileSync(pagePath, 'utf-8')).toContain('<!doctype html>');
       // Inside the git dir: the page never shows up as an untracked file.
       expect(exec('git status --porcelain', repoRoot)).toBe('M x.ts');

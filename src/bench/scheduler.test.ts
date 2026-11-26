@@ -1,8 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { phaseArrivals, play, roleSequencer, type ScheduleEvent, schedule } from './scheduler';
 
-const arrivals = (events: Iterable<ScheduleEvent>) =>
-  [...events].filter((event) => event.kind === 'arrival').map((event) => event.at);
+const arrivals = (events: Iterable<ScheduleEvent>) => [...events].filter((event) => event.kind === 'arrival').map((event) => event.at);
 
 describe('schedule', () => {
   it('starts duration × rate VUs per phase, 1/rate apart from each phase start', () => {
@@ -56,8 +55,7 @@ describe('roleSequencer', () => {
     ]);
     const picks = Array.from({ length: 30 }, () => next().name);
     expect(picks.filter((name) => name === 'writer')).toHaveLength(3);
-    for (let cycle = 0; cycle < 3; cycle++)
-      expect(picks.slice(cycle * 10, cycle * 10 + 10).filter((name) => name === 'writer')).toHaveLength(1);
+    for (let cycle = 0; cycle < 3; cycle++) expect(picks.slice(cycle * 10, cycle * 10 + 10).filter((name) => name === 'writer')).toHaveLength(1);
   });
 });
 

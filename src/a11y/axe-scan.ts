@@ -38,9 +38,7 @@ export interface AxeScan {
 export async function axeScan(page: Page, where: string, contrastOnly = false): Promise<AxeScan> {
   // Injected once per page; a second injection would replace the `axe` a running scan holds
   if (!(await page.evaluate(() => 'axe' in window))) await page.evaluate(axe.source);
-  const runOnly: axe.RunOnly = contrastOnly
-    ? { type: 'rule', values: [contrastRule] }
-    : { type: 'tag', values: [...wcagTags, 'best-practice'] };
+  const runOnly: axe.RunOnly = contrastOnly ? { type: 'rule', values: [contrastRule] } : { type: 'tag', values: [...wcagTags, 'best-practice'] };
   const result = await page.evaluate(
     ({ exclude, only }) => {
       const scanner: typeof axe = Reflect.get(window, 'axe');
@@ -67,9 +65,7 @@ export async function axeScan(page: Page, where: string, contrastOnly = false): 
     })),
     review: result.incomplete.map(rule),
     passed: result.passes.map(rule),
-    undecidedContrast: result.incomplete
-      .filter(({ id }) => id === contrastRule)
-      .flatMap(({ nodes }) => nodes.map((node) => node.target.join(' '))),
+    undecidedContrast: result.incomplete.filter(({ id }) => id === contrastRule).flatMap(({ nodes }) => nodes.map((node) => node.target.join(' '))),
   };
 }
 

@@ -4,15 +4,7 @@ import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { BrowserContext, Page } from 'playwright';
 import type { TestbedHandle } from '../testbed';
-import {
-  applyDelta,
-  fillPath,
-  loadAdapter,
-  mergeSignIn,
-  type SignedInRun,
-  type SignInSetup,
-  signIn,
-} from '../utils/app-adapter';
+import { applyDelta, fillPath, loadAdapter, mergeSignIn, type SignedInRun, type SignInSetup, signIn } from '../utils/app-adapter';
 import { newContext, openPage } from '../utils/browser';
 import pc from '../utils/colors';
 import { printStep, warningMark } from '../utils/display';
@@ -60,9 +52,7 @@ export async function loadShotList(repoRoot: string): Promise<ShotList> {
 export function requireEncoder(list: ShotList): void {
   const webp = list.shots.some((shot) => (shot.format ?? list.format) === 'webp');
   if (webp && spawnSync('cwebp', ['-version']).status !== 0) {
-    throw new Error(
-      "format 'webp' needs the cwebp encoder on the PATH: `brew install webp` or `apt install webp`, or set format to 'png'",
-    );
+    throw new Error("format 'webp' needs the cwebp encoder on the PATH: `brew install webp` or `apt install webp`, or set format to 'png'");
   }
 }
 
@@ -207,9 +197,7 @@ export async function shoot(repoRoot: string, list: ShotList, testbed: TestbedHa
   console.info();
   for (const image of written) {
     const size = `${String(Math.round(image.bytes / 1024)).padStart(5)} KB`;
-    console.info(
-      `  ${image.id.padEnd(20)} ${image.mode.padEnd(5)} ${image.pixels.padEnd(10)} ${size}  ${pc.dim(image.path)}`,
-    );
+    console.info(`  ${image.id.padEnd(20)} ${image.mode.padEnd(5)} ${image.pixels.padEnd(10)} ${size}  ${pc.dim(image.path)}`);
   }
   for (const failure of failures) console.info(`  ${warningMark} ${failure.id} ${failure.mode}: ${failure.error}`);
   console.info();

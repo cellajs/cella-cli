@@ -91,9 +91,7 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
   }
   const { lock } = claimed;
   for (const other of lock.others) {
-    console.info(
-      `${warningMark} bench pid ${other.pid} runs ${other.scenario} on ${other.target}: it shares this machine, numbers will be skewed`,
-    );
+    console.info(`${warningMark} bench pid ${other.pid} runs ${other.scenario} on ${other.target}: it shares this machine, numbers will be skewed`);
   }
 
   if (bench.seed && request.skipSeed) printStep('seed', pc.dim('skipped: the scenarios read the last seeded data'));

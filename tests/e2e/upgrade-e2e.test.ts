@@ -41,8 +41,7 @@ describe('upgrade e2e', () => {
   });
 
   /** The release the upgrade recorded in the manifest it staged; null when it followed a branch or a commit. */
-  const recordedRelease = () =>
-    JSON.parse(readRepoFile(env.repoRoot, 'cella/cella.manifest.json') ?? '{}').upstream?.release;
+  const recordedRelease = () => JSON.parse(readRepoFile(env.repoRoot, 'cella/cella.manifest.json') ?? '{}').upstream?.release;
 
   /**
    * Commit the staged upgrade. With `squash`, single-parent the way the finishing `cella upgrade` rerun
@@ -396,12 +395,7 @@ describe('upgrade e2e', () => {
       await commitMerge('upgrade: merge upstream');
 
       // Now rename the file in upstream using git mv (single commit, detected as rename)
-      renameFileAndCommit(
-        env.upstreamPath,
-        'old-dir/moved-file.ts',
-        'new-dir/moved-file.ts',
-        'refactor: move file to new location',
-      );
+      renameFileAndCommit(env.upstreamPath, 'old-dir/moved-file.ts', 'new-dir/moved-file.ts', 'refactor: move file to new location');
 
       fetchUpstream(env.repoRoot);
       config = buildRuntimeConfig(env);
@@ -861,9 +855,7 @@ describe('upgrade e2e', () => {
 
       const result = await runUpgrade(buildRuntimeConfig(env, { ref: 'main' }));
 
-      expect(result.upstreamCommit?.hash).toBe(
-        execSync('git rev-parse main', { cwd: env.upstreamPath }).toString().trim(),
-      );
+      expect(result.upstreamCommit?.hash).toBe(execSync('git rev-parse main', { cwd: env.upstreamPath }).toString().trim());
       expect(fileExists(env.repoRoot, 'tip.ts')).toBe(true);
     });
 
@@ -902,8 +894,7 @@ describe('upgrade e2e', () => {
 
   describe('files git merges', () => {
     const text = `${Array.from({ length: 10 }, (_, i) => `export const line${i} = ${i};`).join('\n')}\n`;
-    const edit = (content: string, line: number, value: string) =>
-      content.replace(`line${line} = ${line};`, `line${line} = '${value}';`);
+    const edit = (content: string, line: number, value: string) => content.replace(`line${line} = ${line};`, `line${line} = '${value}';`);
 
     /** Files both sides start from: committed upstream and fast-forwarded into the app. */
     function share(files: Record<string, string>): void {
@@ -911,8 +902,7 @@ describe('upgrade e2e', () => {
       fetchUpstream(env.repoRoot);
       execSync('git merge -q --ff-only cella-upstream/main', { cwd: env.repoRoot });
     }
-    const commit = (repo: string, command: string) =>
-      execSync(`${command} && git add -A && git commit -q -m "chore: change"`, { cwd: repo });
+    const commit = (repo: string, command: string) => execSync(`${command} && git add -A && git commit -q -m "chore: change"`, { cwd: repo });
     const upgrade = (options: Parameters<typeof buildRuntimeConfig>[1] = {}) => {
       fetchUpstream(env.repoRoot);
       return runUpgrade(buildRuntimeConfig(env, options));
@@ -945,17 +935,14 @@ describe('upgrade e2e', () => {
       expect(readRepoFile(env.repoRoot, 'b.ts')).toBe(text);
     });
 
-    it.each([[[]], [['cfg']]])(
-      "never overwrites the app's own file where upstream moves one, pinned %j",
-      async (pinned) => {
-        share({ 'cfg/a.ts': text });
-        makeCommit(env.repoRoot, { files: { 'shared/a.ts': 'export const own = true;\n' }, message: 'feat: own' });
-        commit(env.upstreamPath, 'mkdir -p shared && git mv cfg/a.ts shared/a.ts');
+    it.each([[[]], [['cfg']]])("never overwrites the app's own file where upstream moves one, pinned %j", async (pinned) => {
+      share({ 'cfg/a.ts': text });
+      makeCommit(env.repoRoot, { files: { 'shared/a.ts': 'export const own = true;\n' }, message: 'feat: own' });
+      commit(env.upstreamPath, 'mkdir -p shared && git mv cfg/a.ts shared/a.ts');
 
-        expect((await upgrade({ pinned })).conflicts).toContain('shared/a.ts');
-        expect(readRepoFile(env.repoRoot, 'shared/a.ts')).toContain('export const own = true;');
-      },
-    );
+      expect((await upgrade({ pinned })).conflicts).toContain('shared/a.ts');
+      expect(readRepoFile(env.repoRoot, 'shared/a.ts')).toContain('export const own = true;');
+    });
 
     it('keeps the edit of a move the app made ahead of upstream', async () => {
       share({ 'a.ts': text });

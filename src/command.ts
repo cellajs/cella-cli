@@ -54,10 +54,7 @@ interface CommandBase<Options, Job extends string | undefined> {
  * can go on. A thrown error and a usage error exit 2. A command that reads the app's `cella/cella.config.ts` sets
  * `needsConfig`, and the entry loads the config for its `run`.
  */
-export type Command<Options = unknown, Job extends string | undefined = string | undefined> = CommandBase<
-  Options,
-  Job
-> &
+export type Command<Options = unknown, Job extends string | undefined = string | undefined> = CommandBase<Options, Job> &
   (
     | { needsConfig?: undefined; run(repoRoot: string, options: Options): Promise<number> }
     | { needsConfig: true; run(repoRoot: string, options: Options, config: CellaCliConfig): Promise<number> }

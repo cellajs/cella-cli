@@ -62,10 +62,7 @@ function installerOf(file: string): Installer {
 }
 
 /** The binary's version (the first x.y.z its `--version` prints) and installer; null when it is missing or does not run. */
-async function readTool(
-  file: string | null,
-  options?: { cwd: string; env: NodeJS.ProcessEnv },
-): Promise<InstalledTool | null> {
+async function readTool(file: string | null, options?: { cwd: string; env: NodeJS.ProcessEnv }): Promise<InstalledTool | null> {
   if (!file) return null;
   try {
     const { stdout } = await execFileAsync(file, ['--version'], { encoding: 'utf8', timeout: 10_000, ...options });
@@ -114,8 +111,7 @@ function toCheck(
   target: string | undefined,
   noun: [singular: string, plural: string],
 ): LocalToolCheck {
-  if (!missed)
-    return { name, version: tool.version, severity: null, note: 'not checked, no answer from the feed', fix: '' };
+  if (!missed) return { name, version: tool.version, severity: null, note: 'not checked, no answer from the feed', fix: '' };
   if (missed.length === 0) return { name, version: tool.version, severity: null, note: '', fix: '' };
   const high = missed.filter((severity) => severity === 'critical' || severity === 'high').length;
   return {
@@ -132,18 +128,13 @@ function toCheck(
  * older than the release age. For pnpm that is the newest version no advisory affects, in its
  * major when one there has every fix.
  */
-export function planLocalTools(
-  tools: LocalTools,
-  feeds: Feeds,
-  options: { releaseAgeMinutes: number; now: number },
-): LocalToolCheck[] {
+export function planLocalTools(tools: LocalTools, feeds: Feeds, options: { releaseAgeMinutes: number; now: number }): LocalToolCheck[] {
   const cutoff = options.now - options.releaseAgeMinutes * 60 * 1000;
   const { node, pnpm, gh } = tools;
 
   const nodeTarget = feeds.node ? newestAged(node.version, feeds.node, cutoff) : undefined;
   const securityReleases = (feeds.node ?? []).filter(
-    (release) =>
-      release.security && nodeTarget && semver.satisfies(release.version, `>${node.version} <=${nodeTarget}`),
+    (release) => release.security && nodeTarget && semver.satisfies(release.version, `>${node.version} <=${nodeTarget}`),
   );
   const checks = [
     toCheck('node', node, feeds.node && securityReleases.map((): VulnerabilitySeverity => 'high'), nodeTarget, [
@@ -154,14 +145,12 @@ export function planLocalTools(
 
   if (pnpm) {
     const advisories = feeds.pnpmAdvisories ?? [];
-    const affecting = (version: string) =>
-      advisories.filter((advisory) => semver.satisfies(version, advisory.vulnerable_versions));
+    const affecting = (version: string) => advisories.filter((advisory) => semver.satisfies(version, advisory.vulnerable_versions));
     const fixed = (feeds.pnpm ?? [])
       .filter((release) => release.publishedAt <= cutoff && affecting(release.version).length === 0)
       .map((release) => release.version);
     const target =
-      semver.maxSatisfying(fixed, `>${pnpm.version} <${semver.major(pnpm.version) + 1}`) ??
-      semver.maxSatisfying(fixed, `>${pnpm.version}`);
+      semver.maxSatisfying(fixed, `>${pnpm.version} <${semver.major(pnpm.version) + 1}`) ?? semver.maxSatisfying(fixed, `>${pnpm.version}`);
     const missed = feeds.pnpmAdvisories && feeds.pnpm && affecting(pnpm.version).map((advisory) => advisory.severity);
     checks.push(toCheck('pnpm', pnpm, missed, target ?? undefined, ['advisory', 'advisories']));
   }

@@ -130,14 +130,9 @@ const previousOverrides = (module: string, previous: AuditSettings): Array<[key:
  * The audit overrides a package had before the run whose target a published version still meets.
  * An item that is left open keeps them: leaving it open must not undo a fix that was in place.
  */
-export function standingOverrides(
-  module: string,
-  input: Pick<PlanInput, 'previous' | 'published'>,
-): Record<string, string> {
+export function standingOverrides(module: string, input: Pick<PlanInput, 'previous' | 'published'>): Record<string, string> {
   const versions = Object.keys(input.published[module] ?? {});
-  return Object.fromEntries(
-    previousOverrides(module, input.previous).filter(([, target]) => versions.some((v) => semver.satisfies(v, target))),
-  );
+  return Object.fromEntries(previousOverrides(module, input.previous).filter(([, target]) => versions.some((v) => semver.satisfies(v, target))));
 }
 
 /**
@@ -156,9 +151,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
   const items: SecurityItem[] = [];
 
   for (const [module, advisories] of byModule) {
-    const stable = semver.sort(
-      Object.keys(input.published[module] ?? {}).filter((v) => semver.valid(v) && !semver.prerelease(v)),
-    );
+    const stable = semver.sort(Object.keys(input.published[module] ?? {}).filter((v) => semver.valid(v) && !semver.prerelease(v)));
     const escapesAll = (v: string) => !advisories.some((advisory) => semver.satisfies(v, advisory.range));
 
     const fixOf = (advisory: Advisory): string | undefined => {
@@ -181,9 +174,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
 
       if (fix) {
         const hoursOld = Math.max(0, Math.floor(publishedAgo(module, fix, input) / 3_600_000));
-        remedy = isInstallable(module, fix, input)
-          ? { type: 'override', target: fix, breaking }
-          : { type: 'fresh', target: fix, breaking, hoursOld };
+        remedy = isInstallable(module, fix, input) ? { type: 'override', target: fix, breaking } : { type: 'fresh', target: fix, breaking, hoursOld };
 
         overrides = Object.fromEntries(
           [...new Set(group.map((advisory) => advisory.range))].map((range) => {
@@ -195,8 +186,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
         );
 
         if (remedy.type === 'override') {
-          if (previousOverrides(module, input.previous).some(([, target]) => semver.satisfies(fix, target)))
-            standing = 'carried';
+          if (previousOverrides(module, input.previous).some(([, target]) => semver.satisfies(fix, target))) standing = 'carried';
           // An ignored advisory whose fix arrived moves to an override, unless that takes a breaking jump.
           else if (allIgnored && !breaking) standing = 'new';
         }
@@ -216,9 +206,7 @@ export function planSecurity(input: PlanInput): SecurityItem[] {
     }
   }
 
-  return items.sort(
-    (a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity) || a.module.localeCompare(b.module),
-  );
+  return items.sort((a, b) => severities.indexOf(a.severity) - severities.indexOf(b.severity) || a.module.localeCompare(b.module));
 }
 
 /**

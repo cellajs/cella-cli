@@ -110,8 +110,7 @@ FROM nginx`;
       ].map(([spec, latest]) => rewriteSpecifier(spec, latest)),
     ).toEqual(['^11.2.7', '6.1.0', '~0.300.0', null, null, null, null, null, null]);
 
-    const manifest =
-      '{\n  "engines": {\n    "node": "26.12.0"\n  },\n  "packageManager": "pnpm@11.8.0+sha512.abc"\n}\n';
+    const manifest = '{\n  "engines": {\n    "node": "26.12.0"\n  },\n  "packageManager": "pnpm@11.8.0+sha512.abc"\n}\n';
     const pnpm = applyRuntimeUpdate(manifest, {
       name: 'pnpm',
       current: '11.8.0',
