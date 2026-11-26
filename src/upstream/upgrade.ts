@@ -90,6 +90,8 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> 
   if (guard !== 'continue') return guard === 'refused' ? 1 : 0;
 
   const branch = await cutUpgradeBranch(config);
+  // A stop shown for a merge that was aborted since says nothing about the merge this run makes
+  await clearReviewStop(repoRoot);
   let run: UpgradeRunResult;
   try {
     run = await runUpgrade(config);

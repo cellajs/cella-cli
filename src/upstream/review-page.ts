@@ -13,7 +13,7 @@ import { filesWithStatus, findMaskingPins, findProtectedBehindUpstream } from '.
 
 /** Paths whose change decides what `pnpm install`, `pnpm check`, a git hook or CI runs. */
 const runConfigPath =
-  /^(\.github\/(workflows|actions)\/|patches\/|(pnpm-workspace\.yaml|\.?lefthook(-local)?\.(ya?ml|json|toml)|\.pnpmfile\.[cm]?js|(.*\/)?(\.npmrc|action\.ya?ml))$)/;
+  /^(\.github\/(workflows|actions)\/|patches\/|(pnpm-workspace\.yaml|(\.config\/)?\.?lefthook(-local)?\.(ya?ml|json|toml)|\.pnpmfile\.[cm]?js|(.*\/)?(\.npmrc|action\.ya?ml))$)/;
 
 /** The package.json keys whose entries install a package. */
 const dependencyKeys = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];

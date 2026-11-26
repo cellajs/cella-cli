@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, realpath, rmdir, unlink } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { printable } from './terminal-text';
@@ -613,24 +613,22 @@ export async function moveFromRef(cwd: string, ref: string, from: string, to: st
 }
 
 /**
- * Refuse a write or removal at `path` when the nearest folder above it that exists resolves elsewhere than the
- * repository names it: through a symlink, or a folder name in another letter case.
- * @throws naming the path and where its folder resolves
+ * Refuse a write or removal at `path` when a folder above it is a symlink: the change would reach a file the
+ * repository does not name. A folder stored in another letter case or composition is the same folder and passes.
+ * @throws naming the path and the symlinked folder
  */
 export async function assertRealFolder(cwd: string, path: string): Promise<void> {
-  const root = await realpath(cwd);
-  const realOf = (folder: string) => realpath(join(cwd, folder)).catch(() => null);
-  let folder = dirname(path);
-  let real = await realOf(folder);
-  while (real === null && folder !== '.') {
-    folder = dirname(folder);
-    real = await realOf(folder);
-  }
-  if (real !== null && real !== join(root, folder)) {
-    throw new Error(
-      `refused to change ${printable(path)}: its folder ${printable(folder)} resolves to ${printable(real)}. ` +
-        'Remove the symlink or rename the folder, then rerun.',
-    );
+  const parts = dirname(path).split('/');
+  for (let depth = 1; depth <= parts.length && parts[0] !== '.'; depth++) {
+    const folder = parts.slice(0, depth).join('/');
+    const entry = await lstat(join(cwd, folder)).catch(() => null);
+    // A folder that does not exist yet is made by the write itself
+    if (!entry) return;
+    if (entry.isSymbolicLink()) {
+      throw new Error(
+        `refused to change ${printable(path)}: its folder ${printable(folder)} is a symlink. Remove the link, then rerun.`,
+      );
+    }
   }
 }
 
