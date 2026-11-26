@@ -66,6 +66,13 @@ describe('runSetup', () => {
     expect(recordKeyRotation).not.toHaveBeenCalled();
   });
 
+  it('records no rotation when the Owner moment made no new deploy key: the lost key still works', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    runOwnerMoment.mockResolvedValue({ projectId: 'project-staging', ciKey: { accessKey: '', secretKey: '', organizationId: '' } });
+    await expect(runSetup(context, 'rotate-keys')).rejects.toThrow(/exit code 1/);
+    expect(recordKeyRotation).not.toHaveBeenCalled();
+  });
+
   it('records no rotation when the uploads key was not replaced: the lost deploy key read the old one', async () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     runOwnerMoment.mockResolvedValue({ projectId: 'project-staging', ciKey, uploadsKeyKept: true });

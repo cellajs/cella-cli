@@ -1,3 +1,4 @@
+import semver from 'semver';
 import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
@@ -82,15 +83,16 @@ export async function fetchUpstreamTags(cwd: string, remoteName: string): Promis
 }
 
 /**
- * A template release tag is a version, with or without the `v` prefix (`0.18.1`, `v0.5.0`).
- * Component tags (`create-cella-0.2.3`) and other namespaces (`archive/pre-release`) start with a name.
+ * Whether a tag names a template release: a semver version without a prerelease part, with or without the `v` prefix
+ * (`0.18.1`, `v0.5.0`). A pre-release (`0.49.0-rc.1`), a component tag (`create-cella-0.2.3`) or another namespace
+ * (`archive/pre-release`) is none.
  */
-const releaseTagPattern = /^v?\d[\w.+-]*$/;
+const isReleaseTag = (tag: string) => semver.valid(tag) !== null && semver.prerelease(tag) === null;
 
 /**
- * Resolve the latest upstream release: the highest version tag in the remote-scoped tag namespace whose commit the
- * upstream branch (`branchRef`) contains. A higher tag off the branch is named in a warning and never picked. Returns
- * the short tag name and its full ref, or null when the branch holds no release.
+ * Resolve the latest upstream release: the highest release tag by semver in the remote-scoped tag namespace whose
+ * commit the upstream branch (`branchRef`) contains. A higher tag off the branch is named in a warning and never
+ * picked. Returns the short tag name and its full ref, or null when the branch holds no release.
  */
 async function resolveLatestReleaseTag(
   cwd: string,
@@ -99,14 +101,12 @@ async function resolveLatestReleaseTag(
 ): Promise<{ tag: string; ref: string } | null> {
   const prefix = `refs/${remoteName}/tags/`;
   const highest = async (...filter: string[]) => {
-    const output = await git(
-      ['for-each-ref', '--sort=-version:refname', '--format=%(refname)', ...filter, prefix],
-      cwd,
-    );
+    const output = await git(['for-each-ref', '--format=%(refname)', ...filter, prefix], cwd);
     return output
       .split('\n')
       .map((line) => line.trim().slice(prefix.length))
-      .find((tag) => releaseTagPattern.test(tag));
+      .filter(isReleaseTag)
+      .sort(semver.rcompare)[0];
   };
   const [tag, anywhere] = await Promise.all([highest(`--merged=refs/remotes/${branchRef}`), highest()]);
   if (anywhere && anywhere !== tag) {
@@ -132,7 +132,7 @@ export async function resolveUpstreamCommit(
   for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
     const sha = await revParse(cwd, `${candidate}^{commit}`);
     if (!sha) continue;
-    const release = candidate === tagRef && releaseTagPattern.test(ref) ? { tag: ref, ref: tagRef } : undefined;
+    const release = candidate === tagRef && isReleaseTag(ref) ? { tag: ref, ref: tagRef } : undefined;
     return { sha, release };
   }
   return null;

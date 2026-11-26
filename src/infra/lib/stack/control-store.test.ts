@@ -9,6 +9,7 @@ import {
   parseRotations,
   pruneLockVersions,
   readObjectEtag,
+  readRotations,
   recordRotation,
   releaseLock,
   rotationsKey,
@@ -145,6 +146,16 @@ describe('rotations', () => {
     expect(rotations).toEqual({ counter: 2, secrets: { at: '2026-10-14T10:00:00.000Z', by: 'operator:flip' } });
     expect(puts[0]!.IfMatch).toBe('"e1"');
     expect(puts[0]!.Key).toBe('control/staging/rotations.json');
+  });
+
+  it('refuses a planted counter too large to rise, and a key rotation replaces that record with counter 1', async () => {
+    // At 1e17 `counter + 1 === counter`: a rotation would then leave every machine serving.
+    const planted = { body: JSON.stringify({ counter: 1e17 }), etag: '"e1"' };
+    await expect(readRotations(makeS3({ get: [planted] }).s3, 'b', 'production')).rejects.toThrow(/rotate-keys/);
+    vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const { s3, puts } = makeS3({ get: [planted] });
+    expect((await recordRotation({ s3, bucket: 'b', stack: 'production', kind: 'keys', by: 'operator:flip' })).counter).toBe(1);
+    expect(puts[0]!.IfMatch).toBe('"e1"');
   });
 
   it('creates the first rotation create-only', async () => {

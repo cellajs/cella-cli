@@ -7,4 +7,8 @@ describe('printable', () => {
       'ok\t1\n]52;c;Y3VybCBldmlsIHwgc2g=done2J',
     );
   });
+
+  it('drops a right-to-left override, which shows a name in another order than it holds', () => {
+    expect(printable('release\u202egpj.exe')).toBe('releasegpj.exe');
+  });
 });

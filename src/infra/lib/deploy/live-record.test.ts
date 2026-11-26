@@ -62,15 +62,15 @@ describe('the live record', () => {
     expect(Object.keys(read().roles).sort()).toEqual(['cdc', 'frontend']);
   });
 
-  it('leaves every role pending when the live record was stored before the key rotation, and writes back no claim of the current one', async () => {
-    // The lost deploy key could store the next rotation's counter beside the running machines' ids: every role would then serve.
+  it('keeps from a record stored before the key rotation only the entries whose machine the Instances API lists on that slot, pending', async () => {
+    // The lost deploy key could name a machine of its own on a role's slot, which the deploy would then delete or route around.
     const bucket = makeLockS3();
     bucket.storedAt(new Date('2026-11-01T10:00:00Z'));
-    bucket.overwrite(record({ backend: entry({ rotation: 3 }), frontend: entry({ machine: 'srv-3', rotation: 3 }) }));
+    bucket.overwrite(record({ backend: entry({ rotation: 3 }), frontend: entry({ machine: 'srv-forged', rotation: 3 }) }));
     const rotations = { counter: 3, keys: { at: '2026-11-01T11:00:00.000Z', by: 'operator' } };
-    const live = await readLiveRecordForDeploy(bucket.s3, 'b', 'production', rotations, () => {});
-    expect(rolesToReplace(live, ['backend', 'frontend'], { commit, retry: 0, rotation: 3 })).toEqual(['backend', 'frontend']);
-    expect(Object.values(parseLiveRecord(bucket.current()?.body ?? '').roles).map((role) => role.rotation)).toEqual([2, 2]);
+    const machinesOf = async () => [{ id: 'srv-1', slot: 'a' as const }];
+    await readLiveRecordForDeploy(bucket.s3, 'b', 'production', rotations, machinesOf, () => {});
+    expect(parseLiveRecord(bucket.current()?.body ?? '').roles).toEqual({ backend: entry({ rotation: -1 }) });
   });
 
   it('creates the first record create-only', async () => {

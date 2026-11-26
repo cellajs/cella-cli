@@ -155,7 +155,13 @@ export async function createLiveEffects(opts: { bucket: string; region: string; 
       try {
         const out = await s3.send(new GetObjectCommand({ Bucket: opts.bucket, Key: manifestKey(opts.prefix) }));
         const text = await out.Body?.transformToString();
-        return text ? { manifest: JSON.parse(text) as GeoipManifest, modified: out.LastModified } : null;
+        if (!text) return null;
+        try {
+          return { manifest: JSON.parse(text) as GeoipManifest, modified: out.LastModified };
+        } catch {
+          // One that does not parse counts as missing: the files are published again.
+          return null;
+        }
       } catch (err) {
         if (err instanceof Error && (err.name === 'NoSuchKey' || err.name === 'NotFound')) return null;
         throw err;

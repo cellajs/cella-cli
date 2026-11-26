@@ -116,9 +116,10 @@ export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Pr
  * moves; a deploy of the live commit, a release that deployed before, puts them on the rotated ones whatever becomes of the target. The
  * live run is followed to its end, as the target's run would wait on the lease behind it, and when it does not deploy the target is left
  * for the action that clears the block or `deploy`. Where the live commit is not the target, a person confirms each deploy: the deploy key
- * writes the live record and the run records, which set only the defaults. A no to the live commit deploys the target in its place, and a
- * target that ran before is declined by default, as a scheduled run leaves it: a rotation keeps a rollback in place. Before the first
- * deploy there is no live commit, and when the live record cannot be read there is none known: the target alone is started.
+ * writes the live record and the run records, which set only the defaults. After the live deploy a target that ran before is declined by
+ * default, as a scheduled run leaves it: a rotation keeps a rollback in place. A no to the live commit asks for the target in its place,
+ * yes by default, after its runs are shown. Before the first deploy there is no live commit, and when the live record cannot be read there
+ * is none known: the target alone is started.
  */
 export async function redeployAfterRotation(context: InfraContext, key: KeyPair): Promise<void> {
   const auth = { secretKey: key.secretKey };
@@ -153,6 +154,12 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
     const ran = await targetHasRun(context, key, live, target);
     const targetName = commitName(await commitRefs(), target.sha);
     if (!(await confirmOrDefault({ message: `Deploy ${targetName} to ${context.environment}?`, default: !ran }))) return;
+  } else if (live && target) {
+    await targetHasRun(context, key, live, target);
+    if (!(await confirmOrDefault({ message: `Deploy ${commitName(await commitRefs(), target.sha)} to ${context.environment}?`, default: true }))) {
+      console.warn(`${warningMark} No deploy is started: the machines hold what the rotation replaced until "${menuPath('deploy')}" runs one.`);
+      return;
+    }
   }
   if (!target) {
     console.warn(

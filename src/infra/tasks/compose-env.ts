@@ -64,7 +64,7 @@ export function composeMachineEnvs(
     throw blocked([
       ...(missing.size > 0 ? [`required runtime values are not set: ${[...missing].join(', ')}`] : []),
       ...(multiline.size > 0 ? [`values are not one line: ${[...multiline].join(', ')}`] : []),
-      ...(quoted.size > 0 ? [`values hold a single quote, which the env file cannot carry: ${[...quoted].join(', ')}`] : []),
+      ...(quoted.size > 0 ? [`values hold a single quote or end in a backslash, which the env file cannot carry: ${[...quoted].join(', ')}`] : []),
     ]);
   }
   return files;

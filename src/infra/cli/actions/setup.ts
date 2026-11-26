@@ -28,6 +28,7 @@ export async function runSetup(context: InfraContext, mode: SetupMode): Promise<
   // release again, then the target) replace every machine, and none keeps the uploads key the rotation deleted. Those deploys run on the
   // main job's copy of the deploy key, which is replaced first: a failed copy ends the rotation before they start on the deleted key.
   if (mode === 'rotate-keys') {
+    if (!moment?.ciKey.accessKey) exitOnMissingDeployKey();
     if (!(await copyDeployKeyForMainJob(context, operatorKey, moment?.projectId ?? context.projectId, moment?.ciKey))) endAction(1);
     if (moment?.ciKey.purgeSkipped) exitOnKeptDeployKeys(context, moment.ciKey.accessKey);
     if (moment?.uploadsKeyKept) exitOnKeptUploadsKey();
@@ -51,6 +52,13 @@ function exitOnKeptDeployKeys(context: InfraContext, kept: string): never {
   console.error(
     `  Delete them in the Scaleway console (IAM, Applications, ${application}, API keys), then run ${pointTo('rotate-keys')} again with a key that also holds IAMReadOnly.`,
   );
+  return endAction(1);
+}
+
+/** End a rotation whose Owner moment made no new deploy key: the old one still works, and no rotation is recorded. */
+function exitOnMissingDeployKey(): never {
+  console.error(`${crossMark} The deploy key was not replaced: the old deploy key still works.`);
+  console.error(`  No rotation is recorded and no machine is replaced. Run ${pointTo('rotate-keys')} again.`);
   return endAction(1);
 }
 

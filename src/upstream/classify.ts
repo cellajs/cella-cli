@@ -7,6 +7,7 @@ import {
   getFileChangeInfo,
   getFileChanges,
   getFileHashesAtRef,
+  listMovedFrom,
 } from '../utils/git';
 import { isGeneratedFile } from '../utils/repo-files';
 import { isManagedFile } from './managed-files';
@@ -331,37 +332,42 @@ function withFolders(path: string): string[] {
   return names;
 }
 
-/** One spelling for every name a case-insensitive disk stores as the same file: lowercase, composed. */
+/** One key for names equal in lowercase and composed form (NFC). */
 const caseKey = (name: string) => name.normalize('NFC').toLowerCase();
 
 /**
- * Pairs of an arriving path or folder and another one the merge leaves, equal in lowercase: a case-insensitive
- * disk stores both as one file. Arriving is every path upstream adds or changes, whatever its resolution, but a path the
- * app moved a file away from. A pair the app already holds is none.
+ * Pairs of an arriving path or folder and another one the merge writes or leaves, equal by {@link caseKey}: a
+ * case-insensitive disk stores both as one file. Arriving is every path upstream adds or changes, whatever its
+ * resolution, but a path the app moved a file away from (`appMoved`, at git's merge threshold). Two arriving paths pair
+ * too: git writes both before the upgrade restores or removes them. A pair the app already holds is none.
  */
-export function caseCollisions(trees: Trees, files: AnalyzedFile[]): [arriving: string, other: string][] {
-  const appMoved = appMovedFrom(trees);
+export function caseCollisions(
+  trees: Trees,
+  files: AnalyzedFile[],
+  appMoved: ReadonlySet<string>,
+): [arriving: string, other: string][] {
   const leaves = ({ path, resolution, existsInApp }: AnalyzedFile) =>
     existsInApp
       ? resolution !== 'remove'
       : // git merges upstream's change to a path the app moved into the moved copy
         resolution === 'take' || resolution === 'move' || (resolution === 'merge' && !appMoved.has(path));
-  const left = new Map<string, Set<string>>();
-  for (const file of files)
-    if (leaves(file))
-      for (const name of withFolders(file.path)) {
-        const key = caseKey(name);
-        left.set(key, (left.get(key) ?? new Set<string>()).add(name));
-      }
+  const arriving = [...trees.upstream]
+    .filter(([path, hash]) => hash !== trees.base.get(path) && !appMoved.has(path))
+    .map(([path]) => path);
+  const written = new Map<string, Set<string>>();
+  for (const path of [...files.filter(leaves).map((file) => file.path), ...arriving])
+    for (const name of withFolders(path)) {
+      const key = caseKey(name);
+      written.set(key, (written.get(key) ?? new Set<string>()).add(name));
+    }
 
   const held = new Set([...trees.app.keys()].flatMap(withFolders));
   const pairs = new Map<string, [string, string]>();
-  for (const [path, hash] of trees.upstream) {
-    if (hash === trees.base.get(path) || appMoved.has(path)) continue;
+  for (const path of arriving)
     for (const name of withFolders(path))
-      for (const other of left.get(caseKey(name)) ?? [])
-        if (other !== name && !(held.has(name) && held.has(other))) pairs.set(`${name}\0${other}`, [name, other]);
-  }
+      for (const other of written.get(caseKey(name)) ?? [])
+        if (other !== name && !(held.has(name) && held.has(other)))
+          pairs.set([name, other].sort().join('\0'), [name, other]);
   return [...pairs.values()];
 }
 
@@ -443,10 +449,13 @@ async function classifyRefs(
   baseRef: string,
   protection: Protection,
 ): Promise<ClassifiedRun> {
-  const trees = await readTrees(repoRoot, appRef, upstreamRef, baseRef);
+  const [trees, appMoved] = await Promise.all([
+    readTrees(repoRoot, appRef, upstreamRef, baseRef),
+    listMovedFrom(repoRoot, baseRef, appRef),
+  ]);
   const files = classifyFiles(trees, protection);
   await countUpstreamLines(repoRoot, files, { appRef, upstreamRef, baseRef });
-  return { files, collisions: caseCollisions(trees, files) };
+  return { files, collisions: caseCollisions(trees, files, appMoved) };
 }
 
 /** {@link classifyRefs} for adopt, which refuses a case collision. */

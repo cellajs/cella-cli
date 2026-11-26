@@ -5,7 +5,7 @@ import type { PackageJsonKey, RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import { createSpinner, plural, spinnerSuccess, spinnerText, warningMark } from '../utils/display';
 import { errorMessage } from '../utils/errors';
-import { git } from '../utils/git';
+import { assertRealFolder, git } from '../utils/git';
 import { compareVersions, parseComparableVersion } from '../utils/versions';
 import type { UpstreamContext } from './model';
 import { type AppUsage, loadAppUsage } from './package-usage';
@@ -335,6 +335,7 @@ async function mergePackageJson(
   const kept: string[] = [];
   const pkgRelPath = packageJsonPath(relativePath);
   const pkgPath = join(repoRoot, pkgRelPath);
+  await assertRealFolder(repoRoot, pkgRelPath);
 
   const appPkg = readPackageJson(pkgPath);
   const upstreamFile = await readPackageJsonAtRef(repoRoot, upstream.ref, relativePath);

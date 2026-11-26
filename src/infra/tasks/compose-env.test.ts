@@ -47,7 +47,9 @@ describe("a machine's env file", () => {
     values.set('cookie-secret', 'ab${X:?boom}cd #tail');
     expect(Object.values(composeMachineEnvs(machines, values)).join('').split('\n')).toContain("COOKIE_SECRET='ab${X:?boom}cd #tail'");
     values.set('cookie-secret', "ab' X='cd");
-    expect(() => composeMachineEnvs(machines, values)).toThrow(/single quote, which the env file cannot carry: COOKIE_SECRET \[cookie-secret\]/);
+    expect(() => composeMachineEnvs(machines, values)).toThrow(
+      /single quote or end in a backslash, which the env file cannot carry: COOKIE_SECRET \[cookie-secret\]/,
+    );
   });
 
   it('ends the deploy blocked, naming every required value owed, before any machine is made', () => {

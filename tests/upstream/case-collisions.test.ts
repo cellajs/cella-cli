@@ -11,6 +11,8 @@ interface Case {
   upstreamMoves?: Record<string, string>;
   /** New path onto the path the app moved a file away from. */
   appMoves?: Record<string, string>;
+  /** The same for a move with an edit, which git's merge follows at 50% similarity and `-M90%` reads as an add and a delete. */
+  appEditMoves?: Record<string, string>;
   pinned?: string[];
   ignored?: string[];
   expected: [string, string][];
@@ -58,11 +60,19 @@ const cases: Case[] = [
     appMoves: { 'src/foo.ts': 'src/Foo.ts' },
     expected: [],
   },
+  {
+    name: "passes the app's own case-only rename with an edit that upstream later edits",
+    base: { 'src/Foo.ts': 'a' },
+    app: { 'src/foo.ts': 'a2' },
+    upstream: { 'src/Foo.ts': 'b' },
+    appEditMoves: { 'src/foo.ts': 'src/Foo.ts' },
+    expected: [],
+  },
 ];
 
 it.each(cases)(
   '$name',
-  ({ base, app, upstream, upstreamMoves, appMoves = {}, pinned = [], ignored = [], expected }) => {
+  ({ base, app, upstream, upstreamMoves, appMoves = {}, appEditMoves = {}, pinned = [], ignored = [], expected }) => {
     const tree = trees(base, app, upstream, upstreamMoves);
     for (const [to, from] of Object.entries(appMoves)) {
       tree.appChanges.delete(from);
@@ -74,6 +84,7 @@ it.each(cases)(
       isPinned: (path) => isUnderAnyFolder(path, pinned),
     });
 
-    expect(caseCollisions(tree, files)).toEqual(expected);
+    const appMoved = new Set([...Object.values(appMoves), ...Object.values(appEditMoves)]);
+    expect(caseCollisions(tree, files, appMoved)).toEqual(expected);
   },
 );

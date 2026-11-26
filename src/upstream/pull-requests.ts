@@ -252,7 +252,7 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
       );
       for (const alignment of open)
         lines.push(
-          `- ${alignment.url ? `[${alignment.title}](${alignment.url})` : alignment.title} (\`${alignment.id}\`)`,
+          `- ${alignment.url ? `[${codeSpan(alignment.title)}](${alignment.url})` : codeSpan(alignment.title)} (\`${alignment.id}\`)`,
         );
     }
   }

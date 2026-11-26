@@ -39,6 +39,16 @@ export function serviceAccountKeys(keys: readonly string[], service: string): st
     .reverse();
 }
 
+/**
+ * Whether an account was stored over a minute before the time its key names, when the deploy composed the key: no machine of that deploy
+ * wrote it, and a lost deploy key could have. False when the key names no time or the bucket gave none.
+ */
+export function storedBeforeItsKey(key: string, modified: Date | undefined): boolean {
+  const [, year, month, day, hour, minute, second] = /-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-boot\.log$/.exec(key) ?? [];
+  if (!second || !modified) return false;
+  return modified.getTime() < Date.parse(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`) - 60_000;
+}
+
 /** The release an account names on its `release=` line. */
 function accountRelease(body: string): string | undefined {
   return /^release=(\S+)$/m.exec(body)?.[1];

@@ -87,7 +87,7 @@ export async function settleMerge(repoRoot: string, files: AnalyzedFile[], appli
     const fromUpstream = changedFromUpstream(files).length;
     printProgressStep(
       'upgraded',
-      `${fromUpstream > 0 ? `${fromUpstream} files from upstream` : 'upstream changes'} (staged, commit to finish)`,
+      `${fromUpstream > 0 ? `${fromUpstream} files from upstream` : 'upstream changes'} (staged for review)`,
     );
     return true;
   }
