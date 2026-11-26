@@ -25,11 +25,13 @@ import { resolveTrunkRef, returnToTrunk } from './upgrade-branch';
 import { readManifest, readManifestAtRef, readUpgradePointAtRef } from './upgrade-point';
 
 /** An open pull request, as returned by `gh pr list --json`. */
-interface GhPullRequest {
+export interface GhPullRequest {
   number: number;
   title: string;
   headRefName: string;
   url: string;
+  isCrossRepository: boolean;
+  author: { login: string };
 }
 
 /** Result of a `gh` invocation: whether it exited 0, its stdout, and why it failed. */
@@ -57,8 +59,19 @@ function runGh(cwd: string, args: string[]): GhResult {
 }
 
 /**
- * List open upgrade PRs (head branch under `prefix`, e.g. `cella/upgrade/`), newest first (highest PR number).
- * Returns an empty array when `gh` fails (no auth, no origin) so callers degrade to a no-op.
+ * Keep the upgrade PRs (head branch under `prefix`, e.g. `cella/upgrade/`), newest first (highest PR number).
+ * Only pull requests from this repository's own branches count: one from another repository never does,
+ * whatever its branch is named.
+ */
+export function ownUpgradePrs(prs: GhPullRequest[], prefix: string): GhPullRequest[] {
+  return prs
+    .filter((pr) => !pr.isCrossRepository && pr.headRefName.startsWith(`${prefix}/`))
+    .sort((a, b) => b.number - a.number);
+}
+
+/**
+ * List the open upgrade PRs that `ownUpgradePrs` keeps. Returns an empty array when `gh` fails
+ * (no auth, no origin) so callers degrade to a no-op.
  */
 function listOpenUpgradePrs(cwd: string, prefix: string): GhPullRequest[] {
   const { ok, output } = runGh(cwd, [
@@ -67,7 +80,7 @@ function listOpenUpgradePrs(cwd: string, prefix: string): GhPullRequest[] {
     '--state',
     'open',
     '--json',
-    'number,title,headRefName,url',
+    'number,title,headRefName,url,isCrossRepository,author',
     '--limit',
     '50',
   ]);
@@ -80,7 +93,7 @@ function listOpenUpgradePrs(cwd: string, prefix: string): GhPullRequest[] {
     return [];
   }
 
-  return parsed.filter((pr) => pr.headRefName.startsWith(`${prefix}/`)).sort((a, b) => b.number - a.number);
+  return ownUpgradePrs(parsed, prefix);
 }
 
 /**
@@ -448,7 +461,7 @@ export async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<
     `${warningMark} ${pc.yellow(`${many ? `${open.length} earlier upgrade PRs are` : 'an earlier upgrade PR is'} still open and unmerged:`)}`,
   );
   for (const pr of open) {
-    console.info(pc.dim(`  #${pr.number}  ${pr.title}`));
+    console.info(pc.dim(`  #${pr.number}  ${pr.title}  by ${pr.author.login}`));
     console.info(pc.dim(`         ${pr.url}`));
   }
   console.info(

@@ -208,12 +208,12 @@ function safeMergePnpm(
     const upstreamExts = upstreamPnpm.packageExtensions as Record<string, Record<string, unknown>>;
 
     for (const [pkg, upstreamExt] of Object.entries(upstreamExts)) {
-      if (!(pkg in appExts)) {
+      if (!Object.hasOwn(appExts, pkg)) {
         appExts[pkg] = upstreamExt;
         changed = true;
       } else {
         for (const [subKey, subValue] of Object.entries(upstreamExt)) {
-          if (!(subKey in appExts[pkg])) {
+          if (!Object.hasOwn(appExts[pkg], subKey)) {
             appExts[pkg][subKey] = subValue;
             changed = true;
           }

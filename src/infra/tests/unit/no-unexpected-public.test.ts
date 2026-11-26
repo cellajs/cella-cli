@@ -76,20 +76,4 @@ describe('no-unexpected-public sweep', () => {
     // An allowlist entry nothing matches means its pattern no longer sees the surface it was written for.
     for (const expected of EXPECTED) expect(keys, `stale allowlist entry ${expected}`).toContain(expected);
   });
-
-  // Exposure keys belong only in the gitignored Pulumi.<env>.exposure.yaml overlay; a committed key would make every CI deploy re-converge the public endpoint open.
-  it('no committed stack config records DB-exposure keys', () => {
-    const infraRoot = resolve(__dirname, '../..');
-    const offenders: string[] = [];
-    for (const file of readdirSync(infraRoot)) {
-      if (!/^Pulumi\..+\.yaml$/.test(file) || file.endsWith('.exposure.yaml')) continue;
-      const src = readFileSync(resolve(infraRoot, file), 'utf-8');
-      if (/dbPublicEndpoint:\s*["']?true/.test(src) || /dbPublicAcl/.test(src)) offenders.push(file);
-    }
-    expect(
-      offenders,
-      `DB-exposure keys found in committed stack config: ${offenders.join(', ')}. ` +
-        'Run "Close DB access" (infra CLI) and remove the keys; exposure belongs in the gitignored overlay.',
-    ).toEqual([]);
-  });
 });

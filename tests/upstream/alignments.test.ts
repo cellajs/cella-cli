@@ -3,7 +3,7 @@
  * upstream-only paths and the PR body section.
  */
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
@@ -12,6 +12,8 @@ import {
   grepAlignmentTerms,
   isUpstreamOnly,
   parseAlignment,
+  pendingFile,
+  writePending,
 } from '../../src/upstream/alignments';
 import { buildUpgradePrBody } from '../../src/upstream/pull-requests';
 
@@ -95,6 +97,24 @@ describe('grepAlignmentTerms', () => {
       ]);
     } finally {
       rmSync(repo, { recursive: true, force: true });
+    }
+  });
+});
+
+describe('writePending', () => {
+  it('never writes through a symlink upstream planted at the pending file', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'alignment-pending-'));
+    try {
+      const repo = join(root, 'app');
+      const outside = join(root, 'outside.txt');
+      writeFileSync(outside, 'secret\n');
+      mkdirSync(join(repo, 'cella'), { recursive: true });
+      symlinkSync(outside, join(repo, pendingFile));
+      await writePending(repo, ['20260101T0000-example']);
+      expect(readFileSync(outside, 'utf8')).toBe('secret\n');
+      expect(lstatSync(join(repo, pendingFile)).isFile()).toBe(true);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });

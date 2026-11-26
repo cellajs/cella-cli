@@ -2,13 +2,14 @@ import { createPrompt, isEnterKey, makeTheme, type Status, useKeypress, usePrefi
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { pc } from '../../lib/utils/cli-output';
 import { withBack } from './back';
-import { maskedSecret } from './masked-secret';
+import { maskedSecret, maskSecret } from './masked-secret';
 
 /** An access key as Scaleway issues them: `SCW` and 17 capitals or digits. The example is the placeholder of the prompt. */
 export const ACCESS_KEY_EXAMPLE = 'SCWXXXXXXXXXXXXXXXXX';
 /** The console page that makes a key of a user or of an application. */
 const API_KEYS_URL = 'https://console.scaleway.com/iam/api-keys';
 const ACCESS_KEY = /^SCW[A-Z0-9]{17}$/;
+const ACCESS_KEY_START = /^(S|SC|SCW[A-Z0-9]*)$/;
 const SECRET_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Why a value is no access key, or undefined when it has the form of one. */
@@ -40,7 +41,8 @@ interface AccessKeyConfig {
 
 /**
  * The access key prompt: the example key as placeholder while nothing is typed, the count of characters while a key is typed, and a check
- * mark once it has the form of one. Enter with another form says what is wrong and keeps the value.
+ * mark once it has the form of one. A value that cannot become an access key shows as a mask, since it may be the secret key pasted first.
+ * Enter with another form says what is wrong and keeps the value.
  */
 const accessKeyPrompt = createPrompt<string, AccessKeyConfig>((config, done) => {
   const theme = makeTheme();
@@ -69,10 +71,12 @@ const accessKeyPrompt = createPrompt<string, AccessKeyConfig>((config, done) => 
 
   const message = theme.style.message(config.message, status);
   if (status === 'done') return `${prefix} ${message} ${theme.style.answer(value.trim())}`;
-  const shown = value.length > 0 ? value : pc.dim(ACCESS_KEY_EXAMPLE);
-  const progress = accessKeyProgress(value.trim());
+  const trimmed = value.trim();
+  const shown = value.length === 0 ? pc.dim(ACCESS_KEY_EXAMPLE) : ACCESS_KEY_START.test(trimmed) ? value : maskSecret(value);
+  const progress = accessKeyProgress(trimmed);
   const line = `${prefix} ${message} ${shown}${progress ? ` ${progress === '✓' ? pc.green(progress) : pc.dim(progress)}` : ''}`;
-  return [line, errorMsg ? theme.style.error(errorMsg) : ''];
+  const hint = SECRET_KEY.test(trimmed) ? 'This has the form of the secret key: the access key, which starts with SCW, is asked first.' : errorMsg;
+  return [line, hint ? theme.style.error(hint) : ''];
 });
 
 export interface KeyPairPromptOptions {

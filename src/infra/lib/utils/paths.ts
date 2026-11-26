@@ -23,6 +23,6 @@ export const machineDir = (appSlug: string): string => join(homedir(), '.config'
  */
 export function debugFile(stem: string, extension: string): string {
   const dir = resolve(infraDir, '.debug');
-  mkdirSync(dir, { recursive: true });
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
   return resolve(dir, `${stem}-${new Date().toISOString().replace(/[:.]/g, '-')}.${extension}`);
 }
