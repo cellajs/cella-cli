@@ -498,18 +498,23 @@ function createRealEffects(): DeployEffects {
       };
     },
     async readLive(stack) {
-      const [{ engineConfig: appConfig }, { deriveInfra }, { machineRoles }, { readLiveRecordForDeploy }, { readRotations }] = await Promise.all([
-        import('infra/config/engine-config'),
-        import('../lib/naming'),
-        import('../lib/machine-roles'),
-        import('../lib/deploy/live-record'),
-        import('../lib/stack/control-store'),
-      ]);
-      const { naming, region } = deriveInfra(appConfig);
+      const [{ engineConfig: appConfig }, { deriveInfra }, { machineRoles }, { readLiveRecordForDeploy }, { readRotations }, { listRoleMachines }] =
+        await Promise.all([
+          import('infra/config/engine-config'),
+          import('../lib/naming'),
+          import('../lib/machine-roles'),
+          import('../lib/deploy/live-record'),
+          import('../lib/stack/control-store'),
+          import('./switch-machines'),
+        ]);
+      const { naming, region, zone } = deriveInfra(appConfig);
       const s3 = await controlClient(region);
       const { rotations } = await readRotations(s3, naming.bootDiagBucket, stack);
-      const record = await readLiveRecordForDeploy(s3, naming.bootDiagBucket, stack, rotations, (message) => console.info(message));
-      return { roles: machineRoles(appConfig), record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
+      const roles = machineRoles(appConfig);
+      const scope = { zone, projectId: process.env.SCW_DEFAULT_PROJECT_ID ?? '', naming };
+      const machinesOf = (role: string) => listRoleMachines({ secretKey: deployS3Key().secretKey }, { ...scope, role });
+      const record = await readLiveRecordForDeploy(s3, naming.bootDiagBucket, stack, rotations, machinesOf, (message) => console.info(message));
+      return { roles, record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
     },
     async leftovers({ roles, record, sha, frontendBucket }) {
       const [{ engineConfig }, { deriveInfra }, { listRoleMachines }, { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix }] =
@@ -562,6 +567,7 @@ function createRealEffects(): DeployEffects {
         import('../lib/scaleway/s3-client'),
       ]);
       const { GetObjectCommand } = await import('@aws-sdk/client-s3');
+      const { storedBeforeItsKey } = await import('../lib/deploy/boot-accounts');
       const { naming, region, zone } = deriveInfra(appConfig);
       const projectId = process.env.SCW_DEFAULT_PROJECT_ID ?? '';
       const { accessKey, secretKey } = deployS3Key();
@@ -584,7 +590,7 @@ function createRealEffects(): DeployEffects {
         presigner: await bucketPresigner({ region, bucket: naming.bootDiagBucket, accessKey: projectAccessKey(accessKey, projectId), secretKey }),
         readAccount: (key) =>
           s3.send(new GetObjectCommand({ Bucket: naming.bootDiagBucket, Key: key })).then(
-            (object) => object.Body?.transformToString(),
+            (object) => (storedBeforeItsKey(key, object.LastModified) ? undefined : object.Body?.transformToString()),
             () => undefined,
           ),
         record: (role, entry) => recordRole(control, naming.bootDiagBucket, request.stack, role, entry, { by: controlActor() }),
@@ -608,18 +614,19 @@ function createRealEffects(): DeployEffects {
     publishEntryFiles: publishEntryFilesToBucket,
     writeRunRecord: writeRunRecordToBucket,
     async bootAccounts(envs) {
-      const [{ accountFailed, BOOT_ACCOUNTS_PREFIX }, { engineConfig }, { deriveInfra }, { GetObjectCommand }] = await Promise.all([
-        import('../lib/deploy/boot-accounts'),
-        import('infra/config/engine-config'),
-        import('../lib/naming'),
-        import('@aws-sdk/client-s3'),
-      ]);
+      const [{ accountFailed, BOOT_ACCOUNTS_PREFIX, storedBeforeItsKey }, { engineConfig }, { deriveInfra }, { GetObjectCommand }] =
+        await Promise.all([
+          import('../lib/deploy/boot-accounts'),
+          import('infra/config/engine-config'),
+          import('../lib/naming'),
+          import('@aws-sdk/client-s3'),
+        ]);
       const { naming, region } = deriveInfra(engineConfig);
       const s3 = await diagnosticsClient(region);
       return Promise.all(
         envs.map(async ({ service, bootAccount }): Promise<RunBootAccount> => {
           const body = await s3.send(new GetObjectCommand({ Bucket: naming.bootDiagBucket, Key: bootAccount })).then(
-            (object) => object.Body?.transformToString(),
+            (object) => (storedBeforeItsKey(bootAccount, object.LastModified) ? undefined : object.Body?.transformToString()),
             () => undefined,
           );
           return body === undefined ? { service } : { service, key: bootAccount.slice(BOOT_ACCOUNTS_PREFIX.length), failed: accountFailed(body) };

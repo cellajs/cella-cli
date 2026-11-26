@@ -373,7 +373,13 @@ export async function recordKeyRotation(context: InfraContext, operatorKey: Oper
   const { appConfig, projectId } = context;
   const stack = stackNameFor(context);
   const state = stateKeyOf(operatorKey, projectId);
-  const lock = await acquireStackLockOrExit({ appConfig, ...state, stack, operation: 'rotate-keys' });
+  const lock = await acquireStackLockOrExit({
+    appConfig,
+    ...state,
+    stack,
+    operation: 'rotate-keys',
+    refusal: `The keys were replaced, but no rotation was recorded: run ${pointTo('unlock')}, then ${pointTo('rotate-keys')} again.`,
+  });
   try {
     const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
     const bucket = deriveInfra(appConfig).naming.bootDiagBucket;

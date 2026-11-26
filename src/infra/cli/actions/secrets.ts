@@ -98,7 +98,8 @@ function checkValue(input: string): true | string {
   const verdict = isEnvFileDeliverable(input.trim());
   if (verdict.ok) return true;
   if (verdict.reason === 'empty') return 'Value is required';
-  if (verdict.reason === 'quote') return "No single quote ('): the env file quotes each value with it. Choose a value without one";
+  if (verdict.reason === 'quote')
+    return "No single quote (') and no backslash at the end: the env file quotes each value with single quotes. Choose another value";
   return 'One line only: base64-encode a multi-line value and decode it in the service';
 }
 

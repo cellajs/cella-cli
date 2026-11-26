@@ -13,7 +13,7 @@ import { filesWithStatus, findMaskingPins, findProtectedBehindUpstream } from '.
 
 /** Paths whose change decides what `pnpm install`, `pnpm check`, a git hook or CI runs. */
 const runConfigPath =
-  /^(\.github\/(workflows|actions)\/|(pnpm-workspace\.yaml|\.?lefthook(-local)?\.(ya?ml|json|toml)|\.pnpmfile\.[cm]?js|(.*\/)?\.npmrc)$)/;
+  /^(\.github\/(workflows|actions)\/|patches\/|(pnpm-workspace\.yaml|\.?lefthook(-local)?\.(ya?ml|json|toml)|\.pnpmfile\.[cm]?js|(.*\/)?(\.npmrc|action\.ya?ml))$)/;
 
 /** The package.json keys whose entries install a package. */
 const dependencyKeys = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
@@ -29,12 +29,13 @@ export interface RunChange {
 }
 
 /**
- * Whether a dependency spec resolves from the registry or inside the merged tree: a semver range, an
- * `npm:` alias of one, `workspace:` or `catalog:`. A tag, a URL, a path or a git spec is not.
+ * Whether a dependency spec resolves from the registry under its own name or inside the merged tree: a semver range,
+ * `workspace:` or `catalog:`. A tag, a URL, a path, a git spec or an `npm:` alias, which puts another package under
+ * the name, is not.
  */
 function registrySpec(spec: unknown): boolean {
   if (typeof spec !== 'string') return false;
-  return /^(workspace|catalog):/.test(spec) || semver.validRange(spec.replace(/^npm:(@[^/]+\/)?[^@]+@/, '')) !== null;
+  return /^(workspace|catalog):/.test(spec) || semver.validRange(spec) !== null;
 }
 
 /** The entries of one package.json change that decide what runs: scripts, the `pnpm` field, specs off the registry. */
@@ -45,8 +46,10 @@ function packageRunEntries(before: PackageEntries, after: PackageEntries): strin
     for (const name of new Set([...Object.keys(was), ...Object.keys(now)])) {
       const spec = now[name];
       if (spec === was[name]) continue;
+      // An entry the merge removed runs nothing
+      if (spec === undefined) continue;
       if (key === 'scripts') entries.push(`scripts.${name}`);
-      else if (spec !== undefined && !registrySpec(spec)) entries.push(`${key}.${name} ${String(spec)}`);
+      else if (!registrySpec(spec)) entries.push(`${key}.${name} ${String(spec)}`);
     }
   }
   return entries;
@@ -58,15 +61,16 @@ function packageRunEntries(before: PackageEntries, after: PackageEntries): strin
  * or dependency specs off the registry change. A package.json that does not parse is listed whole.
  */
 export async function listRunChanges(repoRoot: string, from: string, to?: string): Promise<RunChange[]> {
-  const diff = await git(['diff', '-z', '--name-only', from, ...(to ? [to] : [])], repoRoot);
+  const diff = await git(['diff', '-z', '--name-only', '--no-renames', from, ...(to ? [to] : [])], repoRoot);
   // A file the merge wrote and did not stage is in no diff against a commit
   const untracked = to ? '' : await git(['ls-files', '-z', '--others', '--exclude-standard'], repoRoot);
   const read = async (ref: string | undefined, path: string): Promise<PackageEntries | null> => {
     const file = join(repoRoot, path);
     let raw = '';
     if (ref) raw = await git(['show', `${ref}:${path}`], repoRoot, { ignoreErrors: true });
-    else if (existsSync(file)) raw = readFileSync(file, 'utf8');
     try {
+      // A package.json that is a folder, or a symlink to one, is listed whole
+      if (!ref && existsSync(file)) raw = readFileSync(file, 'utf8');
       return raw ? JSON.parse(raw) : {};
     } catch {
       return null;

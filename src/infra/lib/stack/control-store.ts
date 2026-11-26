@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { actionCommand } from '../operator-actions';
 import { makeS3Client } from '../scaleway/s3-client';
+import { warningMark } from '../utils/cli-output';
 import { errorMessage } from '../utils/errors';
 import { isRecord } from '../utils/guards';
 
@@ -165,9 +167,15 @@ export const lockKey = (stack: string): string => `${controlPrefix(stack)}lock.j
 /** The rotations an operator records. */
 export const rotationsKey = (stack: string): string => `${controlPrefix(stack)}rotations.json`;
 
+/** The largest counter a rotations record may hold: far above any count of rotations, and a stored one that rises by 1 still rises. */
+const maxRotationCounter = 1_000_000;
+
+/** What the operator does about a rotations record that does not parse. */
+const replaceRotations = `run \`${actionCommand('rotate-keys')}\`, which replaces it`;
+
 function parseRotationRecord(kind: string, value: unknown): RotationRecord {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.by !== 'string') {
-    throw new Error(`rotations: ${kind} must be { at, by } strings`);
+    throw new Error(`rotations: ${kind} must be { at, by } strings; ${replaceRotations}`);
   }
   return { at: value.at, by: value.by };
 }
@@ -178,10 +186,13 @@ export function parseRotations(text: string): Rotations {
   try {
     raw = JSON.parse(text);
   } catch (err) {
-    throw new Error(`rotations: not valid JSON (${errorMessage(err)})`);
+    throw new Error(`rotations: not valid JSON (${errorMessage(err)}); ${replaceRotations}`);
   }
-  if (!isRecord(raw) || typeof raw.counter !== 'number') throw new Error('rotations: counter must be a number');
-  const rotations: Rotations = { counter: raw.counter };
+  const counter = isRecord(raw) ? raw.counter : undefined;
+  if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter > maxRotationCounter) {
+    throw new Error(`rotations: counter must be a whole number from 0 to ${maxRotationCounter}; ${replaceRotations}`);
+  }
+  const rotations: Rotations = { counter };
   if (raw.keys !== undefined) rotations.keys = parseRotationRecord('keys', raw.keys);
   if (raw.secrets !== undefined) rotations.secrets = parseRotationRecord('secrets', raw.secrets);
   if (raw.values !== undefined) rotations.values = parseRotationRecord('values', raw.values);
@@ -201,7 +212,7 @@ export function withRotation(rotations: Rotations, kind: RotationKind, record: R
 
 /**
  * Record a rotation. The caller holds the lease; the write is conditional on the object it read, so a write that raced it fails loudly and
- * nothing is lost.
+ * nothing is lost. A key rotation replaces a stored record that does not parse with its own, counter 1; any other kind throws on one.
  */
 export async function recordRotation(opts: {
   s3: S3Like;
@@ -211,7 +222,15 @@ export async function recordRotation(opts: {
   by: string;
   now?: Date;
 }): Promise<Rotations> {
-  const { rotations, etag } = await readRotations(opts.s3, opts.bucket, opts.stack);
+  const { body, etag } = await readObjectText(opts.s3, opts.bucket, rotationsKey(opts.stack));
+  let rotations: Rotations = { counter: 0 };
+  try {
+    if (body) rotations = parseRotations(body);
+  } catch (err) {
+    // A lost deploy key could have written the record, and only a key rotation ends what that key wrote.
+    if (opts.kind !== 'keys') throw err;
+    console.warn(`${warningMark} The stored rotations could not be read: this key rotation replaces them.`);
+  }
   const next = withRotation(rotations, opts.kind, { at: (opts.now ?? new Date()).toISOString(), by: opts.by });
   await putJsonObject(opts.s3, opts.bucket, rotationsKey(opts.stack), `${JSON.stringify(next, null, 2)}\n`, conditionOn(etag));
   return next;

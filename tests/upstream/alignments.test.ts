@@ -147,7 +147,7 @@ describe('buildUpgradePrBody alignments section', () => {
       },
     });
     expect(body).toContain('**Alignments**: 96 of 97 handled, open (`pnpm cella align`):');
-    expect(body).toContain('- [Config switch](https://example.test/n) (`20261002T0614-config-switch`)');
+    expect(body).toContain('- [`Config switch`](https://example.test/n) (`20261002T0614-config-switch`)');
   });
 
   it('says so when every alignment is handled, and stays silent without alignments', () => {

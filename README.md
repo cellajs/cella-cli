@@ -372,11 +372,13 @@ the merge brought, and the run that commits never ships. The pause on the commit
 (`pnpm cella analyze` reads the committed HEAD) and follow-up commits happen.
 
 1. **The first run** cuts the branch, merges and stops with the merge staged, before anything from upstream runs. It
-   lists what arrived that decides what runs: changed package scripts, dependencies from outside the registry, the
-   `pnpm` settings, `.npmrc`, the git hooks and the GitHub workflows and actions. Read them, and the rest of the merge,
-   since `pnpm check` runs the merged source. A conflicted merge stops the same way: resolve it in your editor and
-   `git add` the files.
+   lists what arrived that decides what runs: changed package scripts, dependencies from outside the registry or aliased
+   to another package, the `pnpm` settings, `patches/`, `.npmrc`, the git hooks and the GitHub workflows and actions,
+   every `action.yml` included. Read them, and the rest of the merge, since `pnpm check` runs the merged source. A
+   conflicted merge stops the same way: resolve it in your editor and `git add` the files.
 2. **The second run** runs `pnpm install` and `pnpm check` on the merge, then commits it and stops on the branch.
+   The CLI's own git calls run no git hook until this commit. A second run that finds no record of the first run's
+   stop prints the list and stops in its place.
 3. **The third run** ships the committed branch: it lists the changes CI will run with the repository's secrets, pushes
    to `origin`, opens a PR into the trunk with `gh`, titled like the upgrade commit, and switches you back to the trunk.
 
@@ -386,9 +388,9 @@ does not follow (see [Upstream changes that never merge](#upstream-changes-that-
 removed and you are back where you started. After the merge it prints the package.json merge, then the merge summary and
 `next steps`.
 
-It also stops when a path upstream adds or changes differs only in letter case from a path the merge leaves beside it.
-A case-insensitive disk stores such a pair as one file, and removing one would delete the other. `upgrade` and `adopt`
-name both paths and change nothing; `analyze` reports the pair.
+It also stops when a path upstream adds or changes differs only in letter case from another path the merge writes or
+leaves. A case-insensitive disk stores such a pair as one file, and removing one would delete the other. `upgrade` and
+`adopt` name both paths and change nothing; `analyze` reports the pair.
 
 The upgrade commit has a single parent (`chore: upgrade cella to <sha>`): the PR holds the incremental diff alone. Let
 the rerun commit: a manual `git commit` records a merge commit, whose PR lists upstream's whole history. Ancestry lives

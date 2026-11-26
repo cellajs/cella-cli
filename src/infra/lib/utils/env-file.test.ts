@@ -21,6 +21,10 @@ describe('isEnvFileDeliverable', () => {
     expect(isEnvFileDeliverable("ab'cd")).toEqual({ ok: false, reason: 'quote' });
   });
 
+  it('rejects a value that ends in a backslash, which Compose reads with the closing quote as an escaped quote', () => {
+    expect(isEnvFileDeliverable('abc\\')).toEqual({ ok: false, reason: 'quote' });
+  });
+
   it('rejects an empty value', () => {
     expect(isEnvFileDeliverable('')).toEqual({ ok: false, reason: 'empty' });
   });

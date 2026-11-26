@@ -1,8 +1,10 @@
 /**
  * A clean upgrade merge stops for review before anything it brought runs. The run that merges starts
- * no `pnpm` and names what decides what runs; the rerun recognises the finished merge, installs,
+ * no `pnpm` or git hook and names what decides what runs; the rerun recognises the finished merge, installs,
  * checks and commits.
  */
+import fs from 'node:fs';
+import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runUpgradeCommand } from '../../src/upstream/upgrade';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv } from '../helpers/test-env';
@@ -58,5 +60,29 @@ describe('upgrade review stop', () => {
     expect(await runUpgradeCommand(config)).toBe(0);
     expect(pnpmRuns).toEqual([['install', '--no-frozen-lockfile'], ['check']]);
     expect(exec('git log -1 --format=%s', env.repoRoot)).toMatch(/^chore: upgrade cella to/);
+  });
+
+  it('fires no git hook in the run that merges, when it restores a pinned file', async () => {
+    const marker = path.join(env.testDir, 'hook-ran');
+    fs.writeFileSync(path.join(env.repoRoot, '.git/hooks/post-checkout'), `#!/bin/sh\ntouch '${marker}'\n`, {
+      mode: 0o755,
+    });
+    makeCommit(env.upstreamPath, { files: { 'README.md': '# Upstream\n' }, message: 'docs: readme' });
+
+    await runUpgradeCommand(buildRuntimeConfig(env, { pinned: ['README.md'] }));
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it('stops again when the rerun finds a finished merge without the record of its stop', async () => {
+    makeCommit(env.upstreamPath, { files: { '.github/workflows/ci.yml': 'on: push\n' }, message: 'feat: ci' });
+    const config = buildRuntimeConfig(env);
+    await runUpgradeCommand(config);
+    // A first run that ends between the manifest and its stop leaves no record
+    fs.rmSync(path.join(env.repoRoot, '.git/cella-upgrade-review-stop'));
+    lines.length = 0;
+
+    await runUpgradeCommand(config);
+    expect(pnpmRuns).toEqual([]);
+    expect(lines.join('\n')).toContain('→ .github/workflows/ci.yml');
   });
 });

@@ -33,7 +33,7 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
     if (!value) continue;
     const verdict = isEnvFileDeliverable(value);
     if (!verdict.ok) {
-      const form = verdict.reason === 'quote' ? "no single quote (')" : 'one line only';
+      const form = verdict.reason === 'quote' ? "no single quote (') and no backslash at the end" : 'one line only';
       throw new Error(`${secret.secretName}: ${form}. The deploy checks presence only, and the form is checked here.`);
     }
 

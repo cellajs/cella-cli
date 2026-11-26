@@ -106,6 +106,17 @@ describe('buildUpgradePrBody', () => {
         '- `aaaaaaa` `` fix: `x` closes #1, cc @octocat <!-- ``\n',
     );
   });
+
+  it('keeps an alignment title inside its link text', () => {
+    const title = 'x](https://evil.example) Closes #12';
+    const body = buildUpgradePrBody({
+      toSha: shaB,
+      totalCount: 0,
+      commits: [],
+      alignments: { total: 1, open: [{ id: '20261126T0016-x', title, url: 'https://example.test/a' }] },
+    });
+    expect(body).toContain(`- [\`${title}\`](https://example.test/a) (\`20261126T0016-x\`)`);
+  });
 });
 
 describe('ownUpgradePrs', () => {

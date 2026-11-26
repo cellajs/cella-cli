@@ -156,6 +156,8 @@ export async function acquireStackLockOrExit(opts: {
   stack: string;
   operation: string;
   ttlMs?: number;
+  /** What a refusal says has become of the action, for one that changed something before it took the lease; "Nothing was changed." by default. */
+  refusal?: string;
 }): Promise<StackLockHandle> {
   const s3 = await makeControlClient(opts.appConfig.s3.region, opts.accessKey, opts.secretKey);
   const bucket = deriveInfra(opts.appConfig).naming.bootDiagBucket;
@@ -189,7 +191,7 @@ export async function acquireStackLockOrExit(opts: {
   if (!result.acquired) {
     const { owner, operation, acquiredAt } = result.held;
     console.error(
-      `${crossMark} ${pc.cyan(owner)} still holds the lease of ${opts.stack} (${operation}, since ${utcTime(acquiredAt)}). Nothing was changed.`,
+      `${crossMark} ${pc.cyan(owner)} still holds the lease of ${opts.stack} (${operation}, since ${utcTime(acquiredAt)}). ${opts.refusal ?? 'Nothing was changed.'}`,
     );
     console.error(
       pc.dim(`  A run that died lets go within minutes. "${menuPath('unlock')}" clears one that did not, or remove s3://${bucket}/${key}.`),

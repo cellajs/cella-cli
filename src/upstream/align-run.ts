@@ -3,7 +3,7 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
 import pc from '../utils/colors';
 import { checkMark } from '../utils/display';
-import { batchRestoreWorktreeFromRef, git, listIdenticalToRef, maxBuffer } from '../utils/git';
+import { batchRestoreWorktreeFromRef, git, listIdenticalToRef, maxBuffer, noHooks } from '../utils/git';
 import { alignmentsDir, readAlignment } from './alignments';
 
 /** Where `align run` writes an alignment folder: inside the app, so a codemod resolves the app's packages. */
@@ -20,7 +20,7 @@ async function writeAlignmentFolder(repoRoot: string, ref: string, id: string): 
   const target = join(extractDir, id);
   for (const file of files) {
     // Byte for byte: the git helper trims its output.
-    const content = execFileSync('git', ['show', `${ref}:${alignmentsDir}/${id}/${file}`], {
+    const content = execFileSync('git', [...noHooks, 'show', `${ref}:${alignmentsDir}/${id}/${file}`], {
       cwd: repoRoot,
       maxBuffer,
     });

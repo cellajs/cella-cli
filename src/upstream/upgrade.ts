@@ -45,9 +45,12 @@ import {
   reviewStep,
 } from './review-page';
 import {
+  clearReviewStop,
   cutUpgradeBranch,
   discardUnusedUpgradeBranch,
   discardUpgradeBranch,
+  recordReviewStop,
+  reviewStopShown,
   undoUnfinishedMerge,
   upgradeFinishedMerge,
 } from './upgrade-branch';
@@ -242,25 +245,31 @@ function finalizeWorkspace(repoRoot: string): boolean {
  * there for drift triage; shipping is always its own rerun. Stops early, returning 1, while conflicts
  * remain or when `pnpm install` or `pnpm check` fails. `run` is the merge this run made, absent when
  * it resumes an earlier run's merge: a clean merge this run made is staged and left for review,
- * returning 0, before anything it brought runs.
+ * returning 0, before anything it brought runs. A resumed merge whose stop no run recorded stops the same way.
  */
 async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: UpgradeRunResult): Promise<number> {
   const { repoRoot } = config;
   const conflicts = await getConflictedFiles(repoRoot);
-  if (run) printRunChanges('what arrived that decides what runs:', run.runChanges);
+  // A first run can end before its stop printed the list: the rerun then stops in its place
+  const stops = run !== undefined || (conflicts.length === 0 && !(await reviewStopShown(repoRoot)));
+  if (stops) {
+    const runChanges = run?.runChanges ?? (await listRunChanges(repoRoot, 'HEAD'));
+    printRunChanges('what arrived that decides what runs:', runChanges);
+  }
 
   console.info();
   if (conflicts.length > 0) {
     const where = run ? `on '${branch}'` : `still conflict on '${branch}'`;
     printStep('conflicts', `${plural(conflicts.length, 'file')} ${where}`, warningMark);
     printNextSteps(await conflictSteps(config, conflicts, run));
+    if (stops) await recordReviewStop(repoRoot);
     return 1;
   }
 
   // Stage resolved conflicts and manual edits before tooling that may fail, so they are recorded.
   await stageAll(repoRoot);
 
-  if (run) {
+  if (stops) {
     printStep('review', `the merge is staged on '${branch}': nothing it brought has run yet`, warningMark);
     const steps: Array<NextStep | undefined> = [
       {
@@ -277,6 +286,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
       await upgradeAlignmentsStep(config, run),
     ];
     printNextSteps(steps.filter((step): step is NextStep => !!step));
+    await recordReviewStop(repoRoot);
     return 0;
   }
 
@@ -298,6 +308,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
   const message = await buildUpgradeCommitMessage(repoRoot, 'MERGE_HEAD');
   await stageAll(repoRoot);
   await commitSquash(repoRoot, message);
+  await clearReviewStop(repoRoot);
   console.info();
   printStep('committed', `${message}\n${pc.dim(`on '${branch}', not pushed`)}`);
   const steps: Array<NextStep | undefined> = [

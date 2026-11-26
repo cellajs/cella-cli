@@ -234,7 +234,12 @@ async function waitingRelease(
   const [run] = await diag.store.listRuns(1);
   const record = run ? await diag.store.currentRecord(run) : undefined;
   if (record?.outcome !== APPLY_NEEDED) return undefined;
-  const manifest = (await readManifest(diag, record.target))?.manifest;
+  const [stored, { rotations }] = await Promise.all([
+    readManifest(diag, record.target),
+    readRotations(diag.control, diag.bucket, stackNameFor(context)),
+  ]);
+  // The deploy's age rule, as in runReleases: a lost deploy key could have written the description.
+  const manifest = stored && !storedBeforeKeyRotation(stored.modified, rotations.keys?.at) ? stored.manifest : undefined;
   return manifest?.description && manifest.describes ? { sha: record.target, hash: manifest.description, describes: manifest.describes } : undefined;
 }
 
