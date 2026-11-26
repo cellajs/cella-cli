@@ -9,7 +9,7 @@ interface Finding {
   pattern: string;
 }
 
-const PATTERNS: Array<{ name: string; rx: RegExp }> = [
+const patterns: Array<{ name: string; rx: RegExp }> = [
   { name: 'principal-wildcard', rx: /Principal['"]?\s*:\s*['"]\*['"]/ },
   { name: 'cidr-any-ipv4', rx: /['"]0\.0\.0\.0\/0['"]/ },
   { name: 'cidr-any-ipv6', rx: /['"]::\/0['"]/ },
@@ -21,7 +21,7 @@ const PATTERNS: Array<{ name: string; rx: RegExp }> = [
 ];
 
 // Allowlist of intentional public resources, format `<resource>:<pattern-name>`. Keep it short.
-const EXPECTED = new Set<string>([
+const expectedPublic = new Set<string>([
   // Frontend SPA bucket and public-uploads bucket: anonymous object reads (resources/storage.test.ts pins the statements to GetObject).
   'storage.ts:principal-wildcard',
 ]);
@@ -43,7 +43,7 @@ function scan(): Finding[] {
     const resource = relative(resourcesDir, file);
     const lines = readFileSync(file, 'utf-8').split('\n');
     for (const [i, line] of lines.entries()) {
-      for (const p of PATTERNS) {
+      for (const p of patterns) {
         if (p.rx.test(line)) findings.push({ resource, line: i + 1, text: line.trim(), pattern: p.name });
       }
     }
@@ -52,15 +52,15 @@ function scan(): Finding[] {
 }
 
 // Scans resources for public buckets, registries, DB endpoints, and ingress.
-// Intentional public surfaces must be listed in EXPECTED.
+// Intentional public surfaces must be listed in `expectedPublic`.
 describe('no-unexpected-public sweep', () => {
-  it('every public-surface pattern is in the EXPECTED allowlist, and every allowlist entry is live', () => {
+  it('every public-surface pattern is in the expectedPublic allowlist, and every allowlist entry is live', () => {
     const findings = scan();
     const keys = new Set(findings.map((f) => `${f.resource}:${f.pattern}`));
 
     const unexpected: string[] = [];
     for (const k of keys) {
-      if (!EXPECTED.has(k)) {
+      if (!expectedPublic.has(k)) {
         const occurrences = findings.filter((f) => `${f.resource}:${f.pattern}` === k);
         unexpected.push(`  ${k}:\n${occurrences.map((o) => `    ${o.resource}:${o.line}  ${o.text}`).join('\n')}`);
       }
@@ -69,11 +69,11 @@ describe('no-unexpected-public sweep', () => {
     if (unexpected.length > 0) {
       throw new Error(
         `Found ${unexpected.length} unexpected public-surface pattern(s).\n` +
-          'Either remove the public surface or add the key to EXPECTED with a justification comment.\n\n' +
+          'Either remove the public surface or add the key to expectedPublic with a justification comment.\n\n' +
           unexpected.join('\n\n'),
       );
     }
     // An allowlist entry nothing matches means its pattern no longer sees the surface it was written for.
-    for (const expected of EXPECTED) expect(keys, `stale allowlist entry ${expected}`).toContain(expected);
+    for (const expected of expectedPublic) expect(keys, `stale allowlist entry ${expected}`).toContain(expected);
   });
 });

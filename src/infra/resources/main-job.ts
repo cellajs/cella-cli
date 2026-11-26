@@ -1,11 +1,11 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { engineImageRef, engineImageRepository, readAppliedEngine } from '../lib/deploy/applied-engine';
-import { findJobDefinition } from '../lib/deploy/job-runs';
-import { declaredMainJob, MAIN_JOB_TIME_LIMIT_HOURS, scheduleEveryMinutes } from '../lib/deploy/main-job';
+import { declaredMainJob, mainJobTimeLimitHours, scheduleEveryMinutes } from '../lib/deploy/main-job';
 import { actionCommand } from '../lib/operator-actions';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
+import { findJobDefinition } from '../lib/scaleway/serverless-jobs';
 import { makeControlClient } from '../lib/stack/control-store';
 import { mode, naming, organizationId, projectId, region } from '../pulumi-context';
 
@@ -62,7 +62,7 @@ if (!declared) {
     cpuLimit: 2000,
     memoryLimit: 4096,
     localStorageCapacity: 10000,
-    timeout: `${MAIN_JOB_TIME_LIMIT_HOURS}h`,
+    timeout: `${mainJobTimeLimitHours}h`,
     cron: declared.cron,
     env: declared.env,
     secretReferences: references.flatMap(({ environment, optional, secret }) =>

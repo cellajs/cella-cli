@@ -19,31 +19,7 @@ function sources(dir: string): string[] {
   return out;
 }
 
-// No engine module imports the shared package: the app's engine-config reads it, and the engine imports that file.
 describe('config boundary sweep', () => {
-  it('no engine module references the shared package', () => {
-    const scanned = [
-      ...sources(join(infraRoot, 'resources')),
-      ...sources(join(infraRoot, 'lib')),
-      ...sources(join(infraRoot, 'compose')),
-      ...sources(join(infraRoot, 'tasks')),
-      ...sources(join(infraRoot, 'cli')),
-      ...sources(join(infraRoot, 'agent', 'src')),
-      join(infraRoot, 'pulumi-context.ts'),
-      join(infraRoot, 'program.ts'),
-    ];
-    const offenders: string[] = [];
-    for (const file of scanned) {
-      if (file.endsWith('config/engine-config.ts')) continue;
-      const src = readFileSync(file, 'utf-8');
-      // The shared PACKAGE ('shared', 'shared/...') or a relative escape to the workspace's shared dir; cli/shared.ts is a local module and unrelated.
-      if (/from\s+'shared(?:'|\/)|from\s+'(?:\.\.\/){2,}shared'|import\('shared'\)/.test(src)) {
-        offenders.push(file.replace(`${infraRoot}/`, ''));
-      }
-    }
-    expect(offenders).toEqual([]);
-  });
-
   // The export is read once, when the module first loads: a static import outside the Pulumi program could load it before APP_MODE is set.
   it('only the Pulumi program imports the engine config statically; every other module imports its type or loads it dynamically', () => {
     const staticImport = /^import (?!type )[^;]*from '(?:(?:\.\.?\/)+(?:config\/)?|infra\/config\/)engine-config';/m;

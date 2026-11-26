@@ -4,10 +4,9 @@ import { listObjectEtags } from '../scaleway/s3-client';
 
 /**
  * A machine's own account of a boot: the agent uploads it at the end of every boot, healthy or not, to the diagnostics
- * bucket as `boot-diag/<service>-<YYYYMMDDThhmmssZ>-boot.log`, headed by `service=`, `release=` and `boot_rc=` lines. A failed boot adds a
- * `-failed-` copy.
+ * bucket as `boot-diag/<service>-<YYYYMMDDThhmmssZ>-boot.log`, headed by `service=`, `release=` and `boot_rc=` lines.
  */
-export const BOOT_ACCOUNTS_PREFIX = 'boot-diag/';
+export const bootAccountsPrefix = 'boot-diag/';
 
 /** Reads the boot accounts of an environment's diagnostics bucket: keys under the prefix, without it. */
 export interface BootAccountReader {
@@ -19,20 +18,18 @@ export interface BootAccountReader {
 export function bucketBootAccountReader(s3: Pick<S3Client, 'send'>, bucket: string): BootAccountReader {
   return {
     async list() {
-      return [...(await listObjectEtags(s3, bucket, BOOT_ACCOUNTS_PREFIX)).keys()].map((key) => key.slice(BOOT_ACCOUNTS_PREFIX.length));
+      return [...(await listObjectEtags(s3, bucket, bootAccountsPrefix)).keys()].map((key) => key.slice(bootAccountsPrefix.length));
     },
     async read(key) {
-      const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${BOOT_ACCOUNTS_PREFIX}${key}` }));
+      const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${bootAccountsPrefix}${key}` }));
       return (await object.Body?.transformToString()) ?? '';
     },
   };
 }
 
-const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A service's boot accounts, newest first. Keys sort by their time stamp. */
 export function serviceAccountKeys(keys: readonly string[], service: string): string[] {
-  const pattern = new RegExp(`^${escapeRe(service)}-[0-9]{8}T[0-9]{6}Z?-boot\\.log$`);
+  const pattern = new RegExp(`^${RegExp.escape(service)}-[0-9]{8}T[0-9]{6}Z?-boot\\.log$`);
   return keys
     .filter((key) => pattern.test(key))
     .sort()
@@ -66,17 +63,19 @@ export interface ReleaseAccount {
   newestOther?: { key: string; release?: string };
 }
 
+const accountsScanned = 8;
+
 /**
- * Each service's newest account of release `sha` (may be abbreviated), reading at most `maxScan` of its newest accounts, as keys carry no
+ * Each service's newest account of release `sha` (may be abbreviated), reading at most `accountsScanned` of its newest accounts, as keys carry no
  * release. An account of another release is never taken for this one: on a failed switch it reads like this deploy's boot and hides that
  * the new machine never reported. An account that cannot be read is skipped.
  */
-export async function releaseAccounts(reader: BootAccountReader, services: readonly string[], sha: string, maxScan = 8): Promise<ReleaseAccount[]> {
+export async function releaseAccounts(reader: BootAccountReader, services: readonly string[], sha: string): Promise<ReleaseAccount[]> {
   const keys = await reader.list();
   return Promise.all(
     services.map(async (service) => {
       const found: ReleaseAccount = { service };
-      for (const key of serviceAccountKeys(keys, service).slice(0, maxScan)) {
+      for (const key of serviceAccountKeys(keys, service).slice(0, accountsScanned)) {
         const body = await reader.read(key).catch(() => undefined);
         if (body === undefined) continue;
         const release = accountRelease(body);

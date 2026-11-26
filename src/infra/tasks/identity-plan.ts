@@ -1,5 +1,6 @@
 import { type DeclaredPolicy, declaredIdentities, declaresUploads } from '../lib/scaleway/declared-identities';
-import { type IamAuth, listOrganizationPolicies, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
+import { listOrganizationPolicies, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
+import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 import { type DeclaredPolicyStep, planDeclaredPolicies } from './declared-policies';
 import { planUploadsKey, type UploadsKeySecrets, type UploadsKeyStep } from './uploads-key';
 
@@ -20,7 +21,7 @@ export interface IdentityChanges {
 }
 
 /** The policies on the declared identities beside the declared ones: each widens what its identity may do, so Update identities deletes it. */
-async function extraPolicies(auth: IamAuth, organizationId: string, declared: readonly DeclaredPolicy[]): Promise<ExtraPolicy[]> {
+async function extraPolicies(auth: ScwAuth, organizationId: string, declared: readonly DeclaredPolicy[]): Promise<ExtraPolicy[]> {
   const ids = new Map<string, string>();
   for (const policy of declared) {
     const id = await resolveApplicationIdByName(auth, organizationId, policy.applicationName);
@@ -38,7 +39,7 @@ async function extraPolicies(auth: IamAuth, organizationId: string, declared: re
  * applications, policies and the uploads key. Read with any key that reads IAM and secret metadata; nothing is written. The apply reads it at its start, and Update identities writes what it names.
  */
 export async function planIdentityChanges(opts: {
-  auth: IamAuth;
+  auth: ScwAuth;
   organizationId: string;
   projectId: string;
   slug: string;

@@ -1,8 +1,3 @@
-/**
- * Terminal layout helpers: visible widths that ignore escape codes, column padding, cutting text
- * to the terminal width, and the short ages and counts the file rows print.
- */
-
 import process from 'node:process';
 import { stripVTControlCharacters } from 'node:util';
 

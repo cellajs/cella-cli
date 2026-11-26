@@ -62,8 +62,7 @@ export const detachedCommentRule: Rule = {
     const findings: Finding[] = [];
     for (const comment of fileComments(file, source)) {
       const lineCount = proseLineCount(comment.text);
-      if (lineCount <= 3 || isRequiredHeader(comment.text) || hasDirectDeclarationOwner(file, source, comment))
-        continue;
+      if (lineCount <= 3 || isRequiredHeader(comment.text) || hasDirectDeclarationOwner(file, source, comment)) continue;
       findings.push({
         file,
         ...lineColumn(source, comment.offset),

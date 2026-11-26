@@ -45,13 +45,13 @@ describe('the live record', () => {
   it('decides `unchanged` only when every role serves the target under the same retry counter and rotation', () => {
     const live = record({ backend: entry(), frontend: entry({ machine: 'srv-3' }) });
     const roles = ['backend', 'frontend'];
-    expect(rolesToReplace(live, roles, { commit, retry: 0, rotation: 0 })).toEqual([]);
-    expect(rolesToReplace(live, roles, { commit: 'b'.repeat(40), retry: 0, rotation: 0 })).toEqual(roles);
+    expect(rolesToReplace(live, roles, { sha: commit, retry: 0, rotation: 0 })).toEqual([]);
+    expect(rolesToReplace(live, roles, { sha: 'b'.repeat(40), retry: 0, rotation: 0 })).toEqual(roles);
     // A raised retry counter or a rotation since replaces every machine of the same commit.
-    expect(rolesToReplace(live, roles, { commit, retry: 1, rotation: 0 })).toEqual(roles);
-    expect(rolesToReplace(live, roles, { commit, retry: 0, rotation: 1 })).toEqual(roles);
+    expect(rolesToReplace(live, roles, { sha: commit, retry: 1, rotation: 0 })).toEqual(roles);
+    expect(rolesToReplace(live, roles, { sha: commit, retry: 0, rotation: 1 })).toEqual(roles);
     // A run that switched one role and failed resumes with the other.
-    expect(rolesToReplace(record({ backend: entry() }), roles, { commit, retry: 0, rotation: 0 })).toEqual(['frontend']);
+    expect(rolesToReplace(record({ backend: entry() }), roles, { sha: commit, retry: 0, rotation: 0 })).toEqual(['frontend']);
   });
 
   it('keeps a role another switch wrote between the read and the write, as roles switch concurrently', async () => {

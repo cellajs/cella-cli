@@ -76,15 +76,12 @@ export async function visitState(run: AuditRun, session: AuditSession, state: A1
     for (const check of [pageStructure, inputs]) await runCheck(check);
     const scan = await scanPage();
     await runCheck(textContrast(scan.undecidedContrast), 'textContrast');
-    for (const check of [controlContrast, reviewPacket, layout, formErrors, keyboardWalk, languageSwitch])
-      await runCheck(check);
+    for (const check of [controlContrast, reviewPacket, layout, formErrors, keyboardWalk, languageSwitch]) await runCheck(check);
     return { findings, scan };
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     // The page may be gone, as after a crash; the record is worth having without its picture
-    const screenshot = await page
-      ?.screenshot({ fullPage: true, animations: 'disabled', timeout: 5000 })
-      .catch(() => null);
+    const screenshot = await page?.screenshot({ fullPage: true, animations: 'disabled', timeout: 5000 }).catch(() => null);
     if (screenshot) writePacketFile(run, state.id, `${record}.png`, screenshot);
     const failure = { step, error: message, after: done, url: page?.url() ?? null, consoleErrors };
     writePacketFile(run, state.id, `${record}.json`, `${JSON.stringify(failure, null, 2)}\n`);

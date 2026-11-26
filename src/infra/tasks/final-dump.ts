@@ -6,10 +6,10 @@ import { type RdbClient, waitForBackupReady } from '../lib/scaleway/scaleway-rdb
 import { errorMessage } from '../lib/utils/errors';
 
 /** The prefix of the boot-diag bucket that holds the final dumps, one folder per environment. */
-export const DUMPS_PREFIX = 'dumps/';
+export const dumpsPrefix = 'dumps/';
 
 /** A backup and an export of a large database take longer than a reset's backup. */
-const DUMP_TIMEOUT_MS = 30 * 60_000;
+const dumpTimeoutMs = 30 * 60_000;
 
 export interface FinalDumpOptions {
   rdb: Pick<RdbClient, 'findInstance' | 'listDatabases' | 'createBackup' | 'getBackup' | 'exportBackup' | 'deleteBackup'>;
@@ -51,12 +51,12 @@ export async function writeFinalDump(opts: FinalDumpOptions): Promise<string | u
     name: `${opts.databaseName}-final-${stamp.replaceAll(':', '-')}`,
     expiresAt: new Date(now.getTime() + opts.backupDays * 86_400_000).toISOString(),
   });
-  await waitForBackupReady(opts.rdb, created.id, { timeoutMs: DUMP_TIMEOUT_MS });
+  await waitForBackupReady(opts.rdb, created.id, { timeoutMs: dumpTimeoutMs });
   opts.log('Exporting the backup...');
   let written = false;
   try {
     await opts.rdb.exportBackup(created.id);
-    const exported = await waitForBackupReady(opts.rdb, created.id, { timeoutMs: DUMP_TIMEOUT_MS, downloadable: true });
+    const exported = await waitForBackupReady(opts.rdb, created.id, { timeoutMs: dumpTimeoutMs, downloadable: true });
     const url = exported.download_url ?? '';
 
     const response = await (opts.download ?? fetch)(url);
@@ -64,7 +64,7 @@ export async function writeFinalDump(opts: FinalDumpOptions): Promise<string | u
     if (!response.ok || !response.body || !(length > 0)) {
       throw new Error(`the backup's download link answered ${response.status}${response.ok ? ' without a length' : ''}`);
     }
-    const key = `${DUMPS_PREFIX}${opts.environment}/${stamp}${extname(new URL(url).pathname) || '.dump'}`;
+    const key = `${dumpsPrefix}${opts.environment}/${stamp}${extname(new URL(url).pathname) || '.dump'}`;
     const { PutObjectCommand } = await import('@aws-sdk/client-s3');
     await opts.s3.send(
       new PutObjectCommand({

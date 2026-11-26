@@ -1,6 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 import { engineMadeRuntimeSecrets, runtimeSecrets } from '../lib/runtime-secrets';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { installPulumiMocks, type MockHarness } from '../tests/helpers/pulumi-mock';
 
 let h: MockHarness;
@@ -20,7 +20,7 @@ describe('secrets module', () => {
       const paths = containers()
         .filter((r) => r.inputs.name === definition.secretName)
         .map((r) => String(r.inputs.path));
-      expect(paths, definition.id).toEqual([RUNTIME_FOLDER]);
+      expect(paths, definition.id).toEqual([runtimeFolder]);
     }
   });
 

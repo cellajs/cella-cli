@@ -11,6 +11,9 @@ import { fileURLToPath } from 'node:url';
  */
 export const infraDir = dirname(createRequire(import.meta.url).resolve('infra/package.json'));
 
+/** The app's root folder, one level above `infra/`: its git checkout, root `package.json`, `.env` and environments file. */
+export const repoRoot = join(infraDir, '..');
+
 /** The build files the package ships beside its bundle: the engine image's Dockerfile, and the agent's and the frontend proxy's folders. */
 export const engineAssetsDir = resolve(dirname(fileURLToPath(import.meta.url)), 'infra-assets');
 

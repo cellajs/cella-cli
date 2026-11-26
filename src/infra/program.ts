@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 
 // The stack name IS the config mode: derive APP_MODE before the dynamic import
-// below evaluates the shared appConfig (pulumi-context.ts still validates an
+// below evaluates the app's engine config (pulumi-context.ts still validates an
 // explicitly set APP_MODE against the stack).
 process.env.APP_MODE ??= pulumi.getStack().split('/').pop() ?? '';
 

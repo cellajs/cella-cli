@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { operatorActions } from './lib/operator-actions';
 import { ExitCodeError } from './lib/utils/errors';
-import { runTask } from './run';
+import { runTask, tasks } from './run';
+
+// `deploy` named both, and `pnpm cella infra deploy` ran the task where the docs promised Deploy now: a task is looked up first
+it('names no task by the id of an operator action', () => {
+  expect(Object.keys(tasks).filter((name) => Object.hasOwn(operatorActions, name))).toEqual([]);
+});
 
 describe('runTask', () => {
   afterEach(() => {

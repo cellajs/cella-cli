@@ -29,7 +29,7 @@ beforeEach(() => {
   vi.mocked(writeDeclaredPolicies).mockReset().mockResolvedValue([]);
   vi.mocked(readPolicy)
     .mockReset()
-    .mockResolvedValue({ id: 'pol-1', application_id: 'app-1', rules: [productionRule] });
+    .mockResolvedValue({ id: 'pol-1', name: 'app-transloadit-policy', application_id: 'app-1', rules: [productionRule] });
 });
 
 describe('the Transloadit application', () => {

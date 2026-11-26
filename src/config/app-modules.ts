@@ -1,20 +1,9 @@
-/**
- * Static analysis of module ownership. A module with `owner: 'app'` in its `registerModule`,
- * `defineBackendModule` or `defineFrontendModule` call is app territory: its source folder, plus
- * a matching frontend static asset folder, never merges and is never offered back upstream.
- * Parsing is syntax-only (ts-morph, no type-checker).
- */
-
 import { existsSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
 
 /** Glob patterns (relative to repo root) for module definition files. */
-const moduleFileGlobs = [
-  'backend/src/modules/*/*-module.ts',
-  'frontend/src/modules/*/*-module.ts',
-  'frontend/src/modules/*/*-module.tsx',
-];
+const moduleFileGlobs = ['backend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.ts', 'frontend/src/modules/*/*-module.tsx'];
 
 /** Call names that register a module and carry its `owner` in the first argument. */
 const moduleRegisterCalls = new Set(['registerModule', 'defineBackendModule', 'defineFrontendModule']);
@@ -28,7 +17,10 @@ function readOwner(call: import('ts-morph').CallExpression): string | undefined 
 }
 
 /**
- * Scan a repository for module territory owned by the app (`owner: 'app'`).
+ * Scan a repository for module territory owned by the app. A module with `owner: 'app'` in its `registerModule`,
+ * `defineBackendModule` or `defineFrontendModule` call is app territory: its source folder, plus a matching frontend
+ * static asset folder, never merges and is never offered back upstream. The parse is syntax-only (ts-morph, no
+ * type-checker).
  *
  * @param repoPath - Absolute path to the repository root to scan.
  * @returns Repo-relative folder paths (POSIX separators), deduplicated.

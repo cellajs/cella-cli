@@ -88,12 +88,7 @@ function sentenceWords(prose: string, index: number): number {
 }
 
 /** A finding for every match of `rule` in `text`; `locate` maps an index in `text` to its line and column in `file`. */
-function matchFindings(
-  rule: WordingRule,
-  file: string,
-  text: string,
-  locate: (index: number) => { line: number; column: number },
-): Finding[] {
+function matchFindings(rule: WordingRule, file: string, text: string, locate: (index: number) => { line: number; column: number }): Finding[] {
   const prose = /\.mdx?$/i.test(file) ? text : blankCommentMarkers(text);
   if (!rule.pattern.test(prose)) return [];
   const pattern = new RegExp(rule.pattern.source, `${rule.pattern.flags}g`);

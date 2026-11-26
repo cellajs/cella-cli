@@ -1,6 +1,5 @@
 import process from 'node:process';
 import { styleText } from 'node:util';
-import { getEnv, hasEnv } from './env';
 
 type ColorStyle =
   | 'blue'
@@ -18,8 +17,8 @@ type ColorStyle =
   | 'yellowBright';
 
 function colorsEnabled(): boolean {
-  if (hasEnv('NO_COLOR')) return false;
-  const force = getEnv('FORCE_COLOR');
+  if ('NO_COLOR' in process.env) return false;
+  const force = process.env.FORCE_COLOR;
   if (force !== undefined) return force !== '0' && force !== 'false';
   return !!process.stdout.isTTY;
 }

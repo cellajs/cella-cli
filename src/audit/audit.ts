@@ -1,19 +1,8 @@
-/**
- * Audit command for the Cella CLI.
- *
- * One table and one checkbox for outdated packages and runtime pins (Node, pnpm, image tags). The
- * picked updates become file edits that the security pass (see security-pass.ts) stages, checks
- * and writes, so the workspace changes once and only with a single install. Below the table, the
- * security fixes this machine's own Node, pnpm and gh miss (see machine.ts), and what pnpm audit
- * reports before the prompt that the security pass waits for.
- */
-
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { checkbox, confirm, Separator } from '@inquirer/prompts';
 import pc from '../utils/colors';
 import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
-import { getEnv } from '../utils/env';
 import {
   type OutdatedPackage,
   readReleaseAgeMinutes,
@@ -28,14 +17,7 @@ import { readTopLevel } from '../utils/workspace-yaml';
 import { fetchFeeds, missingNodeImages } from './feeds';
 import { formatDependents, installedVerdict, middleTruncate, printAdvisoryRows, severityDot } from './format';
 import { type LocalToolCheck, planLocalTools, readLocalTools } from './machine';
-import {
-  applyRuntimeUpdate,
-  editJsonText,
-  pinLocation,
-  planRuntimeUpdates,
-  type RuntimeUpdate,
-  readRuntimePins,
-} from './runtimes';
+import { applyRuntimeUpdate, editJsonText, pinLocation, planRuntimeUpdates, type RuntimeUpdate, readRuntimePins } from './runtimes';
 import { runSecurityPass, type SecurityPassOutcome, type WorkspaceEdits } from './security-pass';
 import { type Advisory, advisoriesFromAudit } from './security-plan';
 
@@ -85,7 +67,10 @@ async function readRuntimes(repoRoot: string, now: number) {
 
 /**
  * Report the updates and the security plan, and in a terminal offer to take them; with `fix`, ask which to take and
- * write them.
+ * write them. One table and one checkbox hold the outdated packages and runtime pins (Node, pnpm, image tags). Below
+ * the table come the security fixes this machine's own Node, pnpm and gh miss, and what pnpm audit reports before the
+ * prompt the security pass waits for. The picked updates become file edits that the security pass stages, checks and
+ * writes: the workspace changes once, with a single install.
  * @returns 1 when a step gave no answer or failed, 0 for a report, a cancelled prompt and a written fix
  */
 export async function runAudit(repoRoot: string, fix: boolean): Promise<number> {
@@ -107,10 +92,7 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
 
     const runtimes = planRuntimeUpdates(pins, feeds, { releaseAgeMinutes, now });
     const advisories = auditResult ? advisoriesFromAudit(auditResult) : null;
-    const rows = [
-      ...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []),
-      ...runtimes.updates.map(runtimeRow),
-    ];
+    const rows = [...packageRows(outdated as Record<string, OutdatedPackage>, advisories ?? []), ...runtimes.updates.map(runtimeRow)];
 
     if (rows.length === 0) {
       spinnerSuccess('all packages and runtimes are up to date');
@@ -138,8 +120,7 @@ export async function runAudit(repoRoot: string, fix: boolean): Promise<number> 
     const missingImages = node ? await missingNodeImages(node.target, pins.nodeImageSuffixes) : [];
     const plan = planEdits(repoRoot, chosen, missingImages);
     for (const warning of plan.warnings) console.info(`${warningMark} ${warning}`);
-    for (const [label, items] of plan.changed)
-      console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
+    for (const [label, items] of plan.changed) console.info(`${pc.cyan('↑')} ${pc.bold(label)}: ${pc.dim(items.join(', '))}`);
     if (plan.changed.size > 0) console.info();
 
     const outcome = await runSecurityPass(repoRoot, { apply: true, releaseAgeMinutes, edits: plan.edits });
@@ -232,8 +213,7 @@ function runtimeRow(update: RuntimeUpdate): UpdateRow {
 }
 
 /** The "in" column: where a runtime is pinned, or the workspaces that depend on the package, as "first +N". */
-const inText = (row: UpdateRow): string =>
-  row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name));
+const inText = (row: UpdateRow): string => (row.runtime ? pinLocation(row.runtime.file) : formatDependents(row.dependentPackages.map((d) => d.name)));
 
 /** The table of updates: severity dot, name, current and latest version, where it is used, and links. */
 function printUpdateTable(rows: UpdateRow[]): void {
@@ -296,8 +276,7 @@ function printNotes(repoRoot: string, unchecked: string[]): void {
     // No workspace file: nothing is held.
   }
   if (held.length > 0) console.info(`  ${pc.dim(`held: ${held.join(', ')} · pnpm-workspace.yaml updateConfig`)}`);
-  if (unchecked.length > 0)
-    console.info(`  ${pc.dim(`not checked, no answer from the feed: ${unchecked.join(', ')}`)}`);
+  if (unchecked.length > 0) console.info(`  ${pc.dim(`not checked, no answer from the feed: ${unchecked.join(', ')}`)}`);
 }
 
 /** The tools this machine works with, each with the security fixes it misses and how to get them. */
@@ -306,9 +285,7 @@ function printLocalTools(checks: LocalToolCheck[]): void {
   console.info(pc.bold('this machine'));
   for (const tool of checks) {
     const label = `${tool.name} ${tool.version}`.padEnd(width);
-    const detail = tool.severity
-      ? `${tool.note} ${pc.dim('·')} ${tool.fix}`
-      : pc.dim(tool.note || 'no missing security fixes');
+    const detail = tool.severity ? `${tool.note} ${pc.dim('·')} ${tool.fix}` : pc.dim(tool.note || 'no missing security fixes');
     console.info(`${severityDot(tool.severity)} ${label}  ${detail}`);
   }
   console.info();
@@ -366,9 +343,7 @@ function updateChoices(rows: UpdateRow[]): Array<{ name: string; value: string; 
     // Regular packages get a heading only below another group.
     [runtimes.length + pinned.length > 0 ? pc.dim(`── packages (${regular.length}) ──`) : null, regular],
   ];
-  return groups.flatMap(([label, group]) =>
-    group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)],
-  );
+  return groups.flatMap(([label, group]) => (group.length === 0 ? [] : [...(label ? [new Separator(label)] : []), ...group.map(choice)]));
 }
 
 /** The question that ends a report: false without a terminal, and when it is declined or cancelled. */
@@ -397,8 +372,7 @@ async function promptForUpdates(rows: UpdateRow[]): Promise<string[] | null> {
         style: {
           highlight: (text: string) => text,
           keysHelpTip: (keys: [string, string][]) => keys.map(([key, action]) => `${pc.dim(key)} ${action}`).join('  '),
-          renderSelectedChoices: (selectedChoices: Array<{ value?: string }>) =>
-            pc.dim(`${selectedChoices.length} selected`),
+          renderSelectedChoices: (selectedChoices: Array<{ value?: string }>) => pc.dim(`${selectedChoices.length} selected`),
         },
       },
     });
@@ -486,7 +460,7 @@ function printNext(bumped: RuntimeUpdate[]): void {
   const steps: Array<[command: string, why: string]> = [];
   const node = bumped.find((update) => update.pin.type === 'node');
   if (node && process.version !== `v${node.target}`) {
-    const command = getEnv('VOLTA_HOME') ? `volta install node@${node.target}` : `switch to node ${node.target}`;
+    const command = process.env.VOLTA_HOME ? `volta install node@${node.target}` : `switch to node ${node.target}`;
     steps.push([command, `this machine runs ${process.version.slice(1)}`]);
   }
   for (const update of bumped) {

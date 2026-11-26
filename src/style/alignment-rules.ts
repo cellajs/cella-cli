@@ -34,12 +34,10 @@ export function checkAlignmentReadme(source: string): ReadmeCheck {
     if (booleanKeys.includes(key)) {
       if (value !== 'true' && value !== 'false') errors.push(`${key} must be true or false`);
     } else if (key === 'caughtBy') {
-      if (!caughtBy.some((caughtBy) => caughtBy === value))
-        errors.push(`caughtBy must be one of ${caughtBy.join(', ')}`);
+      if (!caughtBy.some((caughtBy) => caughtBy === value)) errors.push(`caughtBy must be one of ${caughtBy.join(', ')}`);
     } else if (!listKeys.includes(key)) errors.push(`unknown frontmatter key: ${key}`);
   }
-  for (const key of requiredBooleanKeys)
-    if (close !== -1 && !frontmatter.has(key)) errors.push(`frontmatter is missing ${key}`);
+  for (const key of requiredBooleanKeys) if (close !== -1 && !frontmatter.has(key)) errors.push(`frontmatter is missing ${key}`);
   if (frontmatter.get('breaking') === 'true' && !frontmatter.has('caughtBy'))
     errors.push('a breaking alignment says how an app finds its leftovers: caughtBy');
 
@@ -51,8 +49,7 @@ export function checkAlignmentReadme(source: string): ReadmeCheck {
     .filter(Boolean);
   if (!/^# .+$/.test(blocks[0] ?? '')) errors.push('the first line after the frontmatter must be the `# ` title');
   const summary = blocks[1] ?? '';
-  if (!summary || /^(#|>|[-*|]|```|\d+\.)/.test(summary))
-    errors.push('the title must be followed by a one-paragraph summary');
+  if (!summary || /^(#|>|[-*|]|```|\d+\.)/.test(summary)) errors.push('the title must be followed by a one-paragraph summary');
   return { roots: splitList(frontmatter.get('roots')), errors };
 }
 
@@ -66,9 +63,7 @@ export const alignmentRule: Rule = {
   check: (file, source, { files }) => {
     const [folder, ...rest] = file.slice(alignmentsPrefix.length).split('/');
     const folderPath = `${alignmentsPrefix}${folder}`;
-    const names = files
-      .filter((other) => other.startsWith(`${folderPath}/`))
-      .map((other) => other.slice(folderPath.length + 1));
+    const names = files.filter((other) => other.startsWith(`${folderPath}/`)).map((other) => other.slice(folderPath.length + 1));
     const findings: Finding[] = [];
     const finding = (path: string, message: string, line?: number) =>
       findings.push({ file: path, rule: 'alignment', message, ...(line === undefined ? {} : { line, column: 1 }) });
@@ -82,8 +77,7 @@ export const alignmentRule: Rule = {
     const codemods = names.filter((name) => !name.includes('/') && isCodemodFile(name));
     if (codemods.length > 1) finding(file, `one codemod per alignment, found ${codemods.join(', ')}`, 1);
     if (roots.length > 0 && codemods.length === 0) finding(file, 'roots is only for an alignment with a codemod', 1);
-    if (roots.length === 0 && codemods.length > 0)
-      finding(file, 'a codemod needs roots: the folders `pnpm cella align run` scans by default', 1);
+    if (roots.length === 0 && codemods.length > 0) finding(file, 'a codemod needs roots: the folders `pnpm cella align run` scans by default', 1);
     return findings;
   },
 };

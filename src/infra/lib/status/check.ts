@@ -3,26 +3,26 @@ import { actionCommand, menuPath } from '../operator-actions';
 import type { Check, CheckStatus, KeyTier, NextAction } from './types';
 
 /** The local setup/manage entrypoint. */
-export const runSetup: NextAction = {
+export const setupAction: NextAction = {
   description: 'Run the infra CLI (setup on a fresh stack, operator menu otherwise)',
   command: 'pnpm cella infra',
 };
-export const manageSecrets: NextAction = {
+export const secretsAction: NextAction = {
   description: `Set the missing runtime secret(s) via "${menuPath('env')}"`,
   command: actionCommand('env'),
 };
-export const unlock: NextAction = {
+export const unlockAction: NextAction = {
   description: `Clear the stale lease via "${menuPath('unlock')}" (only when no run is in progress)`,
   command: actionCommand('unlock'),
 };
-export const manageDbEndpoint: NextAction = {
+export const dbCloseAction: NextAction = {
   description: `Close the public DB endpoint via "${menuPath('db-close')}"`,
   command: actionCommand('db-close'),
 };
 
 /** Deploy the environment's target: a scheduled run does once its target moves, this starts a run now. */
 export function deployAction(mode: string): NextAction {
-  return { description: `Start a run of ${mode}'s main job for its target`, command: `${actionCommand('deploy')} --mode ${mode}` };
+  return { description: `Start a run of ${mode}'s main job for its target`, command: `${actionCommand('deploy-now')} --mode ${mode}` };
 }
 
 /** Read the last runs and the machines' boot accounts when a live service is wrong, then deploy again. */

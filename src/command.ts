@@ -25,8 +25,8 @@ interface CommandBase<Options, Job extends string | undefined> {
   /** Runs outside a git repository too: the entry skips its git check. */
   outsideGit?: true;
   /**
-   * Hands every word after its name, unparsed, to a program the app runs, which prints all the run shows: the entry
-   * adds no header or closing line, and `--help` after the name is that program's.
+   * Takes every word after its name unparsed, parses them itself and prints all the run shows: the entry adds no
+   * header or closing line, and `--help` after the name is the command's own.
    */
   handsOver?: true;
   /**
@@ -54,10 +54,7 @@ interface CommandBase<Options, Job extends string | undefined> {
  * can go on. A thrown error and a usage error exit 2. A command that reads the app's `cella/cella.config.ts` sets
  * `needsConfig`, and the entry loads the config for its `run`.
  */
-export type Command<Options = unknown, Job extends string | undefined = string | undefined> = CommandBase<
-  Options,
-  Job
-> &
+export type Command<Options = unknown, Job extends string | undefined = string | undefined> = CommandBase<Options, Job> &
   (
     | { needsConfig?: undefined; run(repoRoot: string, options: Options): Promise<number> }
     | { needsConfig: true; run(repoRoot: string, options: Options, config: CellaCliConfig): Promise<number> }

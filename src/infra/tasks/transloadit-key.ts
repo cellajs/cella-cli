@@ -1,12 +1,13 @@
 import { runtimeSecrets } from '../lib/runtime-secrets';
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
-import { createApiKey, type IamAuth, listApiKeys, resolveApplicationIdByName, type ScwApiKey } from '../lib/scaleway/iam-client';
-import { TRANSLOADIT_PERMISSION_SETS } from '../lib/scaleway/permissions';
+import { createApiKey, listApiKeys, resolveApplicationIdByName, type ScwApiKey } from '../lib/scaleway/iam-client';
+import { transloaditPermissionSets } from '../lib/scaleway/permissions';
 import { policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { appPrincipalNames } from '../lib/scaleway/principals';
 import { ensureApplication } from '../lib/scaleway/scaleway-iam';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import type { ScwAuth } from '../lib/scaleway/scw-fetch';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { writeDeclaredPolicies } from './declared-policies';
 
 /** The Secret Manager read the Transloadit plan needs, so a test passes its own. */
@@ -34,15 +35,15 @@ export function transloaditPolicy(opts: { slug: string; projectIds: readonly str
     name: `${application}-policy`,
     applicationName: application,
     description: 'Object writes on the upload buckets, for the files Transloadit stores (written at Owner moments)',
-    rules: [{ permission_set_names: [...TRANSLOADIT_PERMISSION_SETS], project_ids: [...new Set(opts.projectIds)] }],
+    rules: [{ permission_set_names: [...transloaditPermissionSets], project_ids: [...new Set(opts.projectIds)] }],
     tags: [],
   };
 }
 
 /** The policy as declared for an environment: the projects it reaches today and `projectId`, so another environment keeps its rule. */
-async function declaredTransloaditPolicy(auth: IamAuth, organizationId: string, slug: string, projectId: string): Promise<DeclaredPolicy> {
+async function declaredTransloaditPolicy(auth: ScwAuth, organizationId: string, slug: string, projectId: string): Promise<DeclaredPolicy> {
   const live = await readPolicy(auth, organizationId, `${appPrincipalNames(slug).transloadit}-policy`);
-  const reached = live ? policyReach(live.rules, TRANSLOADIT_PERMISSION_SETS).projectIds : [];
+  const reached = live ? policyReach(live.rules, transloaditPermissionSets).projectIds : [];
   return transloaditPolicy({ slug, projectIds: [...reached, projectId] });
 }
 
@@ -53,13 +54,13 @@ async function declaredTransloaditPolicy(auth: IamAuth, organizationId: string, 
  * @returns Undefined where the runtime folder holds no Transloadit auth key: no file of that environment is stored through Transloadit.
  */
 export async function planTransloadit(opts: {
-  auth: IamAuth;
+  auth: ScwAuth;
   secrets: TransloaditSecrets;
   organizationId: string;
   projectId: string;
   slug: string;
 }): Promise<TransloaditPlan | undefined> {
-  const authKey = authKeySecret && (await opts.secrets.getSecretByName(authKeySecret.secretName, RUNTIME_FOLDER));
+  const authKey = authKeySecret && (await opts.secrets.getSecretByName(authKeySecret.secretName, runtimeFolder));
   if ((authKey?.version_count ?? 0) === 0) return undefined;
   const applicationId = await resolveApplicationIdByName(opts.auth, opts.organizationId, appPrincipalNames(opts.slug).transloadit);
   if (!applicationId) return { step: 'create' };
@@ -77,7 +78,7 @@ export async function planTransloadit(opts: {
  * @returns The key just made, which nothing stores, or undefined when the application holds one already.
  */
 export async function writeTransloadit(opts: {
-  auth: IamAuth;
+  auth: ScwAuth;
   organizationId: string;
   projectId: string;
   /** The app's own slug (`appSlug`). */

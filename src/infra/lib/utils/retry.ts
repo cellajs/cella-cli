@@ -1,5 +1,4 @@
 import { sleep as defaultSleep } from './sleep';
-/** Dependency-free sleep: the agent's bundle must not reach into the `shared` workspace package. */
 
 export interface RetryOptions {
   /** Total number of attempts before giving up. */

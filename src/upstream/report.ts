@@ -2,16 +2,7 @@ import { resolve } from 'node:path';
 import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import {
-  checkMark,
-  hyperlink,
-  type NextStep,
-  plural,
-  printProgressStep,
-  printSectionHeader,
-  stepIndent,
-  warningMark,
-} from '../utils/display';
+import { checkMark, hyperlink, type NextStep, plural, printProgressStep, printSectionHeader, stepIndent, warningMark } from '../utils/display';
 import {
   type CommitRangeEntry,
   getCurrentBranch,
@@ -65,9 +56,7 @@ export function formatCheckoutStep(checkout: {
   tracking: { tracking: string | null; ahead: number; behind: number };
 }): string {
   const { branch, headSha, changeCount, tracking } = checkout;
-  const parts = [
-    changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`,
-  ];
+  const parts = [changeCount === 0 ? 'clean' : `${plural(changeCount, 'uncommitted change')}, not included in the analysis`];
   if (tracking.tracking && (tracking.ahead > 0 || tracking.behind > 0)) {
     parts.push(`${tracking.ahead} ahead, ${tracking.behind} behind ${tracking.tracking}`);
   }
@@ -89,13 +78,10 @@ export function formatUpstreamStep(upstream: {
 }): string {
   const { label, sha, baseSha, pinned, commitCount, commits, githubUrl } = upstream;
   const since =
-    commitCount === 0
-      ? 'no new commits since the last upgrade'
-      : `${plural(commitCount, 'new commit')} since the last upgrade at ${baseSha}`;
-  return [
-    `${label} @ ${sha}${pc.dim(`${pinned ? ' · --ref' : ''} · ${since}`)}`,
-    ...formatUpstreamCommits(commitCount, commits, githubUrl),
-  ].join('\n');
+    commitCount === 0 ? 'no new commits since the last upgrade' : `${plural(commitCount, 'new commit')} since the last upgrade at ${baseSha}`;
+  return [`${label} @ ${sha}${pc.dim(`${pinned ? ' · --ref' : ''} · ${since}`)}`, ...formatUpstreamCommits(commitCount, commits, githubUrl)].join(
+    '\n',
+  );
 }
 
 /**
@@ -103,26 +89,16 @@ export function formatUpstreamStep(upstream: {
  * the subject cut to the terminal width, the PR number and the age; hash and PR link to GitHub.
  * `commits` comes oldest first, as `listCommitsBetween` returns it.
  */
-export function formatUpstreamCommits(
-  commitCount: number,
-  commits: CommitRangeEntry[],
-  upstreamGitHubUrl?: string,
-): string[] {
+export function formatUpstreamCommits(commitCount: number, commits: CommitRangeEntry[], upstreamGitHubUrl?: string): string[] {
   const shown = commits.slice(-commitStepMax).reverse();
   const rows = shown.map((commit) => ({ commit, ...splitPrNumber(commit.message) }));
   const prWidth = Math.max(0, ...rows.map((row) => (row.pr ? `#${row.pr}`.length : 0)));
   const ages = rows.map((row) => (row.commit.timestamp ? shortAge(row.commit.timestamp) : ''));
   const ageWidth = Math.max(0, ...ages.map((age) => age.length));
-  const subjectWidth = Math.max(
-    20,
-    terminalColumns() - stepIndent - 7 - 2 - (prWidth ? prWidth + 2 : 0) - (ageWidth ? ageWidth + 2 : 0),
-  );
+  const subjectWidth = Math.max(20, terminalColumns() - stepIndent - 7 - 2 - (prWidth ? prWidth + 2 : 0) - (ageWidth ? ageWidth + 2 : 0));
 
   const lines = rows.map((row, index) => {
-    const hash = hyperlink(
-      row.commit.hash.slice(0, 7),
-      upstreamGitHubUrl && `${upstreamGitHubUrl}/commit/${row.commit.hash}`,
-    );
+    const hash = hyperlink(row.commit.hash.slice(0, 7), upstreamGitHubUrl && `${upstreamGitHubUrl}/commit/${row.commit.hash}`);
     const subject = fitText(row.subject, subjectWidth);
     let line = `${pc.dim(hash)}  ${padVisible(styleSubject(subject), subjectWidth)}`;
     if (prWidth) {
@@ -183,12 +159,7 @@ export async function readUpstreamReports(
 ): Promise<
   Pick<
     MergeResult,
-    | 'upstreamGitHubUrl'
-    | 'upstreamCommit'
-    | 'upstreamCommitCount'
-    | 'upstreamDiffRange'
-    | 'upstreamOverrides'
-    | 'ignoredUpstreamChanges'
+    'upstreamGitHubUrl' | 'upstreamCommit' | 'upstreamCommitCount' | 'upstreamDiffRange' | 'upstreamOverrides' | 'ignoredUpstreamChanges'
   >
 > {
   const { repoRoot } = config;
@@ -228,12 +199,7 @@ export async function upgradeAlignmentsStep(config: RuntimeConfig, run?: MergeRe
   return view ? alignmentsStep(config, view) : undefined;
 }
 
-export function formatMergeInProgressDetail(
-  conflictCount: number,
-  autoMergedFiles: string[],
-  linkOptions: LinkOptions,
-  maxFiles = 100,
-): string {
+export function formatMergeInProgressDetail(conflictCount: number, autoMergedFiles: string[], linkOptions: LinkOptions, maxFiles = 100): string {
   const lines = [`${plural(conflictCount, 'conflict')} to resolve in your editor`];
 
   if (autoMergedFiles.length === 0) {
@@ -300,13 +266,7 @@ export function printSummary(summary: AnalysisSummary, title = 'summary'): void 
   const countWidth = String(maxCount).length + 1;
 
   // Grouped layout with blank lines between groups
-  const groups: SummaryStatus[][] = [
-    ['managed', 'ignored'],
-    ['identical'],
-    ['ahead', 'local', 'drifted'],
-    ['diverged', 'pinned'],
-    ['behind'],
-  ];
+  const groups: SummaryStatus[][] = [['managed', 'ignored'], ['identical'], ['ahead', 'local', 'drifted'], ['diverged', 'pinned'], ['behind']];
   for (const group of groups) {
     if (group !== groups[0]) console.info();
     for (const status of group) {
@@ -338,9 +298,7 @@ function findProtectedBehind(files: AnalyzedFile[]): AnalyzedFile[] {
  * changed, added or deleted (`MergeResult.ignoredUpstreamChanges`). Analyze lists them as one
  * section, on the terminal and on the review page.
  */
-export function findProtectedBehindUpstream(
-  result: Pick<MergeResult, 'files' | 'ignoredUpstreamChanges'>,
-): AnalyzedFile[] {
+export function findProtectedBehindUpstream(result: Pick<MergeResult, 'files' | 'ignoredUpstreamChanges'>): AnalyzedFile[] {
   const ignoredOnly = new Set((result.ignoredUpstreamChanges ?? []).flatMap((group) => group.paths));
   return [...findProtectedBehind(result.files), ...result.files.filter((file) => ignoredOnly.has(file.path))];
 }
@@ -406,9 +364,7 @@ function printProtectedConflicts(result: MergeResult): void {
     console.info(`  ${icon} ${path}${file ? formatUpstreamChangedLines(file) : ''}`);
   }
   if (binaries.length > 0) {
-    console.info(
-      `  ${statusConfig.ignored.icon} ${plural(binaries.length, 'ignored binary file')}, such as ${binaries[0]}`,
-    );
+    console.info(`  ${statusConfig.ignored.icon} ${plural(binaries.length, 'ignored binary file')}, such as ${binaries[0]}`);
   }
   console.info(pc.dim(`  ${protectedBehindHint}`));
 }
@@ -451,9 +407,7 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
   console.info();
   if (report.type === 'unreadable') {
     const side = report.side === 'base' ? 'the last upgrade' : 'the incoming ref';
-    console.info(
-      pc.dim(`upstream CLI config not compared: upstream ${configFile} is missing or unreadable at ${side}`),
-    );
+    console.info(pc.dim(`upstream CLI config not compared: upstream ${configFile} is missing or unreadable at ${side}`));
     return;
   }
 
@@ -471,9 +425,7 @@ export function printUpstreamOverrideChanges(result: Pick<MergeResult, 'upstream
       lines.push(pc.dim(`  ~ ${list}: ${from} → ${to} · renamed upstream, your config never had it`));
     }
   }
-  console.info(
-    `${warningMark} ${pc.yellow(`upstream changed its CLI config · ${plural(lines.length, 'entry', 'entries')} to review`)}`,
-  );
+  console.info(`${warningMark} ${pc.yellow(`upstream changed its CLI config · ${plural(lines.length, 'entry', 'entries')} to review`)}`);
   for (const line of lines) console.info(line);
   console.info(pc.dim(`  ${configFile} never merges: add or drop these by hand where they fit your app.`));
 }

@@ -1,6 +1,6 @@
-import { DEPLOY_OPERATION, type LockInfo, leaseHolder, leaseOwnerOfRun } from '../stack/control-store';
+import { deployOperation, type LockInfo, leaseHolder, leaseOwnerOfRun } from '../stack/control-store';
 import { type RunRecord, RunRecorder, runId, runStamp } from './run-record';
-import { ENVIRONMENTS_FILE, NoReleaseError, parseEnvironmentsFile, type RemoteRef, resolveTarget, type Target } from './target';
+import { environmentsFile, NoReleaseError, parseEnvironmentsFile, type RemoteRef, resolveTarget, type Target } from './target';
 
 /** What a scheduled run does with its target: deploy it, or nothing, as a record of that target and retry counter exists. */
 export type ScheduledDecision = { action: 'deploy' } | { action: 'none'; record: RunRecord };
@@ -76,7 +76,7 @@ export async function scheduledVerdict(environment: string, fx: ScheduledEffects
       throw error;
     });
     if (target === null) return { done: 'no release yet: starts nothing' };
-    if (!target) return { done: `no line in ${ENVIRONMENTS_FILE}: starts nothing` };
+    if (!target) return { done: `no line in ${environmentsFile}: starts nothing` };
     const decision = decideScheduledRun(target, await fx.records(target.sha));
     if (decision.action === 'deploy') return target;
     return {
@@ -94,7 +94,7 @@ export async function scheduledVerdict(environment: string, fx: ScheduledEffects
     const target = await look();
     if ('done' in target) return target;
     const run = runId(target.sha, started);
-    if (!(await fx.handOverLease(looking, leaseOwnerOfRun(run), DEPLOY_OPERATION))) {
+    if (!(await fx.handOverLease(looking, leaseOwnerOfRun(run), deployOperation))) {
       throw new Error('the lease went to another run while this one looked for its target');
     }
     owner = leaseOwnerOfRun(run);

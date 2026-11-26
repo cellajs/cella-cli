@@ -53,9 +53,7 @@ export class EvidenceSet {
       const failing = group.filter((finding) => finding.problems.length);
       const notes = group.filter((finding) => finding.review);
       if (failing.length) {
-        const detail = failing
-          .map((finding) => `${finding.state}: ${finding.problems.slice(0, 3).join('; ')}`)
-          .join(' | ');
+        const detail = failing.map((finding) => `${finding.state}: ${finding.problems.slice(0, 3).join('; ')}`).join(' | ');
         this.add(criteria, {
           check,
           result: 'fail',

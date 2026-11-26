@@ -102,7 +102,7 @@ describe('the inventory', () => {
     ]);
   });
 
-  it("finds a main job edited to read the database's password and to run another image (D-b): a key that starts runs may edit a definition", () => {
+  it("finds a main job edited to read the database's password and to run another image: a key that starts runs may edit a definition", () => {
     const mainJob = declaredMainJob({
       projectId: 'p-staging',
       organizationId: 'o',

@@ -1,10 +1,3 @@
-/**
- * The security pass of the audit command. Audit overrides are derived data: every run drops them,
- * resolves the workspace without them in a staging copy, and puts back only what a current
- * advisory still needs. The workspace itself changes once, at the end, when the staged result
- * differs from what is there.
- */
-
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -82,23 +75,15 @@ async function createStaging(repoRoot: string, workspaceYaml: string): Promise<s
 }
 
 /** Resolve the staging copy under `settings`; returns the lockfile, or pnpm's output on failure. */
-async function resolveStaging(
-  staging: string,
-  workspaceYaml: string,
-  settings: AuditSettings,
-): Promise<{ lock: string } | { error: string }> {
+async function resolveStaging(staging: string, workspaceYaml: string, settings: AuditSettings): Promise<{ lock: string } | { error: string }> {
   writeFileSync(join(staging, workspaceFile), writeAuditSettings(workspaceYaml, settings));
   const result = await runPnpm(['install', '--lockfile-only', '--no-frozen-lockfile', '--ignore-scripts'], staging);
-  return result.ok
-    ? { lock: readOr(join(staging, lockFile), '') }
-    : { error: `${result.stdout}${result.stderr}`.trim() };
+  return result.ok ? { lock: readOr(join(staging, lockFile), '') } : { error: `${result.stdout}${result.stderr}`.trim() };
 }
 
 /** The versions of a package that a lockfile holds. */
 function lockedVersions(lock: string, name: string): string[] {
-  const versions = [...lock.matchAll(new RegExp(`^ {2}'?${RegExp.escape(name)}@(\\d[^:'()\\s]*)`, 'gm'))].map(
-    (match) => match[1],
-  );
+  const versions = [...lock.matchAll(new RegExp(`^ {2}'?${RegExp.escape(name)}@(\\d[^:'()\\s]*)`, 'gm'))].map((match) => match[1]);
   return [...new Set(versions)];
 }
 
@@ -118,8 +103,7 @@ function versionsText(item: SecurityItem, lock: string): string {
 /** One line of context for an item that is not simply fixed by its override. */
 function noteText(item: SecurityItem, releaseAgeHours: number): string {
   if (item.remedy.type === 'none') return 'no fix published';
-  if (item.remedy.type === 'fresh')
-    return `fix published ${item.remedy.hoursOld}h ago, inside the ${releaseAgeHours}h release age`;
+  if (item.remedy.type === 'fresh') return `fix published ${item.remedy.hoursOld}h ago, inside the ${releaseAgeHours}h release age`;
   if (item.standing === 'ignored') return 'the fix is a breaking jump';
   return '';
 }
@@ -131,9 +115,7 @@ function printGroup(title: string, items: SecurityItem[], lock: string, releaseA
       module: item.module,
       severity: item.severity,
       versions: versionsText(item, lock),
-      note: [`${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`, noteText(item, releaseAgeHours)]
-        .filter(Boolean)
-        .join(' · '),
+      note: [`${formatDependents(item.via)}${item.direct ? ' (direct)' : ''}`, noteText(item, releaseAgeHours)].filter(Boolean).join(' · '),
     })),
   );
 }
@@ -210,9 +192,7 @@ function settingsFor(decisions: Decision[], kept: Record<string, string>, exclud
   return {
     overrides: { ...kept, ...Object.assign({}, ...overriding.map((decision) => decision.item.overrides)) },
     releaseAgeExcludes: [...new Set([...excludes, ...overriding.flatMap((decision) => decision.exclude ?? [])])],
-    ignoredGhsas: decisions
-      .filter((decision) => decision.action === 'ignore')
-      .flatMap((decision) => decision.item.ghsas),
+    ignoredGhsas: decisions.filter((decision) => decision.action === 'ignore').flatMap((decision) => decision.item.ghsas),
   };
 }
 
@@ -243,9 +223,7 @@ export type SecurityPassOutcome = 'written' | 'unchanged' | 'failed';
  * puts every file back and removes one that did not exist before. Returns whether it succeeded.
  */
 function writeWorkspace(repoRoot: string, files: Record<string, string>, install: boolean): boolean {
-  const before = Object.fromEntries(
-    Object.keys(files).map((file) => [file, readOr(join(repoRoot, file), undefined)] as const),
-  );
+  const before = Object.fromEntries(Object.keys(files).map((file) => [file, readOr(join(repoRoot, file), undefined)] as const));
   for (const [file, content] of Object.entries(files)) writeFileSync(join(repoRoot, file), content);
   if (!install) return true;
 
@@ -263,9 +241,11 @@ function writeWorkspace(repoRoot: string, files: Record<string, string>, install
 }
 
 /**
- * Run the security pass on the workspace at `repoRoot`, with the update step's `edits` already in
- * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
- * written once, at the end; with `apply` off nothing is written.
+ * Run the audit's security pass on the workspace at `repoRoot`. The update step's `edits` are already in
+ * place in the staging copy: the plan judges the workspace as it will be. Audit overrides are derived
+ * data: every run drops them, resolves the workspace without them in the staging copy, and puts back only
+ * what a current advisory still needs. The workspace is written once, at the end, when the staged result
+ * differs from what is there; with `apply` off nothing is written.
  */
 export async function runSecurityPass(
   repoRoot: string,
@@ -286,9 +266,7 @@ export async function runSecurityPass(
   try {
     previous = readAuditSettings(workspaceYaml);
   } catch (error) {
-    console.error(
-      `${pc.red('✗')} ${workspaceFile} could not be read: ${error instanceof Error ? error.message : error}`,
-    );
+    console.error(`${pc.red('✗')} ${workspaceFile} could not be read: ${error instanceof Error ? error.message : error}`);
     return 'failed';
   }
   const auditKeys = Object.keys(previous.overrides).filter(isAuditOverride);
@@ -296,9 +274,7 @@ export async function runSecurityPass(
   const updatesManifests = Object.keys(edits.manifests).length > 0;
 
   const spinner = createSpinner(
-    auditKeys.length > 0
-      ? `resolving without the ${plural(auditKeys.length, 'audit override')}...`
-      : 'resolving the workspace...',
+    auditKeys.length > 0 ? `resolving without the ${plural(auditKeys.length, 'audit override')}...` : 'resolving the workspace...',
   );
   const fail = (message: string, detail = ''): 'failed' => {
     spinner.stop();
@@ -329,9 +305,7 @@ export async function runSecurityPass(
     const versionedExcludes = previous.releaseAgeExcludes.flatMap((entry) => parseVersionedExclude(entry)?.name ?? []);
     const names = [...new Set([...advisories.map((advisory) => advisory.module), ...versionedExcludes])];
     const times = await Promise.all(names.map((name) => fetchPublishTimes(name, repoRoot)));
-    const published: Record<string, PublishTimes> = Object.fromEntries(
-      names.map((name, i) => [name, times[i]]).filter(([, answer]) => answer),
-    );
+    const published: Record<string, PublishTimes> = Object.fromEntries(names.map((name, i) => [name, times[i]]).filter(([, answer]) => answer));
     // A fix is only judged absent when the registry answered: silence must not turn into an ignore.
     const unanswered = advisories.map((advisory) => advisory.module).filter((name) => !published[name]);
     if (unanswered.length > 0) return fail(`the registry did not answer for ${[...new Set(unanswered)].join(', ')}`);
@@ -439,9 +413,7 @@ function printPlan(plan: {
   const added = items.filter((item) => item.standing === 'new' && !needsDecision(item));
   const ignored = items.filter((item) => item.standing === 'ignored');
 
-  const plannedKeys = new Set(
-    items.flatMap((item) => (item.standing === 'ignored' ? [] : Object.keys(item.overrides))),
-  );
+  const plannedKeys = new Set(items.flatMap((item) => (item.standing === 'ignored' ? [] : Object.keys(item.overrides))));
   // What happens to the overrides of a package that awaits a decision follows from the answer.
   const pending = new Set(undecided.map((item) => item.module));
   const droppedOverrides = plan.auditKeys
@@ -457,16 +429,11 @@ function printPlan(plan: {
   console.info(pc.bold('security'));
   console.info(divider);
   if (plan.installed !== undefined) {
-    const note = [
-      kept.length > 0 ? `${kept.length} fixed by an override` : '',
-      ignored.length > 0 ? `${ignored.length} ignored` : '',
-    ]
+    const note = [kept.length > 0 ? `${kept.length} fixed by an override` : '', ignored.length > 0 ? `${ignored.length} ignored` : '']
       .filter(Boolean)
       .join(' · ');
     const vulnerable = new Set(plan.installed?.map((advisory) => advisory.module)).size;
-    console.info(
-      plan.installed ? installedVerdict(vulnerable, note) : `${warningMark} installed: pnpm audit gave no answer`,
-    );
+    console.info(plan.installed ? installedVerdict(vulnerable, note) : `${warningMark} installed: pnpm audit gave no answer`);
     console.info();
   }
   if (items.length === 0 && droppedOverrides.length === 0 && droppedIgnores.length === 0) {

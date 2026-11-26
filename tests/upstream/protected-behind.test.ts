@@ -153,10 +153,7 @@ describe('findProtectedBehindUpstream', () => {
       file({ path: 'ahead.ts', status: 'ahead', isPinned: true }),
       file({ path: 'plain.ts', status: 'behind' }),
     ];
-    expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual([
-      'frontend/src/styling/tailwind.css',
-      'own/a.ts',
-    ]);
+    expect(findProtectedBehindUpstream({ files }).map((f) => f.path)).toEqual(['frontend/src/styling/tailwind.css', 'own/a.ts']);
   });
 });
 
@@ -206,9 +203,7 @@ describe('printUpgradeComplete protected conflicts', () => {
   it('counts ignored binaries in one line', () => {
     const result = baseResult();
     const shots = ['public/shot-1.webp', 'public/shot-2.webp'];
-    result.files = shots.map((path) =>
-      file({ path, status: 'ignored', isIgnored: true, upstreamChanged: true, upstreamBinary: true }),
-    );
+    result.files = shots.map((path) => file({ path, status: 'ignored', isIgnored: true, upstreamChanged: true, upstreamBinary: true }));
     result.protectedConflicts = shots;
 
     const out = capture(result);

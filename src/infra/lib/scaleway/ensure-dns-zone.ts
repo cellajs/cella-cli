@@ -1,13 +1,11 @@
 import { confirm } from '@inquirer/prompts';
 import { checkMark, pc, tildeMark, warningMark } from '../utils/cli-output';
-import { errorMessage } from '../utils/errors';
-import { isMain } from '../utils/is-main';
 
-const BASE = 'https://api.scaleway.com/domain/v2beta1';
+const base = 'https://api.scaleway.com/domain/v2beta1';
 // The TXT record Scaleway's email names: a registration whose challenge has not resolved within 48 hours is dropped.
-const CHALLENGE_NAME = '_scaleway-challenge';
+const challengeName = '_scaleway-challenge';
 /** How long one call may take: a stalled endpoint then fails the step, where the operator runs it again. */
-const REQUEST_TIMEOUT_MS = 60_000;
+const requestTimeoutMs = 60_000;
 
 interface DnsZone {
   domain: string;
@@ -24,11 +22,11 @@ async function listZones(secretKey: string, projectId: string | undefined, domai
   // in a sibling project (staging reusing the production apex) counts as
   // active for record management, which is org-wide by permission set.
   const projectFilter = projectId ? `project_id=${projectId}&` : '';
-  const url = `${BASE}/dns-zones/?${projectFilter}domain=${encodeURIComponent(domain)}&page_size=100&_=${Date.now()}`;
+  const url = `${base}/dns-zones/?${projectFilter}domain=${encodeURIComponent(domain)}&page_size=100&_=${Date.now()}`;
   const res = await fetch(url, {
     headers: { 'X-Auth-Token': secretKey, 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
     cache: 'no-store',
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(requestTimeoutMs),
   });
   if (!res.ok) throw new Error(`GET dns-zones failed: ${res.status} ${await res.text()}`);
   const body = (await res.json()) as { dns_zones?: DnsZone[] };
@@ -36,11 +34,11 @@ async function listZones(secretKey: string, projectId: string | undefined, domai
 }
 
 async function registerExternal(secretKey: string, projectId: string, domain: string): Promise<{ created: boolean; alreadyInProcess: boolean }> {
-  const res = await fetch(`${BASE}/external-domains`, {
+  const res = await fetch(`${base}/external-domains`, {
     method: 'POST',
     headers: { 'X-Auth-Token': secretKey, 'Content-Type': 'application/json' },
     body: JSON.stringify({ domain, project_id: projectId }),
-    signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    signal: AbortSignal.timeout(requestTimeoutMs),
   });
   if (res.ok) return { created: true, alreadyInProcess: false };
   const text = await res.text();
@@ -89,7 +87,7 @@ export async function ensureDnsZone(opts: {
 
   console.info(`\n  ${warningMark} ${pc.bold(`DNS zone ${domain} is pending ownership verification.`)}`);
   console.info('  Scaleway has sent an email with the exact records to add at your current DNS provider');
-  console.info(`  (TXT ${pc.cyan(`${CHALLENGE_NAME}.${domain}`)} + apex NS delegation). Follow that email,`);
+  console.info(`  (TXT ${pc.cyan(`${challengeName}.${domain}`)} + apex NS delegation). Follow that email,`);
   console.info(`  or manage the domain at ${pc.underline('https://console.scaleway.com/domains/external')}.`);
   console.info('  A second email will arrive once ownership is validated: then recheck below.\n');
 
@@ -111,19 +109,4 @@ export async function ensureDnsZone(opts: {
       console.info(`     ${pc.dim(JSON.stringify(freshZones, null, 2))}`);
     }
   }
-}
-
-// Standalone CLI usage: SCW_SECRET_KEY + SCW_DEFAULT_PROJECT_ID + DOMAIN required.
-if (isMain(import.meta.url)) {
-  const secretKey = process.env.SCW_SECRET_KEY;
-  const projectId = process.env.SCW_DEFAULT_PROJECT_ID;
-  const domain = process.env.DOMAIN ?? process.argv[2];
-  if (!secretKey || !projectId || !domain) {
-    console.error('SCW_SECRET_KEY, SCW_DEFAULT_PROJECT_ID and DOMAIN (env or argv[2]) required');
-    process.exit(1);
-  }
-  ensureDnsZone({ secretKey, projectId, domain }).catch((err) => {
-    console.error(errorMessage(err));
-    process.exit(1);
-  });
 }

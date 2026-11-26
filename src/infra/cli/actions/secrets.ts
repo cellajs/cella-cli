@@ -1,51 +1,40 @@
 import { blockedValues } from '../../lib/deploy/failure-class';
-import { bucketRunStore } from '../../lib/deploy/run-store';
 import { type ManagedKeyDefinition, managedKeys } from '../../lib/managed-keys';
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../../lib/runtime-secrets';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
-import { createSecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
+import { stateKeyOf } from '../../lib/scaleway/s3-client';
+import { createSecretManagerClient, type SecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
 import { controlActor, makeControlClient, recordRotation } from '../../lib/stack/control-store';
-import { checkMark, hasPerson, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
-import { isEnvFileDeliverable } from '../../lib/utils/env-file';
+import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
+import { isEnvFileDeliverable } from '../../lib/utils/compose-env-value';
 import { errorMessage } from '../../lib/utils/errors';
+import { provisionManagedKey } from '../../tasks/provision-managed-key';
+import { backChoice, type MenuChoice, rule } from '../menu';
+import { confirm, PromptBack } from '../prompts/back';
+import { maskedSecret } from '../prompts/masked-secret';
+import { escaped, type MenuSelectOptions, menuSelect } from '../prompts/menu-select';
+import { leaveRow } from '../prompts/what-now';
+import { acquireStackLockOrEnd, asksPerson, confirmOrDefault, endsAction, type InfraContext, pointTo, stackNameFor } from '../shared';
+import { bootDiagOn } from './deploy-follow';
 import {
   formatSecretsTable,
   type RuntimeContainer,
   readContainers,
-  type SecretManagerClient,
   type SecretRow,
   secretRow,
   secretsTable,
   setValue,
-} from '../../tasks/manage-runtime-secrets';
-import { provisionManagedKey } from '../../tasks/provision-managed-key';
-import { BACK, type MenuChoice, RULE } from '../menu';
-import { isPromptAbort } from '../prompts/abort';
-import { confirm, PromptBack } from '../prompts/back';
-import { maskedSecret } from '../prompts/masked-secret';
-import { ESCAPED, type MenuSelectOptions, menuSelect } from '../prompts/menu-select';
-import { leaveRow } from '../prompts/what-now';
-import {
-  ActionEnded,
-  acquireStackLockOrExit,
-  autoAcceptDefaults,
-  confirmOrDefault,
-  endsAction,
-  type InfraContext,
-  pointTo,
-  stackNameFor,
-} from '../shared';
+} from './manage-runtime-secrets';
 import { acquireIdentityKey, acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { type OwnerKey, printRevokeReminder } from './owner-key';
 import { lastSecretsRotation, runRotateSecrets } from './rotate-secrets';
 import { redeployAfterRotation, startBlockedTarget } from './start-deploy';
 
-/** The prompts of the pick: Esc in a select steps back and resolves to {@link ESCAPED}. */
+/** The prompts of the pick: Esc in a select steps back and resolves to {@link escaped}. */
 export interface SecretsPrompts {
-  select<T extends string>(options: MenuSelectOptions<T>): Promise<T | typeof ESCAPED>;
+  select<T extends string>(options: MenuSelectOptions<T>): Promise<T | typeof escaped>;
   password(options: { message: string; validate?: (value: string) => true | string }): Promise<string>;
   confirm(options: { message: string; default?: boolean }): Promise<boolean>;
 }
@@ -83,8 +72,8 @@ interface MenuContext extends SecretsMenuOptions {
   writes: number;
 }
 
-const INFRA = 'made-by-infra';
-const SET_ALL = 'set-all';
+const infra = 'made-by-infra';
+const setAll = 'set-all';
 
 const takesEffect = 'New values reach the machines at the next deploy.';
 
@@ -157,12 +146,7 @@ async function handleSetAll(ctx: MenuContext, definitions: readonly RuntimeSecre
   }
 }
 
-/**
- * Mint (or rotate) a managed key: a scoped Scaleway IAM key cella creates and
- * writes into its runtime secrets without requiring an operator-created key.
- * Needs an IAMManager-capable caller key. The heavy lifting (verify containers
- * exist → mint → write versions) lives in `provision-managed-key.ts`.
- */
+/** Mint (or rotate) a managed key, a scoped Scaleway IAM key, with an Owner API key and write it into the runtime secrets it fills. */
 async function handleMint(ctx: MenuContext, key: ManagedKeyDefinition): Promise<void> {
   const confirmed = await ctx.prompts.confirm({
     message: `${warningMark} Mint a new key for ${key.label}? It takes your Owner key.`,
@@ -188,12 +172,12 @@ async function handleMint(ctx: MenuContext, key: ManagedKeyDefinition): Promise<
     ctx.log(`${checkMark} Minted ${key.label}`);
   } catch (error) {
     // Esc or Ctrl-C at the Owner key prompt leaves the mint as at any other prompt.
-    if (error instanceof PromptBack || error instanceof ActionEnded || isPromptAbort(error)) throw error;
+    if (endsAction(error)) throw error;
     ctx.log(`${warningMark} Mint failed: ${errorMessage(error)}`);
   }
 }
 
-type ValueAction = 'set' | 'delete' | 'mint' | typeof BACK;
+type ValueAction = 'set' | 'delete' | 'mint' | typeof backChoice;
 
 /** The pick one value opens: set it, delete it, or mint the managed key written into it. */
 async function handleValue(ctx: MenuContext, secret: RuntimeSecretDefinition, container: SecretManagerSecret | undefined): Promise<void> {
@@ -206,14 +190,14 @@ async function handleValue(ctx: MenuContext, secret: RuntimeSecretDefinition, co
           {
             name: 'Mint key',
             value: 'mint' as const,
-            description: `Mint a scoped Scaleway key (${ctx.slug}-${mintKey.suffix}) and write it here: it takes an Owner API key.`,
+            description: `Mint a scoped Scaleway key (${ctx.slug}-${ctx.mode}-${mintKey.suffix}) and write it here: it takes an Owner API key.`,
           },
         ]
       : []),
   ];
   const action = await ctx.prompts.select<ValueAction>({
     message: secret.envVar,
-    items: [...actions, RULE, { name: '← Back', value: BACK, description: 'Return to the list.' }],
+    items: [...actions, rule, { name: '← Back', value: backChoice, description: 'Return to the list.' }],
   });
   if (action === 'set') return handleSet(ctx, secret, container);
   if (action === 'delete') return handleDelete(ctx, secret, container);
@@ -234,18 +218,18 @@ async function handleGroup(ctx: MenuContext, row: SecretRow, containers: Readonl
           value: definition.id,
           description: definition.description,
         })),
-        RULE,
+        rule,
         {
           name: names.length === 2 ? 'Set both' : `Set all ${names.length}`,
-          value: SET_ALL,
+          value: setAll,
           description: `Asks ${names.slice(0, -1).join(', ')}, then ${names.at(-1)}.`,
         },
-        { name: '← Back', value: BACK, description: 'Return to the table.' },
+        { name: '← Back', value: backChoice, description: 'Return to the table.' },
       ],
       default: picked,
     });
-    if (choice === ESCAPED || choice === BACK) return;
-    if (choice === SET_ALL) return handleSetAll(ctx, row.definitions, containers);
+    if (choice === escaped || choice === backChoice) return;
+    if (choice === setAll) return handleSetAll(ctx, row.definitions, containers);
     picked = choice;
     const secret = row.definitions.find((definition) => definition.id === choice);
     if (!secret) throw new Error(`secrets: prompt returned unknown secret id '${choice}'`);
@@ -303,20 +287,20 @@ export async function secretsMenu(options: SecretsMenuOptions): Promise<{ change
       message: '',
       items: [
         ...rows.map((row, index) => ({ name: lines[index] ?? row.label, value: row.label, description: rowDescription(row) })),
-        RULE,
+        rule,
         {
           name: lines.at(-1) ?? infraLabel,
-          value: INFRA,
+          value: infra,
           description: 'Database passwords and generated keys. Enter lists them and rotates them all.',
         },
-        RULE,
-        { name: leave.label, value: BACK, description: leave.description },
+        rule,
+        { name: leave.label, value: backChoice, description: leave.description },
       ],
       default: picked,
     });
-    if (choice === ESCAPED || choice === BACK) return { changed: ctx.writes > 0, rotated: false };
+    if (choice === escaped || choice === backChoice) return { changed: ctx.writes > 0, rotated: false };
     picked = choice;
-    if (choice === INFRA) {
+    if (choice === infra) {
       const rotated = await options.rotate().catch((error: unknown) => {
         stepBack(error);
         return false;
@@ -336,9 +320,7 @@ export async function secretsMenu(options: SecretsMenuOptions): Promise<{ change
 
 /** The newest deploy when it ended blocked on values no secret holds, read on the observer key: its target and those env vars. */
 async function blockedOnValues(context: InfraContext, observer: KeyPair): Promise<{ target: string; values: string[] } | undefined> {
-  const key = stateKeyOf(observer, context.projectId);
-  const s3 = await makeS3Client(context.appConfig.s3.region, key.accessKey, key.secretKey);
-  const store = bucketRunStore(s3, deriveInfra(context.appConfig).naming.bootDiagBucket);
+  const { store } = await bootDiagOn(context, observer);
   const [run] = await store.listRuns(1);
   const record = run ? (await store.readRecord(run))?.newest : undefined;
   const values = record?.outcome === 'blocked' ? blockedValues(record.error) : [];
@@ -353,7 +335,7 @@ async function recordValuesChange(context: InfraContext, operator: OperatorKey):
   const { appConfig } = context;
   const stack = stackNameFor(context);
   const state = stateKeyOf(operator, context.projectId);
-  const lock = await acquireStackLockOrExit({ appConfig, ...state, stack, operation: 'record-values' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...state, stack, operation: 'record-values' });
   try {
     const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
     const rotations = await recordRotation({ s3, bucket: deriveInfra(appConfig).naming.bootDiagBucket, stack, kind: 'values', by: controlActor() });
@@ -366,7 +348,7 @@ async function recordValuesChange(context: InfraContext, operator: OperatorKey):
 /** Run a deploy that ended blocked, on a missing secret among others, once more: true when it started. */
 async function restartBlocked(context: InfraContext, operator: OperatorKey): Promise<boolean> {
   return startBlockedTarget(context, operator).catch((error) => {
-    console.warn(`${warningMark} Could not start the blocked deploy again (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the blocked deploy again (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
     return false;
   });
 }
@@ -388,7 +370,7 @@ export async function offerDeploy(context: InfraContext, operator: OperatorKey |
   if (!(await confirmOrDefault({ message: 'Deploy the live release again, so the machines get the new values?', default: false }))) return;
   await redeployAfterRotation(context, key).catch((error) => {
     if (endsAction(error)) throw error;
-    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
   });
 }
 
@@ -415,7 +397,7 @@ export async function runSecrets(context: InfraContext): Promise<void> {
       )
     : undefined;
   let identityKey: OwnerKey | undefined;
-  const pick = hasPerson() && !autoAcceptDefaults();
+  const pick = asksPerson();
 
   const outcome = await secretsMenu({
     readKey: reader.secretKey,

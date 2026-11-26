@@ -2,10 +2,7 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { ownProjectId, removeModeProjectId, sharedFileProjectId } from '../utils/env-files';
 import { infraDir } from '../utils/paths';
-import type { Environment } from './bootstrap-stack-state';
-
-/** Every environment a stack can be set up for. */
-export const environments: readonly Environment[] = ['production', 'staging'];
+import { type Environment, environments } from './environment';
 
 /** Where a mode's project id comes from: its stack file, an env file that still names it, the shell, or nowhere. */
 export type ProjectIdSource = 'stack-file' | 'env-file' | 'shell' | 'none';

@@ -73,43 +73,30 @@ function usedClassNames(root: string, files: string[]): Set<string> {
   for (const file of files.filter(isFrontendScript)) {
     const source = readFileSync(join(root, file), 'utf8');
     // Arbitrary selectors (`group-[.x]`, `[&_.x]`); a bracket after a name, `)`, `]` or `?.` indexes code.
-    for (const [chunk] of source.matchAll(/(?<![\w$)\]?.])\[[^\s'"`]*/g))
-      addMatches(names, chunk, /(?<![a-zA-Z0-9$.)\]?!])\.(-?[_a-zA-Z][\w-]*)/g);
+    for (const [chunk] of source.matchAll(/(?<![\w$)\]?.])\[[^\s'"`]*/g)) addMatches(names, chunk, /(?<![a-zA-Z0-9$.)\]?!])\.(-?[_a-zA-Z][\w-]*)/g);
     // Selector strings for querySelector, closest and the like.
     for (const [, , text] of source.matchAll(/(['"`])((?:\\.|(?!\1)[^\\\n])*)\1/g)) {
       if (/^[\w\s.#>+~,:()[\]="*-]+$/.test(text)) addMatches(names, text, /(?:^|[\s>+~,(])\.(-?[_a-zA-Z][\w-]*)/g);
     }
-    for (const [, args] of source.matchAll(
-      /(?:classList\.(?:add|contains|remove|replace|toggle)|getElementsByClassName)\(([^)]*)\)/g,
-    )) {
-      for (const [, text] of args.matchAll(/['"`]([^'"`]+)['"`]/g))
-        for (const name of text.split(/\s+/)) names.add(name);
+    for (const [, args] of source.matchAll(/(?:classList\.(?:add|contains|remove|replace|toggle)|getElementsByClassName)\(([^)]*)\)/g)) {
+      for (const [, text] of args.matchAll(/['"`]([^'"`]+)['"`]/g)) for (const name of text.split(/\s+/)) names.add(name);
     }
   }
   return names;
 }
 
 /** The design system from the frontend stylesheet that imports Tailwind; undefined in a repo without one. */
-export async function tailwindContext(
-  root: string,
-  files: string[],
-  markerClasses: string[],
-): Promise<TailwindContext | undefined> {
-  const entry = files
-    .filter(isFrontendStylesheet)
-    .find((file) => tailwindImport.test(readFileSync(join(root, file), 'utf8')));
+export async function tailwindContext(root: string, files: string[], markerClasses: string[]): Promise<TailwindContext | undefined> {
+  const entry = files.filter(isFrontendStylesheet).find((file) => tailwindImport.test(readFileSync(join(root, file), 'utf8')));
   if (!entry) return undefined;
   const path = join(root, entry);
   const knownClasses = usedClassNames(root, files);
   for (const name of markerClasses) knownClasses.add(name);
   const context: TailwindContext = { entry, knownClasses, compiles: new Map() };
   try {
-    context.designSystem = await (await loadTailwindNode(root)).__unstable__loadDesignSystem(
-      readFileSync(path, 'utf8'),
-      {
-        base: dirname(path),
-      },
-    );
+    context.designSystem = await (await loadTailwindNode(root)).__unstable__loadDesignSystem(readFileSync(path, 'utf8'), {
+      base: dirname(path),
+    });
   } catch (error) {
     context.loadError = error instanceof Error ? error.message : String(error);
   }
@@ -145,9 +132,7 @@ export const tailwindClassRule: Rule = {
     if (!tailwind) return [];
     const { designSystem, loadError } = tailwind;
     if (!designSystem)
-      return file === tailwind.entry
-        ? [{ file, rule: 'tailwind-class', message: `Tailwind cannot load this stylesheet: ${loadError}` }]
-        : [];
+      return file === tailwind.entry ? [{ file, rule: 'tailwind-class', message: `Tailwind cannot load this stylesheet: ${loadError}` }] : [];
     if (!isClassSource(file)) return [];
     const found = classTexts(parseSource(file, source)).flatMap(classTokens);
     compileCandidates(

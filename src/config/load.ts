@@ -1,7 +1,3 @@
-/**
- * Config loading utilities for the cella CLI.
- */
-
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';
@@ -103,19 +99,14 @@ function fromShape07(value: unknown, configPath: string): unknown {
   }
 
   const { releaseBase, mergePackageJson, ...kept } = settings;
-  const moved = [
-    ...Object.keys(kept).map((key) => `settings.${key}`),
-    ...Object.keys(overrides).map((key) => `overrides.${key}`),
-  ];
+  const moved = [...Object.keys(kept).map((key) => `settings.${key}`), ...Object.keys(overrides).map((key) => `overrides.${key}`)];
   const changes = [
     `move ${moved.join(', ')} to the top level`,
     ...(releaseBase === undefined ? [] : ['rename settings.releaseBase to trunk']),
     ...(mergePackageJson === undefined ? [] : ['drop settings.mergePackageJson (false is packageJsonKeys: false)']),
   ];
   if (!warnedPaths.has(configPath)) {
-    console.warn(
-      `${warningMark} ${configFile} has the 0.7 shape, which the CLI reads until 1.0: ${changes.join(', ')}.`,
-    );
+    console.warn(`${warningMark} ${configFile} has the 0.7 shape, which the CLI reads until 1.0: ${changes.join(', ')}.`);
   }
   warnedPaths.add(configPath);
   return {

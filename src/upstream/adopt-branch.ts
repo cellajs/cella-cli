@@ -1,16 +1,3 @@
-/**
- * Shared contribution engine.
- *
- * Cella (upstream) pulls a fork's branch and detects which files the fork
- * changed, created, or deleted relative to cella's base branch. It then builds
- * a clean local `contrib/<fork>` branch (the base branch plus only the fork's
- * file overlays) so the changes can be reviewed and adopted without a
- * working-tree checkout.
- *
- * The fork's blobs are read directly from the fetched ref (already in cella's
- * object store), never from the filesystem.
- */
-
 import { rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import type { CellaCliConfig } from '../config/types';
@@ -84,11 +71,7 @@ export async function detectContributableFiles(
  * Read mode and blob hash for a file at a ref.
  * Returns null if the path is not a regular blob at the ref.
  */
-async function readBlobInfo(
-  repoPath: string,
-  ref: string,
-  filePath: string,
-): Promise<{ mode: string; hash: string } | null> {
+async function readBlobInfo(repoPath: string, ref: string, filePath: string): Promise<{ mode: string; hash: string } | null> {
   const line = await git(['ls-tree', ref, '--', filePath], repoPath, { ignoreErrors: true });
   if (!line) return null;
   // Format: "<mode> <type> <hash>\t<path>"
@@ -102,10 +85,12 @@ async function readBlobInfo(
 }
 
 /**
- * Build a clean local `contrib/<fork>` branch from a fork's contributed files.
+ * Build a clean local `contrib/<fork>` branch from a fork's contributed files, where the changes
+ * can be reviewed and adopted without a working-tree checkout.
  *
  * The branch is created on top of `baseRef` with only the fork's file overlays
- * applied via a temporary index; the working tree is never touched.
+ * applied via a temporary index; the working tree is never touched. Their blobs are
+ * read from the fetched ref (already in cella's object store), never from the filesystem.
  *
  * @returns The branch name and number of files applied.
  */

@@ -2,10 +2,8 @@ import type { EngineConfig } from './engine-config';
 import { enabledServices } from './services';
 import { stateBucket } from './stack/control-store';
 
-type Cfg = EngineConfig;
-
 /** Whether the config names a DNS zone to deploy under; a local mode leaves it empty. */
-export const hasDomain = (appConfig: Pick<Cfg, 'domain'>): boolean => appConfig.domain !== '';
+export const hasDomain = (appConfig: Pick<EngineConfig, 'domain'>): boolean => appConfig.domain !== '';
 
 /**
  * The refusal of an app host at the zone apex: the load balancer serves the app on a record under the zone, so the CLI, `deriveInfra`
@@ -25,7 +23,7 @@ export function redirectedApexOrigin(appHost: string, zone: string): string | un
 }
 
 /** {@link apexHostIssue} for the frontend's public URL; undefined without a domain or an enabled frontend. */
-export function frontendApexIssue(appConfig: Cfg): string | undefined {
+export function frontendApexIssue(appConfig: EngineConfig): string | undefined {
   const frontend = appConfig.services.frontend;
   if (!hasDomain(appConfig) || !frontend?.publicUrl || frontend.enabled === false) return undefined;
   return apexHostIssue(new URL(frontend.publicUrl).hostname, appConfig.domain);
@@ -35,7 +33,7 @@ export function frontendApexIssue(appConfig: Cfg): string | undefined {
  * The refusal of an enabled routed service whose URL is on another host than the default route's: the load balancer serves every route
  * on the app host under its path prefix, with one record and one certificate. Undefined without a domain.
  */
-export function routedHostIssue(appConfig: Cfg): string | undefined {
+export function routedHostIssue(appConfig: EngineConfig): string | undefined {
   if (!hasDomain(appConfig)) return undefined;
   const urls = appConfig.services;
   const routed = enabledServices(urls).flatMap((service) => {
@@ -52,7 +50,7 @@ export function routedHostIssue(appConfig: Cfg): string | undefined {
 }
 
 /** Pure, Pulumi-free derivations from appConfig: account-global resource names plus zone, tags and `hasDomain`. Per-service endpoints live in `lib/services.ts`. */
-export function deriveInfra(appConfig: Cfg) {
+export function deriveInfra(appConfig: EngineConfig) {
   const prefix = appConfig.slug;
   const region = appConfig.s3.region;
 

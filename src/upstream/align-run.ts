@@ -1,10 +1,3 @@
-/**
- * `align run <id>`: an alignment's codemod, run from an extracted copy inside the app, followed by
- * the restore that gives each file identical to upstream before the run its upstream content back.
- * The restore runs after a failed codemod too, since one that stopped halfway may have rewritten
- * files already.
- */
-
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -21,9 +14,7 @@ const restoredListMax = 20;
 
 /** Write an alignment's folder under {@link extractDir}, byte for byte; returns the folder, relative to the app. */
 async function writeAlignmentFolder(repoRoot: string, ref: string, id: string): Promise<string> {
-  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot))
-    .split('\n')
-    .filter(Boolean);
+  const files = (await git(['ls-tree', '-r', '--name-only', `${ref}:${alignmentsDir}/${id}`], repoRoot)).split('\n').filter(Boolean);
   const target = join(extractDir, id);
   for (const file of files) {
     // Byte for byte: the git helper trims its output.
@@ -41,7 +32,9 @@ async function writeAlignmentFolder(repoRoot: string, ref: string, id: string): 
 /**
  * Run the alignment's codemod with `tsx` from the app root, `codemodArgs` after its script (an
  * inventory over its roots when empty), then restore the files it changed that were identical to
- * `ref`, the upstream commit the app last upgraded to.
+ * `ref`, the upstream commit the app last upgraded to. This is `align run <id>`: the codemod runs from
+ * a copy extracted inside the app. The restore runs after a failed codemod too: one that stopped
+ * halfway may have rewritten files already.
  * @returns 1 when the codemod failed
  * @throws for an unknown alignment and for one without a codemod script
  */
@@ -49,9 +42,7 @@ export async function runAlignment(repoRoot: string, ref: string, id: string, co
   const alignment = await readAlignment(repoRoot, ref, id);
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)}`);
   if (!alignment.codemod) {
-    throw new Error(
-      `alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`,
-    );
+    throw new Error(`alignment '${id}' ships no codemod script: its steps are manual, read them with \`pnpm cella align show ${id}\`.`);
   }
   const script = join(await writeAlignmentFolder(repoRoot, ref, id), alignment.codemod);
   const args = codemodArgs.length > 0 ? codemodArgs : ['inventory', ...alignment.roots];

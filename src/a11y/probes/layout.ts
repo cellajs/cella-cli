@@ -44,8 +44,7 @@ function horizontalOverflow(page: Page) {
       if (cut.size >= 4) break;
       if (el.tagName.toLowerCase() === 'svg' && el.parentElement?.closest('svg')) continue;
       if (outside(el.getBoundingClientRect()) && !reachable(el)) {
-        const name =
-          el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? el.textContent?.trim().slice(0, 30) ?? '';
+        const name = el.getAttribute('aria-label') ?? el.getAttribute('alt') ?? el.textContent?.trim().slice(0, 30) ?? '';
         cut.add(`${el.tagName.toLowerCase()}${name ? ` "${name}"` : ''}`);
       }
     }

@@ -13,7 +13,7 @@ const failed = (over: Partial<RunRecord>): RunRecord => ({
   ...over,
 });
 
-const SERVERS = 'https://api.scaleway.com/instance/v1/zones/fr-par-2/servers';
+const servers = 'https://api.scaleway.com/instance/v1/zones/fr-par-2/servers';
 
 // One record per rule, in the order the rules decide: a record that two rules match proves the earlier one wins.
 const cases: [string, RunRecord, Pick<FailureClass, 'side' | 'retryLikely'>, string][] = [
@@ -31,7 +31,7 @@ const cases: [string, RunRecord, Pick<FailureClass, 'side' | 'retryLikely'>, str
   ],
   [
     "a 5xx of Scaleway's API, though a machine left no account",
-    failed({ failedStep: 'Switch machines', error: `Scaleway POST ${SERVERS} → 503: {"message":"unavailable"}`, boot: [{ service: 'backend' }] }),
+    failed({ failedStep: 'Switch machines', error: `Scaleway POST ${servers} → 503: {"message":"unavailable"}`, boot: [{ service: 'backend' }] }),
     { side: 'platform', retryLikely: true },
     `Scaleway's API failed (503) during "Switch machines"`,
   ],
@@ -39,14 +39,14 @@ const cases: [string, RunRecord, Pick<FailureClass, 'side' | 'retryLikely'>, str
     'a quota of the account reached, which no retry clears',
     failed({
       failedStep: 'Switch machines',
-      error: `Scaleway POST ${SERVERS} → 403: {"type":"quotas_exceeded","message":"Quota exceeded for this resource"}`,
+      error: `Scaleway POST ${servers} → 403: {"type":"quotas_exceeded","message":"Quota exceeded for this resource"}`,
     }),
     { side: 'platform', retryLikely: false },
     'quota for that machine type is reached',
   ],
   [
     'a machine type out of stock',
-    failed({ failedStep: 'Switch machines', error: `Scaleway POST ${SERVERS} → 412: {"type":"precondition_failed","message":"Out of stock"}` }),
+    failed({ failedStep: 'Switch machines', error: `Scaleway POST ${servers} → 412: {"type":"precondition_failed","message":"Out of stock"}` }),
     { side: 'platform', retryLikely: true },
     '("Out of stock")',
   ],

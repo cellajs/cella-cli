@@ -1,4 +1,4 @@
-import { ACCOUNT_BASE } from './iam-client';
+import { accountBase } from './iam-client';
 import { scwFetch } from './scw-fetch';
 
 /** A Scaleway project as returned by the Account API. */
@@ -13,14 +13,14 @@ export async function listProjects(secretKey: string, organizationId: string): P
   const { projects } = await scwFetch<{ projects: ScwProject[] }>(
     { secretKey },
     'GET',
-    `${ACCOUNT_BASE}/projects?organization_id=${organizationId}&page_size=100`,
+    `${accountBase}/projects?organization_id=${organizationId}&page_size=100`,
   );
   return projects;
 }
 
 /** Create a project in the organization and return it. */
 export async function createProject(secretKey: string, opts: { organizationId: string; name: string; description?: string }): Promise<ScwProject> {
-  return scwFetch<ScwProject>({ secretKey }, 'POST', `${ACCOUNT_BASE}/projects`, {
+  return scwFetch<ScwProject>({ secretKey }, 'POST', `${accountBase}/projects`, {
     name: opts.name,
     organization_id: opts.organizationId,
     ...(opts.description ? { description: opts.description } : {}),

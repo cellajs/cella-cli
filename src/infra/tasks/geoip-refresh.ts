@@ -1,15 +1,12 @@
 import { gunzipSync } from 'node:zlib';
 import { printable } from '../../utils/terminal-text';
-import type { KeyPair } from '../lib/scaleway/operator-identity';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
-import { getFlag, getNumFlag } from '../lib/utils/args';
-import { ExitCodeError, errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
+import { errorMessage } from '../lib/utils/errors';
 
 export type GeoipKind = 'country' | 'asn';
-export const GEOIP_KINDS: readonly GeoipKind[] = ['country', 'asn'];
-export const DEFAULT_PREFIX = 'geoip';
+export const geoipKinds: readonly GeoipKind[] = ['country', 'asn'];
+const defaultPrefix = 'geoip';
 
 /** What the prefix holds: the backend never reads it, operators and the staleness gate do. */
 export interface GeoipManifest {
@@ -61,7 +58,7 @@ export const monthOf = (date: Date, shiftMonths = 0): string => {
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
 };
 
-const MMDB_METADATA_MARKER = Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1');
+const mmdbMetadataMarker = Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1');
 
 /**
  * A downloaded archive is trusted only when it gunzips and the payload ends in the MMDB metadata section; anything
@@ -76,7 +73,7 @@ export const verifyMmdbArchive = (archive: Uint8Array): { ok: true } | { ok: fal
   }
   // The marker sits at most 128 KiB from the end per the MMDB spec.
   const tail = payload.subarray(Math.max(0, payload.length - 128 * 1024));
-  if (!tail.includes(MMDB_METADATA_MARKER)) return { ok: false, reason: 'no MMDB metadata section' };
+  if (!tail.includes(mmdbMetadataMarker)) return { ok: false, reason: 'no MMDB metadata section' };
   return { ok: true };
 };
 
@@ -141,10 +138,10 @@ export async function sequenceGeoipRefresh(plan: GeoipRefreshPlan): Promise<Geoi
   return { published: true, manifest };
 }
 
-/** Live effects: DB-IP over HTTPS, the bucket over the S3 API with `key` when given, else the deploy key in the environment. */
-export async function createLiveEffects(opts: { bucket: string; region: string; prefix: string; key?: KeyPair }) {
+/** Live effects: DB-IP over HTTPS, the bucket over the S3 API with the deploy key in the environment. */
+export async function liveEffects(opts: { bucket: string; region: string; prefix: string }) {
   const { GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3');
-  const { accessKey, secretKey } = opts.key ?? deployS3Key();
+  const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
   return {
     fetchDatabase: async (url: string) => {
@@ -181,26 +178,28 @@ export async function createLiveEffects(opts: { bucket: string; region: string; 
   };
 }
 
-/**
- * CLI: `tsx infra/tasks/geoip-refresh.ts --bucket <name> --region <region> [--prefix geoip] [--month YYYY-MM]
- * [--force] [--max-age-days N]`. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket.
- */
-export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair } = {}): Promise<void> {
-  const bucket = getFlag(argv, '--bucket');
-  const region = getFlag(argv, '--region');
-  if (!bucket || !region) throw new ExitCodeError('geoip-refresh requires --bucket and --region', 2);
-  const prefix = getFlag(argv, '--prefix') ?? DEFAULT_PREFIX;
-  const maxAgeRaw = getFlag(argv, '--max-age-days');
-  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
-  const effects = await createLiveEffects({ bucket, region, prefix, key: opts.key });
+/** What the deploy hands its GeoIP step. */
+export interface GeoipRefreshStep {
+  bucket: string;
+  region: string;
+  /** A month's data published fewer days ago than this is left as is. */
+  maxAgeDays: number;
+  /** The time of the last key rotation, absent before the first. */
+  keysRotatedAt?: string;
+}
+
+/** The deploy's GeoIP step, this month's data under the default prefix. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket. */
+export async function main({ bucket, region, maxAgeDays, keysRotatedAt }: GeoipRefreshStep): Promise<void> {
+  const prefix = defaultPrefix;
+  const effects = await liveEffects({ bucket, region, prefix });
   const result = await sequenceGeoipRefresh({
     bucket,
     prefix,
-    month: getFlag(argv, '--month') ?? monthOf(new Date()),
-    force: argv.includes('--force'),
-    maxAgeDays: maxAgeRaw === undefined ? undefined : getNumFlag(argv, '--max-age-days', 0),
+    month: monthOf(new Date()),
+    force: false,
+    maxAgeDays,
     keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
-    kinds: GEOIP_KINDS,
+    kinds: geoipKinds,
     ...effects,
     now: () => new Date(),
     log: (message) => process.stdout.write(`  ${message}\n`),
@@ -211,5 +210,3 @@ export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair }
       : `✓ GeoIP data left as is (${result.skipped}: ${printable(result.manifest.month)}, ${printable(result.manifest.publishedAt)})\n`,
   );
 }
-
-runIfMain(import.meta.url, main);

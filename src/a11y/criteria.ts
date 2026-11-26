@@ -103,29 +103,20 @@ export const manualSteps: Record<string, string> = {
   '1.1.1':
     'Every meaningful image, icon button and chart has a text alternative with the same purpose; decorative images are hidden from screen readers.',
   '1.2.1': 'Decide whether the app publishes media of its own, or only plays files users upload.',
-  '1.3.1':
-    'With a screen reader, headings, lists, tables, form labels and groups are announced as what they look like.',
+  '1.3.1': 'With a screen reader, headings, lists, tables, form labels and groups are announced as what they look like.',
   '1.3.2': 'Reading each page top to bottom with a screen reader gives a sensible order that matches the visual one.',
-  '1.3.3':
-    'No instruction relies only on shape, color, size, position or sound ("press the round button on the right").',
-  '1.4.1':
-    'Color is never the only signal: links in text, required fields, errors, status badges and charts also differ in text or shape.',
+  '1.3.3': 'No instruction relies only on shape, color, size, position or sound ("press the round button on the right").',
+  '1.4.1': 'Color is never the only signal: links in text, required fields, errors, status badges and charts also differ in text or shape.',
   '1.4.2': 'Nothing plays sound by itself.',
-  '1.4.3':
-    'Where the audit measured nothing, such as field values and placeholders, check contrast by eye: 4.5:1, or 3:1 for large text.',
+  '1.4.3': 'Where the audit measured nothing, such as field values and placeholders, check contrast by eye: 4.5:1, or 3:1 for large text.',
   '1.4.5': 'No text is shown as an image, except logos.',
-  '1.4.11':
-    'The audit measures form control edges. By hand: icons that carry meaning, focus indicators and chart parts reach 3:1 in both modes.',
-  '1.4.13':
-    'Tooltips, menus and popovers that appear on hover or focus can be dismissed with Escape, hovered, and stay until dismissed.',
-  '2.1.1':
-    'Every function works with the keyboard alone: menus, dialogs, the data grid, the editor, uploads, drag and drop, date pickers.',
+  '1.4.11': 'The audit measures form control edges. By hand: icons that carry meaning, focus indicators and chart parts reach 3:1 in both modes.',
+  '1.4.13': 'Tooltips, menus and popovers that appear on hover or focus can be dismissed with Escape, hovered, and stay until dismissed.',
+  '2.1.1': 'Every function works with the keyboard alone: menus, dialogs, the data grid, the editor, uploads, drag and drop, date pickers.',
   '2.2.1':
     'No time limit makes a user lose work or information they need: the session lifetime, sign-in challenges (passkey, email link, step-up) and toasts that close by themselves.',
-  '2.2.2':
-    'Animations that start by themselves and run longer than 5 seconds beside other content can be paused, or stop with reduced motion.',
-  '2.4.3':
-    'The Tab order follows the visual and logical order; focus moves into a dialog when it opens and back to its trigger when it closes.',
+  '2.2.2': 'Animations that start by themselves and run longer than 5 seconds beside other content can be paused, or stop with reduced motion.',
+  '2.4.3': 'The Tab order follows the visual and logical order; focus moves into a dialog when it opens and back to its trigger when it closes.',
   '2.4.4': 'Each link says where it goes, from its text or its sentence, list item or table cell.',
   '2.4.5': 'Each page can be reached in at least two ways: navigation, search, links.',
   '2.4.6': 'Headings and labels describe their topic or purpose.',
@@ -143,10 +134,8 @@ export const manualSteps: Record<string, string> = {
   '3.3.3': 'Error messages say how to fix the input when that is known.',
   '3.3.4': 'Irreversible actions (delete, leave, remove members) can be confirmed, undone or reviewed first.',
   '3.3.7': 'Multi-step flows never ask again for information given earlier in the same process.',
-  '4.1.2':
-    'With a screen reader, custom controls (menus, tabs, toggles, the grid, the editor) announce their name, role, state and value.',
-  '4.1.3':
-    'With a screen reader, status messages (toasts, result counts, saving states) are announced without moving focus.',
+  '4.1.2': 'With a screen reader, custom controls (menus, tabs, toggles, the grid, the editor) announce their name, role, state and value.',
+  '4.1.3': 'With a screen reader, status messages (toasts, result counts, saving states) are announced without moving focus.',
 };
 
 /**

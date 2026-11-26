@@ -1,9 +1,8 @@
 import { spawnSync } from 'node:child_process';
-import { resolve } from 'node:path';
 import { actionLabel } from '../../lib/operator-actions';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { infraDir } from '../../lib/utils/paths';
+import { repoRoot } from '../../lib/utils/paths';
 import { Interrupted, shieldInterrupt } from '../prompts/abort';
 import { confirm } from '../prompts/back';
 import { endAction, endsAction, type InfraContext } from '../shared';
@@ -56,7 +55,7 @@ export async function runSeedDatabase(context: InfraContext): Promise<void> {
     // A Ctrl-C stops the seed child alone, so the finally below still closes the endpoint.
     const result = await shieldInterrupt(() =>
       spawnSync('pnpm', ['--filter', 'backend', 'seed'], {
-        cwd: resolve(infraDir, '..'),
+        cwd: repoRoot,
         stdio: 'inherit',
         env: { ...process.env, DATABASE_URL: dsn, DATABASE_ADMIN_URL: dsn, ...(dbCa ? { DATABASE_SSL_CA: dbCa } : {}) },
       }),

@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { z } from 'zod';
-import { setEnv } from './env';
 
 /** The app's local database helpers (`shared/src/local-database.ts`), as the develop commands call them. */
 interface LocalDatabases {
@@ -19,14 +18,10 @@ interface LocalDatabases {
  * @param mode the app config's mode. The config reads it once, at its first import in this process, and the dev port
  * offset applies in development mode only.
  */
-async function importFromApp(
-  repoRoot: string,
-  file: string,
-  mode: 'development' | 'production' = 'development',
-): Promise<Record<string, unknown>> {
+async function importFromApp(repoRoot: string, file: string, mode: 'development' | 'production' = 'development'): Promise<Record<string, unknown>> {
   const path = join(repoRoot, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
-  setEnv('NODE_ENV', mode);
+  process.env.NODE_ENV = mode;
   return import(pathToFileURL(path).href);
 }
 
@@ -35,14 +30,9 @@ async function importFromApp(
  * development import claims that worktree's port slot, as `pnpm dev` would.
  * @throws when the config does not fit `schema`
  */
-export async function loadAppConfig<T>(
-  repoRoot: string,
-  schema: z.ZodType<T>,
-  mode: 'development' | 'production' = 'development',
-): Promise<T> {
+export async function loadAppConfig<T>(repoRoot: string, schema: z.ZodType<T>, mode: 'development' | 'production' = 'development'): Promise<T> {
   const parsed = schema.safeParse((await importFromApp(repoRoot, 'shared/index.ts', mode)).appConfig);
-  if (!parsed.success)
-    throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
+  if (!parsed.success) throw new Error(`shared/index.ts exports no appConfig this CLI can read: ${parsed.error.message}`);
   return parsed.data;
 }
 
@@ -50,11 +40,7 @@ export async function loadAppConfig<T>(
 export async function loadLocalDatabases(repoRoot: string): Promise<LocalDatabases> {
   const module = await importFromApp(repoRoot, 'shared/src/local-database.ts');
   const { localDatabasePort, localDatabaseUrl, composeEnv } = module;
-  if (
-    typeof localDatabasePort !== 'function' ||
-    typeof localDatabaseUrl !== 'function' ||
-    typeof composeEnv !== 'function'
-  ) {
+  if (typeof localDatabasePort !== 'function' || typeof localDatabaseUrl !== 'function' || typeof composeEnv !== 'function') {
     throw new Error('shared/src/local-database.ts lacks localDatabasePort, localDatabaseUrl or composeEnv');
   }
   return {
@@ -97,7 +83,13 @@ export function toolDir(repoRoot: string, tool: string, scope: 'checkout' | 'rep
   return join(resolve(repoRoot, gitDir), `cella-${tool}`);
 }
 
-/** The name and version in the app's root `package.json`. */
-export function rootPackage(repoRoot: string): { name: string; version: string } {
+/** The app's root `package.json`: its name and version, and the toolchain and repository the deploy engine builds and fetches with. */
+export function rootPackage(repoRoot: string): {
+  name: string;
+  version: string;
+  packageManager?: string;
+  repository?: string;
+  engines?: { node?: string };
+} {
   return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 }

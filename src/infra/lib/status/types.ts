@@ -1,7 +1,8 @@
 import type { AppliedEngine } from '../deploy/applied-engine';
-import type { JobDefinitionFacts, JobRun } from '../deploy/job-runs';
 import type { LiveRecord } from '../deploy/live-record';
+import type { EngineConfig } from '../engine-config';
 import type { KeyPair } from '../scaleway/operator-identity';
+import type { JobDefinitionFacts, JobRun } from '../scaleway/serverless-jobs';
 import type { StackState } from '../stack/bootstrap-stack-state';
 
 /** A check's verdict. `unknown` means "could not be evaluated", usually a missing key; a check that ran resolves to one of the other four. */
@@ -61,7 +62,7 @@ export interface LockFacts {
   stale?: boolean;
 }
 
-/** Facts shared by the state, live and inventory providers (one read): the state bucket's presence and the control records. */
+/** Facts shared by the state, live, inventory, schedule and runs providers (one read): the state bucket's presence and the control records. */
 export interface ScalewayFacts {
   /** undefined = not checked (no creds or error). */
   stateBucketExists?: boolean;
@@ -70,16 +71,15 @@ export interface ScalewayFacts {
   live?: LiveRecord;
   /** The engine the last apply published; null before the first, undefined when it could not be read. */
   applied?: AppliedEngine | null;
-  /** The main job's definition and its newest runs (lib/deploy/job-runs.ts); null before an apply makes it, undefined when unread. */
+  /** The main job's definition and its newest runs (lib/scaleway/serverless-jobs.ts); null before an apply makes it, undefined when unread. */
   mainJob?: { definitionId: string; definition: JobDefinitionFacts; runs: JobRun[] } | null;
 }
 
 /** Everything a provider's `gather` may draw on: stack context, the probe key, and the memoized control-object read the providers share. */
 export interface ProbeSession {
   mode: string;
-  appConfig: import('../engine-config').EngineConfig;
+  appConfig: EngineConfig;
   stackState: StackState;
-  stackYaml?: string;
   projectId?: string;
   /** True when a Scaleway key (the observer key, else the process's SCW_* or AWS_* pair) is present for `scaleway`-tier checks. */
   scalewayKeyAvailable: boolean;

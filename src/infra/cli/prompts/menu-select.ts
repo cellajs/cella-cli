@@ -5,7 +5,7 @@ import { pc } from '../../lib/utils/cli-output';
 import type { MenuItem } from '../menu';
 
 /** What {@link menuSelect} resolves to when the operator leaves the menu with Esc without choosing. */
-export const ESCAPED: unique symbol = Symbol('menu-escaped');
+export const escaped: unique symbol = Symbol('menu-escaped');
 
 export interface MenuSelectOptions<T extends string> {
   /** The line above the entries: a question ends in `?` and keeps Inquirer's mark, a title shows bold alone, and an empty one shows no line. */
@@ -28,10 +28,10 @@ function pageSize({ message, items }: MenuSelectOptions<string>): number {
 
 /**
  * One menu of the CLI: a select with group headings, no wrap-around, as many entries as the terminal holds and no help line. Esc leaves it and resolves to
- * {@link ESCAPED}. The menu clears itself when it is left: the screen never stacks old menus. Inquirer's select has no Esc of its own, and
+ * {@link escaped}. The menu clears itself when it is left: the screen never stacks old menus. Inquirer's select has no Esc of its own, and
  * a keypress listener aborts it through an AbortController.
  */
-export async function menuSelect<T extends string>(options: MenuSelectOptions<T>): Promise<T | typeof ESCAPED> {
+export async function menuSelect<T extends string>(options: MenuSelectOptions<T>): Promise<T | typeof escaped> {
   const controller = new AbortController();
   // Node 26 reports a lone Esc with `meta` set: the name alone matches it.
   const onKeypress = (_chunk: unknown, key?: { name?: string; ctrl?: boolean }) => {
@@ -57,7 +57,7 @@ export async function menuSelect<T extends string>(options: MenuSelectOptions<T>
     );
   } catch (error) {
     // An aborted prompt is the operator stepping out, not a failure.
-    if (error instanceof Error && error.name === 'AbortPromptError') return ESCAPED;
+    if (error instanceof Error && error.name === 'AbortPromptError') return escaped;
     throw error;
   } finally {
     process.stdin.removeListener('keypress', onKeypress);

@@ -24,8 +24,7 @@ interface Stop {
 }
 
 /** Two animation frames: enough for the browser to move focus and paint its styles. */
-const painted = (page: Page) =>
-  page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+const painted = (page: Page) => page.evaluate(() => new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve))));
 
 /** Describes the focused element, and whether other content covers all of it. */
 function readFocus(page: Page, devOnly: string[]) {
@@ -35,9 +34,7 @@ function readFocus(page: Page, devOnly: string[]) {
       if (!el || el === document.body || skip.some((selector) => el.closest(selector))) return null;
       const parts: string[] = [];
       for (let node: Element | null = el; node && node !== document.body; node = node.parentElement) {
-        parts.unshift(
-          `${node.tagName.toLowerCase()}:${node.parentElement ? [...node.parentElement.children].indexOf(node) : 0}`,
-        );
+        parts.unshift(`${node.tagName.toLowerCase()}:${node.parentElement ? [...node.parentElement.children].indexOf(node) : 0}`);
       }
       const name = (el.getAttribute('aria-label') || el.textContent || el.getAttribute('placeholder') || el.tagName)
         .trim()
@@ -59,8 +56,7 @@ function readFocus(page: Page, devOnly: string[]) {
         obscured = cover.every((hit) => !hit || !(el.contains(hit) || hit.contains(el)));
         // Name what lies on top, so the finding points at the element to fix
         const top = cover[0];
-        if (obscured && top)
-          coveredBy = `${top.tagName.toLowerCase()}${top.id ? `#${top.id}` : ''}.${[...top.classList].slice(0, 3).join('.')}`;
+        if (obscured && top) coveredBy = `${top.tagName.toLowerCase()}${top.id ? `#${top.id}` : ''}.${[...top.classList].slice(0, 3).join('.')}`;
       }
       const open = document.querySelectorAll(overlays);
       const inOverlay = open.length ? [...open].some((overlay) => overlay.contains(el)) : null;
@@ -191,9 +187,7 @@ export const keyboardWalk: PageCheck = async (page, state, run) => {
       .locator(overlaySelector)
       .last()
       .evaluate((overlay) => {
-        const target =
-          overlay.querySelector<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])') ??
-          (overlay as HTMLElement);
+        const target = overlay.querySelector<HTMLElement>('button, [href], input, [tabindex]:not([tabindex="-1"])') ?? (overlay as HTMLElement);
         target.focus();
       })
       .catch(() => undefined);
@@ -201,11 +195,7 @@ export const keyboardWalk: PageCheck = async (page, state, run) => {
     await page.keyboard.press('Escape');
     // Closing animations keep the overlay in the DOM for a moment
     const closed = await page
-      .waitForFunction(
-        ([selector, count]) => document.querySelectorAll(selector).length < count,
-        [overlaySelector, open] as const,
-        { timeout: 2000 },
-      )
+      .waitForFunction(([selector, count]) => document.querySelectorAll(selector).length < count, [overlaySelector, open] as const, { timeout: 2000 })
       .then(
         () => true,
         () => false,

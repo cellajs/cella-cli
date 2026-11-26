@@ -19,10 +19,8 @@ const stampPairs = [
 /** A moment written by hand: the clock (`getIsoDate()`, `new Date`, sql`now()`) or a local holding one. */
 function isMoment(value: ts.Expression): boolean {
   if (ts.isIdentifier(value)) return value.text !== 'undefined';
-  if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === 'getIsoDate')
-    return true;
-  if (ts.isTaggedTemplateExpression(value))
-    return value.tag.getText() === 'sql' && value.template.getText() === '`now()`';
+  if (ts.isCallExpression(value) && ts.isIdentifier(value.expression) && value.expression.text === 'getIsoDate') return true;
+  if (ts.isTaggedTemplateExpression(value)) return value.tag.getText() === 'sql' && value.template.getText() === '`now()`';
   let root: ts.Expression = value;
   while (ts.isCallExpression(root) || ts.isPropertyAccessExpression(root)) root = root.expression;
   return ts.isNewExpression(root) && root.expression.getText() === 'Date';
@@ -41,10 +39,7 @@ function stampPairFindings(file: string, source: string): Finding[] {
       const values = new Map<string, ts.Expression>();
       for (const property of node.properties) {
         if (ts.isShorthandPropertyAssignment(property)) values.set(property.name.text, property.name);
-        else if (
-          ts.isPropertyAssignment(property) &&
-          (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))
-        ) {
+        else if (ts.isPropertyAssignment(property) && (ts.isIdentifier(property.name) || ts.isStringLiteral(property.name))) {
           values.set(property.name.text, property.initializer);
         }
       }

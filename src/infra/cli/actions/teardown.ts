@@ -11,14 +11,13 @@ import { actionLabel } from '../../lib/operator-actions';
 import { shutOutOfBuckets } from '../../lib/scaleway/bucket-admission';
 import { removeMachines } from '../../lib/scaleway/machines';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { deleteApplicationCascade, deleteGroup, listManagedPrincipals, removeBootstrapDnsGrant } from '../../lib/scaleway/scaleway-iam';
 import { createRdbClient } from '../../lib/scaleway/scaleway-rdb';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { makeControlClient, stateBucket } from '../../lib/stack/control-store';
-import { destroyableState, engineFolders, type KeptResource, keptResources, sweptSecrets } from '../../lib/stack/kept-resources';
+import { destroyableState, type KeptResource, keptResources, sweptSecrets } from '../../lib/stack/kept-resources';
 import { holdSignalExit } from '../../lib/stack/stack-lease';
 import { exitCodeOf } from '../../lib/utils/child-exit';
 import { checkMark, crossMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
@@ -27,9 +26,10 @@ import { errorMessage } from '../../lib/utils/errors';
 import { infraDir } from '../../lib/utils/paths';
 import { builderPrefix, removeBuilderMachines } from '../../tasks/build-release';
 import { writeFinalDump } from '../../tasks/final-dump';
+import { environmentName } from '../header';
 import { input } from '../prompts/back';
-import { acquireStackLockOrExit, endAction, type InfraContext, pulumiLoginAndSelect, pulumiLoginUrl, stackNameFor } from '../shared';
-import { environmentName, printLossWarning } from './loss-warning';
+import { acquireStackLockOrEnd, endAction, type InfraContext, openStack } from '../shared';
+import { printLossWarning } from './loss-warning';
 import { acquireIdentityKey } from './operator-unlock';
 import { type OwnerKey, printRevokeReminder } from './owner-key';
 
@@ -46,7 +46,7 @@ export function splitOwnApplication<App extends { id: string }>(
 
 /** The names of what a teardown keeps, for the lines that tell the operator. */
 function keptNames(context: InfraContext, kept: readonly KeptResource[]): string {
-  const live = kept.flatMap(({ adopt }) => (!adopt ? [] : 'bucket' in adopt ? [adopt.bucket] : [`${RUNTIME_FOLDER}${adopt.secret}`]));
+  const live = kept.flatMap(({ adopt }) => (!adopt ? [] : 'bucket' in adopt ? [adopt.bucket] : [`${runtimeFolder}${adopt.secret}`]));
   return [...live, stateBucket(context.appConfig.slug)].join(', ');
 }
 
@@ -86,7 +86,7 @@ export async function runTeardown(context: InfraContext): Promise<void> {
 }
 
 /** End the action when the bucket policies do not name the Owner key's bearer: the key would then read no state and write no dump. */
-async function exitWhenShutOut(context: InfraContext, owner: OwnerKey): Promise<void> {
+async function endOnShutOut(context: InfraContext, owner: OwnerKey): Promise<void> {
   const { bearer, bearerId, name } = owner.bearer;
   const principal = `${bearer === 'application' ? 'application_id' : 'user_id'}:${bearerId}`;
   if (!(await shutOutOfBuckets({ appConfig: context.appConfig, projectId: context.projectId, key: owner, principal }))) return;
@@ -149,18 +149,15 @@ async function finalDump(context: InfraContext, owner: OwnerKey): Promise<string
 /** Destroy the stack's resources but the kept ones, remove the stack and the swept secrets; true when the destroy completed. */
 async function destroyStack(context: InfraContext, owner: OwnerKey, kept: readonly KeptResource[]): Promise<boolean> {
   const { appConfig, projectId } = context;
-  const stack = stackNameFor(context);
   const { naming, region, zone, zones } = deriveInfra(appConfig);
 
-  await exitWhenShutOut(context, owner);
-  const { accessKey, secretKey, organizationId } = owner;
-  const env = buildProviderEnv(infraDir, { accessKey, secretKey, organizationId, projectId, stateBackendUrl: pulumiLoginUrl(appConfig) });
-  pulumiLoginAndSelect(infraDir, env, appConfig, stack);
+  await endOnShutOut(context, owner);
+  const { stack, env } = openStack(context, owner);
   if (!stackExists(stack, env)) {
     console.info(`${tildeMark} Pulumi stack '${stack}' is removed already: deleting what an earlier teardown left.`);
     return sweepAfterDestroy(context, owner, kept);
   }
-  const lock = await acquireStackLockOrExit({ appConfig, ...stateKeyOf(owner, projectId), stack, operation: 'teardown' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...stateKeyOf(owner, projectId), stack, operation: 'teardown' });
 
   let dump: string | undefined;
   let status: number;
@@ -220,7 +217,7 @@ async function sweepAfterDestroy(context: InfraContext, owner: OwnerKey, kept: r
 
   try {
     const secrets = createSecretManagerClient({ secretKey: owner.secretKey, region, projectId });
-    const swept = sweptSecrets(await secrets.listSecrets(), kept, engineFolders);
+    const swept = sweptSecrets(await secrets.listSecrets(), kept);
     for (const secret of swept) await secrets.deleteSecret(secret.id);
     console.info(`${checkMark} Deleted ${swept.length} secret container(s).`);
   } catch (error) {

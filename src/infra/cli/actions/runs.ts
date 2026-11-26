@@ -3,22 +3,14 @@ import {
   accountExcerpt,
   accountFailed,
   type BootAccountReader,
+  bootAccountsPrefix,
   bucketBootAccountReader,
   releaseAccounts,
   serviceAccountKeys,
 } from '../../lib/deploy/boot-accounts';
 import { classifyRun, scalewayStatus } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
-import {
-  findJobDefinition,
-  isScheduledRun,
-  type JobDefinitionFacts,
-  type JobRun,
-  lastScheduledRun,
-  listJobRuns,
-  readJobDefinition,
-  runEnded,
-} from '../../lib/deploy/job-runs';
+import { findMainJob } from '../../lib/deploy/main-job';
 import { type Growth, type RunRecord, rewriteNote, runSummaryLine, stepLine, wroteRecord } from '../../lib/deploy/run-record';
 import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
 import { commitName, type RemoteRef } from '../../lib/deploy/target';
@@ -26,19 +18,28 @@ import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, projectAccessKey } from '../../lib/scaleway/s3-client';
+import {
+  isScheduledRun,
+  type JobDefinitionFacts,
+  type JobRun,
+  lastScheduledRun,
+  listJobRuns,
+  readJobDefinition,
+  runEnded,
+} from '../../lib/scaleway/serverless-jobs';
 import { deployedServices } from '../../lib/services';
 import { type LockInfo, leaseHeldByRun, lockKey, makeControlClient, peekLock } from '../../lib/stack/control-store';
 import { runOverrides } from '../../lib/status/providers/runs';
 import { getFlag } from '../../lib/utils/args';
-import { crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
+import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { BACK, RULE } from '../menu';
+import { backChoice, rule } from '../menu';
 import { PromptBack } from '../prompts/back';
-import { ESCAPED, menuSelect } from '../prompts/menu-select';
-import { autoAcceptDefaults, endAction, type InfraContext, pointTo } from '../shared';
+import { escaped, menuSelect } from '../prompts/menu-select';
+import { asksPerson, endAction, type InfraContext, pointTo } from '../shared';
 
-const LIST_LENGTH = 10;
-const LOG_TAIL = 40;
+const listLength = 10;
+const logTail = 40;
 
 /**
  * The machines' boot accounts a failed switch's record names: a failed one's error and the end of its log, a missing one said plainly
@@ -55,7 +56,7 @@ async function bootLines(record: RunRecord, store: RunStore): Promise<string[]> 
     }
     if (!entry.failed) continue;
     const body = await store.readBootAccount(entry.key).catch(() => undefined);
-    lines.push('', pc.dim(`  ${entry.service}: boot failed (boot-diag/${entry.key})`));
+    lines.push('', pc.dim(`  ${entry.service}: boot failed (${bootAccountsPrefix}${entry.key})`));
     lines.push(...(body ? accountExcerpt(body).map((line) => `  ${line}`) : ['  (the account has expired or cannot be read)']));
   }
   return lines;
@@ -84,12 +85,12 @@ async function runDetailLines(reading: Growth<RunRecord>, store: RunStore, refs?
     ...(log
       ? [
           '',
-          pc.dim(`  The end of its log (${LOG_TAIL} lines):`),
+          pc.dim(`  The end of its log (${logTail} lines):`),
           ...rewriteLines('the log was', log),
           ...log.newest
             .trimEnd()
             .split('\n')
-            .slice(-LOG_TAIL)
+            .slice(-logTail)
             .map((line) => `  ${line}`),
         ]
       : []),
@@ -115,7 +116,7 @@ function interrupted(record: RunRecord, lock: LockInfo | undefined): string {
     : '';
 }
 
-/** A run started with values or a command of its own, which no start of the engine sets (D-b): flagged, as only a key holder's start does it. */
+/** A run started with values or a command of its own, which no start of the engine sets: flagged, as only a key holder's start does it. */
 function ownValues(run: JobRun | undefined, definition: JobDefinitionFacts | undefined): string {
   const own = run && definition ? runOverrides(run, definition) : [];
   return own.length > 0 ? `  ${warningMark} started with its own values: ${own.join(', ')}` : '';
@@ -151,14 +152,14 @@ export async function showRuns(
   },
 ): Promise<void> {
   const print = opts.print ?? ((line: string) => console.info(line));
-  const readings = (await Promise.all((await store.listRuns(LIST_LENGTH)).map((run) => store.readRecord(run)))).filter(
+  const readings = (await Promise.all((await store.listRuns(listLength)).map((run) => store.readRecord(run)))).filter(
     (reading): reading is Growth<RunRecord> => Boolean(reading),
   );
   const records = readings.map((reading) => reading.newest);
   const jobRuns = opts.jobRuns ?? [];
   if (opts.definition) print(scheduleSentence(jobRuns, opts.now ?? Date.now()));
   // A full list's oldest record bounds the job runs: an older run's record is past the list, not missing.
-  const since = records.length === LIST_LENGTH ? (records.at(-1)?.startedAt ?? '') : '';
+  const since = records.length === listLength ? (records.at(-1)?.startedAt ?? '') : '';
   const unrecorded = jobRuns.filter(
     (run) =>
       (!isScheduledRun(run) &&
@@ -178,7 +179,7 @@ export async function showRuns(
     })),
   ]
     .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, LIST_LENGTH);
+    .slice(0, listLength);
   if (rows.length === 0) return print('No run has left a record yet.');
   const [newest] = readings;
   // The picker is the list: a run without a record stays in it, not selectable, its line saying why.
@@ -193,12 +194,12 @@ export async function showRuns(
         ...rows.map((row, index) =>
           row.reading ? { name: row.line, value: row.reading.newest.run } : { name: row.line, value: `unrecorded-${index}`, disabled: ' ' },
         ),
-        RULE,
-        { name: '← Back', value: BACK, description: 'Return to the menu.' },
+        rule,
+        { name: '← Back', value: backChoice, description: 'Return to the menu.' },
       ],
       default: newest.newest.run,
     });
-    if (picked === ESCAPED || picked === BACK) throw new PromptBack();
+    if (picked === escaped || picked === backChoice) throw new PromptBack();
     chosen = readings.find((reading) => reading.newest.run === picked) ?? newest;
   }
   print('');
@@ -209,12 +210,8 @@ export async function showRuns(
  * The machines' own accounts, beside the runs: with `sha`, each service's account of that release and the builder's report; without, each
  * service's newest account, a boot outside any run included.
  */
-async function showMachines(
-  reader: BootAccountReader,
-  services: readonly string[],
-  opts: { sha?: string; print?: (...lines: string[]) => void },
-): Promise<void> {
-  const print = opts.print ?? ((...lines: string[]) => console.info(lines.join('\n')));
+async function showMachines(reader: BootAccountReader, services: readonly string[], opts: { sha?: string }): Promise<void> {
+  const print = (...lines: string[]) => console.info(lines.join('\n'));
   if (opts.sha) {
     for (const found of await releaseAccounts(reader, services, opts.sha)) {
       if (!found.account) {
@@ -223,7 +220,7 @@ async function showMachines(
       }
       print(
         '',
-        pc.bold(`${found.service} (boot-diag/${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
+        pc.bold(`${found.service} (${bootAccountsPrefix}${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
         printable(found.account.body),
       );
     }
@@ -231,7 +228,7 @@ async function showMachines(
     const builder = (name: string) => keys.find((key) => key.startsWith('builder/') && key.endsWith(`/${name}`) && key.includes(opts.sha ?? ''));
     for (const name of ['result', 'log']) {
       const key = builder(name);
-      if (key) print('', pc.bold(`builder (boot-diag/${key})`), printable(await reader.read(key)));
+      if (key) print('', pc.bold(`builder (${bootAccountsPrefix}${key})`), printable(await reader.read(key)));
     }
     return;
   }
@@ -243,7 +240,7 @@ async function showMachines(
       continue;
     }
     const body = await reader.read(newest);
-    print('', pc.bold(`${service} (boot-diag/${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
+    print('', pc.bold(`${service} (${bootAccountsPrefix}${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
   }
 }
 
@@ -273,7 +270,7 @@ export async function runRuns(context: InfraContext): Promise<void> {
   }
   const auth = { secretKey: observer.secretKey };
   const read = async (): Promise<{ jobRuns: JobRun[]; definition?: JobDefinitionFacts }> => {
-    const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
+    const definitionId = await findMainJob(context, observer);
     if (!definitionId) return { jobRuns: [] };
     const [jobRuns, definition] = await Promise.all([
       listJobRuns(auth, { region, projectId: context.projectId, definitionId }),
@@ -292,7 +289,7 @@ export async function runRuns(context: InfraContext): Promise<void> {
   const lock = await peekLock(control, naming.bootDiagBucket, lockKey(context.environment)).catch(() => undefined);
   console.info(pc.dim(`\n${actionLabel('logs')} of ${context.environment}, newest first:\n`));
   await showRuns(bucketRunStore(s3, naming.bootDiagBucket), {
-    pick: hasPerson() && !autoAcceptDefaults(),
+    pick: asksPerson(),
     jobRuns,
     definition,
     environment: context.environment,

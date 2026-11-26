@@ -34,12 +34,7 @@ function without(a: string[], b: string[]): string[] {
 }
 
 /** How a translation's placeholders or tags differ from the English text; undefined when they match. */
-export function compare(
-  key: string,
-  english: string,
-  translation: string,
-  extract: (text: string) => string[],
-): Mismatch | undefined {
+export function compare(key: string, english: string, translation: string, extract: (text: string) => string[]): Mismatch | undefined {
   const expected = extract(english);
   const actual = extract(translation);
   const missing = [...new Set(without(expected, actual))];
@@ -50,8 +45,7 @@ export function compare(
 /** The plural categories `language` uses, or English's when `Intl` refuses the locale folder's name. */
 export function categoriesOf(language: string, ordinal: boolean): string[] {
   try {
-    return new Intl.PluralRules(language, { type: ordinal ? 'ordinal' : 'cardinal' }).resolvedOptions()
-      .pluralCategories;
+    return new Intl.PluralRules(language, { type: ordinal ? 'ordinal' : 'cardinal' }).resolvedOptions().pluralCategories;
   } catch {
     return ['one', 'other'];
   }
@@ -79,9 +73,7 @@ function pluralGroups(english: Record<string, string>): Map<string, { base: stri
   }
   const groups = new Map(
     [...forms]
-      .filter(
-        ([key, { base, ordinal, count }]) => `${key}_other` in english && (count > 1 || (!ordinal && base in english)),
-      )
+      .filter(([key, { base, ordinal, count }]) => `${key}_other` in english && (count > 1 || (!ordinal && base in english)))
       .map(([key, { base, ordinal }]) => [key, { base, ordinal }]),
   );
   groupsCache.set(english, groups);
@@ -93,11 +85,7 @@ function pluralGroups(english: Record<string, string>): Map<string, { base: stri
  * never uses: each category the language uses needs its form or
  * the base key, which i18next falls back to; a form for a category the language never uses is extra.
  */
-export function pluralGaps(
-  english: Record<string, string>,
-  texts: Record<string, string>,
-  language: string,
-): Mismatch[] {
+export function pluralGaps(english: Record<string, string>, texts: Record<string, string>, language: string): Mismatch[] {
   const groups = pluralGroups(english);
   const present = new Map<string, Set<string>>();
   for (const key of Object.keys(texts)) {

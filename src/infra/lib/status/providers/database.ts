@@ -1,7 +1,7 @@
 import { endpointAddress, publicEndpoints } from '../../db-public-endpoint';
 import { deriveInfra } from '../../naming';
 import { createRdbClient } from '../../scaleway/scaleway-rdb';
-import { check, manageDbEndpoint, probed } from '../check';
+import { check, dbCloseAction, probed } from '../check';
 import type { ProbeSession, StatusProvider } from '../types';
 
 /** The managed PostgreSQL instance's live public endpoints. `allowed` is read only when an endpoint is open or exposure is on. */
@@ -42,12 +42,12 @@ export const databaseProvider: StatusProvider<DbEndpointFacts> = {
         const to = live.allowed?.length ? `open to ${live.allowed.join(', ')}` : undefined;
         if (!session.dbExposureConfigured) {
           return open
-            ? endpoint.warn(`${open} is open although exposure is off (${rules})`, manageDbEndpoint)
+            ? endpoint.warn(`${open} is open although exposure is off (${rules})`, dbCloseAction)
             : { ...endpoint.ok('private only'), headline: 'private, no public endpoint' };
         }
         return open
-          ? { ...endpoint.warn(`open at ${open} with ${rules}; close it when done`, manageDbEndpoint), ...(to ? { headline: to } : {}) }
-          : endpoint.warn(`exposure is on, but the instance has no public endpoint (${rules})`, manageDbEndpoint);
+          ? { ...endpoint.warn(`open at ${open} with ${rules}; close it when done`, dbCloseAction), ...(to ? { headline: to } : {}) }
+          : endpoint.warn(`exposure is on, but the instance has no public endpoint (${rules})`, dbCloseAction);
       }),
     ];
   },

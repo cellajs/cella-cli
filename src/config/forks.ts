@@ -1,7 +1,3 @@
-/**
- * Shared helpers for the commands that read the configured forks (`adopt` and `i18n unused`).
- */
-
 import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import pc from '../utils/colors';

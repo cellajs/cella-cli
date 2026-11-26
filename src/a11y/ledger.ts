@@ -109,12 +109,9 @@ export function writeLedger(repoRoot: string, evidenceById: Map<string, Evidence
     const evidence = [...kept, ...(evidenceById.get(criterion.id) ?? [])];
     const byAudit = decideByAudit(criterion, automated(evidence));
     const reviewed = before?.decidedBy === 'agent' || before?.decidedBy === 'human';
-    const contradicted =
-      byAudit.status === 'partially-supports' && (before?.status === 'supports' || before?.status === 'not-applicable');
+    const contradicted = byAudit.status === 'partially-supports' && (before?.status === 'supports' || before?.status === 'not-applicable');
     const decision =
-      before && reviewed && !contradicted
-        ? { status: before.status, remarks: before.remarks, decidedBy: before.decidedBy, open: [] }
-        : byAudit;
+      before && reviewed && !contradicted ? { status: before.status, remarks: before.remarks, decidedBy: before.decidedBy, open: [] } : byAudit;
     return {
       id: criterion.id,
       name: criterion.name,
@@ -152,17 +149,14 @@ export interface Decision {
 }
 
 const isRecord = (value: unknown): value is Record<string, unknown> => typeof value === 'object' && value !== null;
-const isStringList = (value: unknown): value is string[] =>
-  Array.isArray(value) && value.every((item) => typeof item === 'string');
+const isStringList = (value: unknown): value is string[] => Array.isArray(value) && value.every((item) => typeof item === 'string');
 
 /** Reads one decision from a decisions file or the command line; refuses one that lacks a field or carries one of the wrong type. */
 export function parseDecision(raw: unknown): Decision {
   const { id, status, by, remarks, evidence, where }: Record<string, unknown> = isRecord(raw) ? raw : {};
   const known = decisionStatuses.find((candidate) => candidate === status);
   if (typeof id !== 'string' || !id || !known) {
-    throw new Error(
-      `${typeof id === 'string' && id ? id : 'A decision'} needs --id and --status (${decisionStatuses.join(', ')}).`,
-    );
+    throw new Error(`${typeof id === 'string' && id ? id : 'A decision'} needs --id and --status (${decisionStatuses.join(', ')}).`);
   }
   if (by !== 'agent' && by !== 'human') throw new Error(`${id} needs --by agent or --by human.`);
   if (typeof evidence !== 'string' || !evidence) throw new Error(`${id} needs --evidence.`);
@@ -180,23 +174,14 @@ export function recordDecisions(repoRoot: string, decisions: Decision[]) {
     const row = ledger.criteria.find((candidate) => candidate.id === id);
     if (!row) throw new Error(`${id} is not a WCAG 2.2 A/AA criterion.`);
     if (!evidence.trim()) throw new Error(`${id}: a decision needs its evidence.`);
-    if (by === 'agent' && row.decidedBy === 'human')
-      throw new Error(`${id} was decided by a person; only a person changes it.`);
+    if (by === 'agent' && row.decidedBy === 'human') throw new Error(`${id} was decided by a person; only a person changes it.`);
     const passes = status === 'supports' || status === 'not-applicable';
     if (passes && automated(row.evidence).some((item) => item.result === 'fail')) {
       throw new Error(`${id}: the audit found failures, so it cannot be ${status}. Fix them or record what fails.`);
     }
-    if (status !== 'supports' && status !== 'open' && !remarks.trim())
-      throw new Error(`${id}: ${status} needs remarks for the reader.`);
+    if (status !== 'supports' && status !== 'open' && !remarks.trim()) throw new Error(`${id}: ${status} needs remarks for the reader.`);
 
-    const result =
-      status === 'open'
-        ? 'review'
-        : status === 'supports'
-          ? 'pass'
-          : status === 'not-applicable'
-            ? 'not-applicable'
-            : 'fail';
+    const result = status === 'open' ? 'review' : status === 'supports' ? 'pass' : status === 'not-applicable' ? 'not-applicable' : 'fail';
     const finding: Evidence = {
       check: `review:${by}`,
       result,

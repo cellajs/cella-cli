@@ -12,7 +12,6 @@ import * as lb from './loadbalancer';
 import './security-groups';
 
 // The whole foundation program: one stack per mode, long-lived resources only. A deploy makes and deletes the machines (tasks/switch-machines.ts).
-
 console.info(`Pulumi stack: ${mode}`);
 console.info(`Slug: ${naming.slug}`);
 console.info(`Region: ${region}`);

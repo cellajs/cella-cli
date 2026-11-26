@@ -1,4 +1,5 @@
 import type * as pulumi from '@pulumi/pulumi';
+import type { RuntimeSecretConfig } from './runtime-secrets-config';
 
 /** A store's provisioned outputs, keyed by a store-defined name (`connectionStringRuntime`, `host`, `caCertificate`). These become stack outputs. */
 export type StoreOutputs = Record<string, pulumi.Output<string>>;
@@ -11,19 +12,9 @@ export interface ProvisionedStore {
 }
 
 /** One runtime-secret a store declares. An `'engine'` value comes from {@link ProvisionedStore.secretValues} or, for a `database` entry, from the operator task ensure-database; an `'operator'` one is filled through the CLI. */
-export interface StoreSecretContribution {
+export interface StoreSecretContribution extends Pick<RuntimeSecretConfig, 'secretName' | 'envVar' | 'description' | 'required' | 'valueSource'> {
   /** Runtime-secret id (the key other layers address the secret by). */
   id: string;
-  /** Scaleway Secret Manager container name (kebab-case). */
-  secretName: string;
-  /** Environment variable the consuming service reads the value as. */
-  envVar: string;
-  /** Human-readable purpose. */
-  description: string;
-  /** Whether health/deploy gating treats absence as fatal. */
-  required: boolean;
-  /** `'engine'` = the store binds a version; `'operator'` = the operator sets it. */
-  valueSource: 'engine' | 'operator';
   /** Services that receive the secret in their machine's `.env.runtime`. */
   services: readonly string[];
   /** A database connection string the operator task ensure-database assembles for this role, never the program. */

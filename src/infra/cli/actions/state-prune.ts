@@ -1,19 +1,10 @@
 import { spawnSync } from 'node:child_process';
 import { actionLabel } from '../../lib/operator-actions';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
 import { input } from '../prompts/back';
-import {
-  acquireStackLockOrExit,
-  confirmOrDefault,
-  endAction,
-  type InfraContext,
-  pulumiLoginAndSelect,
-  pulumiLoginUrl,
-  stackNameFor,
-} from '../shared';
+import { acquireStackLockOrEnd, confirmOrDefault, endAction, type InfraContext, openStack } from '../shared';
 import { acquireOperatorKey } from './operator-unlock';
 
 /**
@@ -33,16 +24,9 @@ export async function runStatePrune(context: InfraContext): Promise<void> {
   }
 
   const operator = await acquireOperatorKey(context);
-  const stack = stackNameFor(context);
-  const env = buildProviderEnv(infraDir, {
-    accessKey: operator.accessKey,
-    secretKey: operator.secretKey,
-    projectId,
-    stateBackendUrl: pulumiLoginUrl(appConfig),
-  });
-  pulumiLoginAndSelect(infraDir, env, appConfig, stack);
+  const { stack, env } = openStack(context, operator);
   const stateKey = stateKeyOf(operator, projectId);
-  const lock = await acquireStackLockOrExit({ appConfig, ...stateKey, stack, operation: 'state-remove' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...stateKey, stack, operation: 'state-remove' });
   try {
     const listed = spawnSync('pulumi', ['stack', '--show-urns', '--stack', stack], { cwd: infraDir, env, encoding: 'utf8' });
     if (listed.status !== 0) {

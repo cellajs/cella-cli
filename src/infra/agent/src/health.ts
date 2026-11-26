@@ -15,7 +15,7 @@ export interface ServiceProbe {
 }
 
 /** Ceiling on the agent's own probe: below the load balancer's 1 s check timeout, so a slow service reads as down and not as a timeout. */
-const PROBE_TIMEOUT_MS = 800;
+const probeTimeoutMs = 800;
 
 /**
  * The agent's answer to the load balancer's check for one service: 200 only when the release booted, the machine is not draining, and the
@@ -30,7 +30,7 @@ export function healthAnswer(state: AgentState, probe: ServiceProbe | undefined,
 /** Ask a service's own `/health` on the machine. */
 async function probeService(port: number): Promise<ServiceProbe> {
   try {
-    const res = await fetch(`http://127.0.0.1:${port}${healthContract.path}`, { signal: AbortSignal.timeout(PROBE_TIMEOUT_MS) });
+    const res = await fetch(`http://127.0.0.1:${port}${healthContract.path}`, { signal: AbortSignal.timeout(probeTimeoutMs) });
     return { status: res.status, version: res.headers.get(healthContract.versionHeader) ?? undefined };
   } catch {
     return { status: 0 };

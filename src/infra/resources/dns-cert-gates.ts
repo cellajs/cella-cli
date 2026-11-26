@@ -18,11 +18,11 @@ export function certVerdict(status: string, statusDetails?: string): 'ready' | '
 }
 
 /** Resolvers polled for propagation; both must answer with the LB IP. */
-const PUBLIC_RESOLVERS = ['8.8.8.8', '1.1.1.1'];
+const publicResolvers = ['8.8.8.8', '1.1.1.1'];
 
-const DNS_TIMEOUT_MS = 300_000;
-const CERT_TIMEOUT_MS = 600_000;
-const POLL_INTERVAL_MS = 5_000;
+const dnsTimeoutMs = 300_000;
+const certTimeoutMs = 600_000;
+const pollIntervalMs = 5_000;
 
 interface DnsGateState {
   fqdn: string;
@@ -32,11 +32,11 @@ interface DnsGateState {
 const dnsPropagationProvider: pulumi.dynamic.ResourceProvider = {
   async create(inputs: DnsGateState) {
     const { Resolver } = await import('node:dns/promises');
-    const deadline = Date.now() + DNS_TIMEOUT_MS;
+    const deadline = Date.now() + dnsTimeoutMs;
     let lastSeen = 'no answers yet';
     while (Date.now() < deadline) {
       const answersPerResolver = await Promise.all(
-        PUBLIC_RESOLVERS.map(async (server) => {
+        publicResolvers.map(async (server) => {
           const resolver = new Resolver({ timeout: 3_000, tries: 1 });
           resolver.setServers([server]);
           return resolver.resolve4(inputs.fqdn).catch(() => [] as string[]);
@@ -45,11 +45,11 @@ const dnsPropagationProvider: pulumi.dynamic.ResourceProvider = {
       if (dnsAnswersSatisfy(answersPerResolver, inputs.expectedIp)) {
         return { id: `${inputs.fqdn}=${inputs.expectedIp}`, outs: inputs };
       }
-      lastSeen = PUBLIC_RESOLVERS.map((server, i) => `${server}→[${answersPerResolver[i]!.join(',') || 'NXDOMAIN'}]`).join(' ');
-      await sleep(POLL_INTERVAL_MS);
+      lastSeen = publicResolvers.map((server, i) => `${server}→[${answersPerResolver[i]!.join(',') || 'NXDOMAIN'}]`).join(' ');
+      await sleep(pollIntervalMs);
     }
     throw new Error(
-      `DNS for ${inputs.fqdn} did not propagate to ${inputs.expectedIp} within ${DNS_TIMEOUT_MS / 1000}s (${lastSeen}): certificates were NOT requested against stale DNS; re-run the deploy once the record resolves.`,
+      `DNS for ${inputs.fqdn} did not propagate to ${inputs.expectedIp} within ${dnsTimeoutMs / 1000}s (${lastSeen}): certificates were NOT requested against stale DNS; re-run the deploy once the record resolves.`,
     );
   },
 };
@@ -72,7 +72,7 @@ const certReadyProvider: pulumi.dynamic.ResourceProvider = {
     if (!zone || !certId) throw new Error(`CertReadyGate: certificate id '${inputs.certificateId}' is not '<zone>/<uuid>'`);
     const secretKey = process.env.SCW_SECRET_KEY;
     if (!secretKey) throw new Error('CertReadyGate: SCW_SECRET_KEY is not set in the deploy environment');
-    const deadline = Date.now() + CERT_TIMEOUT_MS;
+    const deadline = Date.now() + certTimeoutMs;
     while (true) {
       const res = await fetch(`https://api.scaleway.com/lb/v1/zones/${zone}/certificates/${certId}`, { headers: { 'X-Auth-Token': secretKey } });
       if (!res.ok) throw new Error(`CertReadyGate: GET certificate ${certId} → ${res.status}: ${await res.text()}`);
@@ -81,9 +81,9 @@ const certReadyProvider: pulumi.dynamic.ResourceProvider = {
         return { id: certId, outs: inputs };
       }
       if (Date.now() >= deadline) {
-        throw new Error(`CertReadyGate: certificate ${certId} still '${cert.status}' after ${CERT_TIMEOUT_MS / 1000}s`);
+        throw new Error(`CertReadyGate: certificate ${certId} still '${cert.status}' after ${certTimeoutMs / 1000}s`);
       }
-      await sleep(POLL_INTERVAL_MS);
+      await sleep(pollIntervalMs);
     }
   },
 };

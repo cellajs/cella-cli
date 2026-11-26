@@ -79,10 +79,7 @@ export function parseNumstat(output: string): FileChange[] {
 }
 
 /** Count the changed lines of a zero-context patch by what they hold, for the files `isCounted` accepts. */
-export function countLineContent(
-  patch: string,
-  isCounted: (filePath: string) => boolean,
-): Record<LineContent, LineChange> {
+export function countLineContent(patch: string, isCounted: (filePath: string) => boolean): Record<LineContent, LineChange> {
   const content: Record<LineContent, LineChange> = {
     code: { added: 0, removed: 0 },
     comments: { added: 0, removed: 0 },
@@ -145,17 +142,13 @@ export async function collectBranchStats(repoRoot: string, since: string): Promi
   }
 
   // The patch of code files only: generated JSON can run to megabytes and holds no comments.
-  const patch = await git(
-    ['diff', '-U0', '--no-renames', '--no-color', ...range, '--', ...codeExtensions.map((ext) => `*.${ext}`)],
-    repoRoot,
-    { ignoreErrors: true, env: { GIT_LITERAL_PATHSPECS: '0' } },
-  );
-  const sourceContent =
-    kinds.source.files > 0 && !patch ? null : countLineContent(patch, (path) => kindOf.get(path) === 'source');
+  const patch = await git(['diff', '-U0', '--no-renames', '--no-color', ...range, '--', ...codeExtensions.map((ext) => `*.${ext}`)], repoRoot, {
+    ignoreErrors: true,
+    env: { GIT_LITERAL_PATHSPECS: '0' },
+  });
+  const sourceContent = kinds.source.files > 0 && !patch ? null : countLineContent(patch, (path) => kindOf.get(path) === 'source');
 
-  const sourceByPackage = Object.fromEntries(
-    [...byPackage.entries()].sort((a, b) => net(b[1]) - net(a[1]) || a[0].localeCompare(b[0])),
-  );
+  const sourceByPackage = Object.fromEntries([...byPackage.entries()].sort((a, b) => net(b[1]) - net(a[1]) || a[0].localeCompare(b[0])));
 
   const branch = await git(['rev-parse', '--abbrev-ref', 'HEAD'], repoRoot);
   const status = await git(['status', '--porcelain'], repoRoot, { ignoreErrors: true });
@@ -184,9 +177,7 @@ function signed(n: number): string {
 
 /** Kinds that changed, the one that grew most first. */
 function changedKinds(stats: BranchStats): [FileKind, KindChange][] {
-  return (Object.entries(stats.kinds) as [FileKind, KindChange][])
-    .filter(([, change]) => change.files > 0)
-    .sort((a, b) => net(b[1]) - net(a[1]));
+  return (Object.entries(stats.kinds) as [FileKind, KindChange][]).filter(([, change]) => change.files > 0).sort((a, b) => net(b[1]) - net(a[1]));
 }
 
 /** `code +70, comments +35, blank +15`: the net lines of each part that changed. */
@@ -264,20 +255,14 @@ function printBranchStats(stats: BranchStats, verbose: boolean): void {
 
   if (stats.uncommitted > 0) {
     console.info();
-    console.info(
-      pc.dim(`  ${stats.uncommitted} uncommitted file${stats.uncommitted === 1 ? ' is' : 's are'} not counted`),
-    );
+    console.info(pc.dim(`  ${stats.uncommitted} uncommitted file${stats.uncommitted === 1 ? ' is' : 's are'} not counted`));
   }
 
   console.info();
 }
 
 /** Count what the branch changed since `since` and print it: tables, or the markdown with `md`. */
-export async function runBranchStats(
-  repoRoot: string,
-  since: string,
-  { md, verbose }: { md: boolean; verbose: boolean },
-): Promise<void> {
+export async function runBranchStats(repoRoot: string, since: string, { md, verbose }: { md: boolean; verbose: boolean }): Promise<void> {
   createSpinner('counting changed lines...');
   const stats = await collectBranchStats(repoRoot, since);
   spinnerSuccess(`Counted what ${stats.head} changed since ${stats.since} (${stats.mergeBase})`);

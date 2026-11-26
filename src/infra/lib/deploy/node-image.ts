@@ -1,8 +1,8 @@
 /**
  * The digests of the `node` images a key or a link meets: the engine image (the deploy key), the builder (its links), and the bases
  * of the images the builder bakes, which run beside the services' runtime secrets and the host Docker socket. Whoever controls a tag on
- * Docker Hub can move it; a digest names one image. A Node bump at the root `engines.node` adds its digests here, each the index digest
- * `docker buildx imagetools inspect node:<version>-<variant>` prints.
+ * Docker Hub can move it; a digest names one image. An app's root `engines.node` picks the version, and a CLI release adds its digests
+ * here, each the index digest `docker buildx imagetools inspect node:<version>-<variant>` prints.
  */
 const nodeImageDigests: Record<string, Record<NodeImageVariant, string>> = {
   '26.12.1': {
@@ -30,10 +30,14 @@ export type NodeImageVariant = 'alpine' | 'bookworm' | 'bookworm-slim';
 
 /**
  * The `node` image at a Node version, pinned by digest.
- * @throws when the version has no digest here: a Node bump adds it
+ * @throws when the version has no digest here: a CLI release adds it
  */
 export function pinnedNodeImage(nodeVersion: string, variant: NodeImageVariant): string {
   const digest = nodeImageDigests[nodeVersion]?.[variant];
-  if (!digest) throw new Error(`lib/deploy/node-image.ts has no digest of node:${nodeVersion}-${variant}: a Node bump adds it`);
+  if (!digest) {
+    throw new Error(
+      `@cellajs/cli pins no digest of node:${nodeVersion}-${variant}: set the root package.json's engines.node to a Node it pins (${Object.keys(nodeImageDigests).join(', ')}), or upgrade @cellajs/cli to a release that pins ${nodeVersion}`,
+    );
+  }
   return `docker.io/library/node:${nodeVersion}-${variant}@${digest}`;
 }

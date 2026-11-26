@@ -1,11 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { composeConfig, services } from './compose';
-import { OUTPUT_PATH, renderCompose } from './synth';
+import { outputPath, renderCompose } from './synth';
 
 describe('compose synth', () => {
   it('generated compose.gen.yml is up to date (drift check)', () => {
-    const current = readFileSync(OUTPUT_PATH, 'utf-8');
+    const current = readFileSync(outputPath, 'utf-8');
     expect(current).toBe(renderCompose(composeConfig));
   });
 

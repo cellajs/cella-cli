@@ -75,12 +75,8 @@ describe('upgrade from a linked worktree', () => {
     it('finds the worktree that has a branch checked out', async () => {
       const worktreePath = setupAppWithWorktree(env);
 
-      expect(fs.realpathSync(String(await getBranchWorktree(worktreePath, 'main')))).toBe(
-        fs.realpathSync(env.repoRoot),
-      );
-      expect(fs.realpathSync(String(await getBranchWorktree(env.repoRoot, 'work')))).toBe(
-        fs.realpathSync(worktreePath),
-      );
+      expect(fs.realpathSync(String(await getBranchWorktree(worktreePath, 'main')))).toBe(fs.realpathSync(env.repoRoot));
+      expect(fs.realpathSync(String(await getBranchWorktree(env.repoRoot, 'work')))).toBe(fs.realpathSync(worktreePath));
       exec('git branch idle', env.repoRoot);
       expect(await getBranchWorktree(env.repoRoot, 'idle')).toBeNull();
     });

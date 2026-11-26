@@ -1,7 +1,6 @@
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import pc from './colors';
-import { getEnv } from './env';
 
 /** Version from package.json */
 export const version = packageJson.version;
@@ -88,7 +87,7 @@ export function printHeader(): void {
 export function createSpinner(text: string): Spinner {
   // One line holds one spinner: a new one replaces the one still running
   stopSpinner();
-  const enabled = !jsonMode && !getEnv('VITEST') && getEnv('NODE_ENV') !== 'test' && !!process.stdout.isTTY;
+  const enabled = !jsonMode && !process.env.VITEST && process.env.NODE_ENV !== 'test' && !!process.stdout.isTTY;
   const frames = ['-', '\\', '|', '/'];
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;

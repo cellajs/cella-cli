@@ -4,12 +4,12 @@ import type { RunRecord } from '../lib/deploy/run-record';
 import type { RemoteRef } from '../lib/deploy/target';
 import { type MainJobEffects, mainJob } from './main-job';
 
-const KEY = JSON.stringify({ accessKey: 'SCWDEPLOY', secretKey: 'deploy-secret' });
-const env = { TARGET_SHA: 'a'.repeat(40), RETRY: '1', DEPLOY_KEY_JSON: KEY, SCW_DEFAULT_PROJECT_ID: 'p' };
+const key = JSON.stringify({ accessKey: 'SCWDEPLOY', secretKey: 'deploy-secret' });
+const env = { TARGET_SHA: 'a'.repeat(40), RETRY: '1', DEPLOY_KEY_JSON: key, SCW_DEFAULT_PROJECT_ID: 'p' };
 const stamp = (mode: string): EngineStamp => ({ mode, descriptionHash: 'd'.repeat(64) });
 
 /** A lightweight release, an annotated one (its tag object and its peeled commit) and a tag that is no release. */
-const REFS: RemoteRef[] = [
+const refs: RemoteRef[] = [
   { sha: '1'.repeat(40), ref: 'refs/tags/0.25.0' },
   { sha: '2'.repeat(40), ref: 'refs/tags/0.26.0' },
   { sha: '3'.repeat(40), ref: 'refs/tags/0.26.0^{}' },
@@ -29,7 +29,7 @@ function effects(
     releaseRefs: async ({ mode }) => {
       listed.push(mode);
       if (opts.refs instanceof Error) throw opts.refs;
-      return opts.refs ?? REFS;
+      return opts.refs ?? refs;
     },
     onDefaultBranch: async ({ sha }) => !opts.offBranch?.includes(sha),
     scheduledEffects: async () => {
@@ -39,7 +39,7 @@ function effects(
         handOverLease: async () => true,
         releaseLease: async (owner) => void released.push(owner),
         environmentsFile: async () => '',
-        listRemote: async () => REFS,
+        listRemote: async () => refs,
         records: async () => [],
         writeRecord: async (record) => void records.push(record),
       };
@@ -109,7 +109,7 @@ describe('a main job run', () => {
   it('must not deploy such a release on the schedule either, and ends the record it opened with the reason: no later run starts it', async () => {
     // The newest release, 0.26.0, points outside the default branch.
     const { fx, calls, records, released } = effects({ stamp: stamp('production'), offBranch: ['3'.repeat(40)], scheduled: true });
-    expect(await mainJob({ DEPLOY_KEY_JSON: KEY, SCW_DEFAULT_PROJECT_ID: 'p' }, fx)).toBe(1);
+    expect(await mainJob({ DEPLOY_KEY_JSON: key, SCW_DEFAULT_PROJECT_ID: 'p' }, fx)).toBe(1);
     expect(calls).toEqual([]);
     expect(records.map((record) => record.outcome)).toEqual(['running', 'failed']);
     expect(records[1]).toMatchObject({ run: records[0]?.run, target: '3'.repeat(40), startedAt: records[0]?.startedAt });

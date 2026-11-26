@@ -5,7 +5,7 @@ export type MintedKeyField = 'accessKey' | 'secretKey';
 
 /** One managed key's data from `managed-keys.config.ts`. The `id` is the config object key; `ManagedKeyDefinition` is the flattened shape. */
 export interface ManagedKeyConfig {
-  /** IAM application/policy name suffix: `<slug>-<suffix>`. Also the API-key description prefix. */
+  /** IAM application/policy name suffix: `<slug>-<mode>-<suffix>`. Also the API-key description prefix. */
   suffix: string;
   /** Human-readable label for prompts and summaries. */
   label: string;

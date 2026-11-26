@@ -12,7 +12,7 @@ export function maskSecret(value: string): string {
 
 interface MaskedSecretConfig {
   message: string;
-  /** Mirrors `@inquirer/prompts`' password validate so this is a drop-in replacement. */
+  /** True to accept the value, else the message shown under the prompt. */
   validate?: (value: string) => boolean | string | Promise<boolean | string>;
 }
 
@@ -57,7 +57,6 @@ const maskedSecretPrompt = createPrompt<string, MaskedSecretConfig>((config, don
 /**
  * A password-style prompt that shows a mask and the length of what was typed or pasted: the length catches a wrong paste before it is stored,
  * and no character of the value reaches the terminal, its scrollback, or anything that records its output. Esc steps back from it.
- * Drop-in replacement for `@inquirer/prompts`' `password`: same `{ message, validate? }` config and `Promise<string>` result.
  */
 export function maskedSecret(config: MaskedSecretConfig): Promise<string> {
   return withBack((context) => maskedSecretPrompt(config, context));

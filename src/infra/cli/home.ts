@@ -1,17 +1,18 @@
 import { commitRefs } from '../lib/deploy/git-remote';
-import type { JobRun } from '../lib/deploy/job-runs';
 import type { LiveRecord } from '../lib/deploy/live-record';
 import { commitName, type RemoteRef } from '../lib/deploy/target';
 import { isOperatorActionId, menuPath } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
+import type { JobRun } from '../lib/scaleway/serverless-jobs';
 import { rowText } from '../lib/status/check';
+import { buildSession } from '../lib/status/session';
 import type { Check, CheckStatus, StatusReport } from '../lib/status/types';
 import { pc, warningMark } from '../lib/utils/cli-output';
-import { buildSession, fill, markOf, rememberReport, statusRow, statusRows } from '../tasks/status';
 import { liveDbEndpoints } from './actions/db-exposure';
 import type { UpNext } from './menu';
 import { rememberedOperatorKey } from './session';
 import type { InfraContext } from './shared';
+import { fill, markOf, rememberReport, statusRow, statusRows } from './status';
 
 /** What the home screen is drawn from: the status report and the facts its session read, with names for the commits. */
 export interface HomeFacts {
@@ -26,7 +27,7 @@ export interface HomeFacts {
 }
 
 /** How long the home waits for a check before it reads unknown: a stalled endpoint must not keep the menu shut. */
-const HOME_BUDGET_MS = 12_000;
+const homeBudgetMs = 12_000;
 
 /** Read everything the home screen shows, in one round of parallel reads on the observer key. */
 export async function collectHome(context: InfraContext): Promise<HomeFacts> {
@@ -40,7 +41,7 @@ export async function collectHome(context: InfraContext): Promise<HomeFacts> {
     operatorKey: rememberedOperatorKey(),
   });
   const [report, remote, liveEndpoints] = await Promise.all([
-    buildStatusReport(session, { budgetMs: HOME_BUDGET_MS }),
+    buildStatusReport(session, { budgetMs: homeBudgetMs }),
     commitRefs(),
     liveDbEndpoints(context),
   ]);
@@ -57,7 +58,7 @@ export async function collectHome(context: InfraContext): Promise<HomeFacts> {
   };
 }
 
-const ONE_DAY_MS = 86_400_000;
+const oneDayMs = 86_400_000;
 
 /** `Nov 2` for a day, or '' without a moment. */
 function day(iso: string | undefined): string {
@@ -104,18 +105,18 @@ function worst(checks: readonly Check[]): CheckStatus {
 
 /** The main job's runs that failed in the last day, counted when more than one did; '' otherwise. */
 function failedToday(facts: HomeFacts, now: number): string {
-  const failed = (facts.jobRuns ?? []).filter((run) => run.state === 'failed' && now - Date.parse(run.created_at ?? '') < ONE_DAY_MS).length;
+  const failed = (facts.jobRuns ?? []).filter((run) => run.state === 'failed' && now - Date.parse(run.created_at ?? '') < oneDayMs).length;
   return failed > 1 ? `${failed} failed runs today` : '';
 }
 
-const SECURITY_IDS = /^(inventory\.|identity\.keyAges$)/;
+const securityIds = /^(inventory\.|identity\.keyAges$)/;
 
 /** A check that needs a person: it ran, and found something. */
 const needsPerson = (check: Check): boolean => check.status !== 'ok' && check.status !== 'unknown';
 
 /** The security checks that found something: what exists beside the declared identities, and a key past its age. */
 function securityFindings(report: StatusReport): Check[] {
-  return report.checks.filter((entry) => SECURITY_IDS.test(entry.id) && needsPerson(entry));
+  return report.checks.filter((entry) => securityIds.test(entry.id) && needsPerson(entry));
 }
 
 /**
@@ -134,7 +135,7 @@ export function upNextOf(report: StatusReport, refs?: readonly RemoteRef[]): UpN
   }
   if (next) return undefined;
   if (last?.subject && / is deploying$/.test(last.detail)) {
-    return { action: 'deploy', description: `Follow the deploy of ${commitName(refs, last.subject)}` };
+    return { action: 'deploy-now', description: `Follow the deploy of ${commitName(refs, last.subject)}` };
   }
   const findings = securityFindings(report);
   if (findings.length === 0) return undefined;
@@ -142,7 +143,7 @@ export function upNextOf(report: StatusReport, refs?: readonly RemoteRef[]): UpN
 }
 
 /** The checks the home folds into its own lines, or that only setup changes. */
-const FOLDED = new Set(['runs.last', 'db.publicEndpoint', 'config.stackState', 'identity.project', 'environments.lines']);
+const folded = new Set(['runs.last', 'db.publicEndpoint', 'config.stackState', 'identity.project', 'environments.lines']);
 
 /**
  * The home screen under the header: the Live line always, then only what needs a person: a deploy that failed, waits or runs, an open
@@ -183,7 +184,7 @@ export function formatHome(facts: HomeFacts, opts: { now?: number } = {}): strin
       ),
     );
   for (const entry of report.checks) {
-    if (FOLDED.has(entry.id) || entry.id.startsWith('live.') || SECURITY_IDS.test(entry.id) || !needsPerson(entry)) continue;
+    if (folded.has(entry.id) || entry.id.startsWith('live.') || securityIds.test(entry.id) || !needsPerson(entry)) continue;
     lines.push(statusRow(markOf(entry.status), entry.title, rowText(entry, refs)));
   }
   const liveChecks = report.checks.filter((entry) => entry.id.startsWith('live.'));

@@ -45,7 +45,7 @@ describe('the kept set', () => {
       { id: 'below', name: 'cookie-secret', path: '/engine/passwords' },
       { id: 'foreign', name: 'cookie-secret', path: '/someone-elses' },
     ];
-    expect(mod.sweptSecrets(listed, kept, mod.engineFolders).map((secret) => secret.id)).toEqual(['elsewhere', 'cookie', 'below']);
+    expect(mod.sweptSecrets(listed, kept).map((secret) => secret.id)).toEqual(['elsewhere', 'cookie', 'below']);
   });
 
   it('readies a state for the destroy whatever an older program recorded: the kept resources leave it, every other bucket empties on delete', () => {

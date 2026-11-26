@@ -5,7 +5,7 @@ import { generalConfig } from 'infra/config/general.config';
 import { appStores } from 'infra/config/stores.config';
 import { resolvePerMode } from '../../lib/general-config';
 import type { ProvisionContext, StoreOutputs } from '../../lib/stores';
-import { deployMode, naming, region, zone } from '../../pulumi-context';
+import { mode, naming, region, zone } from '../../pulumi-context';
 import { privateNetworkId } from '../network';
 
 // The engine facilities handed to every store's provision(). Store modules are pure at import time; this module is the only place that binds them to the live Pulumi program.
@@ -17,8 +17,8 @@ const provisionContext: ProvisionContext = {
   zone,
   backupDays: engineConfig.retention.backupDays,
   sizing: {
-    dbNodeType: resolvePerMode(generalConfig.database.nodeType, deployMode),
-    dbVolumeSize: resolvePerMode(generalConfig.database.volumeSizeGb, deployMode),
+    dbNodeType: resolvePerMode(generalConfig.database.nodeType, mode),
+    dbVolumeSize: resolvePerMode(generalConfig.database.volumeSizeGb, mode),
   },
   privateNetworkId,
 };

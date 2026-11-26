@@ -4,7 +4,7 @@ import type { MachineRole } from '../lib/machine-roles';
 import { servicesByName } from '../lib/services';
 import { type RoleMachine, type SwitchEffects, type SwitchResult, switchMachines, switchRole } from './switch-machines';
 
-const target = { commit: 'c'.repeat(40), retry: 0, rotation: 0 };
+const target = { sha: 'c'.repeat(40), retry: 0, rotation: 0 };
 const live = (over: Partial<LiveRole> = {}): LiveRole => ({ slot: 'a', machine: 'old', commit: 'o'.repeat(40), retry: 0, rotation: 0, ...over });
 
 function roleOf(slug: 'backend' | 'cdc' | 'frontend', over: Partial<MachineRole> = {}): MachineRole {
@@ -71,7 +71,7 @@ describe('a switch', () => {
     const result = await switchRole({ role: roleOf('backend'), live: live(), target }, fx);
     expect(result).toEqual({ role: 'backend', slot: 'b', machine: 'new-backend-b-1' });
     expect(ops).toEqual(['boot backend b', 'serving? backend b', 'record backend b', 'drain old', 'out? backend a', 'remove old']);
-    expect(recorded[0]?.[1]).toEqual({ slot: 'b', machine: 'new-backend-b-1', ...target });
+    expect(recorded[0]?.[1]).toEqual({ slot: 'b', machine: 'new-backend-b-1', commit: target.sha, retry: target.retry, rotation: target.rotation });
   });
 
   it('must not take traffic from the old machine when the new one never serves: it deletes the new one and records nothing', async () => {

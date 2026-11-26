@@ -1,8 +1,7 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { rootPackage } from '../../../utils/app';
 import { supportedImageContract, supportedSchemaVersion } from '../../agent/src/plan';
 import type { EngineConfig } from '../engine-config';
-import { infraDir } from '../utils/paths';
+import { repoRoot } from '../utils/paths';
 import { descriptionHash } from './applied-engine';
 import { supplierContext } from './static-env';
 
@@ -41,7 +40,7 @@ function engineFields(config: EngineConfig): Omit<EngineConfig, 'has' | 'ltiFram
  * settings. Run once `APP_MODE` names the environment: the engine config and the registries load here.
  * @param root the checkout whose `package.json` is read
  */
-export async function appDescription(root = join(infraDir, '..')): Promise<Record<string, unknown>> {
+export async function appDescription(root = repoRoot): Promise<Record<string, unknown>> {
   const [
     { engineConfig: config },
     { runtimeSecrets },
@@ -62,11 +61,7 @@ export async function appDescription(root = join(infraDir, '..')): Promise<Recor
     import('infra/config/env-suppliers.config'),
   ]);
   const context = supplierContext(config);
-  const pkg = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as {
-    engines?: { node?: string };
-    packageManager?: string;
-    repository?: string;
-  };
+  const pkg = rootPackage(root);
   return {
     engine: engineFields(config),
     toolchain: { node: pkg.engines?.node, packageManager: pkg.packageManager, repository: pkg.repository },

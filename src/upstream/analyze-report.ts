@@ -211,9 +211,7 @@ function printBehind(files: AnalyzedFile[], options: AnalyzeReportOptions, colum
     printSection(title, behind.length, formatCappedRows(behind.map((file) => fileRow(file, upstreamChange, options))));
     return;
   }
-  printSection(title, behind.length, formatFolderRows(behind, columns), [
-    hint('every path: ', 'pnpm cella analyze --all'),
-  ]);
+  printSection(title, behind.length, formatFolderRows(behind, columns), [hint('every path: ', 'pnpm cella analyze --all')]);
 }
 
 function printFlat(files: AnalyzedFile[], title: string, side: Side, options: AnalyzeReportOptions): void {
@@ -261,9 +259,7 @@ function printAhead(files: AnalyzedFile[], options: AnalyzeReportOptions): void 
   );
   const body = formatCappedRows(rows, 'upstream lines absent');
   if (rest.length > 0) body.push(pc.dim(`  + ${rest.length} more: ${describeAbsent(rest)}`));
-  const hints = ahead.some((file) => absentLines(file) > 0)
-    ? [hint('what a merge would bring in: ', 'pnpm cella analyze --unpinned')]
-    : [];
+  const hints = ahead.some((file) => absentLines(file) > 0) ? [hint('what a merge would bring in: ', 'pnpm cella analyze --unpinned')] : [];
   printSection(pc.blue('↑ protected in app'), ahead.length, body, hints);
 }
 
@@ -288,9 +284,7 @@ const kindOrder = { new: 0, changed: 1, deleted: 2 };
 function protectedRow(items: ProtectedItem[], options: AnalyzeReportOptions): Row {
   const [{ file, kind, entry }] = items;
   const lines = items.map((item) => item.file.upstreamChangedLines);
-  const total = lines.every((count) => count !== undefined)
-    ? lines.reduce<number>((sum, count) => sum + (count ?? 0), 0)
-    : undefined;
+  const total = lines.every((count) => count !== undefined) ? lines.reduce<number>((sum, count) => sum + (count ?? 0), 0) : undefined;
   const sign = kind === 'new' ? '+' : kind === 'deleted' ? '−' : '';
   const newest = Math.max(0, ...items.map((item) => changeTimestamp(item.file, upstreamSide) ?? 0));
   const row: Row = {
@@ -371,11 +365,6 @@ export function printAnalysisFileGroups(result: MergeResult, options: AnalyzeRep
   printBehind(result.files, options, columns);
   printFlat(filesWithStatus(result.files, 'diverged'), pc.magenta('⇅ diverged'), upstreamSide, options);
   printAhead(result.files, options);
-  printFlat(
-    filesWithStatus(result.files, 'drifted'),
-    `${warningMark} ${pc.yellow('drifted from upstream')}`,
-    appSide,
-    options,
-  );
+  printFlat(filesWithStatus(result.files, 'drifted'), `${warningMark} ${pc.yellow('drifted from upstream')}`, appSide, options);
   printProtectedBehind(result, options);
 }

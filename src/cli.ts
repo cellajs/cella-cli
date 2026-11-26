@@ -1,7 +1,3 @@
-/**
- * Command-line parsing: commander wiring for every command, and the interactive menu.
- */
-
 import process from 'node:process';
 import { Command as CommanderCommand, Option } from 'commander';
 import type { Command, CommandGroup, MenuContext } from './command';
@@ -30,21 +26,13 @@ function wordsAfterDash(argv: string[], commandName: string): string[] {
   return dash === -1 ? [] : argv.slice(dash + 1);
 }
 
-function addCommand(
-  program: CommanderCommand,
-  declared: Command,
-  argv: string[],
-  pick: (selection: Selection) => void,
-) {
+function addCommand(program: CommanderCommand, declared: Command, argv: string[], pick: (selection: Selection) => void) {
   const jobs = declared.jobs.map(([name]) => name);
-  const command = program
-    .command(declared.name)
-    .description(declared.description)
-    .helpGroup(groupHeadings[declared.group]);
+  const command = program.command(declared.name).description(declared.description).helpGroup(groupHeadings[declared.group]);
   if (declared.handsOver) {
-    const [words, description] = declared.passthrough ?? ['words', 'what the program it hands over to reads'];
+    const [words, description] = declared.passthrough ?? ['words', 'what the command parses itself'];
     command.helpOption(false).allowUnknownOption().allowExcessArguments().argument(`[${words}...]`, description);
-    // The words as typed, in order: the program the command hands them to parses them, `--help` included
+    // The words as typed, in order: the command parses them itself, `--help` included
     command.action(() => {
       const passthrough = argv.slice(argv.indexOf(declared.name, 2) + 1);
       const options = declared.parse({ job: undefined, operands: [], opts: {}, passthrough });
@@ -52,9 +40,7 @@ function addCommand(
     });
     return;
   }
-  const jobLines = declared.jobs.map(
-    ([name, description], i) => `${name}${i === 0 ? ' (default)' : ''}: ${description}`,
-  );
+  const jobLines = declared.jobs.map(([name, description], i) => `${name}${i === 0 ? ' (default)' : ''}: ${description}`);
   if (jobs.length > 0) command.argument('[job]', jobLines.join('\n'));
   // Commander takes one variadic argument, the last: the command's own words, else the words after `--`
   if (declared.operands) command.argument(...declared.operands);
@@ -158,9 +144,7 @@ function quitMenu(): never {
 /** The command picked from the menu, with a job when it has several the menu can run. */
 export async function promptForCommand(context: MenuContext): Promise<Selection> {
   const entries = commands.filter((command) => command.group !== 'gate' && (command.inMenu?.(context) ?? true));
-  const picked = await pickFromMenu(
-    entries.map(({ name, description }) => ({ value: name, label: name, description })),
-  );
+  const picked = await pickFromMenu(entries.map(({ name, description }) => ({ value: name, label: name, description })));
   const command = entries.find((entry) => entry.name === picked);
   if (!command) quitMenu();
 

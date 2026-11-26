@@ -1,8 +1,8 @@
 import { principalNames } from '../../lib/scaleway/principals';
 import { crossMark, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { printInventory } from '../../tasks/status';
 import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
+import { printInventory } from '../status';
 import { acquireOperatorKey } from './operator-unlock';
 import { printLaunchChecklist } from './setup-checklist';
 import { copyDeployKeyForMainJob, recordKeyRotation, runOperatorPart } from './setup-operator-part';
@@ -28,14 +28,14 @@ export async function runSetup(context: InfraContext, mode: SetupMode): Promise<
   // release again, then the target) replace every machine, and none keeps the uploads key the rotation deleted. Those deploys run on the
   // main job's copy of the deploy key, which is replaced first: a failed copy ends the rotation before they start on the deleted key.
   if (mode === 'rotate-keys') {
-    if (!moment?.ciKey.accessKey) exitOnMissingDeployKey();
+    if (!moment?.ciKey.accessKey) endOnMissingDeployKey();
     if (!(await copyDeployKeyForMainJob(context, operatorKey, moment?.projectId ?? context.projectId, moment?.ciKey))) endAction(1);
-    if (moment?.ciKey.purgeSkipped) exitOnKeptDeployKeys(context, moment.ciKey.accessKey);
-    if (moment?.uploadsKeyKept) exitOnKeptUploadsKey();
+    if (moment?.ciKey.purgeSkipped) endOnKeptDeployKeys(context, moment.ciKey.accessKey);
+    if (moment?.uploadsKeyKept) endOnKeptUploadsKey();
     await recordKeyRotation(context, operatorKey);
     await redeployAfterRotation(context, operatorKey).catch((error) => {
       if (endsAction(error)) throw error;
-      console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+      console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
     });
     // After a compromise the rotation is followed by a look at what an intruder may have left: the inventory, on the observer key and, for
     // the machines, the operator key.
@@ -46,7 +46,7 @@ export async function runSetup(context: InfraContext, mode: SetupMode): Promise<
 }
 
 /** End a rotation whose Owner key could not list the deploy application's keys: the lost key still works, and no rotation is recorded. */
-function exitOnKeptDeployKeys(context: InfraContext, kept: string): never {
+function endOnKeptDeployKeys(context: InfraContext, kept: string): never {
   const application = principalNames(context.appConfig.slug, context.environment).ciDeploy;
   console.error(`${crossMark} The Owner key may not list API keys and deleted none: every key of ${application} but the new ${kept} still works.`);
   console.error(
@@ -56,14 +56,14 @@ function exitOnKeptDeployKeys(context: InfraContext, kept: string): never {
 }
 
 /** End a rotation whose Owner moment made no new deploy key: the old one still works, and no rotation is recorded. */
-function exitOnMissingDeployKey(): never {
+function endOnMissingDeployKey(): never {
   console.error(`${crossMark} The deploy key was not replaced: the old deploy key still works.`);
   console.error(`  No rotation is recorded and no machine is replaced. Run ${pointTo('rotate-keys')} again.`);
   return endAction(1);
 }
 
 /** End a rotation whose uploads key step failed: the deploy key reads that key, the old one still works, and no rotation is recorded. */
-function exitOnKeptUploadsKey(): never {
+function endOnKeptUploadsKey(): never {
   console.error(`${crossMark} The uploads key was not replaced: the one a lost deploy key could read still works.`);
   console.error(`  No rotation is recorded and no machine is replaced. Clear the warning above, then run ${pointTo('rotate-keys')} again.`);
   return endAction(1);

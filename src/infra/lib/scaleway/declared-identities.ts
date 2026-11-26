@@ -1,7 +1,8 @@
 import type { EngineConfig } from '../engine-config';
 import { appStorageNeeds, services } from '../services';
 import { deployPolicy } from './deploy-policy';
-import { UPLOADS_PERMISSION_SETS } from './permissions';
+import type { LiveRule } from './iam-client';
+import { uploadsPermissionSets } from './permissions';
 import { principalNames, principalTags } from './principals';
 import type { PolicyRule } from './scaleway-iam';
 
@@ -28,7 +29,7 @@ export function uploadsPolicy(opts: { slug: string; mode: string; projectId: str
     name: `${names.uploads}-policy`,
     applicationName: names.uploads,
     description: "Object access on the upload buckets, for the backend's uploads and presigned URLs (written at Owner moments)",
-    rules: [{ permission_set_names: [...UPLOADS_PERMISSION_SETS], project_ids: [opts.projectId] }],
+    rules: [{ permission_set_names: [...uploadsPermissionSets], project_ids: [opts.projectId] }],
     tags: principalTags(opts.slug, opts.mode),
   };
 }
@@ -56,12 +57,7 @@ export function declaredIdentities(
 }
 
 /** A rule in a form two rules compare by: sets and projects in order, an absent condition as empty. */
-function ruleKey(rule: {
-  permission_set_names?: readonly string[];
-  project_ids?: readonly string[];
-  organization_id?: string | null;
-  condition?: string | null;
-}): string {
+function ruleKey(rule: LiveRule): string {
   return JSON.stringify([
     [...(rule.permission_set_names ?? [])].sort(),
     [...(rule.project_ids ?? [])].sort(),
@@ -71,7 +67,7 @@ function ruleKey(rule: {
 }
 
 /** True when the live rules grant exactly what the wanted ones do, in any order. */
-export function sameRules(live: readonly Parameters<typeof ruleKey>[0][], wanted: readonly PolicyRule[]): boolean {
+export function sameRules(live: readonly LiveRule[], wanted: readonly PolicyRule[]): boolean {
   const a = live.map(ruleKey).sort();
   const b = wanted.map(ruleKey).sort();
   return a.length === b.length && a.every((key, index) => key === b[index]);

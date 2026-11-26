@@ -3,12 +3,12 @@ import { engineConfig as appConfig } from 'infra/config/engine-config';
 import type { ServiceName } from './compose/compose';
 import { deriveInfra } from './lib/naming';
 import { serviceEndpoints } from './lib/services';
-import type { Environment } from './lib/stack/bootstrap-stack-state';
+import { type Environment, isEnvironment } from './lib/stack/environment';
 
 /**
  * Stack identity and derived addressing, shared by every resource module. The
- * stack NAME is the config mode (index.ts derives APP_MODE from it before any
- * module loads the shared appConfig); everything else here is a pure derivation
+ * stack NAME is the config mode (program.ts derives APP_MODE from it before any
+ * module loads the app's engine config); everything else here is a pure derivation
  * of that identity. Provider lookups and secret reads live with their
  * consumers (identities.ts).
  */
@@ -18,7 +18,7 @@ const stackName = pulumi.getStack().split('/').pop() ?? '';
 // stack; fail before any resource is declared against the wrong environment.
 if (appConfig.mode !== stackName) {
   throw new Error(
-    `APP_MODE resolved to '${appConfig.mode}' but the Pulumi stack is '${stackName}'. Unset APP_MODE (index.ts derives it from the stack) or select the matching stack.`,
+    `APP_MODE resolved to '${appConfig.mode}' but the Pulumi stack is '${stackName}'. Unset APP_MODE (the program derives it from the stack) or select the matching stack.`,
   );
 }
 
@@ -33,15 +33,13 @@ if (!derived.hasDomain) {
   );
 }
 
-// Exposed here so resource modules import mode from one place.
-export const mode = appConfig.mode;
-
 // Deploys only target production/staging; narrow once to a typed Environment so
 // downstream sizing/config lookups don't need per-call assertions.
-if (mode !== 'production' && mode !== 'staging') {
-  throw new Error(`Pulumi deploys only support 'production' or 'staging' (got '${mode}').`);
+if (!isEnvironment(appConfig.mode)) {
+  throw new Error(`Pulumi deploys only support 'production' or 'staging' (got '${appConfig.mode}').`);
 }
-export const deployMode: Environment = mode;
+// Exposed here so resource modules import mode from one place.
+export const mode: Environment = appConfig.mode;
 
 // Per-service public endpoints (host + URL), derived from the service registry by slug.
 const endpointBySlug = new Map(serviceEndpoints(appConfig).map((e) => [e.slug, e]));

@@ -14,14 +14,7 @@ import { findProtectedBehindUpstream, printIgnoredUpstreamChanges } from '../../
 import { isGeneratedFile } from '../../src/utils/repo-files';
 import { captureInfo, trees } from '../helpers/test-env';
 
-const ignored = [
-  'own',
-  'own/nested',
-  'untouched',
-  'sdk/gen',
-  'frontend/src/routes/routeTree.gen.ts',
-  'backend/drizzle',
-];
+const ignored = ['own', 'own/nested', 'untouched', 'sdk/gen', 'frontend/src/routes/routeTree.gen.ts', 'backend/drizzle'];
 
 /**
  * The merge-base, with `own` and `own/nested` ignored:
@@ -135,8 +128,7 @@ describe('isGeneratedFile', () => {
 });
 
 describe('printIgnoredUpstreamChanges', () => {
-  const capture = (result: Partial<MergeResult>) =>
-    captureInfo(() => printIgnoredUpstreamChanges(result as MergeResult));
+  const capture = (result: Partial<MergeResult>) => captureInfo(() => printIgnoredUpstreamChanges(result as MergeResult));
 
   it('prints one line per ignored entry, without git diff lines', () => {
     const out = capture({

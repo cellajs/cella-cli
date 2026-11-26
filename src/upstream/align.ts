@@ -1,19 +1,3 @@
-/**
- * Align command: the upstream alignments this app has not handled yet.
- *
- * Alignments live upstream only (see `upstream/alignments`). They are read at the upstream commit the
- * app last upgraded to, which the upgrade already fetched, so this works offline after an upgrade and
- * while a conflicted upgrade is still open. Each alignment also gets a GitHub permalink for readers
- * without the upstream remote. Nothing here blocks: the list is information to act on.
- *
- * Next to what the README says, each alignment shows what git can tell about it: the upstream
- * commit and PR that added it, the files of that commit the app owns or changed, and where app
- * code still uses the README's `grep` terms (see `describeAlignment`).
- *
- * `align run` runs an alignment's codemod from an extracted copy and puts back the files it changed
- * that were identical to upstream (see align-run.ts).
- */
-
 import process from 'node:process';
 import { defaultUpstreamRemote } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
@@ -89,8 +73,7 @@ async function resolveAlignmentsRef(config: RuntimeConfig): Promise<string | nul
   if (await present()) return ref;
   await ensureRemote(repoRoot, defaultUpstreamRemote, config.upstreamUrl);
   await fetchRemote(repoRoot, defaultUpstreamRemote);
-  if (!(await present()))
-    throw new Error(`upstream commit ${ref.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
+  if (!(await present())) throw new Error(`upstream commit ${ref.slice(0, 7)} is not reachable from '${defaultUpstreamRemote}'`);
   return ref;
 }
 
@@ -169,7 +152,10 @@ async function readAppView(config: RuntimeConfig, ref: string): Promise<AppView>
   };
 }
 
-/** An alignment plus its source commit, the app's files in it and the grep hits in app code. */
+/**
+ * An alignment plus what git can tell about it next to its README: the upstream commit and PR that added it, the
+ * files of that commit the app owns or changed, and where app code still uses the README's `grep` terms.
+ */
 async function describeAlignment(
   config: RuntimeConfig,
   view: AppView,
@@ -246,13 +232,7 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
   if (!alignment) throw new Error(`no alignment '${id}' at upstream ${ref.slice(0, 7)} or ${upstreamBranch}`);
 
   const source = await git(['show', `${readRef}:${alignmentsDir}/${id}/README.md`], repoRoot);
-  const described = await describeAlignment(
-    config,
-    await readAppView(config, ref),
-    readRef,
-    alignment,
-    pending.includes(id),
-  );
+  const described = await describeAlignment(config, await readAppView(config, ref), readRef, alignment, pending.includes(id));
 
   if (readRef !== ref) console.info(pc.dim(`not at the last upgrade ${ref.slice(0, 7)}: read at ${upstreamBranch}`));
   if (described.url) console.info(pc.dim(described.url));
@@ -260,9 +240,7 @@ async function showAlignment(config: RuntimeConfig, ref: string, pending: string
   console.info();
   if (described.commit) {
     const pr = described.pr !== null ? `#${described.pr} ` : '';
-    console.info(
-      pc.dim(`added in ${pr}(${described.commit.slice(0, 9)})${described.prUrl ? `  ${described.prUrl}` : ''}`),
-    );
+    console.info(pc.dim(`added in ${pr}(${described.commit.slice(0, 9)})${described.prUrl ? `  ${described.prUrl}` : ''}`));
   }
   printShowBlock('added in the same commit', described.sharedCommit);
   printShowBlock('files of that commit the app pins, ignores or changed', described.yourFiles);
@@ -287,12 +265,7 @@ async function markAlignments(config: RuntimeConfig, ref: string, pending: strin
 }
 
 /** `align`: the open alignments, or with `all` every upstream alignment, each with what git tells about it. */
-async function listAlignments(
-  config: RuntimeConfig,
-  ref: string,
-  pending: string[],
-  options: { all: boolean; json: boolean },
-): Promise<void> {
+async function listAlignments(config: RuntimeConfig, ref: string, pending: string[], options: { all: boolean; json: boolean }): Promise<void> {
   const { repoRoot } = config;
   const every = await listAlignmentIds(repoRoot, ref);
   const alignments = await Promise.all(
@@ -305,9 +278,7 @@ async function listAlignments(
     ),
   );
   const view = await readAppView(config, ref);
-  const described = await Promise.all(
-    alignments.map((alignment) => describeAlignment(config, view, ref, alignment, pending.includes(alignment.id))),
-  );
+  const described = await Promise.all(alignments.map((alignment) => describeAlignment(config, view, ref, alignment, pending.includes(alignment.id))));
 
   if (options.json) {
     const payload = { upstreamCommit: ref, total: every.length, open: pending.length, alignments: described };
@@ -322,11 +293,7 @@ async function listAlignments(
 
   const schema = described.filter((alignment) => alignment.open && alignment.generate);
   if (schema.length > 1) {
-    console.info(
-      pc.dim(
-        `${schema.length} open alignments change the schema: work their code steps first, then run pnpm generate once.`,
-      ),
-    );
+    console.info(pc.dim(`${schema.length} open alignments change the schema: work their code steps first, then run pnpm generate once.`));
   }
   if (pending.length > 0) {
     console.info(pc.dim("work each alignment's README, check with `pnpm check`, then record it:"));
@@ -335,8 +302,12 @@ async function listAlignments(
 }
 
 /**
- * Run the align command. Before any upgrade a list is empty (its `--json` payload too), and a job
- * that names an alignment exits 1, since there is none to name.
+ * Run the align command: the upstream alignments this app has not handled yet, read at the upstream
+ * commit the app last upgraded to. The upgrade already fetched that commit: the command works offline
+ * after an upgrade and while a conflicted upgrade is still open. Each alignment also gets a GitHub
+ * permalink for readers without the upstream remote. Nothing here blocks: the list is information to
+ * act on. Before any upgrade a list is empty (its `--json` payload too), and a job that names an
+ * alignment exits 1, since there is none to name.
  */
 export async function runAlign(config: RuntimeConfig, options: AlignOptions): Promise<number> {
   const ref = await resolveAlignmentsRef(config);

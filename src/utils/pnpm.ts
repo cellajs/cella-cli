@@ -1,8 +1,3 @@
-/**
- * Running pnpm and reading its answers: the command runner, the JSON reports, the release age and a
- * package's publish times, with the wire types the audit reads from them.
- */
-
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 

@@ -1,11 +1,10 @@
 import { spawnSync } from 'node:child_process';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER } from '../../lib/scaleway/secret-paths';
+import { engineFolder } from '../../lib/scaleway/secret-paths';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
-import { acquireStackLockOrExit, endAction, type InfraContext, pulumiLoginAndSelect, pulumiLoginUrl, stackNameFor } from '../shared';
+import { acquireStackLockOrEnd, endAction, type InfraContext, openStack } from '../shared';
 import type { OperatorKey } from './operator-unlock';
 
 /** The engine folder's container of the passphrase a stack was encrypted with before every stack took the empty one. */
@@ -20,12 +19,10 @@ const keptPassphraseName = 'pulumi-passphrase';
 export async function dropKeptPassphrase(context: InfraContext, operator: OperatorKey): Promise<void> {
   const { appConfig, projectId } = context;
   const secrets = createSecretManagerClient({ secretKey: operator.secretKey, region: appConfig.s3.region, projectId });
-  const kept = await secrets.getSecretByName(keptPassphraseName, ENGINE_FOLDER);
+  const kept = await secrets.getSecretByName(keptPassphraseName, engineFolder);
   if (!kept) return;
 
-  const stack = stackNameFor(context);
-  const env = buildProviderEnv(infraDir, { ...operator, projectId, stateBackendUrl: pulumiLoginUrl(appConfig) });
-  pulumiLoginAndSelect(infraDir, env, appConfig, stack);
+  const { stack, env } = openStack(context, operator);
   // Non-interactive and without a terminal, Pulumi takes the empty passphrase as the new one. It refuses an old one that does not
   // decrypt what the state holds.
   const moveFrom = (passphrase: string) =>
@@ -37,7 +34,7 @@ export async function dropKeptPassphrase(context: InfraContext, operator: Operat
     });
 
   console.info(pc.dim(`\n→ Moving ${context.environment} to the empty Pulumi passphrase: its state holds no secret value…`));
-  const lock = await acquireStackLockOrExit({ appConfig, ...stateKeyOf(operator, projectId), stack, operation: 'drop-passphrase' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...stateKeyOf(operator, projectId), stack, operation: 'drop-passphrase' });
   let failure: string | undefined;
   try {
     const passphrase = (kept.version_count ?? 0) > 0 ? await secrets.accessLatestValue(kept.id) : '';
@@ -48,7 +45,7 @@ export async function dropKeptPassphrase(context: InfraContext, operator: Operat
   }
   if (failure !== undefined) {
     console.error(
-      `${crossMark} The passphrase ${ENGINE_FOLDER} keeps does not open ${stack} (${failure}). Put the one from your password manager in '${keptPassphraseName}' there, in the console, then apply again. Nothing applied.`,
+      `${crossMark} The passphrase ${engineFolder} keeps does not open ${stack} (${failure}). Put the one from your password manager in '${keptPassphraseName}' there, in the console, then apply again. Nothing applied.`,
     );
     endAction(1);
   }

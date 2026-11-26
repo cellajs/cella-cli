@@ -1,20 +1,23 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rootPackage } from '../../utils/app';
+import { type BuildImageRow, bakeDefinition } from '../lib/builder/build-images';
 import {
   agentBundleScript,
-  BUILDER_ARCHIVE_DIR,
   type BuilderLinks,
+  builderArchiveDir,
   builderCloudConfig,
   builderReportPrefix,
   frontendScript,
 } from '../lib/builder/builder-machine';
+import { frontendBuildEnv } from '../lib/builder/frontend-build-env';
 import { readUstar, writeArchiveFiles } from '../lib/deploy/frontend-archive';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import {
-  AGENT_IMAGE_NAME,
   type ArchiveDigest,
+  agentImageName,
   frontendArchiveKey,
   parseReleaseManifest,
   type ReleaseManifest,
@@ -28,25 +31,21 @@ import { createMachine, removeMachines } from '../lib/scaleway/machines';
 import { bucketPresigner } from '../lib/scaleway/presign';
 import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { scwErrorStatus, scwFetch } from '../lib/scaleway/scw-fetch';
+import { scwErrorStatus, scwFetch, scwRegistryHost } from '../lib/scaleway/scw-fetch';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
-import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
-import { bakeDefinition, parseBuildRows } from './build-images';
-import { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
-import { frontendBuildEnv } from './frontend-build-env';
+import { entryFileNames, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
 
 // 8 vCPUs: the bake and the frontend build run side by side; about two cents a build.
-const BUILDER_TYPE = 'POP2-HC-8C-16G';
-const BUILDER_IMAGE = 'docker';
-const BUILDER_DISK_BYTES = 40_000_000_000;
+const builderType = 'POP2-HC-8C-16G';
+const builderImage = 'docker';
+const builderDiskBytes = 40_000_000_000;
 
 /** How long the builder waits for its report, and how long each of its links lasts beyond it. */
-const BUILD_TIMEOUT_MS = 30 * 60_000;
-const BUILDER_LINK_SECONDS = 60 * 60;
+const buildTimeoutMs = 30 * 60_000;
+const builderLinkSeconds = 60 * 60;
 
 /** What building a release does outside this module, so a test passes its own. */
 export interface BuildEffects {
@@ -147,7 +146,7 @@ export async function buildRelease(
           if (!next || !isOutOfStock(error)) throw error;
           // Scaleway makes the machine, then refuses to power it on.
           await fx.removeBuilders();
-          log(`  ~ ${zone} has no ${BUILDER_TYPE} in stock: trying ${next}`);
+          log(`  ~ ${zone} has no ${builderType} in stock: trying ${next}`);
         }
       }
       await waitForBuilder(opts, fx, log, startedAt);
@@ -170,7 +169,7 @@ export async function buildRelease(
   }
   if (opts.withFrontend && opts.distDir) {
     await mkdir(opts.distDir, { recursive: true });
-    for (const name of ENTRY_FILE_NAMES) {
+    for (const name of entryFileNames) {
       const body = await fx.entryFile(name);
       if (body) await writeFile(join(opts.distDir, name), body);
       else if (name === 'index.html') throw new Error(`the release's index.html is not in the frontend bucket after the build`);
@@ -185,17 +184,17 @@ function isOutOfStock(error: unknown): boolean {
 }
 
 // A report stored up to this long before the start still counts: Last-Modified holds whole seconds, on Object Storage's own clock.
-const REPORT_CLOCK_MARGIN_MS = 5_000;
+const reportClockMarginMs = 5_000;
 
 /**
  * Wait for the builder's `result`. Its reports go under the commit's prefix, where every earlier build of the commit left its own: a report
  * stored before `startedAt`, taken before the machine was made, belongs to one of those builds and is not read as this one's.
  */
 async function waitForBuilder(opts: BuildReleaseOptions, fx: BuildEffects, log: (message: string) => void, startedAt: number): Promise<void> {
-  const deadline = Date.now() + (opts.timeoutMs ?? BUILD_TIMEOUT_MS);
+  const deadline = Date.now() + (opts.timeoutMs ?? buildTimeoutMs);
   const report = async (name: 'step' | 'log' | 'result') => {
     const found = await fx.report(name);
-    return found && found.modified.getTime() >= startedAt - REPORT_CLOCK_MARGIN_MS ? found.body : undefined;
+    return found && found.modified.getTime() >= startedAt - reportClockMarginMs ? found.body : undefined;
   };
   let lastStep: string | undefined;
   while (Date.now() < deadline) {
@@ -218,7 +217,7 @@ async function waitForBuilder(opts: BuildReleaseOptions, fx: BuildEffects, log: 
     }
   }
   throw new Error(
-    `the builder did not finish within ${Math.round((opts.timeoutMs ?? BUILD_TIMEOUT_MS) / 60_000)} minutes (last step: ${lastStep ?? 'none'})`,
+    `the builder did not finish within ${Math.round((opts.timeoutMs ?? buildTimeoutMs) / 60_000)} minutes (last step: ${lastStep ?? 'none'})`,
   );
 }
 
@@ -276,7 +275,7 @@ function liveEffects(opts: {
     },
     links: async (archives) => {
       const sign = await presigner;
-      const put = (key: string) => sign.put(key, BUILDER_LINK_SECONDS);
+      const put = (key: string) => sign.put(key, builderLinkSeconds);
       const report = builderReportPrefix(opts.sha);
       const links: BuilderLinks = {
         step: await put(`${report}step`),
@@ -313,12 +312,12 @@ function liveEffects(opts: {
       // An address for egress only: the closed security group drops every inbound packet.
       await createMachine(auth, zone, {
         name,
-        type: BUILDER_TYPE,
-        image: BUILDER_IMAGE,
+        type: builderType,
+        image: builderImage,
         projectId: opts.projectId,
         securityGroupId: securityGroup.id,
         tags: ['builder', `sha=${opts.sha}`],
-        volumeBytes: BUILDER_DISK_BYTES,
+        volumeBytes: builderDiskBytes,
         userData: { 'cloud-init': cloudConfig },
       });
     },
@@ -335,38 +334,41 @@ function liveEffects(opts: {
   };
 }
 
+/** What the deploy hands its build step. */
+export interface BuildReleaseStep {
+  sha: string;
+  mode: string;
+  projectId: string;
+  buildImages: BuildImageRow[];
+  services: { service: string; public_url: string }[];
+  /** The folder the release's entry files wait in for the publish; '' for an app without a frontend. */
+  distDir: string;
+  manifestOut: string;
+  /** The time of the last key rotation, absent before the first. */
+  keysRotatedAt?: string;
+}
+
 /**
  * The deploy's step: the deploy key in `SCW_ACCESS_KEY` / `SCW_SECRET_KEY`; names, the repository and the pnpm version from the config. The
- * checked manifest goes to `--manifest-out`, from which the deploy hands each new machine the digests of the archives it loads.
+ * checked manifest goes to `manifestOut`, from which the deploy hands each new machine the digests of the archives it loads.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(step: BuildReleaseStep): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
-  const sha = getFlag(argv, '--sha');
-  const mode = getFlag(argv, '--mode');
-  const projectId = getFlag(argv, '--project-id');
-  const buildImagesJson = getFlag(argv, '--build-images-json');
-  const servicesJson = getFlag(argv, '--services-json');
-  const manifestOut = getFlag(argv, '--manifest-out');
-  const distDir = getFlag(argv, '--dist') || undefined;
-  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
-  if (!accessKey || !secretKey || !sha || !mode || !projectId || !buildImagesJson || !servicesJson || !manifestOut) {
-    throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY, --sha, --mode, --project-id, --build-images-json, --services-json, --manifest-out');
-  }
+  const { sha, mode, projectId, manifestOut, keysRotatedAt } = step;
+  const distDir = step.distDir || undefined;
+  if (!accessKey || !secretKey || !projectId) throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY and the project id');
   process.env.APP_MODE = mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   const { naming, region, zones } = deriveInfra(appConfig);
-  const rootPackage = JSON.parse(await readFile(join(infraDir, '..', 'package.json'), 'utf8')) as {
-    packageManager?: string;
-    engines?: { node?: string };
-  };
+  const pkg = rootPackage(repoRoot);
   const repository = repositoryUrl();
-  const pnpmVersion = rootPackage.packageManager?.match(/^pnpm@(.+)$/)?.[1];
+  const pnpmVersion = pkg.packageManager?.match(/^pnpm@(.+)$/)?.[1];
   if (!pnpmVersion) throw new Error("the builder installs the pnpm the root package.json's 'packageManager' names");
-  const nodeVersion = rootPackage.engines?.node;
+  const nodeVersion = pkg.engines?.node;
   if (!nodeVersion) throw new Error("the builder builds on the Node the root package.json's 'engines.node' names");
 
-  const rows = parseBuildRows(buildImagesJson);
+  const rows = step.buildImages;
   const frontendBucket = distDir ? naming.frontendBucket : '';
   const prefix = builderPrefix(naming.resource);
 
@@ -375,7 +377,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       sha,
       builderName: `${prefix}${sha.slice(0, 10)}`,
       zones,
-      archives: [...rows.map((row) => row.service), AGENT_IMAGE_NAME],
+      archives: [...rows.map((row) => row.service), agentImageName],
       withFrontend: Boolean(frontendBucket),
       distDir,
       keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
@@ -391,14 +393,14 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
             APP_MODE: mode,
           },
           links,
-          frontendEnv: frontendBucket ? frontendBuildEnv(mode, servicesJson, sha) : {},
+          frontendEnv: frontendBucket ? frontendBuildEnv(mode, step.services, sha) : {},
           bake: bakeDefinition(rows, {
-            registry: `rg.${region}.scw.cloud`,
+            registry: scwRegistryHost(region),
             namespace: naming.registryNamespace,
             releaseSha: sha,
             nodeVersion,
             context: '/build',
-            archiveDir: BUILDER_ARCHIVE_DIR,
+            archiveDir: builderArchiveDir,
           }),
           agent: agentBundleScript(pnpmVersion),
           frontend: frontendBucket ? frontendScript(pnpmVersion) : '',
@@ -419,5 +421,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   );
   await writeFile(manifestOut, JSON.stringify(manifest), { mode: 0o600 });
 }
-
-runIfMain(import.meta.url, main);

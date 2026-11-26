@@ -1,7 +1,7 @@
 import type * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { engineConfig as appConfig } from 'infra/config/engine-config';
-import { isRouted, type MachineRole, machineRoles, SLOTS, slotName } from '../lib/machine-roles';
+import { allSlots, isRouted, type MachineRole, machineRoles, slotName } from '../lib/machine-roles';
 import { mode, naming, region, tags } from '../pulumi-context';
 import { privateNetworkId } from './network';
 
@@ -15,7 +15,7 @@ export const roles: readonly MachineRole[] = machineRoles(appConfig);
 const reservations = new Map<string, scaleway.ipam.Ip[]>(
   roles.filter(isRouted).map((role) => [
     role.role,
-    SLOTS.map(
+    allSlots.map(
       (slot) =>
         new scaleway.ipam.Ip(`slot-${role.role}-${slot}`, {
           sources: [{ privateNetworkId }],

@@ -2,7 +2,7 @@ import { isRecord } from '../utils/guards';
 import { canonicalJson } from './applied-engine';
 
 /** How many paths a list of changes names before it counts the rest. */
-const NAMED_CHANGES = 8;
+const namedChanges = 8;
 
 /**
  * What differs between two descriptions of the app: the dotted path of each leaf added, removed or changed, as `services.search added`,
@@ -24,5 +24,5 @@ export function describeChanges(before: unknown, after: unknown): string[] {
     }
   };
   walk(JSON.parse(canonicalJson(before)), JSON.parse(canonicalJson(after)), '');
-  return changes.length > NAMED_CHANGES ? [...changes.slice(0, NAMED_CHANGES), `+${changes.length - NAMED_CHANGES} more`] : changes;
+  return changes.length > namedChanges ? [...changes.slice(0, namedChanges), `+${changes.length - namedChanges} more`] : changes;
 }

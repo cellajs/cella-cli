@@ -1,8 +1,3 @@
-/**
- * Coverage overview for the stats command, from the `.coverage/coverage-summary.json` that the
- * `json-summary` Vitest reporter writes on `pnpm test`.
- */
-
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join, relative, sep } from 'node:path';
 import pc from '../utils/colors';
@@ -49,7 +44,10 @@ function formatAge(ms: number): string {
   return `${mins} minute${mins === 1 ? '' : 's'} ago`;
 }
 
-/** Print a compact coverage overview from the cached summary file. */
+/**
+ * Print the stats command's compact coverage overview from `.coverage/coverage-summary.json`, which the `json-summary`
+ * Vitest reporter writes on `pnpm test`.
+ */
 export function printCoverageSummary(repoRoot: string): void {
   const file = join(repoRoot, '.coverage', 'coverage-summary.json');
   let summary: CoverageSummary | undefined;

@@ -1,22 +1,15 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { engineConfig as appConfig } from 'infra/config/engine-config';
-import { BOOT_ACCOUNTS_PREFIX } from '../lib/deploy/boot-accounts';
+import { bootAccountsPrefix } from '../lib/deploy/boot-accounts';
 import { liveRecordKey } from '../lib/deploy/live-record';
-import { ENV_PREFIX, RELEASES_PREFIX } from '../lib/deploy/release-archives';
-import { RUNS_PREFIX } from '../lib/deploy/run-record';
+import { envPrefix, releasesPrefix } from '../lib/deploy/release-archives';
+import { runsPrefix } from '../lib/deploy/run-record';
 import { appStorageNeeds, services } from '../lib/services';
-import { CONTROL_PREFIX, lockKey, rotationsKey } from '../lib/stack/control-store';
-import { deployMode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
-import { DUMPS_PREFIX } from '../tasks/final-dump';
-import {
-  ciDeployApplicationId,
-  observerApplicationId,
-  operatorApplicationId,
-  operatorMemberUserIds,
-  transloaditApplicationId,
-  uploadsApplicationId,
-} from './identities';
+import { controlRootPrefix, lockKey, rotationsKey } from '../lib/stack/control-store';
+import { mode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
+import { dumpsPrefix } from '../tasks/final-dump';
+import { ciDeployApplicationId, observerApplicationId, operatorPrincipals, transloaditApplicationId, uploadsApplicationId } from './identities';
 
 // The app's buckets follow the service registry: the SPA bucket needs a default-route service, the upload buckets need an s3Access service, and browser CORS exists only when both do. The boot-diag bucket below is unconditional.
 const needs = appStorageNeeds(services);
@@ -32,9 +25,8 @@ const uploadCorsRules = browserOrigin
  * same policy: a member joins the policies at the next apply, and an application that does not exist drops the statement.
  */
 const humanAccess = (bucketName: pulumi.Input<string>) =>
-  pulumi.all([operatorApplicationId, operatorMemberUserIds]).apply(([operatorId, userIds]) => {
-    const principals = [...(operatorId ? [`application_id:${operatorId}`] : []), ...userIds.map((id) => `user_id:${id}`)];
-    return principals.length > 0
+  operatorPrincipals.apply((principals) =>
+    principals.length > 0
       ? [
           {
             Sid: 'OperatorAccess',
@@ -44,8 +36,8 @@ const humanAccess = (bucketName: pulumi.Input<string>) =>
             Resource: [bucketName, pulumi.interpolate`${bucketName}/*`],
           },
         ]
-      : [];
-  });
+      : [],
+  );
 
 /**
  * The deploy key's access on a bucket policy: objects only, under the prefixes and at the keys given, the whole bucket by default (the frontend's).
@@ -294,19 +286,19 @@ const bootDiagBucket = new scaleway.object.Bucket(
         noncurrentVersionExpiration: { noncurrentDays: 60 },
         expiration: { expiredObjectDeleteMarker: true },
       },
-      { id: 'expire-boot-diag', enabled: true, expiration: { days: 60 }, prefix: BOOT_ACCOUNTS_PREFIX },
-      { id: 'expire-runs', enabled: true, expiration: { days: 60 }, prefix: RUNS_PREFIX },
-      { id: 'expire-releases', enabled: true, expiration: { days: 60 }, prefix: RELEASES_PREFIX },
-      { id: 'expire-env', enabled: true, expiration: { days: 1 }, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: ENV_PREFIX },
+      { id: 'expire-boot-diag', enabled: true, expiration: { days: 60 }, prefix: bootAccountsPrefix },
+      { id: 'expire-runs', enabled: true, expiration: { days: 60 }, prefix: runsPrefix },
+      { id: 'expire-releases', enabled: true, expiration: { days: 60 }, prefix: releasesPrefix },
+      { id: 'expire-env', enabled: true, expiration: { days: 1 }, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: envPrefix },
       {
         id: 'expire-dumps',
         enabled: true,
         expiration: { days: backupDays },
         noncurrentVersionExpiration: { noncurrentDays: 1 },
-        prefix: DUMPS_PREFIX,
+        prefix: dumpsPrefix,
       },
       // Every deploy and operator action writes the lease, and Scaleway refuses a write to an object of too many versions.
-      { id: 'expire-lease-versions', enabled: true, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: lockKey(deployMode) },
+      { id: 'expire-lease-versions', enabled: true, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: lockKey(mode) },
     ],
   },
   kept,
@@ -332,29 +324,25 @@ new scaleway.object.BucketPolicy(
                 Action: ['s3:ListBucket', 's3:ListBucketVersions', 's3:GetObject', 's3:GetObjectVersion'],
                 Resource: [
                   bootDiagBucket.name,
-                  pulumi.interpolate`${bootDiagBucket.name}/${BOOT_ACCOUNTS_PREFIX}*`,
-                  pulumi.interpolate`${bootDiagBucket.name}/${RUNS_PREFIX}*`,
-                  pulumi.interpolate`${bootDiagBucket.name}/${CONTROL_PREFIX}*`,
+                  pulumi.interpolate`${bootDiagBucket.name}/${bootAccountsPrefix}*`,
+                  pulumi.interpolate`${bootDiagBucket.name}/${runsPrefix}*`,
+                  pulumi.interpolate`${bootDiagBucket.name}/${controlRootPrefix}*`,
                   // A release's manifest names its archives and its description, no value: Releases reads it to say what a rollback needs.
-                  pulumi.interpolate`${bootDiagBucket.name}/${RELEASES_PREFIX}*/manifest.json`,
+                  pulumi.interpolate`${bootDiagBucket.name}/${releasesPrefix}*/manifest.json`,
                 ],
               },
             ]
           : []),
         // The release's archives, manifest and builder reports, the env files, the boot accounts, the run records, the lease and the live
         // record. A lost deploy key cannot rewrite the applied engine or the rotations, which only the operator key writes.
-        deployAccess(
-          bootDiagBucket.name,
-          [RELEASES_PREFIX, ENV_PREFIX, BOOT_ACCOUNTS_PREFIX, RUNS_PREFIX],
-          [lockKey(deployMode), liveRecordKey(deployMode)],
-        ),
+        deployAccess(bootDiagBucket.name, [releasesPrefix, envPrefix, bootAccountsPrefix, runsPrefix], [lockKey(mode), liveRecordKey(mode)]),
         // Every deploy reads the rotations, to replace each machine booted before the newest rotation.
         {
           Sid: 'DeployReadsRotations',
           Effect: 'Allow',
           Principal: { SCW: pulumi.interpolate`application_id:${ciDeployApplicationId}` },
           Action: ['s3:GetObject'],
-          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${rotationsKey(deployMode)}`],
+          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${rotationsKey(mode)}`],
         },
         // The deploy deletes a booted machine's env file with its version, which no other object of the bucket may lose.
         {
@@ -362,7 +350,7 @@ new scaleway.object.BucketPolicy(
           Effect: 'Allow',
           Principal: { SCW: pulumi.interpolate`application_id:${ciDeployApplicationId}` },
           Action: ['s3:DeleteObjectVersion'],
-          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${ENV_PREFIX}*`],
+          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${envPrefix}*`],
         },
         ...admin,
       ]),
@@ -371,7 +359,7 @@ new scaleway.object.BucketPolicy(
   kept,
 );
 
-// Skipped buckets export empty strings, matching the provision-less primary-store contract in resources/program.ts.
+// Skipped buckets export empty strings.
 
 export const frontendBucketName = frontendBucket?.name ?? pulumi.output('');
 

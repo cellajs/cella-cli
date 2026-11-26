@@ -1,16 +1,16 @@
-import { errorMessage } from '../utils/errors.ts';
-import { type FetchLike, resolveFetch } from '../utils/fetch-like.ts';
-import { retry } from '../utils/retry.ts';
+import { errorMessage } from '../utils/errors';
+import { type FetchLike, resolveFetch } from '../utils/fetch-like';
+import { retry } from '../utils/retry';
 
 // SCW_DEBUG only, never the generic DEBUG var: verbose mode prints API bodies into retained CI logs.
-const DEBUG = process.env.SCW_DEBUG === '1';
+const debug = process.env.SCW_DEBUG === '1';
 
 /** True for endpoints whose bodies carry live secret values (Secret Manager access, IAM api-key minting, a machine's user data, a database role's password). Verbose logging redacts these bodies. */
 export function carriesSecretValues(url: string): boolean {
   return url.includes('/secret-manager/') || url.includes('/api-keys') || url.includes('/user_data/') || /\/rdb\/.+\/users(?:[/?]|$)/.test(url);
 }
 
-const REDACTED = '[redacted: secret-bearing endpoint]';
+const redacted = '[redacted: secret-bearing endpoint]';
 
 // A rejected fetch is a transient network failure, and so is an answer of `transientStatuses`: one blip must not fail a deploy's read.
 const attempts = 3;
@@ -49,12 +49,17 @@ export function scwS3Endpoint(region: string): string {
   return `https://s3.${region}.scw.cloud`;
 }
 
+/** Container Registry host for a Scaleway region, as docker logs in to it and an image reference begins. */
+export function scwRegistryHost(region: string): string {
+  return `rg.${region}.scw.cloud`;
+}
+
 /** How long one call may take before it fails as a network error, so a stalled endpoint never holds a screen or a deploy step for good. */
-const REQUEST_TIMEOUT_MS = 60_000;
+const requestTimeoutMs = 60_000;
 
 async function request(auth: ScwAuth, method: string, url: string, body?: string, contentType = 'application/json'): Promise<string> {
-  if (DEBUG) {
-    const bodyLog = body ? ` body=${carriesSecretValues(url) ? REDACTED : body}` : '';
+  if (debug) {
+    const bodyLog = body ? ` body=${carriesSecretValues(url) ? redacted : body}` : '';
     process.stderr.write(`[scw] → ${method} ${url}${bodyLog}\n`);
   }
   const fetchImpl = resolveFetch(auth.fetchImpl);
@@ -67,10 +72,10 @@ async function request(auth: ScwAuth, method: string, url: string, body?: string
           method,
           headers: { 'X-Auth-Token': auth.secretKey, 'Content-Type': contentType },
           body,
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(requestTimeoutMs),
         });
         const text = await res.text();
-        if (DEBUG) process.stderr.write(`[scw] ← ${res.status} ${carriesSecretValues(url) ? REDACTED : text.slice(0, 500)}\n`);
+        if (debug) process.stderr.write(`[scw] ← ${res.status} ${carriesSecretValues(url) ? redacted : text.slice(0, 500)}\n`);
         if (res.ok) return text;
         throw Object.assign(new Error(`Scaleway ${method} ${url} → ${res.status}: ${text}`), {
           status: res.status,
@@ -121,6 +126,21 @@ export async function scwFetch<T>(auth: ScwAuth, method: string, url: string, bo
   } catch {
     throw new Error(`Scaleway ${method} ${url} returned non-JSON body: ${text.slice(0, 200)}`);
   }
+}
+
+/**
+ * Every item of a paged Scaleway list under `field`, read page by page from page 1 until a page is empty or `total_count` items are in.
+ * @param maxPages The most pages read; the listing ends there with what it holds.
+ */
+export async function scwListAll<T>(auth: ScwAuth, url: (page: number) => string, field: string, maxPages = 100): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const body = await scwFetch<Record<string, unknown>>(auth, 'GET', url(page));
+    const items = (body[field] as T[] | undefined) ?? [];
+    all.push(...items);
+    if (items.length === 0 || all.length >= Number(body.total_count ?? 0)) break;
+  }
+  return all;
 }
 
 /** Authenticated Scaleway call with no expected response body (DELETE, 204). */

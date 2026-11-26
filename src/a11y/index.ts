@@ -20,8 +20,7 @@ function parseA11y({ job, opts }: { job: A11yOptions['job']; opts: Record<string
   if (job === 'report') return { job, publish: opts.publish === true, draft: opts.draft === true };
   if (job === 'decide') {
     const { file, ...decision } = opts;
-    if (file !== undefined && Object.keys(decision).length > 0)
-      throw new Error('--file holds the decisions: no other flags');
+    if (file !== undefined && Object.keys(decision).length > 0) throw new Error('--file holds the decisions: no other flags');
     return { job, decide: { file: text(file), decision: { ...decision, where: list(opts.where) } } };
   }
   const workers = opts.workers === undefined ? 4 : Number(opts.workers);

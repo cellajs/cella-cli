@@ -1,9 +1,3 @@
-#!/usr/bin/env tsx
-/**
- * Cella CLI main entry point: picks the command from the command line or the menu, runs it in the working directory and
- * exits with the code it returns.
- */
-
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -28,6 +22,10 @@ async function readMenuContext(repoRoot: string): Promise<MenuContext> {
   };
 }
 
+/**
+ * The CLI's main entry point: picks the command from the command line or the menu, runs it in the working directory and
+ * resolves to the code it returns.
+ */
 async function main(): Promise<number> {
   const repoRoot = process.cwd();
   const named = parseCommandLine(process.argv);
@@ -39,16 +37,14 @@ async function main(): Promise<number> {
   const { command, options, machineOutput } = named ?? (await promptForCommand(await readMenuContext(repoRoot)));
 
   if (machineOutput) setJsonMode(true);
-  // A gate prints its verdict alone: CI logs and agents read it. A command that hands over leaves all output to the program
+  // A gate prints its verdict alone: CI logs and agents read it. A command that hands over prints all its output itself
   const quiet = command.group === 'gate' || command.handsOver === true;
   if (named && !quiet) printHeader();
 
   if (!command.outsideGit && !existsSync(join(repoRoot, '.git'))) {
     throw new Error(`not a git repository: ${repoRoot}`);
   }
-  const code = command.needsConfig
-    ? await command.run(repoRoot, options, await loadConfig(repoRoot))
-    : await command.run(repoRoot, options);
+  const code = command.needsConfig ? await command.run(repoRoot, options, await loadConfig(repoRoot)) : await command.run(repoRoot, options);
 
   if (!quiet) console.info();
   return code;

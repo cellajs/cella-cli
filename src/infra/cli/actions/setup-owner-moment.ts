@@ -1,4 +1,4 @@
-import { actionLabel } from '../../lib/operator-actions';
+import { actionLabel, type OperatorActionId } from '../../lib/operator-actions';
 import { declaresUploads, uploadsPolicy } from '../../lib/scaleway/declared-identities';
 import { createApiKey, deleteApiKey, resolveApplicationIdByName } from '../../lib/scaleway/iam-client';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
@@ -6,7 +6,7 @@ import { allPrincipalNames, appPrincipalNames } from '../../lib/scaleway/princip
 import { createProject, listProjects } from '../../lib/scaleway/scaleway-account';
 import { ensureApplication } from '../../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import type { Environment } from '../../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../../lib/stack/environment';
 import { projectChoices, projectsOfOtherModes } from '../../lib/stack/project-per-mode';
 import { changeMark, checkMark, pc, warningMark, withSpinner } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
@@ -15,19 +15,19 @@ import { setupCiKey } from '../../tasks/setup-ci-key';
 import { planUploadsKey, writeUploadsKey } from '../../tasks/uploads-key';
 import { confirm, select } from '../prompts/back';
 import { forgetOwnerKey, rememberOperatorKey } from '../session';
-import type { CliMode, InfraContext } from '../shared';
+import type { InfraContext } from '../shared';
 import { autoAcceptDefaults, confirmOrDefault, inputOrDefault, pointTo } from '../shared';
+import { uploadsApplication } from './identity';
 import { ensureObserverForEnvironment } from './observer-key';
-import { ensureOperatorForEnvironment } from './operator-key';
+import { ensureOperatorForEnvironment } from './operators';
 import { acquireOwnerKey } from './owner-key';
 
-export type SetupMode = Extract<CliMode, 'resume' | 'rotate-keys'>;
+export type SetupMode = Extract<OperatorActionId, 'resume' | 'rotate-keys'>;
 
 /** Result of the CI-deploy-key phase; empty strings when nothing was minted. */
 export interface CiKeyResult {
   accessKey: string;
   secretKey: string;
-  organizationId: string;
   /** Set when the Owner key may not list the deploy application's keys: the ones made before this key still work. */
   purgeSkipped?: true;
 }
@@ -54,10 +54,10 @@ async function mintCiKey(
         slug: opts.appConfig.slug,
         mode: opts.mode,
       });
-      return { accessKey: key.accessKey, secretKey: key.secretKey, organizationId: key.organizationId, purgeSkipped: key.purgeSkipped };
+      return { accessKey: key.accessKey, secretKey: key.secretKey, purgeSkipped: key.purgeSkipped };
     } catch (error) {
       console.error(`\n${warningMark} CI key setup failed: ${errorMessage(error)}`);
-      if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '', organizationId: '' };
+      if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '' };
     }
   }
 }
@@ -69,7 +69,7 @@ function printSummary(opts: { rotated: boolean; ciAccessKey: string; keptKeys: b
 }
 
 /** How long the operator key a setup mints lives: within the day the session accepts. */
-const SETUP_KEY_HOURS = 23;
+const setupKeyHours = 23;
 
 /**
  * Mint the one-day operator key the rest of the setup runs on, with the Owner key, so nobody makes one in the console. A failure is a
@@ -86,10 +86,10 @@ async function mintSetupOperatorKey(ownerSecretKey: string, opts: { organization
       applicationId,
       description: `setup ${now.toISOString().slice(0, 10)}`,
       defaultProjectId: opts.projectId,
-      expiresAt: new Date(now.getTime() + SETUP_KEY_HOURS * 3_600_000).toISOString(),
+      expiresAt: new Date(now.getTime() + setupKeyHours * 3_600_000).toISOString(),
     });
     rememberOperatorKey({ accessKey: key.access_key, secretKey: key.secret_key }, { minted: true });
-    console.info(`  ${checkMark} Operator key made for this setup; it ends in ${SETUP_KEY_HOURS} hours.`);
+    console.info(`  ${checkMark} Operator key made for this setup; it ends in ${setupKeyHours} hours.`);
   } catch (error) {
     console.warn(`${warningMark} Could not make the operator key (${errorMessage(error)}): the setup asks for one next.`);
   }
@@ -127,8 +127,8 @@ async function offerOwnerKeyRevoke(pair: KeyPair): Promise<void> {
 async function ensureProjectId(opts: { slug: string; mode: Environment; secretKey: string; organizationId: string }): Promise<string> {
   const { organizationId } = opts;
   const projects = await withSpinner('Loading Scaleway projects', () => listProjects(opts.secretKey, organizationId));
-  const CREATE = '__create__';
-  const offered = projectChoices(projects, opts.slug, projectsOfOtherModes(opts.mode), CREATE);
+  const createChoice = '__create__';
+  const offered = projectChoices(projects, opts.slug, projectsOfOtherModes(opts.mode), createChoice);
   const choice = await select<string>({
     message: `Scaleway project for ${opts.mode}`,
     default: offered.default,
@@ -136,7 +136,7 @@ async function ensureProjectId(opts: { slug: string; mode: Environment; secretKe
     choices: offered.choices,
   });
   let projectId = choice;
-  if (choice === CREATE) {
+  if (choice === createChoice) {
     const name = await inputOrDefault({ message: 'New project name', default: opts.slug });
     const project = await createProject(opts.secretKey, { organizationId, name, description: 'Created by the infra CLI setup wizard' });
     console.info(`  ${changeMark} Created project ${project.name} (${project.id})`);
@@ -181,10 +181,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
     try {
       const registry = { slug: appConfig.slug, mode: environment };
       const auth = { secretKey: pair.secretKey };
-      await ensureApplication(
-        { ...registry, callerSecretKey: pair.secretKey, projectId, organizationId },
-        { suffix: 'uploads', description: "The uploads key: signs the backend's uploads and presigned URLs" },
-      );
+      await ensureApplication({ ...registry, callerSecretKey: pair.secretKey, projectId, organizationId }, uploadsApplication);
       await writeDeclaredPolicies(auth, organizationId, [uploadsPolicy({ ...registry, projectId })]);
       const secrets = createSecretManagerClient({ secretKey: pair.secretKey, region: appConfig.s3.region, projectId });
       const planned = await planUploadsKey({ auth, secrets, organizationId, ...registry });

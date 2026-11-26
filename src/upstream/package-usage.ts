@@ -1,15 +1,3 @@
-/**
- * Where the app's own code still uses a package or a script.
- *
- * The package merge removes an entry upstream dropped when the app never touched it in
- * package.json, but an app can use an inherited entry without touching it: an import in an
- * app-only module, a CLI in an app script, a script name in an app workflow. Only app-authored
- * content is searched: files that differ from upstream after the file merge, and package.json
- * scripts the app added or changed. Upstream no longer uses what it dropped, so a reference in
- * that content is the app's own. A false match keeps the entry, which is the safe side: a stale
- * entry costs an install, a missing one breaks the app.
- */
-
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { git } from '../utils/git';
@@ -26,7 +14,13 @@ interface AppSource {
   text: () => string;
 }
 
-/** Answers where the app still uses an entry upstream dropped; undefined when nowhere. */
+/**
+ * Answers where the app's own code still uses an entry upstream dropped; undefined when nowhere. The package merge
+ * removes such an entry when the app never touched it in package.json, but an app can use an inherited entry without
+ * touching it: an import in an app-only module, a CLI in an app script, a script name in an app workflow. Upstream does
+ * not use what it dropped: a reference in app-authored content is the app's own. A false match keeps the entry,
+ * which is the safe side: a stale entry costs an install, a missing one breaks the app.
+ */
 export interface AppUsage {
   /** An app-authored place inside `location` that imports `name` or runs one of its CLIs */
   findPackage(location: string, name: string): string | undefined;
@@ -77,12 +71,7 @@ async function readScriptsAtRef(repoRoot: string, ref: string, path: string): Pr
 }
 
 /** The scripts of an app package.json that differ from both the merge-base and upstream. */
-async function scriptSources(
-  repoRoot: string,
-  upstreamRef: string,
-  baseRef: string,
-  path: string,
-): Promise<AppSource[]> {
+async function scriptSources(repoRoot: string, upstreamRef: string, baseRef: string, path: string): Promise<AppSource[]> {
   let appScripts: Record<string, string>;
   try {
     appScripts = JSON.parse(readFileSync(join(repoRoot, path), 'utf8')).scripts ?? {};
@@ -150,15 +139,11 @@ export async function loadAppUsage(repoRoot: string, upstreamRef: string, baseRe
     else if (!isManagedFile(path) && !proseFilePattern.test(path)) sources.push(fileSource(repoRoot, path));
   }
 
-  const findIn = (scoped: AppSource[], patterns: RegExp[]) =>
-    scoped.find((source) => patterns.some((pattern) => pattern.test(source.text())))?.label;
+  const findIn = (scoped: AppSource[], patterns: RegExp[]) => scoped.find((source) => patterns.some((pattern) => pattern.test(source.text())))?.label;
 
   return {
     findPackage: (location, name) =>
-      findIn(
-        location ? sources.filter((source) => isUnderAnyFolder(source.path, [location])) : sources,
-        packagePatterns(repoRoot, location, name),
-      ),
+      findIn(location ? sources.filter((source) => isUnderAnyFolder(source.path, [location])) : sources, packagePatterns(repoRoot, location, name)),
     findScript: (name) => findIn(sources, [scriptPattern(name)]),
   };
 }

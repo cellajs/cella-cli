@@ -1,10 +1,10 @@
 import { scrubSecretLines } from '../../agent/src/diagnostics';
+import type { JobRun } from '../scaleway/serverless-jobs';
 import { checkMark, crossMark } from '../utils/cli-output';
-import type { JobRun } from './job-runs';
 import { commitName, type RemoteRef } from './target';
 
 /** Where runs are kept in the environment's diagnostics bucket: one folder per run, `runs/<run>/`. */
-export const RUNS_PREFIX = 'runs/';
+export const runsPrefix = 'runs/';
 
 /** One step of a run, as the record keeps it. */
 export interface RunStep {
@@ -68,12 +68,12 @@ export function runStartedAt(run: string): Date | undefined {
 
 /** The record's key in the diagnostics bucket. */
 export function runRecordKey(run: string): string {
-  return `${RUNS_PREFIX}${run}/record.json`;
+  return `${runsPrefix}${run}/record.json`;
 }
 
 /** The key of the log beside the record. */
 export function runLogKey(run: string): string {
-  return `${RUNS_PREFIX}${run}/log`;
+  return `${runsPrefix}${run}/log`;
 }
 
 /**

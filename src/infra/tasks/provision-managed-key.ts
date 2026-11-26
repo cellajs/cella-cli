@@ -1,9 +1,10 @@
 import type { ManagedKeyDefinition } from '../lib/managed-keys';
 import type { MintedKeyField } from '../lib/managed-keys-config';
+import { actionCommand } from '../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
 import { provisionScopedKey } from '../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient, type SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { checkMark } from '../lib/utils/cli-output';
 
 export interface ProvisionManagedKeyOptions {
@@ -21,7 +22,7 @@ export interface ProvisionManagedKeyOptions {
 }
 
 export interface ProvisionManagedKeyResult {
-  /** The `<slug>-<suffix>` IAM application the key belongs to. */
+  /** The `<slug>-<mode>-<suffix>` IAM application the key belongs to. */
   applicationId: string;
   /** secretName → written revision, one per assigned half. */
   seeded: Record<string, number>;
@@ -57,10 +58,10 @@ export async function provisionManagedKey(opts: ProvisionManagedKeyOptions): Pro
   // missing so a live key is never leaked.
   const containersBySecretName = new Map<string, SecretManagerSecret>();
   for (const { secret } of targets) {
-    const container = await client.getSecretByName(secret.secretName, RUNTIME_FOLDER);
+    const container = await client.getSecretByName(secret.secretName, runtimeFolder);
     if (!container) {
       throw new Error(
-        `${secret.secretName} (${secret.envVar}) has no container yet: run \`pulumi up\` so Pulumi creates it, then provision the ${definition.label} key.`,
+        `${secret.secretName} (${secret.envVar}) has no container yet: \`${actionCommand('apply')}\` creates it, then provision the ${definition.label} key.`,
       );
     }
     containersBySecretName.set(secret.secretName, container);

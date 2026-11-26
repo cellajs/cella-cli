@@ -7,7 +7,7 @@ import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { inFirstProvisioning } from '../../lib/stack/bootstrap-stack-state';
 import { controlActor, lockKey, makeControlClient, readObjectModified, recordRotation } from '../../lib/stack/control-store';
 import { importPlan, keptResources } from '../../lib/stack/kept-resources';
@@ -24,10 +24,9 @@ import { confirm, input } from '../prompts/back';
 import { maskedSecret } from '../prompts/masked-secret';
 import type { InfraContext } from '../shared';
 import {
-  acquireStackLockOrExit,
+  acquireStackLockOrEnd,
   autoAcceptDefaults,
   confirmOrDefault,
-  createStepRunner,
   endAction,
   endActionWithHint,
   endsAction,
@@ -35,8 +34,8 @@ import {
   pulumiLoginUrl,
   stackNameFor,
 } from '../shared';
-import { exitOnOpenDbEndpoint } from './apply';
-import { exitWhenShutOutOfBuckets } from './operator-apply';
+import { endOnOpenDbEndpoint } from './apply';
+import { endOnShutOutOfBuckets } from './operator-apply';
 import type { OperatorKey } from './operator-unlock';
 import { printLaunchChecklist } from './setup-checklist';
 import { connectRepository, offerFirstDeploy } from './setup-connect';
@@ -53,20 +52,29 @@ async function optionalSecret(message: string): Promise<string> {
   }
 }
 
+/** Run a labelled command in the infra folder and end the action on a non-zero exit; with `retry`, a failure first asks to run it again. */
+async function mustRun(label: string, cmd: string, args: string[], env: NodeJS.ProcessEnv, opts: { retry?: boolean } = {}): Promise<void> {
+  while (true) {
+    console.info(`\n→ ${label}\n  $ ${cmd} ${args.join(' ')}`);
+    const { status } = spawnSync(cmd, args, { cwd: infraDir, env, stdio: 'inherit' });
+    if (status === 0) return;
+    console.error(`\n${crossMark} ${label} failed (exit ${status}).`);
+    if (!opts.retry || !(await confirm({ message: 'Retry?', default: true }))) endAction(status ?? 1);
+  }
+}
+
 /** What the operator part of a setup shares. */
 interface SetupContext {
   context: InfraContext;
   appConfig: InfraContext['appConfig'];
   projectId: string;
-  /** The operator key: provider auth, Secret Manager writes and IAM reads. */
-  accessKey: string;
+  /** The operator key's secret: provider auth, Secret Manager writes and IAM reads. */
   secretKey: string;
   /** The key for the state side (backend login, lease): the operator key, naming this project. */
   stateKey: KeyPair;
   stackName: string;
   /** Child-process env carrying the provider key. */
   childEnv: Record<string, string>;
-  must: ReturnType<typeof createStepRunner>['must'];
 }
 
 /** Operator secret values gathered at the first-setup prompts, seeded once the first `pulumi up` made their containers. */
@@ -102,7 +110,7 @@ async function adoptKept(ctx: SetupContext): Promise<void> {
       const { ListBucketsCommand } = await import('@aws-sdk/client-s3');
       return ((await s3.send(new ListBucketsCommand({}))).Buckets ?? []).flatMap((bucket) => (bucket.Name ? [bucket.Name] : []));
     }),
-    createSecretManagerClient({ secretKey: ctx.secretKey, region, projectId: ctx.projectId }).listSecrets(RUNTIME_FOLDER),
+    createSecretManagerClient({ secretKey: ctx.secretKey, region, projectId: ctx.projectId }).listSecrets(runtimeFolder),
   ]).catch((error) => {
     console.warn(`  ${warningMark} Could not list what a teardown may have kept (${errorMessage(error)}).`);
     return undefined;
@@ -140,10 +148,10 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
       if (!(await confirmOrDefault({ message: 'Continue with pulumi up anyway?', default: false }))) endAction(1);
     }
   }
-  if (ctx.context.state !== 'fresh') await exitOnOpenDbEndpoint(ctx.context, ctx.secretKey);
+  if (ctx.context.state !== 'fresh') await endOnOpenDbEndpoint(ctx.context, ctx.secretKey);
 
   // Lock provisioning against concurrent operators and deploys; every exit path releases it, and abandoned locks expire or clear with "Unlock".
-  const stackLock = await acquireStackLockOrExit({
+  const stackLock = await acquireStackLockOrEnd({
     appConfig: ctx.appConfig,
     accessKey: ctx.stateKey.accessKey,
     secretKey: ctx.stateKey.secretKey,
@@ -181,9 +189,9 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
 
   // The Scaleway provider authenticates from SCW_* env (childEnv), which carries the operator key.
   while (true) {
-    const { code } = await runPulumiUpWithHint(ctx.stackName, infraDir, ctx.childEnv);
+    const { code } = await runPulumiUpWithHint(ctx.stackName, ctx.childEnv);
     if (code === 0) break;
-    if (!(await confirm({ message: 'Retry?', default: true }))) {
+    if (!(await confirm({ message: 'Retry?', default: false }))) {
       await stackLock.release();
       endActionWithHint(
         `Base provisioning failed (pulumi up exited ${code})`,
@@ -203,7 +211,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
     engine = await publishEngineOrWarn(ctx);
     if (engine) {
       ctx.childEnv.INFRA_ENGINE_IMAGE = engine.image;
-      const { code } = await runPulumiUpWithHint(ctx.stackName, infraDir, ctx.childEnv);
+      const { code } = await runPulumiUpWithHint(ctx.stackName, ctx.childEnv);
       if (code !== 0) {
         console.warn(`${warningMark} The main job's definition waits for ${pointTo('apply')} (pulumi up exited ${code}).`);
         engine = undefined;
@@ -271,7 +279,7 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
 
   // The operator key serves the state side too, naming this project, as it is made in one environment's. A stack whose buckets predate the
   // operator application lets it in first.
-  if (!firstSetup) await exitWhenShutOutOfBuckets(context, operatorKey);
+  if (!firstSetup) await endOnShutOutOfBuckets(context, operatorKey);
   const stateKey: KeyPair = stateKeyOf(operatorKey, projectId);
   const childEnv = buildProviderEnv(infraDir, {
     accessKey: operatorKey.accessKey,
@@ -281,24 +289,21 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
     organizationId: operatorKey.organizationId,
   });
 
-  const { must } = createStepRunner(infraDir, childEnv);
   const ctx: SetupContext = {
     context,
     appConfig,
     projectId,
-    accessKey: operatorKey.accessKey,
     secretKey: operatorKey.secretKey,
     stateKey,
     stackName,
     childEnv,
-    must,
   };
 
   // State backend + stack
-  await must('Ensure Pulumi state bucket', 'pnpm', ['ensure-state-bucket'], spawnSync, { retry: true });
-  await must('Pulumi login (S3 backend)', 'pulumi', ['login', pulumiLoginUrl(appConfig)], spawnSync, { retry: true });
+  await mustRun('Ensure Pulumi state bucket', 'pnpm', ['ensure-state-bucket'], childEnv, { retry: true });
+  await mustRun('Pulumi login (S3 backend)', 'pulumi', ['login', pulumiLoginUrl(appConfig)], childEnv, { retry: true });
   const selected = spawnSync('pulumi', ['stack', 'select', stackName], { cwd: infraDir, env: childEnv, stdio: 'ignore' });
-  if (selected.status !== 0) await must('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], spawnSync);
+  if (selected.status !== 0) await mustRun('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], childEnv);
   writeStackFileProjectId(environment, projectId);
 
   // Identity ids come from the IAM API, so stack config only needs a non-secret bootstrap marker.
@@ -306,11 +311,11 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   await copyDeployKeyForMainJob(context, operatorKey, projectId, ciKey);
   // Set once: a new value on each resume would change the committed stack file and offer a commit every time.
   if (!context.hasCiKey && ciKey?.accessKey) {
-    await must(
+    await mustRun(
       'Mark bootstrap complete',
       'pulumi',
       ['config', 'set', 'infra:bootstrapComplete', new Date().toISOString(), '--stack', stackName],
-      spawnSync,
+      childEnv,
     );
   }
 
@@ -368,7 +373,7 @@ export async function recordKeyRotation(context: InfraContext, operatorKey: Oper
   const { appConfig, projectId } = context;
   const stack = stackNameFor(context);
   const state = stateKeyOf(operatorKey, projectId);
-  const lock = await acquireStackLockOrExit({
+  const lock = await acquireStackLockOrEnd({
     appConfig,
     ...state,
     stack,

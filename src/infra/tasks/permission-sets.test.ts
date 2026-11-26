@@ -4,7 +4,15 @@ import { deployRules } from '../lib/scaleway/deploy-policy';
 import { transloaditPolicy } from './transloadit-key';
 
 // The deploy key's rights: these tests state what it must never hold.
-const FORBIDDEN = ['IAMManager', 'IAMFullAccess', 'ProjectManager', 'OrganizationManager', 'BillingManager', 'BillingFullAccess', 'AccountManager'];
+const forbiddenSets = [
+  'IAMManager',
+  'IAMFullAccess',
+  'ProjectManager',
+  'OrganizationManager',
+  'BillingManager',
+  'BillingFullAccess',
+  'AccountManager',
+];
 const rules = deployRules({ projectId: 'proj' });
 const setsOf = (rule: (typeof rules)[number]) => rule.permission_set_names;
 
@@ -12,7 +20,7 @@ describe('deploy key rights', () => {
   it('must not write IAM or DNS, open a console, or write an image, a snapshot or a security group', () => {
     const all = rules.flatMap(setsOf);
     for (const forbidden of [
-      ...FORBIDDEN,
+      ...forbiddenSets,
       'IAMApplicationManager',
       'InstancesFullAccess',
       'InstancesServerSerialConsoleAccess',

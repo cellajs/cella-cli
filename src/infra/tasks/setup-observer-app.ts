@@ -1,9 +1,9 @@
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
-import type { IamAuth } from '../lib/scaleway/iam-client';
-import { OBSERVER_ORG_PERMISSION_SETS, OBSERVER_PROJECT_PERMISSION_SETS } from '../lib/scaleway/permissions';
+import { observerOrgPermissionSets, observerProjectPermissionSets } from '../lib/scaleway/permissions';
 import { type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { appPrincipalNames } from '../lib/scaleway/principals';
 import { type PolicyRule, type ProvisionScopedKeyOptions, provisionScopedKey, type ScopedKeyResult } from '../lib/scaleway/scaleway-iam';
+import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 
 export interface SetupObserverAppOptions extends Omit<ProvisionScopedKeyOptions, 'mode'> {
   /** The app's own slug (`appSlug`): the observer application is one per app. */
@@ -12,13 +12,13 @@ export interface SetupObserverAppOptions extends Omit<ProvisionScopedKeyOptions,
   projectIds: readonly string[];
 }
 
-const POLICY_DESCRIPTION = "Observer policy: read-only sets in the app's projects + IAM read, from any address (auto-generated)";
+const policyDescription = "Observer policy: read-only sets in the app's projects + IAM read, from any address (auto-generated)";
 
 /** The observer application's rules: read-only sets in the app's projects and IAM read in the organization, with no address condition. */
 export function observerRules(opts: { projectIds: readonly string[]; organizationId: string }): PolicyRule[] {
   return [
-    { permission_set_names: OBSERVER_PROJECT_PERMISSION_SETS, project_ids: [...opts.projectIds] },
-    { permission_set_names: OBSERVER_ORG_PERMISSION_SETS, organization_id: opts.organizationId },
+    { permission_set_names: observerProjectPermissionSets, project_ids: [...opts.projectIds] },
+    { permission_set_names: observerOrgPermissionSets, organization_id: opts.organizationId },
   ];
 }
 
@@ -28,7 +28,7 @@ export function observerPolicy(opts: { slug: string; organizationId: string; pro
   return {
     name: `${application}-policy`,
     applicationName: application,
-    description: POLICY_DESCRIPTION,
+    description: policyDescription,
     rules: observerRules({ projectIds: [...new Set(opts.projectIds)], organizationId: opts.organizationId }),
     tags: [],
   };
@@ -43,15 +43,15 @@ export async function setupObserverApp(opts: SetupObserverAppOptions): Promise<S
   return provisionScopedKey(opts, {
     suffix: 'observer',
     appDescription: 'Observer principal: read-only, in every environment of the app, from any address',
-    policyDescription: POLICY_DESCRIPTION,
+    policyDescription: policyDescription,
     buildRules: ({ organizationId }) => observerRules({ projectIds: opts.projectIds, organizationId }),
   });
 }
 
 /** Where the app's observer policy reaches; undefined when the app has no observer. */
-export async function observerReach(auth: IamAuth, organizationId: string, slug: string): Promise<PolicyReach | undefined> {
+export async function observerReach(auth: ScwAuth, organizationId: string, slug: string): Promise<PolicyReach | undefined> {
   const policy = await readPolicy(auth, organizationId, `${appPrincipalNames(slug).observer}-policy`);
-  return policy ? policyReach(policy.rules, OBSERVER_PROJECT_PERMISSION_SETS) : undefined;
+  return policy ? policyReach(policy.rules, observerProjectPermissionSets) : undefined;
 }
 
 /**
@@ -60,7 +60,7 @@ export async function observerReach(auth: IamAuth, organizationId: string, slug:
  * has no observer. Read with any key that reads IAM.
  */
 export async function declaredObserverPolicy(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   slug: string,
   projectId: string,

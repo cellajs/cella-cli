@@ -101,11 +101,7 @@ async function appExceptions(root: string): Promise<StyleExceptions | undefined>
   console.warn(
     `${warningMark} ${allowlistPath} has the 0.7 shape, which the CLI reads until 1.0: move it to ${exceptionsPath} as \`styleExceptions: StyleExceptions\`.`,
   );
-  const { files, prefixes, proseExclude, markerClasses } = await read(
-    allowlistPath,
-    'vocabularyAllowlist',
-    allowlistSchema,
-  );
+  const { files, prefixes, proseExclude, markerClasses } = await read(allowlistPath, 'vocabularyAllowlist', allowlistSchema);
   const proseRules = [...wordingRules, ...docRules, detachedCommentRule];
   return {
     exempt: {
@@ -124,15 +120,11 @@ export async function loadExceptions(root: string, ruleIds: string[]): Promise<S
   const app = await appExceptions(root);
   const unknown = Object.keys(app?.exempt ?? {}).filter((id) => !ruleIds.includes(id));
   if (unknown.length > 0) {
-    throw new Error(
-      `${exceptionsPath} exempts from no rule named ${unknown.join(', ')}; the rules: ${ruleIds.join(', ')}`,
-    );
+    throw new Error(`${exceptionsPath} exempts from no rule named ${unknown.join(', ')}; the rules: ${ruleIds.join(', ')}`);
   }
   const ids = new Set([...Object.keys(templateExceptions.exempt), ...Object.keys(app?.exempt ?? {})]);
   return {
-    exempt: Object.fromEntries(
-      [...ids].map((id) => [id, [...(templateExceptions.exempt[id] ?? []), ...(app?.exempt[id] ?? [])]]),
-    ),
+    exempt: Object.fromEntries([...ids].map((id) => [id, [...(templateExceptions.exempt[id] ?? []), ...(app?.exempt[id] ?? [])]])),
     markerClasses: [...templateExceptions.markerClasses, ...(app?.markerClasses ?? [])],
   };
 }

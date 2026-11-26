@@ -1,15 +1,15 @@
 import { printable } from '../../../../utils/terminal-text';
 import { type AppliedEngine, engineImageRef, engineImageRepository } from '../../deploy/applied-engine';
-import { commandOf, readJobDefinitionSecrets } from '../../deploy/job-runs';
-import { declaredMainJob, MAIN_JOB_TIME_LIMIT_HOURS, type MainJobDeclaration, scheduleEveryMinutes } from '../../deploy/main-job';
+import { declaredMainJob, type MainJobDeclaration, mainJobTimeLimitHours, scheduleEveryMinutes } from '../../deploy/main-job';
 import { machineRoles } from '../../machine-roles';
 import { deriveInfra } from '../../naming';
 import { actionCommand } from '../../operator-actions';
 import { declaredIdentities } from '../../scaleway/declared-identities';
-import { IAM_BASE, listOrganizationPolicies } from '../../scaleway/iam-client';
+import { iamBase, type LiveRule, listOrganizationPolicies, policyRules } from '../../scaleway/iam-client';
 import { durableKeyLife, organizationIdOfKey } from '../../scaleway/operator-identity';
 import { appPrincipalNames } from '../../scaleway/principals';
-import { scwFetch } from '../../scaleway/scw-fetch';
+import { scwFetch, scwListAll } from '../../scaleway/scw-fetch';
+import { commandOf, type JobDefinitionFacts, readJobDefinitionSecrets } from '../../scaleway/serverless-jobs';
 import { type CheckBuilder, check, probed } from '../check';
 import type { Check, StatusProvider } from '../types';
 
@@ -18,7 +18,7 @@ interface InventoryPolicy {
   name: string;
   application_id?: string;
   group_id?: string;
-  rules: Array<{ permission_set_names?: string[]; project_ids?: string[] | null; organization_id?: string | null }>;
+  rules: LiveRule[];
 }
 
 /** What exists, as IAM lists it for the organization and the Instance API for the environment's project. */
@@ -37,11 +37,7 @@ export interface InventoryFacts {
   /** The environment's machine roles: a machine named for one of their slots is the engine's. */
   roles: readonly string[];
   /** What the main job's definition runs; undefined when the environment has no main job. */
-  mainJob?: {
-    imageUri?: string;
-    command?: string;
-    env: Record<string, string>;
-    cron?: { schedule: string; timezone: string };
+  mainJob?: Omit<JobDefinitionFacts, 'updatedAt'> & {
     /** Each secret it references, with the name and folder Secret Manager gives it; undefined when they could not be read. */
     secretReferences?: Array<{ env?: string; file?: string; secretId: string; name?: string; path?: string }>;
   };
@@ -173,7 +169,7 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
   const slotNames = new Set(facts.roles.flatMap((role) => ['a', 'b'].map((slot) => `${expect.machinePrefix}${role}-${slot}`)));
   // A deploy deletes the machine it switched from and its builder before it ends, and no run outlasts the job's time limit: an older one is
   // a finding. The age is Scaleway's, which no key of the engine writes.
-  const limitMs = MAIN_JOB_TIME_LIMIT_HOURS * 3_600_000;
+  const limitMs = mainJobTimeLimitHours * 3_600_000;
   for (const { id, name, createdAt } of facts.machines ?? []) {
     if (live.has(id)) continue;
     const kind = name.startsWith(`${expect.machinePrefix}builder-`)
@@ -200,7 +196,7 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
 const folderOf = (path: string | undefined) => (path ?? '').replace(/\/+$/, '');
 
 /**
- * Where a definition differs from the declared one (D-b): a key that may edit it can make a run read another secret. The image, the command,
+ * Where a definition differs from the declared one: a key that may edit it can make a run read another secret. The image, the command,
  * the schedule, every env value, an env var it adds, and each secret reference: one outside the engine folder, one the declaration does not
  * name, one that reads another secret, and a required one that is gone. A definition without its schedule deploys nothing by itself.
  */
@@ -288,17 +284,6 @@ function expectationOf(appConfig: { slug: string; appSlug: string }, mode: strin
   };
 }
 
-async function listAll<T>(auth: { secretKey: string }, url: (page: number) => string, field: string): Promise<T[]> {
-  const all: T[] = [];
-  for (let page = 1; page <= 100; page++) {
-    const body = await scwFetch<Record<string, unknown>>(auth, 'GET', url(page));
-    const items = (body[field] as T[] | undefined) ?? [];
-    all.push(...items);
-    if (items.length === 0 || all.length >= Number(body.total_count ?? 0)) break;
-  }
-  return all;
-}
-
 /** The project's volumes no machine holds in the zones given: Block Storage ones nothing references, and local ones without a server. */
 async function looseVolumes(
   auth: { secretKey: string },
@@ -308,12 +293,12 @@ async function looseVolumes(
   const perZone = await Promise.all(
     zones.map(async (zone) => {
       const [block, local] = await Promise.all([
-        listAll<{ id: string; name: string; created_at?: string; references?: unknown[] }>(
+        scwListAll<{ id: string; name: string; created_at?: string; references?: unknown[] }>(
           auth,
           (page) => `https://api.scaleway.com/block/v1/zones/${zone}/volumes?project_id=${projectId}&page=${page}&page_size=100`,
           'volumes',
         ),
-        listAll<{ id: string; name: string; creation_date?: string; server?: unknown }>(
+        scwListAll<{ id: string; name: string; creation_date?: string; server?: unknown }>(
           auth,
           (page) => `https://api.scaleway.com/instance/v1/zones/${zone}/volumes?project=${projectId}&page=${page}&per_page=100`,
           'volumes',
@@ -345,7 +330,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
       const { region, zones } = deriveInfra(session.appConfig);
       const { live, applied, mainJob: job } = await session.scalewayFacts();
       if (!live || job === undefined) return undefined;
-      const org = (path: string) => (page: number) => `${IAM_BASE}/${path}?organization_id=${organizationId}&page=${page}&page_size=100`;
+      const org = (path: string) => (page: number) => `${iamBase}/${path}?organization_id=${organizationId}&page=${page}&page_size=100`;
       // A referenced secret's name and folder, which the observer reads as metadata; one it cannot read keeps neither.
       const secretPlace = (secretId: string) =>
         scwFetch<{ name: string; path: string }>(
@@ -357,9 +342,9 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
           () => ({}),
         );
       const [applications, groups, apiKeys, policies, servers, volumes, mainJob] = await Promise.all([
-        listAll<InventoryFacts['applications'][number]>(auth, org('applications'), 'applications'),
-        listAll<InventoryFacts['groups'][number]>(auth, org('groups'), 'groups'),
-        listAll<InventoryFacts['apiKeys'][number]>(auth, org('api-keys'), 'api_keys'),
+        scwListAll<InventoryFacts['applications'][number]>(auth, org('applications'), 'applications'),
+        scwListAll<InventoryFacts['groups'][number]>(auth, org('groups'), 'groups'),
+        scwListAll<InventoryFacts['apiKeys'][number]>(auth, org('api-keys'), 'api_keys'),
         listOrganizationPolicies(auth, organizationId),
         // Every zone of the region: a machine an intruder made in another zone of the project is still the project's. The observer key reads
         // no machine, as user data holds links to the env file until the deploy strips them; a listing that fails leaves the machines unread
@@ -367,7 +352,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
         operatorSecretKey
           ? Promise.all(
               zones.map((zone) =>
-                listAll<{ id: string; name: string; creation_date?: string }>(
+                scwListAll<{ id: string; name: string; creation_date?: string }>(
                   { secretKey: operatorSecretKey },
                   (page) => `https://api.scaleway.com/instance/v1/zones/${zone}/servers?project=${session.projectId}&page=${page}&per_page=100`,
                   'servers',
@@ -392,12 +377,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
       const withRules = await Promise.all(
         policies
           .filter((policy) => policy.application_id || policy.group_id)
-          .map(async (policy) => ({
-            ...policy,
-            rules:
-              (await scwFetch<{ rules?: InventoryPolicy['rules'] }>(auth, 'GET', `${IAM_BASE}/rules?policy_id=${policy.id}&page_size=100`)).rules ??
-              [],
-          })),
+          .map(async (policy) => ({ ...policy, rules: await policyRules(auth, policy.id) })),
       );
       const liveMachines = Object.fromEntries(Object.entries(live.roles).map(([role, entry]) => [role, entry.machine]));
       const machines = servers?.map(({ id, name, creation_date }) => ({ id, name, ...(creation_date ? { createdAt: creation_date } : {}) }));

@@ -48,8 +48,3 @@ export const managedKeys: ManagedKeyDefinition[] = Object.entries(managedKeysCon
     }
   }
 }
-
-/** Look up a managed key by id, or undefined when none matches. */
-export function managedKeyById(id: string): ManagedKeyDefinition | undefined {
-  return managedKeys.find((key) => key.id === id);
-}

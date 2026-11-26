@@ -1,15 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { actionCommand } from '../operator-actions';
-import { makeS3Client } from '../scaleway/s3-client';
+import { isNotFound, isPreconditionFailed, makeS3Client } from '../scaleway/s3-client';
 import { warningMark } from '../utils/cli-output';
-import { errorMessage } from '../utils/errors';
-import { isRecord } from '../utils/guards';
-
-/**
- * The control records of an environment, under `control/<mode>/` of its boot-diagnostics bucket: the live record (lib/deploy/live-record.ts),
- * the lease, the rotations and the applied engine an apply publishes (lib/deploy/applied-engine.ts). The observer reads them all, and the
- * Pulumi program reads the applied engine alone.
- */
+import { isRecord, parseJson } from '../utils/guards';
 
 /** One rotation: when, and who ran it. */
 export interface RotationRecord {
@@ -134,22 +127,6 @@ export async function putJsonObject(s3: S3Like, bucket: string, key: string, bod
 /** The write condition that keeps a read-modify-write safe: the etag read, or create-only when there was no object. */
 export const conditionOn = (etag: string | undefined): ConditionalWrite => (etag ? { ifMatch: etag } : { ifNoneMatch: '*' });
 
-/** Name + HTTP status of an S3-style error, however the SDK shaped it. */
-function s3ErrorInfo(err: unknown): { name?: string; status?: number } {
-  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return { name: e?.name, status: e?.$metadata?.httpStatusCode };
-}
-
-function isNotFound(err: unknown): boolean {
-  const { name, status } = s3ErrorInfo(err);
-  return name === 'NoSuchKey' || name === 'NotFound' || status === 404;
-}
-
-export function isPreconditionFailed(err: unknown): boolean {
-  const { name, status } = s3ErrorInfo(err);
-  return name === 'PreconditionFailed' || status === 412;
-}
-
 /** Bucket holding the Pulumi state. Must live in the app project: Scaleway Object Storage pins API keys to their preferred project. */
 export function stateBucket(slug: string): string {
   return `${slug}-pulumi-state`;
@@ -159,10 +136,13 @@ export function stateBucket(slug: string): string {
 const modeOf = (stack: string): string => stack.split('/').pop() ?? stack;
 
 /** Where every environment's control records live in its boot-diagnostics bucket. */
-export const CONTROL_PREFIX = 'control/';
+export const controlRootPrefix = 'control/';
 
-/** The folder of an environment's control records. */
-export const controlPrefix = (stack: string): string => `${CONTROL_PREFIX}${modeOf(stack)}/`;
+/**
+ * The folder of an environment's control records: the live record (lib/deploy/live-record.ts), the lease, the rotations and the applied
+ * engine an apply publishes (lib/deploy/applied-engine.ts). The observer reads them all, and the Pulumi program reads the applied engine alone.
+ */
+export const controlPrefix = (stack: string): string => `${controlRootPrefix}${modeOf(stack)}/`;
 
 /** The lease one deploy or operator action holds at a time. */
 export const lockKey = (stack: string): string => `${controlPrefix(stack)}lock.json`;
@@ -185,12 +165,7 @@ function parseRotationRecord(kind: string, value: unknown): RotationRecord {
 
 /** Parse the rotations object. A malformed one fails loudly: the deploy reads its counter. */
 export function parseRotations(text: string): Rotations {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`rotations: not valid JSON (${errorMessage(err)}); ${replaceRotations}`);
-  }
+  const raw = parseJson(text, 'rotations', replaceRotations);
   const counter = isRecord(raw) ? raw.counter : undefined;
   if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter >= maxRotationCounter) {
     throw new Error(`rotations: counter must be a whole number from 0 and below ${maxRotationCounter}; ${replaceRotations}`);
@@ -261,16 +236,21 @@ export function leaseOwnerOfRun(run: string): string {
 }
 
 /** The lease's operation while a run deploys, the one that makes and deletes machines; a scheduled run that only looks holds another. */
-export const DEPLOY_OPERATION = 'deploy';
+export const deployOperation = 'deploy';
 
 /** True for a lease a deploy holds: a run's, under the deploy operation. */
 export function leaseDeploys(info: { owner?: string; operation?: string }): boolean {
-  return Boolean(info.owner?.startsWith('run:') && info.operation === DEPLOY_OPERATION);
+  return Boolean(info.owner?.startsWith('run:') && info.operation === deployOperation);
+}
+
+/** True while a lease runs at `now`. One at or past its `expiresAt`, or whose expiry is absent or does not parse, is broken by the next acquire. */
+export function leaseLive(info: Partial<Pick<LockInfo, 'expiresAt'>>, now = Date.now()): boolean {
+  return Date.parse(info.expiresAt ?? '') > now;
 }
 
 /** True while a deploy holds a live lease under this run: its record that says running is deploying, and interrupted otherwise. */
 export function leaseHeldByRun(lock: { owner?: string; operation?: string; expiresAt?: string } | undefined, run: string, now = Date.now()): boolean {
-  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === DEPLOY_OPERATION && Date.parse(lock.expiresAt ?? '') > now;
+  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === deployOperation && leaseLive(lock, now);
 }
 
 /** Who holds a lease, as a person reads it: `run <id>` for a deploy, else the holder and its operation. */
@@ -295,7 +275,7 @@ const heldBy = (info: LockInfo, holder: LockHolder): boolean =>
   info.owner === holder.owner && (holder.token === undefined || info.token === holder.token);
 
 /** What a lock object this engine cannot parse reads as: held, with no end, until an operator's Unlock removes it. */
-const UNREADABLE_LOCK: LockInfo = {
+const unreadableLock: LockInfo = {
   owner: 'unknown',
   operation: 'a lease record this engine cannot read',
   acquiredAt: '1970-01-01T00:00:00.000Z',
@@ -309,12 +289,12 @@ function parseLockInfo(text: string): LockInfo {
   try {
     raw = JSON.parse(text);
   } catch {
-    return UNREADABLE_LOCK;
+    return unreadableLock;
   }
-  if (!isRecord(raw)) return UNREADABLE_LOCK;
+  if (!isRecord(raw)) return unreadableLock;
   const { owner, operation, acquiredAt, expiresAt, token } = raw;
   if (typeof owner !== 'string' || typeof operation !== 'string' || typeof acquiredAt !== 'string' || typeof expiresAt !== 'string') {
-    return UNREADABLE_LOCK;
+    return unreadableLock;
   }
   return { owner, operation, acquiredAt, expiresAt, ...(typeof token === 'string' ? { token } : {}) };
 }
@@ -359,7 +339,7 @@ export async function acquireLock(
   }
   // A lock object exists; break it only if it has expired.
   const { info: held, etag } = await readLock(s3, bucket, key);
-  if (held && Date.parse(held.expiresAt) > now && !(opts.adopt && held.owner === opts.owner)) return { acquired: false, held };
+  if (held && leaseLive(held, now) && !(opts.adopt && held.owner === opts.owner)) return { acquired: false, held };
   try {
     await putLock(s3, bucket, key, info, conditionOn(etag));
     return { acquired: true, info };

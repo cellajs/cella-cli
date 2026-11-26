@@ -33,11 +33,7 @@ function resolveExpression(node: Node | undefined, sourceFile: SourceFile, depth
     return resolveExpression(node.getExpression(), sourceFile, depth + 1);
   }
   if (Node.isIdentifier(node)) {
-    return resolveExpression(
-      sourceFile.getVariableDeclaration(node.getText())?.getInitializer(),
-      sourceFile,
-      depth + 1,
-    );
+    return resolveExpression(sourceFile.getVariableDeclaration(node.getText())?.getInitializer(), sourceFile, depth + 1);
   }
   return node;
 }
@@ -84,11 +80,7 @@ function readStringEntries(node: Node): string[] | null {
 }
 
 /** String entries at the first of `paths` the config holds: undefined when none, null when that one is unreadable. */
-function readList(
-  config: ObjectLiteralExpression,
-  paths: string[][],
-  sourceFile: SourceFile,
-): string[] | null | undefined {
+function readList(config: ObjectLiteralExpression, paths: string[][], sourceFile: SourceFile): string[] | null | undefined {
   for (const path of paths) {
     let node: Node | null | undefined = config;
     for (const name of path) {
@@ -112,9 +104,7 @@ export function parseOverrideLists(source: string): OverrideLists | null {
     const config = findConfigObject(sourceFile);
     if (!config) return null;
 
-    const [pinned, ignored, keys] = (['pinned', 'ignored', 'packageJsonKeys'] as const).map((key) =>
-      readList(config, listPaths[key], sourceFile),
-    );
+    const [pinned, ignored, keys] = (['pinned', 'ignored', 'packageJsonKeys'] as const).map((key) => readList(config, listPaths[key], sourceFile));
     if (pinned === null || ignored === null) return null;
     return {
       pinned: pinned ?? [],
@@ -146,8 +136,7 @@ export function diffOverrideLists(
     const baseSet = new Set(base[key].map(normalizeEntry).filter(Boolean));
     const incomingSet = new Set(incoming[key].map(normalizeEntry).filter(Boolean));
     const appEntries = app[key].map(normalizeEntry).filter(Boolean);
-    const covering =
-      key === 'pinned' ? [...appEntries, ...app.ignored.map(normalizeEntry).filter(Boolean)] : appEntries;
+    const covering = key === 'pinned' ? [...appEntries, ...app.ignored.map(normalizeEntry).filter(Boolean)] : appEntries;
     const coveredBy = (entry: string) => covering.find((folder) => isUnderAnyFolder(entry, [folder]));
     const newEntries = [...incomingSet].filter((entry) => !baseSet.has(entry));
     const dropped = [...baseSet].filter((entry) => !incomingSet.has(entry));
@@ -236,9 +225,6 @@ export function hasBlockingOverrideChanges(report: UpstreamOverridesReport): boo
   if (report.type !== 'changes') return false;
   const lists = [report.pinned, report.ignored, report.packageJsonKeys];
   return lists.some(
-    (list) =>
-      list.added.length > 0 ||
-      list.removed.length > 0 ||
-      (list.renamed ?? []).some((entry) => entry.coveredBy === undefined),
+    (list) => list.added.length > 0 || list.removed.length > 0 || (list.renamed ?? []).some((entry) => entry.coveredBy === undefined),
   );
 }

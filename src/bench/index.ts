@@ -3,7 +3,6 @@ import { basename, join } from 'node:path';
 import type { Command } from '../command';
 import { runCommand, withTestbed } from '../testbed';
 import { toolDir } from '../utils/app';
-import { getEnvSnapshot } from '../utils/env';
 import { type BenchRequest, benchRequestEnv } from './request';
 
 /** The app's bench, in the backend so that it imports the backend's modules by `#/`. */
@@ -48,9 +47,8 @@ async function launchBench(repoRoot: string, options: BenchOptions): Promise<num
     scenariosDir,
     dataDir: toolDir(repoRoot, 'bench', 'repository'),
   };
-  const run = (env: NodeJS.ProcessEnv) =>
-    runCommand(join(repoRoot, 'backend'), { ...env, [benchRequestEnv]: JSON.stringify(request) }, entryCommand);
-  return options.isolated ? withTestbed(repoRoot, (testbed) => run(testbed.env)) : run(getEnvSnapshot());
+  const run = (env: NodeJS.ProcessEnv) => runCommand(join(repoRoot, 'backend'), { ...env, [benchRequestEnv]: JSON.stringify(request) }, entryCommand);
+  return options.isolated ? withTestbed(repoRoot, (testbed) => run(testbed.env)) : run({ ...process.env });
 }
 
 export const benchCommand: Command<BenchOptions> = {

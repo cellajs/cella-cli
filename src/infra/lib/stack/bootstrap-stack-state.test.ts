@@ -1,30 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import {
-  detectComputeDeferred,
-  detectDbPublicEndpoint,
-  detectStackState,
-  extractComputeDeferredMarker,
-  inFirstProvisioning,
-  pickStackShort,
-} from './bootstrap-stack-state';
+import { detectComputeDeferred, detectDbPublicEndpoint, detectStackState, inFirstProvisioning, pickStackShort } from './bootstrap-stack-state';
 
 describe('detectStackState', () => {
   it('fresh: no yaml at all', () => {
-    expect(detectStackState({})).toBe('fresh');
+    expect(detectStackState()).toBe('fresh');
   });
 
   it('partial: file exists, no bootstrap marker yet', () => {
-    expect(detectStackState({ yamlText: 'config:\n  infra:cookieSecret:\n    secure: v1:...' })).toBe('partial');
+    expect(detectStackState('config:\n  infra:cookieSecret:\n    secure: v1:...')).toBe('partial');
   });
 
   it('bootstrapped: file records the bootstrapComplete breadcrumb', () => {
-    expect(detectStackState({ yamlText: 'config:\n  infra:bootstrapComplete: 2025-01-01T00:00:00.000Z\n' })).toBe('bootstrapped');
+    expect(detectStackState('config:\n  infra:bootstrapComplete: 2025-01-01T00:00:00.000Z\n')).toBe('bootstrapped');
   });
 
   it('does not mistake a comment mentioning a marker for the real entry', () => {
     // intentional: scanner is line-substring; we want to acknowledge the false-positive
     // surface in writing so the test cannot miss it.
-    expect(detectStackState({ yamlText: '# todo: infra:bootstrapComplete rotation' })).toBe('bootstrapped');
+    expect(detectStackState('# todo: infra:bootstrapComplete rotation')).toBe('bootstrapped');
   });
 });
 
@@ -39,21 +32,11 @@ describe('pickStackShort', () => {
   });
 });
 
-describe('extractComputeDeferredMarker', () => {
-  it('reads the iso timestamp value', () => {
-    expect(extractComputeDeferredMarker('config:\n  bootstrap:computeDeferred: 2026-05-27T10:00:00.000Z\n')).toBe('2026-05-27T10:00:00.000Z');
-  });
-
-  it('trims surrounding whitespace', () => {
-    expect(extractComputeDeferredMarker('config:\n  bootstrap:computeDeferred:   2026-05-27T10:00:00.000Z   \n')).toBe('2026-05-27T10:00:00.000Z');
-  });
-
-  it('returns undefined when absent', () => {
-    expect(extractComputeDeferredMarker('config:\n  scaleway:projectId: abc\n')).toBeUndefined();
-  });
-});
-
 describe('detectComputeDeferred', () => {
+  it('trims surrounding whitespace', () => {
+    expect(detectComputeDeferred('config:\n  bootstrap:computeDeferred:   2026-05-27T10:00:00.000Z   \n')).toBe('2026-05-27T10:00:00.000Z');
+  });
+
   it('clean: no yaml', () => {
     expect(detectComputeDeferred()).toBeUndefined();
   });

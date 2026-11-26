@@ -6,11 +6,14 @@ import { scrubSecretLines, uploadBootDiagnostics } from './diagnostics';
 import { type ExecFn, execCommand, mustExec } from './exec';
 import { createJsonLogger } from './logger';
 import { type BootPlan, parseBootPlanJson } from './plan';
-import { envFileValues, fetchRuntimeEnv } from './runtime-secrets';
+import { envFileValues, fetchRuntimeEnv } from './runtime-env';
 import { createSecretRedactor } from './secret-redactor';
 
+/** The app's folder on the machine: the Compose project, its env files and the image archives. */
+export const appDir = '/opt/app';
+
 /** The machine's env file, kept at 0600 for every boot after the first, which fetched it. */
-const runtimeEnvPath = '/opt/app/.env.runtime';
+const runtimeEnvPath = `${appDir}/.env.runtime`;
 
 /** Ceiling on the quick docker calls (log capture, image checks). */
 const dockerCallTimeoutSeconds = 60;
@@ -49,7 +52,7 @@ export async function waitForPrivateNetwork(opts: WaitForPrivateNetworkOptions):
 }
 
 /** `--profile` for every service started: each runs in its own profile, the release companion in its service's. */
-function profileArgs(plan: BootPlan): string[] {
+export function profileArgs(plan: BootPlan): string[] {
   return plan.services.flatMap((service) => ['--profile', service]);
 }
 
@@ -61,7 +64,7 @@ function profileArgs(plan: BootPlan): string[] {
 async function startServices(plan: BootPlan, exec: ExecFn): Promise<void> {
   const wait = plan.timeouts.composeWaitSeconds;
   await mustExec(exec, 'docker', ['compose', ...profileArgs(plan), 'up', '-d', '--wait', '--wait-timeout', String(wait), ...plan.services], {
-    cwd: '/opt/app',
+    cwd: appDir,
     // `--wait-timeout` bounds the wait; the kill is the backstop for a CLI that hangs past it.
     timeoutMs: (wait + dockerCallTimeoutSeconds) * 1000,
   });
@@ -70,7 +73,7 @@ async function startServices(plan: BootPlan, exec: ExecFn): Promise<void> {
 /** Best-effort tail of the app container's stdout/stderr, secret-scrubbed at capture so the boot account only ever holds the scrubbed form. */
 async function captureServiceLogs(plan: BootPlan, exec: ExecFn): Promise<string> {
   const res = await exec('docker', ['compose', ...profileArgs(plan), 'logs', '--no-color', '--tail', '200'], {
-    cwd: '/opt/app',
+    cwd: appDir,
     timeoutMs: dockerCallTimeoutSeconds * 1000,
   });
   return scrubSecretLines((res.stdout || res.stderr || '').trim());
@@ -122,7 +125,7 @@ export async function boot(opts: BootOptions): Promise<void> {
     await phase('load-images', () =>
       loadArchives({
         archives: plan.links.archives,
-        dir: opts.archiveDir ?? '/opt/app/images',
+        dir: opts.archiveDir ?? `${appDir}/images`,
         exec: streamingExec,
         attempts: plan.timeouts.fetchAttempts,
         retryDelayMs: plan.timeouts.fetchRetrySeconds * 1000,

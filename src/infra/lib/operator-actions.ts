@@ -11,7 +11,7 @@ export interface OperatorAction {
  * Every operator action of the infra CLI, keyed by the id that also runs it: `pnpm cella infra <id>`. A message that sends the operator to an
  * action names it through {@link actionLabel}, {@link menuPath} or {@link actionCommand}, so an action has one name wherever it is mentioned.
  */
-export const OPERATOR_ACTIONS = {
+export const operatorActions = {
   status: {
     label: 'Full status',
     summary: 'every check and finding, and what fixes it',
@@ -52,7 +52,7 @@ export const OPERATOR_ACTIONS = {
     summary: 'write what differs from the declared identities',
     description: 'Write what differs from the declared identities. Asks for a key only when something must change.',
   },
-  deploy: {
+  'deploy-now': {
     label: 'Deploy now',
     summary: 'without waiting for the scheduled run',
     description: 'Deploy the target now, without waiting for the scheduled run, and follow it step by step.',
@@ -119,7 +119,7 @@ export const OPERATOR_ACTIONS = {
   },
 } as const satisfies Record<string, OperatorAction>;
 
-export type OperatorActionId = keyof typeof OPERATOR_ACTIONS;
+export type OperatorActionId = keyof typeof operatorActions;
 
 export interface MenuRow {
   /** The row's name. A row with one action carries that action's label. */
@@ -131,8 +131,8 @@ export interface MenuRow {
 }
 
 /** The actions a person runs rarely, in the sections of the More pick, in pick order. A rule divides the sections; their names are for the reader. */
-export const MORE_SECTIONS = {
-  'Deploys & changes': ['deploy', 'preview'],
+export const moreSections = {
+  'Deploys & changes': ['deploy-now', 'preview'],
   'Keys & access': ['rotate-keys', 'rotate-secrets', 'operators', 'identities', 'repository-key'],
   Repair: ['unlock', 'resume', 'state-remove'],
   Database: ['db-seed', 'db-reset'],
@@ -141,14 +141,14 @@ export const MORE_SECTIONS = {
 
 /** A row of the menu for one action, under its label and summary. */
 function actionRow(id: OperatorActionId): MenuRow {
-  return { label: actionLabel(id), actions: [id], description: OPERATOR_ACTIONS[id].summary };
+  return { label: actionLabel(id), actions: [id], description: operatorActions[id].summary };
 }
 
 /**
  * The rows of the `pnpm cella infra` menu, in menu order: the daily ones by how often a person comes for them, then More with the rest.
  * `db-open` and `db-close` share one place: the menu lists the one that applies. No action is reached by its command alone: each has a row.
  */
-export const MENU_ROWS = {
+export const menuRows = {
   status: actionRow('status'),
   apply: actionRow('apply'),
   env: actionRow('env'),
@@ -158,15 +158,15 @@ export const MENU_ROWS = {
   'db-close': actionRow('db-close'),
   more: {
     label: 'More',
-    actions: Object.values(MORE_SECTIONS).flat(),
+    actions: Object.values(moreSections).flat(),
     description: 'deploy now, keys, repairs, the database, teardown',
   },
 } as const satisfies Record<string, MenuRow>;
 
-export type MenuRowId = keyof typeof MENU_ROWS;
+export type MenuRowId = keyof typeof menuRows;
 
 /** The actions that run the Pulumi CLI: the ones that need it installed, at the SDK's version. */
-export const PULUMI_ACTIONS: readonly OperatorActionId[] = [
+export const pulumiActions: readonly OperatorActionId[] = [
   'apply',
   'preview',
   'resume',
@@ -182,17 +182,17 @@ export const PULUMI_ACTIONS: readonly OperatorActionId[] = [
 
 /** One menu row under the shared shape. */
 export function menuRow(id: MenuRowId): MenuRow {
-  return MENU_ROWS[id];
+  return menuRows[id];
 }
 
 /** True when `value` is the id of an operator action, for a command line that names one. */
 export function isOperatorActionId(value: string): value is OperatorActionId {
-  return Object.hasOwn(OPERATOR_ACTIONS, value);
+  return Object.hasOwn(operatorActions, value);
 }
 
 /** The one name of an action, for a message that mentions it. */
 export function actionLabel(id: OperatorActionId): string {
-  return OPERATOR_ACTIONS[id].label;
+  return operatorActions[id].label;
 }
 
 /** The command that runs an action without the menu. */
@@ -206,7 +206,7 @@ export function actionCommand(id: OperatorActionId): string {
  */
 export function menuPath(id: OperatorActionId): string {
   const label = actionLabel(id);
-  const row = (Object.values(MENU_ROWS) as MenuRow[]).find((entry) => entry.actions.includes(id));
+  const row = (Object.values(menuRows) as MenuRow[]).find((entry) => entry.actions.includes(id));
   if (!row) return actionCommand(id);
   return row.actions.length === 1 || row.label === label ? label : `${row.label} → ${label}`;
 }

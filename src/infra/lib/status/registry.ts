@@ -3,12 +3,13 @@ import { componentsProvider } from './providers/components';
 import { databaseProvider } from './providers/database';
 import { dnsProvider } from './providers/dns';
 import { environmentsProvider } from './providers/environments';
+import { identityProvider } from './providers/identity';
 import { inventoryProvider } from './providers/inventory';
 import { liveProvider } from './providers/live';
 import { runsProvider } from './providers/runs';
 import { scheduleProvider } from './providers/schedule';
 import { secretsProvider } from './providers/secrets';
-import { identityProvider, stackProvider } from './providers/stack';
+import { stackProvider } from './providers/stack';
 import { stateProvider } from './providers/state';
 import type { Check, CheckStatus, NextAction, ProbeSession, StatusProvider, StatusReport } from './types';
 
@@ -30,7 +31,7 @@ export const statusProviders: readonly StatusProvider<any>[] = [
 ];
 
 /** Priority order for the single top-level `nextAction`: the earliest problematic check wins, following the setup to deploy to operate lifecycle. A trailing `.` matches by id prefix. */
-const NEXT_ACTION_PRIORITY = [
+const nextActionPriority = [
   'identity.project',
   'inventory.',
   'config.stackState',
@@ -48,7 +49,7 @@ const NEXT_ACTION_PRIORITY = [
 const matches = (key: string, id: string): boolean => (key.endsWith('.') ? id.startsWith(key) : id === key);
 
 /** The groups the full status folds its ok checks into, in screen order, by the same keys as the priority above. */
-const CHECK_GROUPS: Readonly<Record<string, readonly string[]>> = {
+const groupedCheckKeys: Readonly<Record<string, readonly string[]>> = {
   App: ['live.', 'dns.zone'],
   Deploys: ['runs.last', 'schedule.last', 'state.lock'],
   'Env vars': ['secrets.required'],
@@ -58,23 +59,23 @@ const CHECK_GROUPS: Readonly<Record<string, readonly string[]>> = {
 };
 
 /** The group labels, in screen order. */
-export const checkGroups: readonly string[] = Object.keys(CHECK_GROUPS);
+export const checkGroups: readonly string[] = Object.keys(groupedCheckKeys);
 
-const GROUP_KEYS = Object.entries(CHECK_GROUPS).flatMap(([label, keys]) => keys.map((key) => ({ label, key })));
+const groupKeys = Object.entries(groupedCheckKeys).flatMap(([label, keys]) => keys.map((key) => ({ label, key })));
 
 /** The group a check folds into on the full status and its rank in the table, or undefined for an id no group names. */
 export function groupOf(id: string): { label: string; rank: number } | undefined {
-  const rank = GROUP_KEYS.findIndex(({ key }) => matches(key, id));
-  return rank < 0 ? undefined : { label: GROUP_KEYS[rank]?.label ?? '', rank };
+  const rank = groupKeys.findIndex(({ key }) => matches(key, id));
+  return rank < 0 ? undefined : { label: groupKeys[rank]?.label ?? '', rank };
 }
 
 /** A check contributes a top-level action only when it actually needs doing. */
-const ACTIONABLE: ReadonlySet<CheckStatus> = new Set<CheckStatus>(['error', 'missing', 'warn']);
+const actionable: ReadonlySet<CheckStatus> = new Set<CheckStatus>(['error', 'missing', 'warn']);
 
 function pickNextAction(checks: Check[]): NextAction | undefined {
-  for (const key of NEXT_ACTION_PRIORITY) {
+  for (const key of nextActionPriority) {
     const match = checks.find((c) => matches(key, c.id));
-    if (match?.nextAction && ACTIONABLE.has(match.status)) return match.nextAction;
+    if (match?.nextAction && actionable.has(match.status)) return match.nextAction;
   }
   return undefined;
 }

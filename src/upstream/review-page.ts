@@ -143,11 +143,7 @@ interface ReviewSection {
  * under protected but behind upstream, as its terminal does. Empty sections are left out, and so is
  * every section when the engine could not resolve the upgrade range.
  */
-export function reviewSections(
-  result: MergeResult,
-  command: 'analyze' | 'upgrade',
-  arrived: string[] = [],
-): ReviewSection[] {
+export function reviewSections(result: MergeResult, command: 'analyze' | 'upgrade', arrived: string[] = []): ReviewSection[] {
   const [base, upstream] = result.upstreamDiffRange?.split('..') ?? [];
   if (!base || !upstream) return [];
   const sinceUpgradePoint = `${base}..${upstream}`;
@@ -340,10 +336,7 @@ export function reviewStep(page: ReviewPageReport | string): NextStep {
       page.command === 'upgrade'
         ? `${plural(page.diffs, 'diff')}: ${upgradeShows}`
         : `${plural(page.diffs, 'diff')} in ${plural(page.sections, 'section')}`;
-    const notes = [
-      page.listed > 0 ? `${page.listed} listed without a diff` : '',
-      page.opened ? 'opened in the browser' : '',
-    ]
+    const notes = [page.listed > 0 ? `${page.listed} listed without a diff` : '', page.opened ? 'opened in the browser' : '']
       .filter(Boolean)
       .map((note) => ` · ${note}`)
       .join('');

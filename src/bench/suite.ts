@@ -5,7 +5,6 @@ import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail, warningMark } from '../utils/display';
-import { getEnv } from '../utils/env';
 import { errorMessage } from '../utils/errors';
 import { pickFromMenu } from '../utils/menu';
 import { acquireLock } from './lock';
@@ -42,7 +41,7 @@ export interface Bench<State = undefined> {
 }
 
 function readRequest(): BenchRequest {
-  const raw = getEnv(benchRequestEnv);
+  const raw = process.env[benchRequestEnv];
   if (!raw) throw new Error('this is the app side of `pnpm cella bench`: run that instead');
   return JSON.parse(raw);
 }
@@ -92,9 +91,7 @@ async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Pr
   }
   const { lock } = claimed;
   for (const other of lock.others) {
-    console.info(
-      `${warningMark} bench pid ${other.pid} runs ${other.scenario} on ${other.target}: it shares this machine, numbers will be skewed`,
-    );
+    console.info(`${warningMark} bench pid ${other.pid} runs ${other.scenario} on ${other.target}: it shares this machine, numbers will be skewed`);
   }
 
   if (bench.seed && request.skipSeed) printStep('seed', pc.dim('skipped: the scenarios read the last seeded data'));

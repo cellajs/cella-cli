@@ -2,7 +2,7 @@ import { parseAclInput } from '../../lib/db-exposure-acl';
 import type { ProvisionContext, ProvisionedStore, StoreProvisioner, StoreSecretContribution } from '../../lib/stores';
 
 /** Pulumi resource name of the managed PostgreSQL instance, which the database exposure actions address by URN. */
-export const DB_INSTANCE_RESOURCE = 'main-postgres';
+export const dbInstanceResource = 'main-postgres';
 
 /** Configuration for a managed Scaleway PostgreSQL store. */
 export interface PostgresManagedConfig {
@@ -95,7 +95,7 @@ export function postgresManaged(config: PostgresManagedConfig): StoreProvisioner
       const replicationSettings = { 'rdb.enable_logical_replication': 'true', hot_standby_feedback: 'on', sync_replication_slots: 'on' };
 
       const instance = new scaleway.databases.Instance(
-        DB_INSTANCE_RESOURCE,
+        dbInstanceResource,
         {
           name: naming.resource('postgres'),
           region,

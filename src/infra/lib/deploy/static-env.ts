@@ -6,9 +6,9 @@ import { deriveInfra } from '../naming';
 import { type ServiceDefinition, serviceEndpoints, servicesByName } from '../services';
 
 /** Placeholders the engine sets on every machine: the registry the release's images are named for, the mode, and the agent's own. */
-const INJECTED_VARS = new Set(['REGISTRY', 'APP_MODE', 'AGENT_TAG', 'AGENT_DIR']);
-const PLACEHOLDER_RE = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
-const BINDING_RE = /@\{([a-z]+)\.([a-zA-Z]+)\}/g;
+const injectedVars = new Set(['REGISTRY', 'APP_MODE', 'AGENT_TAG', 'AGENT_DIR']);
+const placeholderRe = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
+const bindingRe = /@\{([a-z]+)\.([a-zA-Z]+)\}/g;
 
 /** All `${VAR}` placeholders in the compose blocks that run in a service's profile. */
 function composePlaceholders(slug: string): string[] {
@@ -16,7 +16,7 @@ function composePlaceholders(slug: string): string[] {
   for (const block of Object.values(composeConfig.services)) {
     if (!block.profiles.includes(slug)) continue;
     const texts = [block.image, ...(block.ports ?? []), ...Object.values(block.environment ?? {})];
-    for (const text of texts) for (const match of text.matchAll(PLACEHOLDER_RE)) vars.add(match[1] ?? '');
+    for (const text of texts) for (const match of text.matchAll(placeholderRe)) vars.add(match[1] ?? '');
   }
   return [...vars].filter(Boolean);
 }
@@ -115,10 +115,10 @@ export function staticEnv(input: StaticEnvInput): string {
   );
   const profiles = role.services.filter((service) => !service.coHosted || service.slug === role.role).map((service) => service.slug);
   for (const name of profiles.flatMap(composePlaceholders)) {
-    if (INJECTED_VARS.has(name) || name.endsWith('_TAG') || name in env) continue;
+    if (injectedVars.has(name) || name.endsWith('_TAG') || name in env) continue;
     const binding = bindings[name];
     if (binding) {
-      env[name] = binding.template.replace(BINDING_RE, (_match, target: string, prop: string) => bindingPart(input, binding, target, prop));
+      env[name] = binding.template.replace(bindingRe, (_match, target: string, prop: string) => bindingPart(input, binding, target, prop));
       continue;
     }
     const supply = input.suppliers[name];

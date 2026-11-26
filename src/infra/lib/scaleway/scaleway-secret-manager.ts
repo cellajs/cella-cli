@@ -1,7 +1,7 @@
 import type { FetchLike } from '../utils/fetch-like';
-import { type ScwAuth, scwFetch, scwSend } from './scw-fetch';
+import { type ScwAuth, scwFetch, scwListAll, scwSend } from './scw-fetch';
 
-const SECRET_MANAGER_BASE = 'https://api.scaleway.com/secret-manager/v1beta1';
+const secretManagerBase = 'https://api.scaleway.com/secret-manager/v1beta1';
 
 export interface SecretManagerSecret {
   id: string;
@@ -25,11 +25,6 @@ export interface SecretManagerSecretVersion {
   description?: string | null;
   latest?: boolean;
   region?: string;
-}
-
-interface SecretListResponse {
-  secrets: SecretManagerSecret[];
-  total_count: number;
 }
 
 interface AccessSecretVersionResponse {
@@ -61,7 +56,7 @@ export interface PutSecretValueInput {
 
 function buildSecretsUrl(region: string, query: URLSearchParams) {
   const suffix = query.size > 0 ? `?${query.toString()}` : '';
-  return `${SECRET_MANAGER_BASE}/regions/${region}/secrets${suffix}`;
+  return `${secretManagerBase}/regions/${region}/secrets${suffix}`;
 }
 
 /** Scaleway stores secret folder paths without a trailing slash and uses that form in both the `path` list filter and each secret's `path`. Compare in canonical form or re-creates 400 with `cannot have same secret name in same path`. */
@@ -75,14 +70,12 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
   return {
     /** Every secret of the project, or of one folder, page by page at the API's page size: a project holds more secrets than one page. */
     async listSecrets(path?: string): Promise<SecretManagerSecret[]> {
-      const secrets: SecretManagerSecret[] = [];
-      for (let page = 1; ; page++) {
+      const url = (page: number) => {
         const query = new URLSearchParams({ project_id: options.projectId, scheduled_for_deletion: 'false', page: String(page) });
         if (path) query.set('path', normalizeSecretPath(path));
-        const response = await scwFetch<SecretListResponse>(auth, 'GET', buildSecretsUrl(options.region, query));
-        secrets.push(...response.secrets);
-        if (response.secrets.length === 0 || secrets.length >= (response.total_count ?? 0)) return secrets;
-      }
+        return buildSecretsUrl(options.region, query);
+      };
+      return scwListAll<SecretManagerSecret>(auth, url, 'secrets', Number.POSITIVE_INFINITY);
     },
 
     /** Every secret at `root` or below. The API's `path` filter is exact-match only, so subtree listing filters client-side over the project listing. */
@@ -100,7 +93,7 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
       const response = await scwFetch<{ versions?: SecretManagerSecretVersion[] }>(
         auth,
         'GET',
-        `${SECRET_MANAGER_BASE}/regions/${options.region}/secrets/${secretId}/versions?page_size=100`,
+        `${secretManagerBase}/regions/${options.region}/secrets/${secretId}/versions?page_size=100`,
       );
       return response.versions ?? [];
     },
@@ -128,7 +121,7 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
       return await scwFetch<SecretManagerSecretVersion>(
         auth,
         'POST',
-        `${SECRET_MANAGER_BASE}/regions/${options.region}/secrets/${input.secretId}/versions`,
+        `${secretManagerBase}/regions/${options.region}/secrets/${input.secretId}/versions`,
         {
           data: Buffer.from(input.value, 'utf8').toString('base64'),
           description: input.description,
@@ -141,18 +134,21 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
       const response = await scwFetch<AccessSecretVersionResponse>(
         auth,
         'GET',
-        `${SECRET_MANAGER_BASE}/regions/${options.region}/secrets/${secretId}/versions/latest/access`,
+        `${secretManagerBase}/regions/${options.region}/secrets/${secretId}/versions/latest/access`,
       );
       return Buffer.from(response.data, 'base64').toString('utf8');
     },
 
     /** Move a secret to another folder: its id and versions stay, so every reference by id keeps reading it. */
     async moveSecret(secretId: string, path: string): Promise<SecretManagerSecret> {
-      return await scwFetch<SecretManagerSecret>(auth, 'PATCH', `${SECRET_MANAGER_BASE}/regions/${options.region}/secrets/${secretId}`, { path });
+      return await scwFetch<SecretManagerSecret>(auth, 'PATCH', `${secretManagerBase}/regions/${options.region}/secrets/${secretId}`, { path });
     },
 
     async deleteSecret(secretId: string): Promise<void> {
-      await scwSend(auth, 'DELETE', `${SECRET_MANAGER_BASE}/regions/${options.region}/secrets/${secretId}`);
+      await scwSend(auth, 'DELETE', `${secretManagerBase}/regions/${options.region}/secrets/${secretId}`);
     },
   };
 }
+
+/** The Secret Manager client. A task takes a `Pick` of the calls it makes, and a test passes its own. */
+export type SecretManagerClient = ReturnType<typeof createSecretManagerClient>;

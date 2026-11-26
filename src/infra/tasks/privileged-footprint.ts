@@ -1,11 +1,10 @@
 import { writeFileSync } from 'node:fs';
 import type { PrivilegedFootprint } from '../lib/stack/privileged-footprint';
 import { getFlag } from '../lib/utils/args';
-import { runIfMain } from '../lib/utils/is-main';
 
 /** The project and organization a keyless render names: fixed words, so a base and a head render compare on what the code declares. */
-const PROJECT = 'project';
-const ORGANIZATION = 'organization';
+const project = 'project';
+const organization = 'organization';
 
 /**
  * Render what one environment's code declares that only an Owner moment or an apply writes, without a key and without Scaleway: the
@@ -13,17 +12,17 @@ const ORGANIZATION = 'organization';
  * program holds the foundation only, as a deploy makes the machines. The stack file is not read: the committed one holds markers only, and a database's exposure lives
  * in the operator's own overlay. Writes JSON to `--out`; the pull request check compares a base's with a head's (tasks/privileged-check.ts).
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const mode = getFlag(argv, '--mode');
-  const out = getFlag(argv, '--out');
-  if (!mode || !out) throw new Error('Usage: privileged-footprint.ts --mode <environment> --out <file>');
+export async function main(words: string[]): Promise<void> {
+  const mode = getFlag(words, '--mode');
+  const out = getFlag(words, '--out');
+  if (!mode || !out) throw new Error('Usage: privileged-footprint --mode <environment> --out <file>');
 
-  // Before anything imports @pulumi/pulumi or the shared config, which read these at evaluation.
+  // Before anything imports @pulumi/pulumi or the app's config, which read these at evaluation.
   process.env.PULUMI_NODEJS_PROJECT = 'infra';
   process.env.PULUMI_NODEJS_STACK = mode;
   process.env.APP_MODE = mode;
-  process.env.SCW_DEFAULT_PROJECT_ID = PROJECT;
-  process.env.SCW_DEFAULT_ORGANIZATION_ID = ORGANIZATION;
+  process.env.SCW_DEFAULT_PROJECT_ID = project;
+  process.env.SCW_DEFAULT_ORGANIZATION_ID = organization;
   // The program sends a key with its IPAM read; keylessFetch answers that read itself, so this word goes nowhere.
   process.env.SCW_SECRET_KEY = 'keyless';
   // One digest for every render, so the main job compares on its script and env: the image an apply builds is no code of the change.
@@ -42,7 +41,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
 
   const footprint: PrivilegedFootprint = {
     environment: mode,
-    identities: declaredIdentities(appConfig, { projectId: PROJECT, organizationId: ORGANIZATION }),
+    identities: declaredIdentities(appConfig, { projectId: project, organizationId: organization }),
     description: await appDescriptionHash(),
     resources: rendered
       .map(({ type, name, inputs }) => ({ type, name, inputs }))
@@ -50,5 +49,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   };
   writeFileSync(out, `${JSON.stringify(footprint, null, 2)}\n`);
 }
-
-runIfMain(import.meta.url, main);

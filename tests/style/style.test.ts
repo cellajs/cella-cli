@@ -65,8 +65,7 @@ const ok = '[style] OK, terminology, documentation, comments and frontend code f
 const noBase = '[style] skipped the changed-line rules (consequence-tail): HEAD has no merge base with origin/main';
 const placement =
   '  backend/src/long.ts:1:1 [detached-long-comment] 4 prose lines; move shared context to a README or attach a concise local constraint to a declaration';
-const storeRead =
-  '  frontend/src/comp.tsx:4:16 [store-selector] useCount() subscribes to every field; select the values this component reads';
+const storeRead = '  frontend/src/comp.tsx:4:16 [store-selector] useCount() subscribes to every field; select the values this component reads';
 const tokenBoundary = `  frontend/src/comp.tsx:2:37 [concrete-language] "${term}": name the precise rule, constraint, guarantee, requirement, contract, precondition, or assumption`;
 const required = [
   placement,
@@ -116,18 +115,14 @@ describe('style check', () => {
 describe('app-owned exceptions', () => {
   it('exempt the listed paths from a rule, in comments and docs', () => {
     const root = makeRepo({
-      'shared/config/style-exceptions.ts':
-        "export const styleExceptions = { exempt: { 'em-dash': ['reference/'] } };\n",
+      'shared/config/style-exceptions.ts': "export const styleExceptions = { exempt: { 'em-dash': ['reference/'] } };\n",
       'reference/old.ts': `// ${dash}\n`,
       'reference/README.md': `${dash}\n`,
       'src/new.ts': `// ${dash}\n`,
     });
     try {
       expect(run(root).stdout).toBe(
-        lines(
-          '[style] 1 finding(s):',
-          `  src/new.ts:1:4 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
-        ),
+        lines('[style] 1 finding(s):', `  src/new.ts:1:4 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`),
       );
     } finally {
       rmSync(root, { recursive: true, force: true });
@@ -183,20 +178,11 @@ describe('tailwind classes', () => {
     );
   }
 
-  const stylesheet = lines(
-    "@import 'tailwindcss';",
-    '@utility soft-text {',
-    '  color: red;',
-    '}',
-    '.plain-marker {',
-    '  color: red;',
-    '}',
-  );
+  const stylesheet = lines("@import 'tailwindcss';", '@utility soft-text {', '  color: red;', '}', '.plain-marker {', '  color: red;', '}');
 
   const deadMessage =
     'Tailwind compiles no CSS for it and no stylesheet or script selects it; fix the name, or list it under markerClasses in shared/config/style-exceptions.ts';
-  const dead = (at: string, className: string) =>
-    `  frontend/src/view.tsx:${at} [tailwind-class] "${className}": ${deadMessage}`;
+  const dead = (at: string, className: string) => `  frontend/src/view.tsx:${at} [tailwind-class] "${className}": ${deadMessage}`;
 
   it('reports class names that compile to no CSS and that no stylesheet, script or selector uses', () => {
     const root = tailwindRepo(stylesheet);

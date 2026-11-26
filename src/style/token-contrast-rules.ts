@@ -3,19 +3,7 @@ import { type Finding, lineColumn, type Rule } from './rule';
 const themeFile = 'frontend/src/styling/tailwind.css';
 
 /** Fills that carry their `-foreground` text. */
-const fills = [
-  'background',
-  'card',
-  'popover',
-  'primary',
-  'secondary',
-  'muted',
-  'accent',
-  'destructive',
-  'success',
-  'warning',
-  'brand',
-];
+const fills = ['background', 'card', 'popover', 'primary', 'secondary', 'muted', 'accent', 'destructive', 'success', 'warning', 'brand'];
 /** Tokens also used as text on the page and on a card. */
 const textTokens = ['destructive', 'success', 'warning'];
 /** The page and card fills that status text and a raised control edge sit on. */
@@ -32,14 +20,10 @@ function themeDeclarations(source: string, selector: string): Map<string, Declar
   const found = new Map<string, Declaration>();
   const blockAt = (start: number) => source.slice(start, source.indexOf('\n  }', start));
   const opening = new RegExp(`^\\s*${selector.replace('.', '\\.')}\\s*\\{`, 'gm');
-  const start = [...source.matchAll(opening)]
-    .map(({ index }) => index)
-    .find((index) => blockAt(index).includes('--background:'));
+  const start = [...source.matchAll(opening)].map(({ index }) => index).find((index) => blockAt(index).includes('--background:'));
   if (start === undefined) return found;
   const block = blockAt(start);
-  for (const match of block.matchAll(
-    /--([a-z-]+):\s*(?:oklch\(([\d.]+)%?\s+([\d.]+)\s+([\d.]+)\)|var\(--([a-z-]+)\))/g,
-  )) {
+  for (const match of block.matchAll(/--([a-z-]+):\s*(?:oklch\(([\d.]+)%?\s+([\d.]+)\s+([\d.]+)\)|var\(--([a-z-]+)\))/g)) {
     const offset = start + (match.index ?? 0);
     if (match[5]) {
       found.set(match[1], { alias: match[5], offset });
@@ -87,8 +71,7 @@ function ratio(one: Oklch, other: Oklch): number {
 /** Findings for token pairs below their ratio. A token the dark block leaves out keeps its light value there. */
 function tokenContrastFindings(file: string, source: string): Finding[] {
   const light = themeDeclarations(source, ':root');
-  if (light.size === 0)
-    return [{ file, rule: 'token-contrast', message: 'no :root block declares --background, so no token is measured' }];
+  if (light.size === 0) return [{ file, rule: 'token-contrast', message: 'no :root block declares --background, so no token is measured' }];
   const dark = new Map([...light, ...themeDeclarations(source, '.dark')]);
   const findings: Finding[] = [];
 
@@ -109,10 +92,8 @@ function tokenContrastFindings(file: string, source: string): Finding[] {
         message: `${what} is ${measured.toFixed(2)}:1 in ${mode} mode, below ${needed}:1 (--${text} on --${behind})`,
       });
     };
-    for (const fill of fills)
-      check(fill === 'background' ? 'foreground' : `${fill}-foreground`, fill, 4.5, 'text on its fill');
-    for (const token of textTokens)
-      for (const pageFill of pageFills) check(token, pageFill, 4.5, 'status color as text');
+    for (const fill of fills) check(fill === 'background' ? 'foreground' : `${fill}-foreground`, fill, 4.5, 'text on its fill');
+    for (const token of textTokens) for (const pageFill of pageFills) check(token, pageFill, 4.5, 'status color as text');
     check('faint-foreground', hintFill, 4.5, 'hint text on a highlighted row');
     // The tooltip (ui/tooltip.tsx) borrows the support text color as its fill
     check('primary-foreground', 'muted-foreground', 4.5, 'tooltip text on its fill');

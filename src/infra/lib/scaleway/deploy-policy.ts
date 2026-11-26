@@ -1,5 +1,5 @@
 import type { DeclaredPolicy } from './declared-identities';
-import { DEPLOY_PROJECT_PERMISSION_SETS, DEPLOY_SECRET_METADATA_SETS, DEPLOY_SECRET_VALUE_SETS } from './permissions';
+import { deployProjectPermissionSets, deploySecretMetadataSets, deploySecretValueSets } from './permissions';
 import { principalNames, principalTags } from './principals';
 import type { PolicyRule } from './scaleway-iam';
 import { runtimeFolderCondition } from './secret-paths';
@@ -12,8 +12,8 @@ import { runtimeFolderCondition } from './secret-paths';
  */
 export function deployRules(opts: { projectId: string }): PolicyRule[] {
   return [
-    { permission_set_names: [...DEPLOY_PROJECT_PERMISSION_SETS, ...DEPLOY_SECRET_METADATA_SETS], project_ids: [opts.projectId] },
-    { permission_set_names: [...DEPLOY_SECRET_VALUE_SETS], project_ids: [opts.projectId], condition: runtimeFolderCondition },
+    { permission_set_names: [...deployProjectPermissionSets, ...deploySecretMetadataSets], project_ids: [opts.projectId] },
+    { permission_set_names: [...deploySecretValueSets], project_ids: [opts.projectId], condition: runtimeFolderCondition },
   ];
 }
 

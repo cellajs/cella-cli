@@ -1,15 +1,17 @@
 import { deriveInfra } from '../../lib/naming';
+import { postgresRoleNames } from '../../lib/scaleway/db-privileges';
 import { createRdbClient, waitForBackupReady } from '../../lib/scaleway/scaleway-rdb';
-import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
+import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { backupName, ResetIrrecoverableError, type ResetTarget, rebuildSteps, restoreHint, sequenceDatabaseReset } from '../../tasks/reset-database';
+import { environmentName } from '../header';
 import { input } from '../prompts/back';
 import { endAction, endsAction, type InfraContext } from '../shared';
-import { environmentName, printLossWarning } from './loss-warning';
+import { printLossWarning } from './loss-warning';
 import { acquireOperatorKey } from './operator-unlock';
 
 /** Roles the operator task ensure-database makes on the instance (`tasks/ensure-database.ts`). Both must be re-granted. */
-const ROLES = ['admin_role', 'runtime_role'] as const;
+const roles = Object.values(postgresRoleNames);
 
 /** Render live instance data so an incorrectly targeted RDB instance is visible before approval. */
 function describeTarget(target: ResetTarget, region: string): string {
@@ -31,11 +33,6 @@ function describeTarget(target: ResetTarget, region: string): string {
  * exposing the database.
  */
 export async function runResetDatabase(context: InfraContext): Promise<void> {
-  if (context.state !== 'bootstrapped') {
-    console.error(`${warningMark} "Reset database" requires a fully bootstrapped stack (state=${context.state}).`);
-    endAction(1);
-  }
-
   const { appConfig, environment } = context;
   const { backupDays } = appConfig.retention;
   const { naming, region } = deriveInfra(appConfig);
@@ -49,7 +46,7 @@ export async function runResetDatabase(context: InfraContext): Promise<void> {
     'Then you reboot the backend machine, which rebuilds the tables and the admin account.',
   ]);
 
-  // A privileged write, so the same key flow as Apply: a key minted from the operator key, asked once per session.
+  // A privileged write takes the key flow of Apply: the operator key itself, asked once per session.
   const operator = await acquireOperatorKey(context);
   const client = createRdbClient({ secretKey: operator.secretKey, region });
   const expiresAt = new Date(Date.now() + backupDays * 86_400_000).toISOString();
@@ -58,7 +55,7 @@ export async function runResetDatabase(context: InfraContext): Promise<void> {
     const result = await sequenceDatabaseReset({
       instanceName,
       databaseName,
-      roles: ROLES,
+      roles: roles,
       permission: 'all',
       backupName: backupName(databaseName, new Date()),
       backupExpiresAt: expiresAt,

@@ -38,8 +38,7 @@ export const textContrast =
             kind: `${el.tagName}|${el.getAttribute('class') ?? ''}|${style.color}|${style.opacity}`,
             text: (ownText || el.textContent || '').trim().replace(/\s+/g, ' ').slice(0, 40),
             // Decoration, and controls that cannot be used, are outside the criterion
-            exempt:
-              !!el.closest('[aria-hidden="true"], :disabled, [aria-disabled="true"]') || !el.getClientRects().length,
+            exempt: !!el.closest('[aria-hidden="true"], :disabled, [aria-disabled="true"]') || !el.getClientRects().length,
             large: size >= 24 || (size >= 18.66 && Number(style.fontWeight) >= 700),
             clipped: style.backgroundClip.includes('text') || style.webkitBackgroundClip?.includes('text'),
           };
@@ -99,11 +98,7 @@ export const textContrast =
             let at = -1;
             const covered: number[] = [];
             for (let i = 0; i < text.length; i += 4) {
-              const change = Math.max(
-                Math.abs(text[i] - behind[i]),
-                Math.abs(text[i + 1] - behind[i + 1]),
-                Math.abs(text[i + 2] - behind[i + 2]),
-              );
+              const change = Math.max(Math.abs(text[i] - behind[i]), Math.abs(text[i + 1] - behind[i + 1]), Math.abs(text[i + 2] - behind[i + 2]));
               if (change > 6) covered.push(i);
               if (change > strongest) {
                 strongest = change;

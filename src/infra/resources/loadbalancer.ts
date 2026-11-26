@@ -17,19 +17,9 @@ import { poolServers } from './slots';
  */
 const frontendWithAclResources: pulumi.CustomResourceOptions = { ignoreChanges: ['acls'] };
 
-/** Base names pinned to the shipped Pulumi URNs and Scaleway display names; renaming replaces the resources. */
-const legacyBaseNames: Partial<Record<ServiceName, string>> = { backend: 'api', frontend: 'app' };
-const baseName = (slug: ServiceName) => legacyBaseNames[slug] ?? slug;
-
-/** Everything the rest of the program consumes from this module. */
-interface LoadBalancerOutputs {
-  /** Public URL per LB-exposed service slug. */
-  serviceUrls: Record<string, pulumi.Output<string>>;
-  lbId: pulumi.Output<string>;
-  lbBackendIds: pulumi.Output<Record<string, string>>;
-  /** The LB's private-network IPv4 address, without a CIDR suffix. */
-  lbPrivateAddress: pulumi.Output<string>;
-}
+/** The base names a live stack's resources were created under, pinned to the shipped Pulumi URNs and Scaleway display names; renaming replaces the resources. */
+const createdBaseNames: Partial<Record<ServiceName, string>> = { backend: 'api', frontend: 'app' };
+const baseName = (slug: ServiceName) => createdBaseNames[slug] ?? slug;
 
 /** The shortest check the API takes: a server whose check fails left a measured pool 1.3 s later, with no failed request. */
 const shortestCheck = { healthCheckDelay: '1s', healthCheckTimeout: '1s', healthCheckMaxRetries: 2, healthCheckTransientDelay: '0.5s' };
@@ -42,35 +32,27 @@ function healthCheck(service: ServiceDefinition) {
   return { healthCheckPort: agentPort(service.slug), healthCheckHttp: { uri: agentHealthPath(service.slug), code: 200 }, ...shortestCheck };
 }
 
-/** Provision the LB + DNS + certs + backends/frontends and return the outputs. */
-function provisionLoadBalancer(): LoadBalancerOutputs {
-  // A service is LB-exposed only when it is enabled and declares an `lbRoute`, so the LB never re-decides independently of compute.
-  const lbServices = enabledServices(appConfig.services).filter((s) => s.lbRoute);
-  const defaultService = lbServices.find((s) => s.lbRoute === 'default');
-  if (!defaultService) {
-    throw new Error("loadbalancer: no enabled service declares lbRoute 'default', the HTTPS frontend needs a fallback backend.");
-  }
+// The LB never re-decides independently of compute: a service is LB-exposed only when it is enabled and declares an `lbRoute`.
+const lbServices = enabledServices(appConfig.services).filter((s) => s.lbRoute);
+const defaultService = lbServices.find((s) => s.lbRoute === 'default');
+if (!defaultService) {
+  throw new Error("loadbalancer: no enabled service declares lbRoute 'default', the HTTPS frontend needs a fallback backend.");
+}
 
-  // The default-route service owns the app host; the engine never names a service literal.
-  const appHost = serviceHost(defaultService.slug);
-  // Backstops for the refusals `deriveInfra` makes before any resource: one record and one certificate serve every route.
-  const hostIssue = apexHostIssue(appHost, dnsZone) ?? routedHostIssue(appConfig);
-  if (hostIssue) throw new Error(`loadbalancer: ${hostIssue}`);
-  // Zone-apex resources belong to exactly one stack per zone, the one serving `www.<zone>`: a second stack's apex A record would round-robin production traffic to it.
-  const managesApex = redirectedApexOrigin(appHost, dnsZone) !== undefined;
-  const appBase = baseName(defaultService.slug);
+// The default-route service owns the app host; the engine never names a service literal.
+const appHost = serviceHost(defaultService.slug);
+// Backstops for the refusals `deriveInfra` makes before any resource: one record and one certificate serve every route.
+const hostIssue = apexHostIssue(appHost, dnsZone) ?? routedHostIssue(appConfig);
+if (hostIssue) throw new Error(`loadbalancer: ${hostIssue}`);
+// Zone-apex resources belong to exactly one stack per zone, the one serving `www.<zone>`: a second stack's apex A record would round-robin production traffic to it.
+const managesApex = redirectedApexOrigin(appHost, dnsZone) !== undefined;
+const appBase = baseName(defaultService.slug);
 
-  const lbIp = new scaleway.loadbalancers.Ip('lb-ip', { zone });
-
-  const lb = new scaleway.loadbalancers.LoadBalancer('main-lb', {
-    name: naming.resource('lb'),
-    ipIds: [lbIp.id],
-    type: 'LB-S',
-    zone,
-    tags,
-    privateNetworks: [{ privateNetworkId }],
-  });
-
+/**
+ * The app host's A record and certificate, and the zone apex's when this stack manages it: the records first, then the certificates. Returns
+ * the certificate ids and the gates that pass once each certificate is ready.
+ */
+function hostCertificates(lb: scaleway.loadbalancers.LoadBalancer): { certIds: pulumi.Input<string>[]; certGates: CertReadyGate[] } {
   // A records must exist before the Let's Encrypt certificates: Scaleway validates a cert by resolving the FQDN to the LB IP at creation time.
 
   const lbPublicIp = lb.ipAddress;
@@ -112,9 +94,16 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
     certGates.push(new CertReadyGate('apex-cert-ready', { certificateId: apexCert.id }, { dependsOn: [apexCert] }));
   }
 
-  // Every pool lists its role's two reserved addresses for good, and the health check decides which serves. A drain either lets HTTP
-  // requests finish or closes WebSockets so clients reconnect to the new machine.
+  const certIds: pulumi.Input<string>[] = [appCert.id];
+  if (apexCert) certIds.push(apexCert.id);
+  return { certIds, certGates };
+}
 
+/**
+ * One public pool per LB-exposed service, keyed by its slug. Every pool lists its role's two reserved addresses for good, and the health
+ * check decides which serves. A drain either lets HTTP requests finish or closes WebSockets so clients reconnect to the new machine.
+ */
+function publicBackends(lb: scaleway.loadbalancers.LoadBalancer): Map<ServiceName, scaleway.loadbalancers.Backend> {
   const backends = new Map<ServiceName, scaleway.loadbalancers.Backend>();
   for (const service of lbServices) {
     backends.set(
@@ -132,25 +121,14 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
       }),
     );
   }
+  return backends;
+}
 
-  const defaultBackend = backends.get(defaultService.slug)!;
-
-  // A private, ACL-guarded frontend per `internalPort` service gives in-network consumers a stable address that follows every switch.
-  // The LB keeps its DHCP-assigned private-network IP: recreating the attachment severs LB-to-machine traffic.
-  // Resolved through the IPAM REST API because the provider's getIps invoke rejects these filters with a detail-less "invalid argument(s)".
-  const lbPrivateIp = lb.id.apply(async (lbId) => {
-    const bareLbId = lbId.split('/').at(-1) ?? lbId;
-    const secretKey = process.env.SCW_SECRET_KEY;
-    if (!secretKey) throw new Error('loadbalancer: SCW_SECRET_KEY is required to resolve the LB private-network IP from IPAM');
-    const url = `https://api.scaleway.com/ipam/v1/regions/${region}/ips?resource_id=${bareLbId}&resource_type=lb_server&is_ipv6=false`;
-    const res = await fetch(url, { headers: { 'X-Auth-Token': secretKey } });
-    if (!res.ok) throw new Error(`loadbalancer: IPAM lookup for the LB private IP failed: ${res.status} ${await res.text()}`);
-    const body = (await res.json()) as { ips?: Array<{ address?: string }> };
-    const address = body.ips?.[0]?.address;
-    if (!address) throw new Error('loadbalancer: could not resolve the LB private-network IP from IPAM (resource type lb_server).');
-    return address.split('/')[0] ?? address;
-  });
-
+/**
+ * A private, ACL-guarded frontend per `internalPort` service gives in-network consumers a stable address that follows every switch. Returns
+ * the internal pools, keyed `<slug>-internal`.
+ */
+function internalListeners(lb: scaleway.loadbalancers.LoadBalancer): Map<string, scaleway.loadbalancers.Backend> {
   const internalBackends = new Map<string, scaleway.loadbalancers.Backend>();
   const internalServices = enabledServices(appConfig.services).flatMap((s) =>
     s.internalPort === undefined ? [] : [{ service: s, internalPort: s.internalPort }],
@@ -198,10 +176,16 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
       match: { httpFilter: 'acl_http_filter_none' },
     });
   }
+  return internalBackends;
+}
 
-  const allCertIds: pulumi.Input<string>[] = [appCert.id];
-  if (apexCert) allCertIds.push(apexCert.id);
-
+/** The HTTPS frontend over the default pool, its path routes, and the apex's redirect when this stack manages the apex. */
+function httpsListener(
+  lb: scaleway.loadbalancers.LoadBalancer,
+  backends: ReadonlyMap<ServiceName, scaleway.loadbalancers.Backend>,
+  defaultBackend: scaleway.loadbalancers.Backend,
+  certificates: { certIds: pulumi.Input<string>[]; certGates: CertReadyGate[] },
+): void {
   const httpsFrontend = new scaleway.loadbalancers.Frontend(
     'https-frontend',
     {
@@ -209,12 +193,12 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
       name: naming.resource('https'),
       backendId: defaultBackend.id, // Default backend (the lbRoute 'default' service)
       inboundPort: 443,
-      certificateIds: allCertIds,
+      certificateIds: certificates.certIds,
     },
     {
       ...frontendWithAclResources,
       // Attach only certs proven `ready`: a pending or errored cert fails its own gate first, with the ACME detail.
-      dependsOn: certGates,
+      dependsOn: certificates.certGates,
     },
   );
 
@@ -263,7 +247,10 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
       { dependsOn: [apexRedirect] },
     );
   }
+}
 
+/** The HTTP frontend, whose one ACL redirects every request to HTTPS. */
+function httpRedirect(lb: scaleway.loadbalancers.LoadBalancer, defaultBackend: scaleway.loadbalancers.Backend): void {
   const httpFrontend = new scaleway.loadbalancers.Frontend(
     'http-frontend',
     {
@@ -285,32 +272,56 @@ function provisionLoadBalancer(): LoadBalancerOutputs {
     },
     match: { httpFilter: 'acl_http_filter_none' },
   });
-
-  const serviceUrls: Record<string, pulumi.Output<string>> = {};
-  for (const service of lbServices) {
-    // The full public URL; path-routed services carry their prefix.
-    serviceUrls[service.slug] = pulumi.output(serviceUrl(service.slug));
-  }
-
-  return {
-    serviceUrls,
-    lbId: lb.id,
-    lbPrivateAddress: lbPrivateIp,
-    lbBackendIds: pulumi.output(
-      Object.fromEntries([
-        ...[...backends.entries()].map(([service, backend]) => [service, backend.id] as const),
-        ...[...internalBackends.entries()].map(([key, backend]) => [key, backend.id] as const),
-      ]),
-    ),
-  };
 }
 
 // Made by the setup's first apply, before any machine: its records and certificates are then in place for the first deploy, whose key
 // writes no DNS and no pool.
-const outputs = provisionLoadBalancer();
 
-/** Public URL per LB-exposed service slug. */
-export const serviceDomainUrls: Readonly<Record<string, pulumi.Output<string>>> = outputs.serviceUrls;
-export const lbId = outputs.lbId;
-export const lbBackendIds = outputs.lbBackendIds;
-export const lbPrivateAddress = outputs.lbPrivateAddress;
+const lbIp = new scaleway.loadbalancers.Ip('lb-ip', { zone });
+
+const lb = new scaleway.loadbalancers.LoadBalancer('main-lb', {
+  name: naming.resource('lb'),
+  ipIds: [lbIp.id],
+  type: 'LB-S',
+  zone,
+  tags,
+  privateNetworks: [{ privateNetworkId }],
+});
+
+const certificates = hostCertificates(lb);
+const backends = publicBackends(lb);
+const defaultBackend = backends.get(defaultService.slug)!;
+
+/**
+ * The LB's private-network IPv4 address, without a CIDR suffix. The LB keeps its DHCP-assigned private-network IP: recreating the attachment
+ * severs LB-to-machine traffic. Resolved through the IPAM REST API because the provider's getIps invoke rejects these filters with a
+ * detail-less "invalid argument(s)".
+ */
+export const lbPrivateAddress: pulumi.Output<string> = lb.id.apply(async (lbId) => {
+  const bareLbId = lbId.split('/').at(-1) ?? lbId;
+  const secretKey = process.env.SCW_SECRET_KEY;
+  if (!secretKey) throw new Error('loadbalancer: SCW_SECRET_KEY is required to resolve the LB private-network IP from IPAM');
+  const url = `https://api.scaleway.com/ipam/v1/regions/${region}/ips?resource_id=${bareLbId}&resource_type=lb_server&is_ipv6=false`;
+  const res = await fetch(url, { headers: { 'X-Auth-Token': secretKey } });
+  if (!res.ok) throw new Error(`loadbalancer: IPAM lookup for the LB private IP failed: ${res.status} ${await res.text()}`);
+  const body = (await res.json()) as { ips?: Array<{ address?: string }> };
+  const address = body.ips?.[0]?.address;
+  if (!address) throw new Error('loadbalancer: could not resolve the LB private-network IP from IPAM (resource type lb_server).');
+  return address.split('/')[0] ?? address;
+});
+
+const internalBackends = internalListeners(lb);
+httpsListener(lb, backends, defaultBackend, certificates);
+httpRedirect(lb, defaultBackend);
+
+/** Public URL per LB-exposed service slug; a path-routed service's carries its prefix. */
+export const serviceDomainUrls: Readonly<Record<string, pulumi.Output<string>>> = Object.fromEntries(
+  lbServices.map((service) => [service.slug, pulumi.output(serviceUrl(service.slug))]),
+);
+export const lbId = lb.id;
+export const lbBackendIds: pulumi.Output<Record<string, string>> = pulumi.output(
+  Object.fromEntries([
+    ...[...backends.entries()].map(([service, backend]) => [service, backend.id] as const),
+    ...[...internalBackends.entries()].map(([key, backend]) => [key, backend.id] as const),
+  ]),
+);

@@ -5,9 +5,9 @@ import type { AppServiceConfig, AppServices, ComposeFile, ComposeService, Health
  * A service's agent port, on which the machine's agent answers the load balancer's check for it, is its own port shifted by this: it moves
  * only with that port, so a registry change moves no other service's check.
  */
-export const AGENT_PORT_OFFSET = 5000;
+export const agentPortOffset = 5000;
 
-/** Helper for `services.config.ts`: typed identity that preserves literal keys. */
+/** Helper for `services.config.ts`: checks the ports and path prefixes, and returns the services with their literal keys. */
 export function defineServices<const T extends AppServices>(services: T): T {
   validateInternalPorts(services);
   validateAgentPorts(services);
@@ -54,7 +54,7 @@ function validateInternalPorts(services: AppServices): void {
 }
 
 /** The static env, and the runtime one the agent fetches at the machine's first boot: optional, as Compose starts the agent before it exists. */
-const ENV_FILES = ['.env', { path: '.env.runtime', required: false as const }];
+const envFiles = ['.env', { path: '.env.runtime', required: false as const }];
 
 /** An agent port must be a port of its own: the single-process host publishes every service's ports beside its agent's. */
 function validateAgentPorts(services: AppServices): void {
@@ -64,7 +64,7 @@ function validateAgentPorts(services: AppServices): void {
     if (cfg.internalPort !== undefined) taken.set(cfg.internalPort, slug);
   }
   for (const [slug, cfg] of Object.entries(services)) {
-    const port = cfg.port + AGENT_PORT_OFFSET;
+    const port = cfg.port + agentPortOffset;
     const owner = taken.get(port);
     if (port > 65535 || owner) {
       throw new Error(
@@ -75,7 +75,7 @@ function validateAgentPorts(services: AppServices): void {
 }
 
 /** Standard environment injected into every app service unless opted out. */
-const STANDARD_ENV = { NODE_ENV: 'production', APP_MODE: '${APP_MODE:-production}', TZ: 'UTC' } as const;
+const standardEnv = { NODE_ENV: 'production', APP_MODE: '${APP_MODE:-production}', TZ: 'UTC' } as const;
 
 /** Uniform identity healthcheck injected into every app service. The interval floors how fast `compose up --wait` can observe readiness at boot (the agent's boot waits on it), so it stays short; `start_interval` would scope that to startup but needs a compose/engine version floor the marketplace machine image cannot guarantee. */
 function healthcheck(port: number, startPeriod: string): HealthCheck {
@@ -126,7 +126,7 @@ function privileges(cfg: AppServiceConfig): Pick<ComposeService, 'cap_drop' | 'c
 /** Expand one app service entry into a full Compose service block. */
 function appBlock(slug: string, cfg: AppServiceConfig): ComposeService {
   const environment = {
-    ...(cfg.includeStandardEnv === false ? {} : STANDARD_ENV),
+    ...(cfg.includeStandardEnv === false ? {} : standardEnv),
     ...(cfg.env ?? {}),
   };
   const block: ComposeService = {
@@ -141,7 +141,7 @@ function appBlock(slug: string, cfg: AppServiceConfig): ComposeService {
     ports: [cfg.port, ...(cfg.internalPort === undefined ? [] : [cfg.internalPort])].map((port) => `${port}:${port}`),
     // SIGTERM drain window for in-flight requests.
     stop_grace_period: '30s',
-    ...(cfg.includeEnvFile === false ? {} : { env_file: ENV_FILES }),
+    ...(cfg.includeEnvFile === false ? {} : { env_file: envFiles }),
     environment,
     healthcheck: healthcheck(cfg.port, cfg.startPeriod),
   };
@@ -167,13 +167,13 @@ function releaseBlock(slug: string, cfg: AppServiceConfig): ComposeService {
     profiles: [slug],
     restart: 'no',
     ...privileges(cfg),
-    env_file: ENV_FILES,
-    environment: { ...STANDARD_ENV, ...(release?.env ?? {}), ...(cfg.env ?? {}) },
+    env_file: envFiles,
+    environment: { ...standardEnv, ...(release?.env ?? {}), ...(cfg.env ?? {}) },
   };
 }
 
 /** The agent's compose service, which every machine runs beside its app (agent/): the launcher starts it, and it starts the rest. */
-const AGENT_SERVICE = 'infra-agent';
+const agentService = 'infra-agent';
 
 /**
  * The agent: on the host network, where it answers the load balancer on each service's agent port and reads its manifest from the metadata
@@ -214,11 +214,18 @@ export function assembleCompose(appServices: AppServices, options: { processIden
     services[slug] = appBlock(slug, cfg);
     if (cfg.release) services[releaseServiceName(slug)] = releaseBlock(slug, cfg);
   }
-  if (AGENT_SERVICE in services) throw new Error(`services config: '${AGENT_SERVICE}' is the engine's agent and no app service name.`);
-  services[AGENT_SERVICE] = agentBlock();
+  if (agentService in services) throw new Error(`services config: '${agentService}' is the engine's agent and no app service name.`);
+  services[agentService] = agentBlock();
   publishCoHostedPorts(appServices, services);
   publishCoHostedEnv(appServices, services, processIdentityEnv);
   return { services };
+}
+
+/** The singleVM host: the `primaryRollout` service and its block; undefined when no service has both. */
+function singleVmHost(appServices: AppServices, blocks: Record<string, ComposeService>): { hostSlug: string; hostBlock: ComposeService } | undefined {
+  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
+  const hostBlock = hostSlug === undefined ? undefined : blocks[hostSlug];
+  return hostSlug && hostBlock ? { hostSlug, hostBlock } : undefined;
 }
 
 /**
@@ -226,10 +233,9 @@ export function assembleCompose(appServices: AppServices, options: { processIden
  * Equal collisions are accepted, conflicting values fail synthesis, and process-identity keys are skipped (folded workers boot under the host's identity).
  */
 function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, ComposeService>, processIdentityEnv: ReadonlySet<string>): void {
-  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
-  if (!hostSlug) return;
-  const hostBlock = blocks[hostSlug];
-  if (!hostBlock) return;
+  const host = singleVmHost(appServices, blocks);
+  if (!host) return;
+  const { hostSlug, hostBlock } = host;
   const merged: Record<string, string> = { ...(hostBlock.environment ?? {}) };
   for (const [slug, cfg] of Object.entries(appServices)) {
     if (!cfg.coHosted || !cfg.env) continue;
@@ -252,9 +258,7 @@ function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, Com
  * Split mode keeps them in the shared Compose output, where nothing binds them and network policy keeps them unreachable.
  */
 function publishCoHostedPorts(appServices: AppServices, blocks: Record<string, ComposeService>): void {
-  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
-  if (!hostSlug) return;
-  const hostBlock = blocks[hostSlug];
+  const hostBlock = singleVmHost(appServices, blocks)?.hostBlock;
   if (!hostBlock) return;
   const coHostedPorts = Object.values(appServices)
     .filter((cfg) => cfg.coHosted)

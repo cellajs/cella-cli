@@ -1,9 +1,7 @@
 import { performance } from 'node:perf_hooks';
 import type { Phase } from './types';
 
-export type ScheduleEvent =
-  | { kind: 'phase'; at: number; phase: number }
-  | { kind: 'arrival'; at: number; phase: number };
+export type ScheduleEvent = { kind: 'phase'; at: number; phase: number } | { kind: 'arrival'; at: number; phase: number };
 
 /** Seconds into a phase of its `i`-th arrival when the rate ramps linearly from `from` to `to` over `duration`. */
 function rampedAt(i: number, from: number, to: number, duration: number): number {
@@ -33,8 +31,7 @@ export function* schedule(phases: Phase[]): Generator<ScheduleEvent> {
     for (let i = 0; i < count; i++) {
       let seconds: number;
       if (phase.arrivalCount !== undefined) seconds = (i * phase.duration) / count;
-      else if (phase.rampTo !== undefined && phase.rampTo !== rate)
-        seconds = rampedAt(i, rate, phase.rampTo, phase.duration);
+      else if (phase.rampTo !== undefined && phase.rampTo !== rate) seconds = rampedAt(i, rate, phase.rampTo, phase.duration);
       else seconds = i / rate;
       yield { kind: 'arrival', at: offset + Math.min(seconds, phase.duration) * 1000, phase: index };
     }
@@ -62,11 +59,7 @@ export function roleSequencer<T extends { weight: number }>(roles: T[]): () => T
  * at once, so timer drift never accumulates. It never waits on the VUs it starts. Resolves after the last event, or
  * when `signal` aborts.
  */
-export function play(
-  events: Iterable<ScheduleEvent>,
-  onEvent: (event: ScheduleEvent) => void,
-  signal: AbortSignal,
-): Promise<void> {
+export function play(events: Iterable<ScheduleEvent>, onEvent: (event: ScheduleEvent) => void, signal: AbortSignal): Promise<void> {
   const iterator = events[Symbol.iterator]();
   const start = performance.now();
   let next = iterator.next();

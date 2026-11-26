@@ -57,12 +57,7 @@ interface RecordMergeOptions {
 }
 
 /** Keys whose entries are packages the code imports or whose CLIs it runs. */
-const dependencyKeys: readonly PackageJsonKey[] = [
-  'dependencies',
-  'devDependencies',
-  'peerDependencies',
-  'optionalDependencies',
-];
+const dependencyKeys: readonly PackageJsonKey[] = ['dependencies', 'devDependencies', 'peerDependencies', 'optionalDependencies'];
 
 /**
  * Three-way merge for a Record<string, string> key (dependencies, scripts, overrides, ...).
@@ -291,11 +286,7 @@ function packageJsonPath(relativePath: string): string {
 }
 
 /** A package.json at a git ref, raw and parsed; null when the ref has no such file. */
-async function readPackageJsonAtRef(
-  repoRoot: string,
-  ref: string,
-  relativePath: string,
-): Promise<{ raw: string; data: PackageJson } | null> {
+async function readPackageJsonAtRef(repoRoot: string, ref: string, relativePath: string): Promise<{ raw: string; data: PackageJson } | null> {
   try {
     const raw = await git(['show', `${ref}:${packageJsonPath(relativePath)}`], repoRoot);
     return { raw, data: JSON.parse(raw) };
@@ -477,10 +468,7 @@ export async function runPackages(
   }
 
   const changedCount = reports.filter(({ changes }) => changes.length > 0).length;
-  spinnerSuccess(
-    'package.json merge complete',
-    `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`,
-  );
+  spinnerSuccess('package.json merge complete', `${plural(changedCount, 'package.json was', 'package.jsons were')} changed`);
 
   for (const { path, changes } of reports) {
     if (changes.length === 0) continue;

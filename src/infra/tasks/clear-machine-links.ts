@@ -2,10 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { deriveInfra } from '../lib/naming';
 import { getUserData, setUserData } from '../lib/scaleway/machines';
 import { withoutLinks } from '../lib/scaleway/presign';
-import { deployS3Key, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
-import { getFlag } from '../lib/utils/args';
+import { deployS3Key, isNotFound, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
+import { sleep } from '../lib/utils/sleep';
 import type { MachineEnv } from './compose-env';
 
 /** A machine a deploy made, by its role; `kept` when a failed stop-first switch left it, as a late boot may still serve. */
@@ -66,16 +65,19 @@ export async function clearMachineLinks(
   return cleared;
 }
 
-/**
- * The deploy's step after the switches, and its last act: `--envs` the compose step's output, `--machines` the machines the switches made.
- * `--no-wait` at the end of a run, where a machine that never reported loses its links all the same.
- */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const envsFile = getFlag(argv, '--envs');
-  const machinesFile = getFlag(argv, '--machines');
+/** What the deploy hands the step: the compose step's output and the machines the switches made, as files. */
+export interface ClearMachineLinksStep {
+  envsFile: string;
+  machinesFile: string;
+  /** False at the end of a run, where a machine that never reported loses its links all the same. */
+  wait: boolean;
+}
+
+/** The deploy's step after the switches, and its last act. */
+export async function main({ envsFile, machinesFile, wait }: ClearMachineLinksStep): Promise<void> {
   const projectId = process.env.SCW_DEFAULT_PROJECT_ID;
   const { accessKey, secretKey } = deployS3Key();
-  if (!envsFile || !machinesFile || !projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY, SCW_DEFAULT_PROJECT_ID, --envs, --machines');
+  if (!projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY, SCW_DEFAULT_PROJECT_ID');
   const envs = JSON.parse(await readFile(envsFile, 'utf8')) as MachineEnv[];
   const machines = JSON.parse(await readFile(machinesFile, 'utf8').catch(() => '[]')) as MadeMachine[];
   const { engineConfig } = await import('infra/config/engine-config');
@@ -98,14 +100,12 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       deleteEnv: async (env) => {
         const version = env.envVersion ? { VersionId: env.envVersion } : {};
         await s3.send(new DeleteObjectCommand({ Bucket: naming.bootDiagBucket, Key: env.env, ...version })).catch((error: unknown) => {
-          if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode !== 404) throw error;
+          if (!isNotFound(error)) throw error;
         });
       },
-      sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      sleep,
       log: (message) => console.info(message),
     },
-    { waitMs: argv.includes('--no-wait') ? 0 : 3 * 60_000 },
+    { waitMs: wait ? 3 * 60_000 : 0 },
   );
 }
-
-runIfMain(import.meta.url, main);

@@ -28,8 +28,7 @@ vi.mock('node:child_process', async (importOriginal) => {
   return mockPnpmAndGh(await importOriginal<typeof import('node:child_process')>());
 });
 
-const readme = (title: string) =>
-  `---\nbreaking: true\nclientCacheBump: false\ncaughtBy: compiler\n---\n\n# ${title}\n\nWhat the app changes.\n`;
+const readme = (title: string) => `---\nbreaking: true\nclientCacheBump: false\ncaughtBy: compiler\n---\n\n# ${title}\n\nWhat the app changes.\n`;
 const oldId = '20260101T0000-old-alignment';
 const newId = '20260102T0000-new-alignment';
 
@@ -119,9 +118,7 @@ describe('alignments e2e', () => {
       expect(pending(env.repoRoot)).toEqual({ pending: [newId] });
       // It ends on what to do: resolve the conflict, let a rerun commit, and the alignment that arrived
       const stopped = printed();
-      expect(stopped).toMatch(
-        /next steps\n─+\n\n {2}1 resolve {2}1 conflict in your editor, then stage them\n {13}README\.md\n/,
-      );
+      expect(stopped).toMatch(/next steps\n─+\n\n {2}1 resolve {2}1 conflict in your editor, then stage them\n {13}README\.md\n/);
       expect(stopped).toMatch(/ {2}2 finish {3}pnpm cella upgrade\n/);
       expect(stopped).toMatch(/ {2}\d align {4}1 alignment open · 1 arrived with this upgrade\n/);
       expect(stopped).toContain('○ New alignment · codemod · breaking · caught by compiler');
@@ -171,9 +168,7 @@ describe('alignments e2e', () => {
     expect(out).toContain('○ New alignment · manual · breaking · caught by compiler');
     expect(out).toContain('after the upgrade: pnpm cella align');
     // Only the alignment changed upstream: the upgrade still records it and moves the upgrade point
-    expect(out).toMatch(
-      / {2}1 upgrade {2}pnpm cella upgrade\n {13}merges on a fresh branch and stops for review · no file changes\n/,
-    );
+    expect(out).toMatch(/ {2}1 upgrade {2}pnpm cella upgrade\n {13}merges on a fresh branch and stops for review · no file changes\n/);
     expect(out).toMatch(/ {2}2 align {4}1 alignment arrives with this upgrade\n/);
   });
 

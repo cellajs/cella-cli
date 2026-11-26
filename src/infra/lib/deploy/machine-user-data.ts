@@ -1,9 +1,9 @@
-import type { Manifest } from '../../agent/src/manifest';
+import { type Manifest, metadataHost } from '../../agent/src/manifest';
 import { type AgentPort, type BootPlan, type ReleaseArchive, supportedImageContract, supportedSchemaVersion } from '../../agent/src/plan';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
 
 /** The user data key the machine's agent polls for its manifest; `cloud-init` holds the rest. */
-export const MANIFEST_KEY = 'manifest';
+export const manifestKey = 'manifest';
 
 /** What the deploy tells a machine's agent while it runs, in the shape the agent reads it. */
 export const renderManifest = (manifest: Manifest): string => JSON.stringify(manifest);
@@ -32,7 +32,7 @@ export interface MachineUserDataParams {
 
 /**
  * Ceiling on one `compose up --wait`: the release companion (migrations, job store install, admin seed) and the start of the app together.
- * It must fail and upload its account while the deploy still waits for the machine to serve (`SERVING_TIMEOUT_SECONDS` in
+ * It must fail and upload its account while the deploy still waits for the machine to serve (`servingTimeoutSeconds` in
  * tasks/switch-machines.ts, counted from the power-on, by which the env file and the archives are still loading), or the deploy reports a
  * failure with no account to show. The backend's own lock and statement timeouts (SERVICE=migrate) sit below it.
  */
@@ -57,16 +57,13 @@ const machinePaths = (slug: string) => {
  */
 const bootLogPath = '/var/log/infra-boot.log';
 
-/** The metadata service, which hands a root process on the machine its user data: the links, until the deploy strips them, and the manifest. */
-const metadataAddress = '169.254.42.42';
-
 // -E (ERE) so `|` alternates: in a BRE the unescaped `|` is literal and the scrub matches nothing.
 const scrubPattern = 'SECRET|PASSWORD|API_KEY|DATABASE_URL|X-Amz-Signature';
 
 /**
  * The first-boot script cloud-init runs: the serial console marker `::<slug>:: boot start`, then the replay and agent units, then the log
  * scrub. The role and release travel in the boot plan (JSON) and the agent logs them itself, so no per-deploy value is interpolated into a
- * bash command position. `slug` is validated kebab-case at the config boundary (config/engine-config.ts).
+ * bash command position. `slug` is validated kebab-case at the config boundary (`defineEngineConfig`, lib/engine-config.ts).
  */
 const firstBootScript = (slug: string): string => `#!/bin/bash
 exec > >(tee -a ${bootLogPath} 2>/dev/null > /dev/console) 2>&1
@@ -122,12 +119,13 @@ const agentEnvContent = (p: MachineUserDataParams): string =>
  * Load the agent from its archive when the daemon lacks it, refusing an archive whose sha256 differs, then start it as the `infra-agent`
  * Compose service, attached so its output reaches the boot log and the serial console. Compose runs from the agent's own image, which
  * carries the CLI the machine's image may lack. The unit runs it at every boot, so the rule that keeps app containers off the metadata
- * service is set here, before any container starts, in DOCKER-USER, the one chain Docker consults before its own rules; the agent is on
- * the host network, which the rule leaves alone. A rule that cannot be set ends the boot.
+ * service, which hands a root process the user data (the links, until the deploy strips them, and the manifest), is set here, before any
+ * container starts, in DOCKER-USER, the one chain Docker consults before its own rules; the agent is on the host network, which the rule
+ * leaves alone. A rule that cannot be set ends the boot.
  */
 const launcher = `#!/bin/bash
 set -uo pipefail
-iptables -C DOCKER-USER -d ${metadataAddress} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${metadataAddress} -j DROP || exit 1
+iptables -C DOCKER-USER -d ${metadataHost} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${metadataHost} -j DROP || exit 1
 if ! docker image inspect "$AGENT_IMAGE" >/dev/null 2>&1; then
   mkdir -p /opt/app/images
   curl -fsS --max-time 240 --retry 5 --retry-all-errors -o /opt/app/images/agent.tar "$AGENT_ARCHIVE_URL" || { echo "the agent archive could not be fetched"; exit 1; }

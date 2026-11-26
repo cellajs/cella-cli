@@ -2,7 +2,6 @@ import { beforeAll, describe, expect, it } from 'vitest';
 import type { EngineConfig } from '../lib/engine-config';
 import { appPrincipalNames, principalNames } from '../lib/scaleway/principals';
 import { checkpointKey } from '../lib/stack/pending-operations';
-import { escapeRegExp } from '../lib/utils/escape-regexp';
 import { installPulumiMocks, type MockHarness } from '../tests/helpers/pulumi-mock';
 
 let h: MockHarness;
@@ -17,7 +16,13 @@ beforeAll(async () => {
 
 type Statement = { Principal: { SCW: string | string[] }; Action: string[]; Resource: string[] };
 
-const glob = (pattern: string, value: string) => new RegExp(`^${pattern.split('*').map(escapeRegExp).join('.*')}$`).test(value);
+const glob = (pattern: string, value: string) =>
+  new RegExp(
+    `^${pattern
+      .split('*')
+      .map((part) => RegExp.escape(part))
+      .join('.*')}$`,
+  ).test(value);
 
 /** The principals a policy lets read one object, a version of it included. */
 function readers(statements: readonly Statement[], object: string): string[] {

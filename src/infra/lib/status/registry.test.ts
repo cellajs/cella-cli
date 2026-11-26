@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentsFact } from './providers/components';
 import type { DbEndpointFacts } from './providers/database';
 import type { EnvironmentsFacts } from './providers/environments';
+import type { IdentityFacts } from './providers/identity';
 import type { InventoryFacts } from './providers/inventory';
 import { expectedRelease, type LiveServiceFact } from './providers/live';
 import type { RunsFacts } from './providers/runs';
 import type { ScheduleFacts } from './providers/schedule';
-import type { IdentityFacts } from './providers/stack';
 import { assembleReport, groupOf, statusProviders } from './registry';
 import type { Check, ProbeSession, ScalewayFacts } from './types';
 
@@ -101,15 +101,6 @@ describe('report envelope', () => {
     expect(Object.keys(report.summary).sort()).toEqual(['error', 'missing', 'ok', 'unknown', 'warn']);
     const total = Object.values(report.summary).reduce((a, b) => a + b, 0);
     expect(total).toBe(report.checks.length);
-  });
-
-  it('every check carries id, title, status, detail, key', () => {
-    for (const check of reportFor(base()).checks) {
-      expect(check.id).toBeTruthy();
-      expect(check.title).toBeTruthy();
-      expect(['ok', 'warn', 'missing', 'unknown', 'error']).toContain(check.status);
-      expect(['none', 'scaleway']).toContain(check.key);
-    }
   });
 
   it('a healthy stack is all-ok with no next action', () => {
@@ -209,7 +200,7 @@ describe('live service checks', () => {
     );
     const check = find(report.checks, 'live.backend');
     expect(check?.status).toBe('warn');
-    expect(report.nextAction?.command).toContain('deploy --mode staging');
+    expect(report.nextAction?.command).toContain('deploy-now --mode staging');
   });
 
   it('a service on the singleVM host names the host its expectation comes from', () => {

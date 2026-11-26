@@ -1,20 +1,24 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 import { composeConfig } from './compose';
 import type { ComposeFile } from './types';
 
-const GENERATED_HEADER = [
-  '# DO NOT EDIT: generated from infra/compose/ by `pnpm --filter infra compose:generate`.',
-  '# Edit services.config.ts (the service registry) and re-run synth.',
-  '# Deploy machinery and rationale live in infrastructure.ts.',
+const generatedHeader = [
+  '# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.',
+  '# Edit the service registry there and re-run the command.',
+  '# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).',
 ].join('\n');
 
+/** A Compose file without its leading comment lines: a file whose header an older release wrote is still current. */
+function withoutHeader(yaml: string): string {
+  return yaml.replace(/^(?:#.*\n)*/, '');
+}
+
 /** Keys whose array value is rendered as an inline flow sequence, not a block. */
-const FLOW_KEYS = new Set(['profiles', 'test']);
+const flowKeys = new Set(['profiles', 'test']);
 /** Flow-sequence keys whose elements are always single-quoted (e.g. `test`). */
-const FLOW_QUOTED_KEYS = new Set(['test']);
+const flowQuotedKeys = new Set(['test']);
 
 /** YAML plain scalars that must be quoted to avoid type coercion or parse errors. */
 function needsQuote(v: string): boolean {
@@ -41,8 +45,8 @@ function emitMapping(obj: object, indent: number): string[] {
     if (val === null || val === undefined) {
       lines.push(`${pad}${key}:`);
     } else if (Array.isArray(val)) {
-      if (FLOW_KEYS.has(key)) {
-        const quoted = FLOW_QUOTED_KEYS.has(key);
+      if (flowKeys.has(key)) {
+        const quoted = flowQuotedKeys.has(key);
         lines.push(`${pad}${key}: [${val.map((x) => scalar(String(x), quoted)).join(', ')}]`);
       } else {
         lines.push(`${pad}${key}:`);
@@ -75,45 +79,46 @@ export function renderCompose(file: ComposeFile): string {
     lines.push(`  ${name}:`);
     lines.push(...emitMapping(svc, 2));
   }
-  return `${GENERATED_HEADER}\n\n${lines.join('\n')}\n`;
+  return `${generatedHeader}\n\n${lines.join('\n')}\n`;
 }
 
 /** The generated deploy artifact, read by the deploy and written into each machine's user data. */
-export const OUTPUT_PATH = join(infraDir, 'compose.gen.yml');
+export const outputPath = join(infraDir, 'compose.gen.yml');
 
-export function main(): void {
+/** `compose-generate` writes the file; with `--check`, as `compose-check` runs it, it fails when the file differs. */
+export function main(words: string[]): void {
   const yaml = renderCompose(composeConfig);
-  if (process.argv.includes('--check')) {
-    let current = '';
-    try {
-      current = readFileSync(OUTPUT_PATH, 'utf-8');
-    } catch {
-      console.error(`::error::${OUTPUT_PATH} is missing: run \`pnpm --filter infra compose:generate\`.`);
+  if (words.includes('--check')) {
+    const current = readCompose();
+    if (current === undefined) {
+      console.error(`::error::${outputPath} is missing: run \`pnpm --filter infra compose:generate\`.`);
       process.exit(1);
     }
-    if (current !== yaml) {
-      console.error(`::error::${OUTPUT_PATH} is out of date: run \`pnpm --filter infra compose:generate\` and commit.`);
+    if (withoutHeader(current) !== withoutHeader(yaml)) {
+      console.error(`::error::${outputPath} is out of date: run \`pnpm --filter infra compose:generate\` and commit.`);
       process.exit(1);
     }
     console.info('compose.gen.yml is up to date.');
     return;
   }
   writeCompose();
-  console.info(`Wrote ${OUTPUT_PATH}`);
+  console.info(`Wrote ${outputPath}`);
+}
+
+/** The Compose file on disk; undefined when it is missing. */
+function readCompose(): string | undefined {
+  try {
+    return readFileSync(outputPath, 'utf-8');
+  } catch {
+    return undefined;
+  }
 }
 
 /** Write the Compose file from the service registry; `unchanged` when the file already holds it, so a caller can stay quiet. */
 export function writeCompose(): 'written' | 'unchanged' {
   const yaml = renderCompose(composeConfig);
-  let current = '';
-  try {
-    current = readFileSync(OUTPUT_PATH, 'utf-8');
-  } catch {
-    // Missing: written below.
-  }
-  if (current === yaml) return 'unchanged';
-  writeFileSync(OUTPUT_PATH, yaml);
+  const current = readCompose();
+  if (current !== undefined && withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
+  writeFileSync(outputPath, yaml);
   return 'written';
 }
-
-if (isMain(import.meta.url)) main();

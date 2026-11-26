@@ -3,7 +3,7 @@ import type { AgentState } from './health';
 import type { Manifest } from './manifest';
 
 /** How often the agent reads its manifest: a drain order shows up within about three seconds of the deploy's write. */
-const MANIFEST_POLL_MS = 2_000;
+const manifestPollMs = 2_000;
 
 /** What the agent does outside this module, so a test passes its own. */
 export interface AgentEffects {
@@ -52,7 +52,7 @@ export async function runAgent(fx: AgentEffects, opts: { drainSeconds: number; p
     (error: unknown) => fx.log('boot-failed', { message: errorMessage(error) }),
   );
   for (let round = 0; opts.rounds === undefined || round < opts.rounds; round++) {
-    await fx.sleep(opts.pollMs ?? MANIFEST_POLL_MS);
+    await fx.sleep(opts.pollMs ?? manifestPollMs);
     if ((await read())?.drain) {
       await drain();
       break;

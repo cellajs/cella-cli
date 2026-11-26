@@ -1,13 +1,5 @@
 import { printProgressStep } from '../utils/display';
-import {
-  checkoutFromRef,
-  getConflictedFiles,
-  merge,
-  mergeAbort,
-  mergeInProgress,
-  moveFromRef,
-  removeFilesFully,
-} from '../utils/git';
+import { checkoutFromRef, getConflictedFiles, merge, mergeAbort, mergeInProgress, moveFromRef, removeFilesFully } from '../utils/git';
 import { changedFromUpstream } from './classify';
 import type { AnalyzedFile } from './model';
 import { formatMergeInProgressDetail } from './report';
@@ -63,9 +55,7 @@ export async function applyDirectMerge(
 
   const remainingConflicts = await getConflictedFiles(repoRoot);
   const conflicted = new Set(remainingConflicts);
-  const autoMergedFiles = files
-    .filter((file) => file.resolution === 'merge' && !conflicted.has(file.path))
-    .map((file) => file.path);
+  const autoMergedFiles = files.filter((file) => file.resolution === 'merge' && !conflicted.has(file.path)).map((file) => file.path);
   return { remainingConflicts, autoMergedFiles };
 }
 
@@ -85,10 +75,7 @@ export async function settleMerge(repoRoot: string, files: AnalyzedFile[], appli
   const merging = await mergeInProgress(repoRoot);
   if (merging && files.some((file) => file.resolution !== 'none')) {
     const fromUpstream = changedFromUpstream(files).length;
-    printProgressStep(
-      'upgraded',
-      `${fromUpstream > 0 ? `${fromUpstream} files from upstream` : 'upstream changes'} (staged for review)`,
-    );
+    printProgressStep('upgraded', `${fromUpstream > 0 ? `${fromUpstream} files from upstream` : 'upstream changes'} (staged for review)`);
     return true;
   }
   if (merging) await mergeAbort(repoRoot);

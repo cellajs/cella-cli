@@ -7,8 +7,7 @@ import {
   PutBucketVersioningCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
-import { runIfMain } from '../lib/utils/is-main';
+import { isAccessDenied, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 
 export type EnsureResult = 'exists' | 'created';
 
@@ -22,12 +21,12 @@ export async function ensureStateBucket(s3: S3Client, bucketName: string): Promi
     .send(new HeadBucketCommand({ Bucket: bucketName }))
     .then(() => true)
     .catch((err: { $metadata?: { httpStatusCode?: number } }) => {
-      const status = err.$metadata?.httpStatusCode;
       // 403 is ambiguous on Scaleway (foreign-owned, missing perms, stale reservation), so CreateBucket gives the definite answer.
-      if (status === 403) {
+      if (isAccessDenied(err)) {
         headWasAmbiguous403 = true;
         return false;
       }
+      const status = err.$metadata?.httpStatusCode;
       if (status === 404 || status === 301) return false;
       throw err;
     });
@@ -53,7 +52,7 @@ export async function ensureStateBucket(s3: S3Client, bucketName: string): Promi
 }
 
 /** Days a noncurrent state-file version is kept before lifecycle expiry. */
-export const NONCURRENT_VERSION_RETENTION_DAYS = 90;
+export const noncurrentVersionRetentionDays = 90;
 
 /**
  * Converge the state bucket onto its hardened configuration: versioning so every checkpoint write is recoverable, SSE-ONE default encryption (AES-256,
@@ -72,8 +71,7 @@ export async function hardenStateBucket(
       await run();
       applied.push(label);
     } catch (err: unknown) {
-      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-      if (status === 403) {
+      if (isAccessDenied(err)) {
         denied.push(label);
         return;
       }
@@ -102,7 +100,7 @@ export async function hardenStateBucket(
               ID: 'expire-noncurrent-state-versions',
               Status: 'Enabled',
               Filter: { Prefix: '' },
-              NoncurrentVersionExpiration: { NoncurrentDays: NONCURRENT_VERSION_RETENTION_DAYS },
+              NoncurrentVersionExpiration: { NoncurrentDays: noncurrentVersionRetentionDays },
             },
             {
               ID: 'purge-expired-delete-markers',
@@ -142,11 +140,8 @@ export async function assertBucketProject(s3: S3Client, bucketName: string, expe
   }
 }
 
-/**
- * The setup's step: make the bucket in the environment's project and harden it, on the operator key. `--check` is the deploy's: the bucket
- * must exist in the project, and nothing is made or changed, as a bucket's configuration is the apply's.
- */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+/** The setup's step: make the bucket in the environment's project and harden it, on the operator key. */
+export async function main(): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
   if (!accessKey || !secretKey) throw new Error('SCW_ACCESS_KEY and SCW_SECRET_KEY must be set');
@@ -162,21 +157,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (!expectedProjectId) console.warn("⚠ SCW_DEFAULT_PROJECT_ID not set: the state bucket follows the key's preferred project.");
 
   const s3 = await makeS3Client(region, expectedProjectId ? projectAccessKey(accessKey, expectedProjectId) : accessKey, secretKey);
-  if (argv.includes('--check')) {
-    const found = await s3.send(new HeadBucketCommand({ Bucket: bucketName })).then(
-      () => true,
-      () => false,
-    );
-    if (!found) throw new Error(`The Pulumi state bucket '${bucketName}' is not there: the setup makes it (pnpm cella infra).`);
-    if (expectedProjectId) await assertBucketProject(s3, bucketName, expectedProjectId);
-    console.info(`Pulumi state bucket: s3://${bucketName} (${region})`);
-    return;
-  }
   const result = await ensureStateBucket(s3, bucketName);
   if (expectedProjectId) await assertBucketProject(s3, bucketName, expectedProjectId);
   await hardenStateBucket(s3, bucketName);
   if (result === 'exists') console.info(`Pulumi state bucket already exists: s3://${bucketName} (${region})`);
   else console.info(`Created Pulumi state bucket: s3://${bucketName} (${region})`);
 }
-
-runIfMain(import.meta.url, main);

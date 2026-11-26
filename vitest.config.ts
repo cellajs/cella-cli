@@ -8,8 +8,8 @@ export default defineConfig({
         test: {
           name: 'cella',
           environment: 'node',
-          include: ['tests/**/*.test.ts'],
-          exclude: ['tests/release-smoke.test.ts'],
+          include: ['src/**/*.test.ts', 'tests/**/*.test.ts'],
+          exclude: ['src/infra/**', 'tests/release-smoke.test.ts'],
           testTimeout: 30000,
           fileParallelism: true,
         },

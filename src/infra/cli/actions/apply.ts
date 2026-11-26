@@ -5,7 +5,7 @@ import { discardEngine, type PublishedEngine, publishEngine } from '../../tasks/
 import { endAction, type InfraContext, pointTo } from '../shared';
 import { openDbEndpoints } from './db-exposure';
 import { dropKeptPassphrase } from './drop-passphrase';
-import { exitOnIdentityChanges } from './identity';
+import { endOnIdentityChanges } from './identity';
 import { acquireAdmittedOperatorKey, runOperatorApply } from './operator-apply';
 import { askToApply, reviewPlan } from './plan';
 import { checkWaitingRelease } from './releases';
@@ -15,7 +15,7 @@ import { startBlockedTarget } from './start-deploy';
  * End the action while the database has a public endpoint, before an apply or a setup's resume runs `pulumi up`. The committed stack config
  * never records an open endpoint: its plan keeps the endpoint and deletes the ACL.
  */
-export async function exitOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
+export async function endOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
   const open = await openDbEndpoints(context, secretKey);
   if (open.length === 0) return;
   console.error(
@@ -29,7 +29,6 @@ export async function exitOnOpenDbEndpoint(context: InfraContext, secretKey: str
  * resources (DB, VPC, private network, buckets, DNS, the main job and its engine) the read-only CI key cannot make.
  * The declared applications and their policies are IAM, written by `pnpm cella infra identities` with an Owner API key, never by this apply.
  * The plan is made before the lease is taken, so it is taken only for a plan the operator said yes to.
- * It runs against a bootstrapped stack, so it must NOT set the computeDeferred marker, which belongs to the fresh-provision flow in setup.ts.
  */
 export async function runApply(context: InfraContext): Promise<void> {
   console.info(pc.dim(`\n${actionLabel('apply')}: plan what differs between code and live stack and apply it.\n`));
@@ -38,9 +37,9 @@ export async function runApply(context: InfraContext): Promise<void> {
   const operator = await acquireAdmittedOperatorKey(context);
   // Before anything runs Pulumi, the close of an open endpoint included.
   await dropKeptPassphrase(context, operator);
-  await exitOnOpenDbEndpoint(context, operator.secretKey);
+  await endOnOpenDbEndpoint(context, operator.secretKey);
   // A missing identity would break the plan itself: the program looks up every application it names.
-  await exitOnIdentityChanges(context, operator);
+  await endOnIdentityChanges(context, operator);
   // A release waiting on an apply deploys only on the description of its own checkout: another one ends the action before the build.
   await checkWaitingRelease(context, operator);
   // Built and pushed before the plan, so the plan shows the main job's new image: until the `up` names it, nothing runs it.
@@ -80,7 +79,7 @@ export async function runApply(context: InfraContext): Promise<void> {
   // A failed `up` keeps its engine image: the definition may name it already, and the next apply's prune ages it out.
   if (!completed) endAction(1);
   await startBlockedTarget(context, operator).catch((error) =>
-    console.warn(`${warningMark} Could not start the blocked target again (${errorMessage(error)}): ${pointTo('deploy')} does.`),
+    console.warn(`${warningMark} Could not start the blocked target again (${errorMessage(error)}): ${pointTo('deploy-now')} does.`),
   );
   // A verified difference is reported, not a failure of the apply: the target still starts, and the exit code says to look.
   if (verified === false) endAction(1);

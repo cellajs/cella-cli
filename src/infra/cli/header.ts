@@ -1,11 +1,16 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { Environment, StackState } from '../lib/stack/bootstrap-stack-state';
-import { DIVIDER, pc } from '../lib/utils/cli-output';
-import { infraDir } from '../lib/utils/paths';
+import { rootPackage } from '../../utils/app';
+import type { StackState } from '../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../lib/stack/environment';
+import { divider, pc } from '../lib/utils/cli-output';
+import { repoRoot } from '../lib/utils/paths';
 
 /** The header's width, the same as the divider under it and the headers of cella-cli and create-cella. */
-const HEADER_WIDTH = 60;
+const headerWidth = 60;
+
+/** The environment's name as the header shows it: production bold red, staging cyan. */
+export function environmentName(environment: Environment): string {
+  return environment === 'production' ? pc.bold(pc.red(environment)) : pc.cyan(environment);
+}
 
 export interface HeaderFacts {
   slug: string;
@@ -20,17 +25,11 @@ export interface HeaderFacts {
 /** The version in the repository's root package.json: the release this checkout is at. */
 export function checkoutVersion(): string | undefined {
   try {
-    const { version } = JSON.parse(readFileSync(resolve(infraDir, '..', 'package.json'), 'utf8')) as { version?: unknown };
+    const { version } = rootPackage(repoRoot);
     return typeof version === 'string' ? version : undefined;
   } catch {
     return undefined;
   }
-}
-
-/** The mark with the app's name and what the CLI does beside it: a menu session opens with these lines above the header. */
-export function formatLogo(slug: string): string[] {
-  const beside = ['', pc.bold(`${slug} infra`), pc.dim('Set up and deploy the app on Scaleway'), ''];
-  return ['▒▓█████▓▒', '▒▓█   █▓▒', '▒▓█   █▓▒', '▒▓█████▓▒'].map((mark, index) => `${pc.cyan(mark)}${beside[index] ? `   ${beside[index]}` : ''}`);
 }
 
 /**
@@ -42,8 +41,7 @@ export function formatHeader(facts: HeaderFacts): [string, string] {
   const version = facts.version ? ` · ${facts.version}` : '';
   const state = facts.state === 'bootstrapped' ? '' : facts.state === 'fresh' ? ' · new' : ' · setup not finished';
   const host = facts.host ? ` · ${facts.host}` : '';
-  const padding = ' '.repeat(Math.max(1, HEADER_WIDTH - `${left}${version}${facts.environment}${state}${host}`.length));
-  const mode = facts.environment === 'production' ? pc.bold(pc.red(facts.environment)) : pc.cyan(facts.environment);
-  const right = `${mode}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
-  return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, DIVIDER];
+  const padding = ' '.repeat(Math.max(1, headerWidth - `${left}${version}${facts.environment}${state}${host}`.length));
+  const right = `${environmentName(facts.environment)}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
+  return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, divider];
 }

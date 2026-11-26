@@ -2,8 +2,8 @@ import { promises as dnsPromises } from 'node:dns';
 import { deriveInfra } from '../../naming';
 import { scwFetch } from '../../scaleway/scw-fetch';
 import { serviceEndpoints } from '../../services';
-import { check, runSetup } from '../check';
-import type { StatusProvider } from '../types';
+import { check, setupAction } from '../check';
+import type { ProbeSession, StatusProvider } from '../types';
 
 /** DNS resolution of the app's browser-facing host, and the addresses of the project's load balancers. */
 export interface DnsFacts {
@@ -15,7 +15,7 @@ export interface DnsFacts {
 }
 
 /** The load balancers' public addresses in the environment's zone, read with the session's key. */
-async function loadBalancerIps(session: Parameters<NonNullable<StatusProvider<DnsFacts>['gather']>>[0]): Promise<string[] | undefined> {
+async function loadBalancerIps(session: ProbeSession): Promise<string[] | undefined> {
   if (!session.scalewayKeyAvailable || !session.secretKey || !session.projectId) return undefined;
   try {
     const { zone } = deriveInfra(session.appConfig);
@@ -56,7 +56,7 @@ export const dnsProvider: StatusProvider<DnsFacts> = {
     const dns = check('dns.zone', 'DNS');
     const { host, resolvedIps, loadBalancerIps: lbIps } = facts;
     if (resolvedIps === undefined) return [dns.unknown(`did not resolve ${host}`)];
-    if (resolvedIps.length === 0) return [dns.warn(`${host} does not resolve (NXDOMAIN); certificate issuance and traffic need it`, runSetup)];
+    if (resolvedIps.length === 0) return [dns.warn(`${host} does not resolve (NXDOMAIN); certificate issuance and traffic need it`, setupAction)];
     // An address that is not the load balancer's sends the app's users elsewhere: a record left behind, or one someone changed.
     const elsewhere = lbIps?.length ? resolvedIps.filter((ip) => !lbIps.includes(ip)) : [];
     if (elsewhere.length > 0)

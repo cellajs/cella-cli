@@ -5,26 +5,26 @@ import { withBack } from './back';
 import { maskedSecret, maskSecret } from './masked-secret';
 
 /** An access key as Scaleway issues them: `SCW` and 17 capitals or digits. The example is the placeholder of the prompt. */
-export const ACCESS_KEY_EXAMPLE = 'SCWXXXXXXXXXXXXXXXXX';
+export const accessKeyExample = 'SCWXXXXXXXXXXXXXXXXX';
 /** The console page that makes a key of a user or of an application. */
-const API_KEYS_URL = 'https://console.scaleway.com/iam/api-keys';
-const ACCESS_KEY = /^SCW[A-Z0-9]{17}$/;
-const ACCESS_KEY_START = /^(S|SC|SCW[A-Z0-9]*)$/;
-const SECRET_KEY = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const apiKeysUrl = 'https://console.scaleway.com/iam/api-keys';
+const accessKeyPattern = /^SCW[A-Z0-9]{17}$/;
+const accessKeyStartPattern = /^(S|SC|SCW[A-Z0-9]*)$/;
+const secretKeyPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Why a value is no access key, or undefined when it has the form of one. */
 export function accessKeyFault(value: string): string | undefined {
   if (value.length === 0) return 'Paste the access key.';
-  if (!value.startsWith('SCW')) return `An access key starts with SCW, as ${ACCESS_KEY_EXAMPLE} does.`;
-  if (value.length !== ACCESS_KEY_EXAMPLE.length) return `An access key has ${ACCESS_KEY_EXAMPLE.length} characters, this one ${value.length}.`;
-  if (!ACCESS_KEY.test(value)) return 'An access key holds capitals and digits only.';
+  if (!value.startsWith('SCW')) return `An access key starts with SCW, as ${accessKeyExample} does.`;
+  if (value.length !== accessKeyExample.length) return `An access key has ${accessKeyExample.length} characters, this one ${value.length}.`;
+  if (!accessKeyPattern.test(value)) return 'An access key holds capitals and digits only.';
   return undefined;
 }
 
 /** Why a value is no secret key, or undefined when it has the form of one: a UUID. */
 export function secretKeyFault(value: string): string | undefined {
   if (value.length === 0) return 'Paste the secret key.';
-  if (!SECRET_KEY.test(value))
+  if (!secretKeyPattern.test(value))
     return `A secret key is a UUID of 36 characters (xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx), this value has ${value.length}.`;
   return undefined;
 }
@@ -32,7 +32,7 @@ export function secretKeyFault(value: string): string | undefined {
 /** What the prompt shows after the value while it is typed: how far a key is, or the check mark once it has the form of one. */
 export function accessKeyProgress(value: string): string {
   if (value.length === 0) return '';
-  return accessKeyFault(value) ? `${value.length} of ${ACCESS_KEY_EXAMPLE.length}` : '✓';
+  return accessKeyFault(value) ? `${value.length} of ${accessKeyExample.length}` : '✓';
 }
 
 interface AccessKeyConfig {
@@ -72,10 +72,12 @@ const accessKeyPrompt = createPrompt<string, AccessKeyConfig>((config, done) => 
   const message = theme.style.message(config.message, status);
   if (status === 'done') return `${prefix} ${message} ${theme.style.answer(value.trim())}`;
   const trimmed = value.trim();
-  const shown = value.length === 0 ? pc.dim(ACCESS_KEY_EXAMPLE) : ACCESS_KEY_START.test(trimmed) ? value : maskSecret(value);
+  const shown = value.length === 0 ? pc.dim(accessKeyExample) : accessKeyStartPattern.test(trimmed) ? value : maskSecret(value);
   const progress = accessKeyProgress(trimmed);
   const line = `${prefix} ${message} ${shown}${progress ? ` ${progress === '✓' ? pc.green(progress) : pc.dim(progress)}` : ''}`;
-  const hint = SECRET_KEY.test(trimmed) ? 'This has the form of the secret key: the access key, which starts with SCW, is asked first.' : errorMsg;
+  const hint = secretKeyPattern.test(trimmed)
+    ? 'This has the form of the secret key: the access key, which starts with SCW, is asked first.'
+    : errorMsg;
   return [line, hint ? theme.style.error(hint) : ''];
 });
 
@@ -91,7 +93,7 @@ export interface KeyPairPromptOptions {
  * its own form check. Esc at either half steps back from the key as one step.
  */
 export async function keyPairPrompt(opts: KeyPairPromptOptions): Promise<KeyPair> {
-  console.info(`\n  ${pc.dim(opts.howto)}\n  ${pc.dim('Console:')} ${pc.underline(API_KEYS_URL)}\n`);
+  console.info(`\n  ${pc.dim(opts.howto)}\n  ${pc.dim('Console:')} ${pc.underline(apiKeysUrl)}\n`);
   const accessKey = await withBack((context) => accessKeyPrompt({ message: opts.label }, context));
   const secretKey = (await maskedSecret({ message: `${opts.label}, secret`, validate: (value) => secretKeyFault(value.trim()) ?? true })).trim();
   return { accessKey, secretKey };

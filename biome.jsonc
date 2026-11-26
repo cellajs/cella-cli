@@ -45,7 +45,6 @@
         "noInferrableTypes": "error",
         "noUselessElse": "error",
         "useNodejsImportProtocol": "error",
-        "noProcessEnv": "warn",
         "noNonNullAssertion": "off"
       }
     }
@@ -53,7 +52,7 @@
   "formatter": {
     "enabled": true,
     "indentStyle": "space",
-    "lineWidth": 120,
+    "lineWidth": 150,
     "bracketSpacing": true
   },
   "javascript": {
@@ -68,19 +67,16 @@
   },
   "overrides": [
     {
-      // The deploy engine keeps the template's settings for it: 150 columns, and process env read where a task or the
-      // CLI starts. Its `${VAR}` strings are Compose placeholders, not template literals.
+      // The deploy engine's `${VAR}` strings are Compose placeholders, not template literals.
       "includes": ["src/infra/**"],
-      "formatter": { "lineWidth": 150 },
       "linter": {
         "rules": {
-          "style": { "noProcessEnv": "off" },
           "suspicious": { "noTemplateCurlyInString": "off" }
         }
       }
     },
     {
-      // The engine's tests stub partial SDK shapes, as the template's infra tests did
+      // The engine's tests stub partial SDK shapes
       "includes": ["src/infra/**/*.test.ts"],
       "linter": { "rules": { "suspicious": { "noExplicitAny": "off" } } }
     }

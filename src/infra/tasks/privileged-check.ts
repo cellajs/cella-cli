@@ -2,15 +2,15 @@ import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync, mkdtempSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { environments } from '../lib/stack/environment';
 import { owedWork, owedWorkLines, type PrivilegedFootprint } from '../lib/stack/privileged-footprint';
-import { environments, stackFilePath } from '../lib/stack/project-per-mode';
+import { stackFilePath } from '../lib/stack/project-per-mode';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 
-const RENDER_SCRIPT = 'privileged-footprint';
-const RENDER_FILE = join('tasks', 'privileged-footprint.ts');
+const renderScript = 'privileged-footprint';
+const renderFile = join('tasks', 'privileged-footprint.ts');
 
 /**
  * How a checkout's `infra/` renders its footprint: by its script, else by the file a base from before the script names.
@@ -18,8 +18,8 @@ const RENDER_FILE = join('tasks', 'privileged-footprint.ts');
  */
 function renderCommand(dir: string): string[] | undefined {
   const manifest: { scripts?: Record<string, string> } = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8'));
-  if (manifest.scripts?.[RENDER_SCRIPT]) return ['--silent', 'run', RENDER_SCRIPT];
-  if (existsSync(join(dir, RENDER_FILE))) return ['--silent', 'exec', 'tsx', RENDER_FILE];
+  if (manifest.scripts?.[renderScript]) return ['--silent', 'run', renderScript];
+  if (existsSync(join(dir, renderFile))) return ['--silent', 'exec', 'tsx', renderFile];
   return undefined;
 }
 
@@ -36,15 +36,15 @@ function render(dir: string, command: string[], mode: string, out: string): Priv
  * render fails it. `--base` is a checkout of the base commit with its workspace installed. Whether the release PR deploys without an apply
  * is release-applied-check.ts.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const baseRoot = getFlag(argv, '--base');
-  if (!baseRoot) throw new Error('Usage: privileged-check.ts --base <checkout of the base commit>');
+export async function main(words: string[]): Promise<void> {
+  const baseRoot = getFlag(words, '--base');
+  if (!baseRoot) throw new Error('Usage: privileged-check --base <checkout of the base commit>');
   const baseInfra = join(baseRoot, 'infra');
   const work = mkdtempSync(join(tmpdir(), 'privileged-check-'));
   const lines: string[] = ['### Privileged changes', ''];
   let owes = false;
   let uncompared = false;
-  const headCommand = ['--silent', 'run', RENDER_SCRIPT];
+  const headCommand = ['--silent', 'run', renderScript];
   const baseCommand = renderCommand(baseInfra);
   for (const mode of environments.filter((mode) => existsSync(stackFilePath(mode)))) {
     const head = render(infraDir, headCommand, mode, join(work, `head-${mode}.json`));
@@ -77,5 +77,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   process.stdout.write(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
 }
-
-runIfMain(import.meta.url, main);

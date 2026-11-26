@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MAIN_JOB_EXIT } from '../lib/deploy/main-job';
+import { mainJobExit } from '../lib/deploy/main-job';
 import { runtimeSecretsForConsumer, uploadsKeySecrets } from '../lib/runtime-secrets';
 import { servicesByName } from '../lib/services';
 import { ExitCodeError } from '../lib/utils/errors';
@@ -65,7 +65,7 @@ describe("a machine's env file", () => {
       }
     })();
     expect(error).toBeInstanceOf(ExitCodeError);
-    expect((error as ExitCodeError).exitCode).toBe(MAIN_JOB_EXIT.blocked);
+    expect((error as ExitCodeError).exitCode).toBe(mainJobExit.blocked);
     expect((error as Error).message).toContain('COOKIE_SECRET [cookie-secret]');
     expect((error as Error).message).toContain('CDC_SECRET [cdc-secret]');
   });

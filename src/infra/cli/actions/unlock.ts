@@ -5,8 +5,7 @@ import { deriveInfra } from '../../lib/naming';
 import { menuPath } from '../../lib/operator-actions';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
-import { forceUnlock, type LockInfo, lockKey, makeControlClient, peekLock, type S3Like, stateBucket } from '../../lib/stack/control-store';
+import { forceUnlock, type LockInfo, leaseLive, lockKey, makeControlClient, peekLock, type S3Like, stateBucket } from '../../lib/stack/control-store';
 import {
   checkpointKey,
   clearPendingCreates,
@@ -18,19 +17,11 @@ import {
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { infraDir } from '../../lib/utils/paths';
-import {
-  acquireStackLockOrExit,
-  confirmOrDefault,
-  endAction,
-  type InfraContext,
-  pulumiLoginAndSelect,
-  pulumiLoginUrl,
-  stackNameFor,
-} from '../shared';
+import { acquireStackLockOrEnd, confirmOrDefault, endAction, type InfraContext, openStack, stackNameFor } from '../shared';
 import { operatorKeys } from './operator-unlock';
 
 /** Gitignored folder for the state exports taken before a state edit: the rollback copies. */
-const STATE_BACKUP_DIR = resolve(infraDir, '.state-backups');
+const stateBackupDir = resolve(infraDir, '.state-backups');
 
 /**
  * What the lease is at `now`: `none` without one, `expired` once it lapsed (the run that held it is gone), `live` while the
@@ -38,7 +29,7 @@ const STATE_BACKUP_DIR = resolve(infraDir, '.state-backups');
  */
 export function lockVerdict(held: Pick<LockInfo, 'expiresAt'> | undefined, now: number): 'none' | 'expired' | 'live' {
   if (!held) return 'none';
-  return Date.parse(held.expiresAt) <= now ? 'expired' : 'live';
+  return leaseLive(held, now) ? 'live' : 'expired';
 }
 
 /**
@@ -136,13 +127,8 @@ async function reviewPendingOperations(context: InfraContext, opts: { s3: S3Like
   }
 
   // The operator key serves the state backend; nothing here calls a Scaleway API beyond the state bucket.
-  const env = buildProviderEnv(infraDir, {
-    ...opts.key,
-    projectId: context.projectId,
-    stateBackendUrl: pulumiLoginUrl(context.appConfig),
-  });
-  pulumiLoginAndSelect(infraDir, env, context.appConfig, opts.stack);
-  const lease = await acquireStackLockOrExit({ appConfig: context.appConfig, ...opts.key, stack: opts.stack, operation: 'clear-pending' });
+  const { env } = openStack(context, opts.key);
+  const lease = await acquireStackLockOrEnd({ appConfig: context.appConfig, ...opts.key, stack: opts.stack, operation: 'clear-pending' });
   const readPending = async () => {
     const after = await readPendingOperations(opts.s3, bucket, opts.stack);
     if (!after) throw new Error('the stack checkpoint is gone after the import');
@@ -180,8 +166,8 @@ function pendingClearEffects(env: NodeJS.ProcessEnv, stack: string, readPending:
       return result.stdout;
     },
     saveBackup(exported) {
-      mkdirSync(STATE_BACKUP_DIR, { recursive: true, mode: 0o700 });
-      const path = join(STATE_BACKUP_DIR, `${shortStack}-${stamp}.json`);
+      mkdirSync(stateBackupDir, { recursive: true, mode: 0o700 });
+      const path = join(stateBackupDir, `${shortStack}-${stamp}.json`);
       writeFileSync(path, exported, { mode: 0o600 });
       return path;
     },

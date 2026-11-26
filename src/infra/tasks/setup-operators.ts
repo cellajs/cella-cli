@@ -1,11 +1,11 @@
 import { sameRules } from '../lib/scaleway/declared-identities';
 import { resolveDnsProjectIds } from '../lib/scaleway/dns-zone-project';
-import { IAM_BASE, type IamAuth } from '../lib/scaleway/iam-client';
-import { DNS_PERMISSION_SETS, OPERATOR_ORG_PERMISSION_SETS, OPERATOR_PROJECT_PERMISSION_SETS } from '../lib/scaleway/permissions';
-import { type LivePolicy, type LiveRule, type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
+import { iamBase, type LiveRule } from '../lib/scaleway/iam-client';
+import { dnsPermissionSets, operatorOrgPermissionSets, operatorProjectPermissionSets } from '../lib/scaleway/permissions';
+import { type LivePolicy, type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { type AppPrincipalNames, appPrincipalNames } from '../lib/scaleway/principals';
 import { addApplicationToGroup, ensureApplication, ensureGroup, type PolicyRule } from '../lib/scaleway/scaleway-iam';
-import { scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
+import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 import { changeMark, checkMark, warningMark } from '../lib/utils/cli-output';
 
 export interface SetupOperatorsOptions {
@@ -35,7 +35,7 @@ export interface OperatorsResult {
 }
 
 /** The description the operators' policy carries, by which an old one is told from the declared one. */
-export const OPERATOR_POLICY_DESCRIPTION = "Operator policy: all products of the app's projects + IAM read, no condition (auto-generated)";
+export const operatorPolicyDescription = "Operator policy: all products of the app's projects + IAM read, no condition (auto-generated)";
 
 /** Where an operator key made under the old address condition is revoked, for every notice that a rewrite dropped it. */
 function durableKeyRevokeNotice(names: AppPrincipalNames): string {
@@ -49,9 +49,9 @@ function durableKeyRevokeNotice(names: AppPrincipalNames): string {
 export function operatorRules(opts: { projectIds: readonly string[]; organizationId: string; dnsProjectIds: readonly string[] }): PolicyRule[] {
   const zoneProjects = opts.dnsProjectIds.filter((id) => !opts.projectIds.includes(id));
   return [
-    { permission_set_names: OPERATOR_PROJECT_PERMISSION_SETS, project_ids: [...opts.projectIds] },
-    ...(zoneProjects.length > 0 ? [{ permission_set_names: DNS_PERMISSION_SETS, project_ids: zoneProjects }] : []),
-    { permission_set_names: OPERATOR_ORG_PERMISSION_SETS, organization_id: opts.organizationId },
+    { permission_set_names: operatorProjectPermissionSets, project_ids: [...opts.projectIds] },
+    ...(zoneProjects.length > 0 ? [{ permission_set_names: dnsPermissionSets, project_ids: zoneProjects }] : []),
+    { permission_set_names: operatorOrgPermissionSets, organization_id: opts.organizationId },
   ];
 }
 
@@ -60,15 +60,15 @@ export function operatorRules(opts: { projectIds: readonly string[]; organizatio
  * of that name bound to another principal is left alone and named: it is fixed in the console. Needs IAM write and read: an Owner key.
  */
 async function writeOperatorsPolicy(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   policy: { name: string; groupId: string; rules: PolicyRule[] },
   live: LivePolicy | undefined,
 ): Promise<{ change: PolicyChange; conditionDropped: boolean }> {
   if (!live) {
-    await scwFetch(auth, 'POST', `${IAM_BASE}/policies`, {
+    await scwFetch(auth, 'POST', `${iamBase}/policies`, {
       name: policy.name,
-      description: OPERATOR_POLICY_DESCRIPTION,
+      description: operatorPolicyDescription,
       organization_id: organizationId,
       group_id: policy.groupId,
       rules: policy.rules,
@@ -77,12 +77,11 @@ async function writeOperatorsPolicy(
   }
   if (live.group_id !== policy.groupId)
     throw new Error(`'${policy.name}' grants to another principal than group ${policy.groupId}: fix it in the console.`);
-  if (sameRules(live.rules, policy.rules) && live.description === OPERATOR_POLICY_DESCRIPTION)
-    return { change: 'unchanged', conditionDropped: false };
+  if (sameRules(live.rules, policy.rules) && live.description === operatorPolicyDescription) return { change: 'unchanged', conditionDropped: false };
   const conditionDropped = live.rules.some((rule) => Boolean(rule.condition));
-  if (!sameRules(live.rules, policy.rules)) await scwSend(auth, 'PUT', `${IAM_BASE}/rules`, { policy_id: live.id, rules: policy.rules });
-  if (live.description !== OPERATOR_POLICY_DESCRIPTION) {
-    await scwSend(auth, 'PATCH', `${IAM_BASE}/policies/${live.id}`, { description: OPERATOR_POLICY_DESCRIPTION });
+  if (!sameRules(live.rules, policy.rules)) await scwSend(auth, 'PUT', `${iamBase}/rules`, { policy_id: live.id, rules: policy.rules });
+  if (live.description !== operatorPolicyDescription) {
+    await scwSend(auth, 'PATCH', `${iamBase}/policies/${live.id}`, { description: operatorPolicyDescription });
   }
   return { change: 'updated', conditionDropped };
 }
@@ -137,7 +136,7 @@ export async function setupOperators(opts: SetupOperatorsOptions): Promise<Opera
 
   // Deleted last: by now the group's policy grants to the application, and a key of it keeps its rights in between.
   if (ownPolicy) {
-    await scwSend(auth, 'DELETE', `${IAM_BASE}/policies/${ownPolicy.id}`);
+    await scwSend(auth, 'DELETE', `${iamBase}/policies/${ownPolicy.id}`);
     log(`  ${changeMark} Deleted ${names.operator}-policy: ${policyName} grants to '${names.operator}' as a member`);
   } else if (named) {
     log(`  ${warningMark} '${names.operator}-policy' grants to another principal than '${names.operator}': fix it in the console.`);
@@ -149,5 +148,5 @@ export async function setupOperators(opts: SetupOperatorsOptions): Promise<Opera
 
 /** The projects the operators' policy gives every product in. */
 export function operatorPolicyReach(rules: readonly LiveRule[]): PolicyReach {
-  return policyReach(rules, OPERATOR_PROJECT_PERMISSION_SETS);
+  return policyReach(rules, operatorProjectPermissionSets);
 }

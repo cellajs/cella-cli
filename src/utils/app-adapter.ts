@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { importFromWorkspace } from './app';
 import { launchBrowser } from './browser';
 import { mintSession, type Session, signOut } from './drive';
-import { getEnv, setEnv } from './env';
 import { onShutdown } from './signals';
 
 /** Brings the signed-in user into the state the pages expect, before the first page. */
@@ -54,9 +53,7 @@ export const pathSchema = z.string().startsWith('/').or(z.string().startsWith('{
 export const signInShape = {
   prepare: fn<Prepare>().optional(),
   placeholders: z.record(z.string(), fn<Placeholders[string]>()).optional(),
-  suppress: z
-    .strictObject({ alerts: z.array(z.string()).optional(), hints: z.array(z.string()).optional() })
-    .optional(),
+  suppress: z.strictObject({ alerts: z.array(z.string()).optional(), hints: z.array(z.string()).optional() }).optional(),
 };
 
 /**
@@ -94,7 +91,7 @@ export async function signIn(
   { prepare, placeholders }: SignInSetup,
   { email, env }: { email?: string; env?: NodeJS.ProcessEnv },
 ): Promise<SignedInRun> {
-  const address = email ?? env?.ADMIN_EMAIL ?? getEnv('ADMIN_EMAIL');
+  const address = email ?? env?.ADMIN_EMAIL ?? process.env.ADMIN_EMAIL;
   if (!address) throw new Error('no user to sign in as: pass --email, or set ADMIN_EMAIL in .env');
   const user = mintSession(address, { repoRoot, env, hours: 4 });
   let browser: Browser | undefined;
@@ -135,7 +132,7 @@ interface TsxApi {
  */
 async function importAdapter(repoRoot: string, file: string): Promise<unknown> {
   // An adapter reads the app config, which takes the development ports and URLs in development mode only
-  setEnv('NODE_ENV', 'development');
+  process.env.NODE_ENV = 'development';
   const { tsImport } = await importFromWorkspace<TsxApi>(repoRoot, '.', 'tsx/esm/api');
   const module = await tsImport(pathToFileURL(join(repoRoot, file)).href, import.meta.url);
   return module.default;
@@ -164,9 +161,7 @@ export async function loadAdapter<Base, App>(
     throw new Error(`${baseFile} is missing: upgrade the app from cella to get the ${tool} adapter`);
   }
   const base = parsed(baseFile, baseSchema, await importAdapter(repoRoot, baseFile));
-  const app = existsSync(join(repoRoot, appFile))
-    ? parsed(appFile, appSchema, await importAdapter(repoRoot, appFile))
-    : undefined;
+  const app = existsSync(join(repoRoot, appFile)) ? parsed(appFile, appSchema, await importAdapter(repoRoot, appFile)) : undefined;
   return { base, app };
 }
 
@@ -175,19 +170,13 @@ export async function loadAdapter<Base, App>(
  * place or else comes last. A string is its own id, and no delta leaves the base as it is.
  * @throws when `remove` names an id the base lacks, so a renamed base entry is noticed
  */
-export function applyDelta<T extends { id: string } | string>(
-  base: T[],
-  delta: { remove?: string[]; add?: T[] } | undefined,
-  file: string,
-): T[] {
+export function applyDelta<T extends { id: string } | string>(base: T[], delta: { remove?: string[]; add?: T[] } | undefined, file: string): T[] {
   const { remove = [], add = [] } = delta ?? {};
   const idOf = (entry: T) => (typeof entry === 'string' ? entry : entry.id);
   const has = (list: T[], id: string) => list.some((entry) => idOf(entry) === id);
   const unknown = remove.filter((id) => !has(base, id));
   if (unknown.length > 0) throw new Error(`${file} removes ${unknown.join(', ')}, which the base does not have`);
-  const replaced = base
-    .filter((entry) => !remove.includes(idOf(entry)))
-    .map((entry) => add.find((added) => idOf(added) === idOf(entry)) ?? entry);
+  const replaced = base.filter((entry) => !remove.includes(idOf(entry))).map((entry) => add.find((added) => idOf(added) === idOf(entry)) ?? entry);
   return [...replaced, ...add.filter((added) => !has(base, idOf(added)))];
 }
 

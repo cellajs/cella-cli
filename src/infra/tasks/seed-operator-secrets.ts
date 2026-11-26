@@ -1,7 +1,7 @@
-import { operatorManagedRuntimeSecrets, type RuntimeSecretDefinition } from '../lib/runtime-secrets';
+import { operatorManagedRuntimeSecrets } from '../lib/runtime-secrets';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
-import { isEnvFileDeliverable } from '../lib/utils/env-file';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
+import { isEnvFileDeliverable } from '../lib/utils/compose-env-value';
 
 export interface SeedOperatorSecretsOptions {
   secretKey: string;
@@ -28,7 +28,7 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
   const log = options.log ?? defaultLog;
   const client = createSecretManagerClient({ secretKey: options.secretKey, region: options.region, projectId: options.projectId });
 
-  for (const secret of operatorManagedRuntimeSecrets as RuntimeSecretDefinition[]) {
+  for (const secret of operatorManagedRuntimeSecrets) {
     const value = options.values[secret.id];
     if (!value) continue;
     const verdict = isEnvFileDeliverable(value);
@@ -37,12 +37,12 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
       throw new Error(`${secret.secretName}: ${form}. The deploy checks presence only, and the form is checked here.`);
     }
 
-    const existing = await client.getSecretByName(secret.secretName, RUNTIME_FOLDER);
+    const existing = await client.getSecretByName(secret.secretName, runtimeFolder);
     if (existing?.version_count && existing.version_count > 0) {
       log(`skip ${secret.secretName}: already has ${existing.version_count} version(s)`);
       continue;
     }
-    const ensured = existing ?? (await client.ensureSecret({ name: secret.secretName, path: RUNTIME_FOLDER, description: secret.description }));
+    const ensured = existing ?? (await client.ensureSecret({ name: secret.secretName, path: runtimeFolder, description: secret.description }));
     await client.putSecretValue({ secretId: ensured.id, value, description: 'Seeded during setup', disablePrevious: false });
     log(`seed ${secret.secretName}`);
   }

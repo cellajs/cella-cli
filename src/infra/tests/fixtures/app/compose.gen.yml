@@ -1,6 +1,6 @@
-# DO NOT EDIT: generated from infra/compose/ by `pnpm --filter infra compose:generate`.
-# Edit services.config.ts (the service registry) and re-run synth.
-# Deploy machinery and rationale live in infrastructure.ts.
+# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.
+# Edit the service registry there and re-run the command.
+# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).
 
 services:
   backend:

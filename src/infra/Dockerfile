@@ -18,7 +18,7 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patche[s] patches/
 COPY shared/package.json shared/
 COPY infra/package.json infra/
-# Production dependencies alone, which is why `tsx` is one of infra's, and without the store and cache pnpm filled to install them:
+# Production dependencies alone, and without the store and cache pnpm filled to install them:
 # no run installs, and pnpm's check before a script ignores both the `--prod` choice and the store.
 RUN pnpm install --frozen-lockfile --prod --filter 'infra...' --filter 'shared...' \
  && rm -rf "$(pnpm store path)" /root/.cache

@@ -1,14 +1,12 @@
 import { randomBytes } from 'node:crypto';
-import { databaseRuntimeSecrets, generatedRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
-import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { engineMadeRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
+import type { PutSecretValueInput, SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 
-/** The Secret Manager calls the task needs, so a test passes its own. */
-export interface EnsureSecretsClient {
-  getSecretByName(name: string, path: string): Promise<SecretManagerSecret | undefined>;
-  accessLatestValue(secretId: string): Promise<string>;
-  putSecretValue(input: { secretId: string; value: string; description?: string; disablePrevious?: boolean }): Promise<unknown>;
-}
+/** The Secret Manager calls the task needs. An app's test fake of the write answers what it likes: the task reads nothing of the answer. */
+export type EnsureSecretsClient = Pick<SecretManagerClient, 'getSecretByName' | 'accessLatestValue'> & {
+  putSecretValue(input: PutSecretValueInput): Promise<unknown>;
+};
 
 /** A fresh generated value: 32 URL-safe characters from 192 random bits. */
 export function generateSecretValue(): string {
@@ -44,7 +42,7 @@ export async function ensureSecrets(opts: {
   const resolveValue = async (definition: RuntimeSecretDefinition): Promise<string | undefined> => {
     const known = values.get(definition.id);
     if (known !== undefined) return known;
-    const container = await opts.client.getSecretByName(definition.secretName, RUNTIME_FOLDER);
+    const container = await opts.client.getSecretByName(definition.secretName, runtimeFolder);
     if (opts.rotate && definition.database) return undefined;
     const rotating = Boolean(opts.rotate) && isRotatable(definition);
     const existing = !rotating && container && (container.version_count ?? 0) > 0 ? container : undefined;
@@ -79,6 +77,6 @@ export async function ensureSecrets(opts: {
     return value;
   };
 
-  for (const definition of [...generatedRuntimeSecrets(all), ...databaseRuntimeSecrets(all)]) await resolveValue(definition);
+  for (const definition of engineMadeRuntimeSecrets(all)) await resolveValue(definition);
   return written;
 }

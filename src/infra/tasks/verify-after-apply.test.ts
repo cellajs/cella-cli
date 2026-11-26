@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { EngineConfig } from '../lib/engine-config';
-import { expectedDbPrivileges, POSTGRES_ROLE_NAMES } from '../lib/scaleway/db-privileges';
+import { expectedDbPrivileges, postgresRoleNames } from '../lib/scaleway/db-privileges';
 import type { FetchLike } from '../lib/utils/fetch-like';
 import { verifyAfterApply } from './verify-after-apply';
 
@@ -26,8 +26,8 @@ const privileges = (rows: Array<[string, string, string]>) =>
 describe('expectedDbPrivileges', () => {
   it('declares both roles on the app database', () => {
     expect(expectedDbPrivileges('cella').map((p) => `${p.user}@${p.database}`)).toEqual([
-      `${POSTGRES_ROLE_NAMES.admin}@cella`,
-      `${POSTGRES_ROLE_NAMES.runtime}@cella`,
+      `${postgresRoleNames.admin}@cella`,
+      `${postgresRoleNames.runtime}@cella`,
     ]);
   });
 });

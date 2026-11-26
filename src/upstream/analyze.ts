@@ -1,24 +1,10 @@
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import {
-  createSpinner,
-  type NextStep,
-  plural,
-  printNextSteps,
-  printStep,
-  warningMark,
-  writeStdout,
-} from '../utils/display';
+import { createSpinner, type NextStep, plural, printNextSteps, printStep, warningMark, writeStdout } from '../utils/display';
 import { gitHubRepo, readRemoteUrl } from '../utils/git';
 import { alignmentsStep } from './align';
 import { printAnalysisFileGroups } from './analyze-report';
-import {
-  caseCollisionText,
-  changedFromUpstream,
-  classifiedResult,
-  classifyUpgradeRun,
-  enrichChangeInfo,
-} from './classify';
+import { caseCollisionText, changedFromUpstream, classifiedResult, classifyUpgradeRun, enrichChangeInfo } from './classify';
 import { assertAheadOfUpgradePoint, assertCliVersion } from './gates';
 import { configFile } from './managed-files';
 import type { MergeResult } from './model';
@@ -54,11 +40,7 @@ function filterByScope(result: MergeResult, scope: AnalyzeScope): MergeResult['f
   if (scope === 'risk') return result.files.filter((f) => statuses.has(f.status));
   const overridesChanged = result.upstreamOverrides?.type === 'changes';
   return result.files.filter(
-    (f) =>
-      statuses.has(f.status) ||
-      f.upstreamChanged === true ||
-      f.upstreamOnly === true ||
-      (overridesChanged && f.path === configFile),
+    (f) => statuses.has(f.status) || f.upstreamChanged === true || f.upstreamOnly === true || (overridesChanged && f.path === configFile),
   );
 }
 
@@ -174,17 +156,10 @@ function upgradeStep(result: MergeResult): NextStep | undefined {
   if (!result.upstreamCommitCount) return undefined;
   const changed = changedFromUpstream(result.files);
   const merges = changed.filter((file) => file.resolution === 'merge').length;
-  const changes = [
-    changed.length > merges ? `${changed.length - merges} update` : '',
-    merges > 0 ? `${merges} merge` : '',
-  ].filter(Boolean);
+  const changes = [changed.length > merges ? `${changed.length - merges} update` : '', merges > 0 ? `${merges} merge` : ''].filter(Boolean);
   return {
     label: 'upgrade',
     line: 'pnpm cella upgrade',
-    details: [
-      pc.dim(
-        `merges on a fresh branch and stops for review · ${changes.length > 0 ? changes.join(', ') : 'no file changes'}`,
-      ),
-    ],
+    details: [pc.dim(`merges on a fresh branch and stops for review · ${changes.length > 0 ? changes.join(', ') : 'no file changes'}`)],
   };
 }

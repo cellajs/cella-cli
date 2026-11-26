@@ -4,9 +4,9 @@
  */
 
 export { deriveInfra, redirectedApexOrigin } from './lib/naming';
-export { actionLabel, isOperatorActionId, MENU_ROWS, type MenuRowId, menuRow, OPERATOR_ACTIONS, type OperatorActionId } from './lib/operator-actions';
+export { actionLabel, isOperatorActionId, type MenuRowId, menuRow, menuRows, type OperatorActionId, operatorActions } from './lib/operator-actions';
 export { type RuntimeSecretDefinition, runtimeSecretConsumers, runtimeSecrets, runtimeSecretsForConsumer } from './lib/runtime-secrets';
 export type { SecretManagerSecret } from './lib/scaleway/scaleway-secret-manager';
 export { engineAssetsDir } from './lib/utils/paths';
 export { type EnsureSecretsClient, ensureSecrets, generateSecretValue } from './tasks/ensure-secrets';
-export { SECURITY_HEADERS } from './tasks/smoke';
+export { securityHeaders } from './tasks/smoke';

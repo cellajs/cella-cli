@@ -2,13 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../lib/health-components';
 import { healthContract } from '../lib/health-contract';
-import { getFlag } from '../lib/utils/args';
+import { createFetchGet, type HttpGet, isHealthy } from '../lib/health-probes';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { pollUntil } from '../lib/utils/retry';
-import { parseServiceRows } from '../lib/utils/service-rows';
 import { sleep as defaultSleep } from '../lib/utils/sleep';
-import { isHealthy } from './wait-for-version';
 
 /** Extract the hashed entry script src (e.g. /assets/index-abc123.js) from HTML. */
 function extractEntryAsset(html: string): string | undefined {
@@ -17,7 +14,7 @@ function extractEntryAsset(html: string): string | undefined {
 }
 
 /** Response headers the frontend Caddy layer must inject, compared case-insensitively. A missing one means the Caddyfile regressed or the request bypassed Caddy. */
-export const SECURITY_HEADERS = [
+export const securityHeaders = [
   'Content-Security-Policy',
   'Strict-Transport-Security',
   'X-Frame-Options',
@@ -37,47 +34,15 @@ function isHtmlDocument(body: string): boolean {
   return /<html/i.test(body);
 }
 
-/** Header names from SECURITY_HEADERS that are absent from the response. */
+/** Header names from `securityHeaders` that are absent from the response. */
 export function missingSecurityHeaders(headers: Headers): string[] {
-  return SECURITY_HEADERS.filter((h) => headers.get(h) === null);
+  return securityHeaders.filter((h) => headers.get(h) === null);
 }
 
-export interface HttpResponse {
-  status: number;
-  ok: boolean;
-  headers: Headers;
-  body: string;
-}
-
-/** Performs a single HTTP GET; `redirect: 'manual'` answers a redirect as the response it is. Injectable so the smoke checks can be unit-tested. */
-export type HttpGet = (url: string, init?: { redirect: 'manual' }) => Promise<HttpResponse>;
-
-/** One enabled service as deploy-env's enabled_services_json lists it. */
+/** One enabled service as deploy-env's enabled_services lists it. */
 export interface SmokeService {
   service: string;
   health_url: string;
-}
-
-/**
- * Default GET using global fetch with no-cache headers and a timeout.
- * ws(s):// URLs are probed over plain HTTP on the same host, because a WebSocket worker's /health speaks HTTP and fetch rejects the ws scheme.
- */
-export function createFetchGet(timeoutMs: number): HttpGet {
-  return async (rawUrl, init) => {
-    const url = rawUrl.replace(/^ws(s?):/, 'http$1:');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        redirect: init?.redirect ?? 'follow',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-      });
-      return { status: res.status, ok: res.ok, headers: res.headers, body: await res.text() };
-    } finally {
-      clearTimeout(timer);
-    }
-  };
 }
 
 export interface SmokeOptions {
@@ -101,9 +66,9 @@ export interface SmokeOptions {
   log?: (msg: string) => void;
   /** Sleep between component-health retries. Injectable so tests run instantly. */
   sleep?: (ms: number) => Promise<void>;
-  /** Number of times to poll /health?depth=full before failing (default {@link COMPONENTS_RETRY_ATTEMPTS}). */
+  /** Number of times to poll /health?depth=full before failing (default {@link defaultComponentsRetryAttempts}). */
   componentsRetryAttempts?: number;
-  /** Delay between component-health polls in ms (default {@link COMPONENTS_RETRY_DELAY_MS}). */
+  /** Delay between component-health polls in ms (default {@link defaultComponentsRetryDelayMs}). */
   componentsRetryDelayMs?: number;
 }
 
@@ -111,8 +76,8 @@ export interface SmokeOptions {
  * Component-health retry budget. The old cdc worker frees its replication slot only when its machine is deleted (and PostgreSQL notices, up to a minute
  * later), and the fresh worker's WebSocket reconnect backs off up to 30s, so a non-healthy `cdc` can persist for ~2 minutes after a switch. The 120s budget outlasts that.
  */
-export const COMPONENTS_RETRY_ATTEMPTS = 15;
-export const COMPONENTS_RETRY_DELAY_MS = 8_000;
+export const defaultComponentsRetryAttempts = 15;
+export const defaultComponentsRetryDelayMs = 8_000;
 
 /** `warn` is a line in the run's log and keeps the run deployed; only `fail` fails the deploy. */
 export type SmokeStatus = 'ok' | 'warn' | 'fail';
@@ -132,8 +97,8 @@ const verdict = (ok: boolean, detail: string): Verdict => ({ status: ok ? 'ok' :
 export async function runSmoke(opts: SmokeOptions): Promise<SmokeResult[]> {
   const { defaultRouteUrl, primaryUrl, expectedSha, get } = opts;
   const sleep = opts.sleep ?? defaultSleep;
-  const componentsRetryAttempts = opts.componentsRetryAttempts ?? COMPONENTS_RETRY_ATTEMPTS;
-  const componentsRetryDelayMs = opts.componentsRetryDelayMs ?? COMPONENTS_RETRY_DELAY_MS;
+  const componentsRetryAttempts = opts.componentsRetryAttempts ?? defaultComponentsRetryAttempts;
+  const componentsRetryDelayMs = opts.componentsRetryDelayMs ?? defaultComponentsRetryDelayMs;
   const results: SmokeResult[] = [];
 
   // The wrapper owns the try/catch and result collection, so no check can short-circuit the rest.
@@ -248,56 +213,32 @@ export async function runSmoke(opts: SmokeOptions): Promise<SmokeResult[]> {
   return results;
 }
 
-interface CliArgs {
-  defaultRouteUrl?: string;
-  apexUrl?: string;
-  primaryUrl: string;
+/** What the deploy hands its smoke step. */
+export interface SmokeStep {
   sha: string;
-  services?: SmokeService[];
+  services: Array<SmokeService & { public_url: string; lb_route: string }>;
+  /** The service that owns the aggregate health and OpenAPI checks; without one the first non-default-route service with a health URL stands in. */
+  primary?: string;
   /** Path to the freshly built local index.html for deriving the expected bundle hash. */
   dist?: string;
-  timeoutMs: number;
+  /** The zone apex the load balancer redirects to the app host. */
+  apex?: string;
 }
 
-export function parseServicesJson(raw: string): Array<SmokeService & { public_url?: string; lb_route?: string }> {
-  return parseServiceRows(raw, '--services-json', { required: ['service', 'health_url'], optional: ['public_url', 'lb_route'] });
-}
-
-/** Parse `--key value` flags. Exported for testing. */
-export function parseArgs(argv: string[]): CliArgs {
-  const servicesRaw = getFlag(argv, '--services-json');
-  const services = servicesRaw ? parseServicesJson(servicesRaw) : undefined;
-  // Roles, not names: the default-route service owns the browser checks, the --primary service owns the aggregate health and OpenAPI checks.
-  // Without --primary, the first non-default-route service with a health URL stands in.
-  const defaultRouteRow = services?.find((service) => service.lb_route === 'default');
-  const primarySlug = getFlag(argv, '--primary');
-  const primaryRow = primarySlug
-    ? services?.find((service) => service.service === primarySlug)
-    : services?.find((service) => service.health_url && service.lb_route !== 'default');
-  const defaultRouteUrl = getFlag(argv, '--frontend') ?? defaultRouteRow?.public_url;
-  const apexUrl = getFlag(argv, '--apex');
-  const primaryUrl = getFlag(argv, '--backend') ?? primaryRow?.public_url;
-  const sha = getFlag(argv, '--sha');
-  if (!primaryUrl || !sha) {
-    throw new Error(
-      'Usage: smoke.ts [--frontend <url>] [--apex <url>] --backend <url> | --primary <slug> --sha <git-sha> [--services-json <json>] [--timeout ms]',
-    );
-  }
-  const timeoutRaw = getFlag(argv, '--timeout');
-  return {
-    ...(defaultRouteUrl ? { defaultRouteUrl } : {}),
-    ...(apexUrl ? { apexUrl } : {}),
-    primaryUrl,
-    sha,
-    services,
-    dist: getFlag(argv, '--dist'),
-    timeoutMs: timeoutRaw === undefined ? 10000 : Number(timeoutRaw),
-  };
+/** The URLs the checks probe, by role and not by name: the default-route service owns the browser checks, the primary one the rest. */
+export function smokeTargets({ services, primary }: Pick<SmokeStep, 'services' | 'primary'>): { defaultRouteUrl?: string; primaryUrl: string } {
+  const defaultRouteUrl = services.find((service) => service.lb_route === 'default')?.public_url;
+  const primaryRow = primary
+    ? services.find((service) => service.service === primary)
+    : services.find((service) => service.health_url && service.lb_route !== 'default');
+  const primaryUrl = primaryRow?.public_url;
+  if (!primaryUrl) throw new Error(`smoke: no public URL for the primary service${primary ? ` '${primary}'` : ''}`);
+  return { ...(defaultRouteUrl ? { defaultRouteUrl } : {}), primaryUrl };
 }
 
 /**
  * Resolve the expected hashed entry asset from the freshly built local bundle.
- * A provided-but-unreadable --dist is a hard failure, so a wrong path or cwd cannot degrade the bundle check into a no-op.
+ * A provided-but-unreadable `dist` is a hard failure: a wrong path or cwd must not turn the bundle check into a no-op.
  */
 export function resolveExpectedAsset(dist: string | undefined): string | undefined {
   if (!dist) return undefined;
@@ -306,7 +247,7 @@ export function resolveExpectedAsset(dist: string | undefined): string | undefin
     html = readFileSync(dist, 'utf-8');
   } catch (err) {
     throw new Error(
-      `Could not read ${dist}: ${errorMessage(err)}. The local bundle is required to verify the served bundle; check the --dist path and the working directory.`,
+      `Could not read ${dist}: ${errorMessage(err)}. The local bundle is required to verify the served bundle; check the path and the working directory.`,
     );
   }
   const expectedAsset = extractEntryAsset(html);
@@ -320,18 +261,18 @@ export function resolveWorkerScriptPath(dist: string | undefined): string | unde
   return dist && existsSync(join(dirname(dist), 'sw.js')) ? '/sw.js' : undefined;
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const args = parseArgs(argv);
-  const expectedAsset = resolveExpectedAsset(args.dist);
+export async function main(step: SmokeStep): Promise<void> {
+  const { defaultRouteUrl, primaryUrl } = smokeTargets(step);
+  const expectedAsset = resolveExpectedAsset(step.dist);
   const results = await runSmoke({
-    defaultRouteUrl: args.defaultRouteUrl,
-    apexUrl: args.apexUrl,
-    workerScriptPath: resolveWorkerScriptPath(args.dist),
-    primaryUrl: args.primaryUrl,
-    expectedSha: args.sha,
-    services: args.services,
+    defaultRouteUrl,
+    apexUrl: step.apex || undefined,
+    workerScriptPath: resolveWorkerScriptPath(step.dist),
+    primaryUrl,
+    expectedSha: step.sha,
+    services: step.services,
     expectedAsset,
-    get: createFetchGet(args.timeoutMs),
+    get: createFetchGet(10_000),
   });
 
   for (const r of results) {
@@ -347,5 +288,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const failed = results.filter((r) => r.status === 'fail');
   if (failed.length > 0) throw new Error(`${failed.length} smoke check(s) failed`);
 }
-
-runIfMain(import.meta.url, main);

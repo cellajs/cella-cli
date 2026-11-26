@@ -3,13 +3,13 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rm
 import { constants } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseEnv } from 'node:util';
 import { z } from 'zod';
 import type { Command } from '../command';
 import { loadAppConfig, loadLocalDatabases, toolDir } from '../utils/app';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
-import { getEnvSnapshot } from '../utils/env';
 import { onShutdown } from '../utils/signals';
 
 /** Above the checkout's own ports, clear of `pnpm dev` and of a second stack at offset 50 or 60. */
@@ -27,10 +27,7 @@ const appConfigSchema = z.object({
   frontendUrl: z.string(),
   backendUrl: z.string(),
   devPortOffset: z.number(),
-  services: z.record(
-    z.string(),
-    z.object({ enabled: z.boolean(), port: z.number(), internalPort: z.number().optional() }),
-  ),
+  services: z.record(z.string(), z.object({ enabled: z.boolean(), port: z.number(), internalPort: z.number().optional() })),
 });
 
 /**
@@ -102,10 +99,7 @@ const shiftPort = (url: string) => {
 };
 
 async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed', blankEnv: string[] = []): Promise<Testbed> {
-  const [facts, databases] = await Promise.all([
-    loadAppConfig(repoRoot, appConfigSchema),
-    loadLocalDatabases(repoRoot),
-  ]);
+  const [facts, databases] = await Promise.all([loadAppConfig(repoRoot, appConfigSchema), loadLocalDatabases(repoRoot)]);
   const databasePort = databases.port(database);
   if (!Number.isInteger(databasePort)) {
     throw new Error('shared/src/local-database.ts names no testbed database: upgrade the app from cella first');
@@ -124,7 +118,7 @@ async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed', blan
     env: {
       // The seed creates the admin that the env file names, and a command signs in as that user
       ...(fileEnv.ADMIN_EMAIL ? { ADMIN_EMAIL: fileEnv.ADMIN_EMAIL } : {}),
-      ...getEnvSnapshot(),
+      ...process.env,
       ...(data === 'showcase' ? { ADMIN_EMAIL: showcaseAdmin(repoRoot) } : {}),
       ...composeEnv,
       // An empty string wins over the value in .env
@@ -187,8 +181,6 @@ const reachable = (url: string) =>
     () => false,
   );
 
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
-
 function compose(testbed: Testbed, args: string[], stdio: 'inherit' | 'ignore' = 'ignore'): boolean {
   const composeArgs = ['compose', '-f', 'backend/compose.yaml', '--profile', database, ...args];
   return spawnSync('docker', composeArgs, { cwd: testbed.repoRoot, env: testbed.env, stdio }).status === 0;
@@ -207,11 +199,9 @@ function removeDatabase(testbed: Testbed): void {
 }
 
 function isSeeded(testbed: Testbed): boolean {
-  const users = spawnSync(
-    'docker',
-    ['exec', testbed.container, 'psql', '-U', 'postgres', '-tAc', 'select count(*) from users'],
-    { encoding: 'utf8' },
-  );
+  const users = spawnSync('docker', ['exec', testbed.container, 'psql', '-U', 'postgres', '-tAc', 'select count(*) from users'], {
+    encoding: 'utf8',
+  });
   return users.status === 0 && Number(users.stdout.trim()) > 0;
 }
 
@@ -260,9 +250,7 @@ interface Started {
 /** Starts the database and the servers, and resolves once both answer; `drop` removes the database on stop. */
 async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Promise<Started> {
   if (await reachable(testbed.frontendUrl)) {
-    throw new Error(
-      `something already answers at ${testbed.frontendUrl}: \`pnpm testbed stop\` ends a testbed left behind`,
-    );
+    throw new Error(`something already answers at ${testbed.frontendUrl}: \`pnpm testbed stop\` ends a testbed left behind`);
   }
   mkdirSync(testbed.stateDir, { recursive: true });
   // The log holds what the servers print, a session or a key among it
@@ -314,9 +302,7 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
 
     // A new volume gets the schema and the seed data; a kept one gets the migrations added since
     const seeded = isSeeded(testbed);
-    spinner.text = seeded
-      ? 'migrating the database'
-      : `migrating the database and seeding ${describeData(testbed.data)}`;
+    spinner.text = seeded ? 'migrating the database' : `migrating the database and seeding ${describeData(testbed.data)}`;
     const seed = testbed.data === 'showcase' ? ['seed', 'showcase'] : ['seed'];
     const prepare = seeded ? ['--filter', 'backend', 'migrate'] : seed;
     const prepared = spawnSync('pnpm', prepare, {
@@ -326,10 +312,7 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
     });
     if (prepared.status !== 0) throw new Error(`\`pnpm ${prepare.join(' ')}\` failed:\n${logTail(testbed)}`);
     writeFileSync(dataPath(testbed), JSON.stringify({ data: testbed.data }), { mode: 0o600 });
-    printStep(
-      'database',
-      `${seeded ? 'migrated' : `seeded with ${describeData(testbed.data)}`}, port ${testbed.databasePort}`,
-    );
+    printStep('database', `${seeded ? 'migrated' : `seeded with ${describeData(testbed.data)}`}, port ${testbed.databasePort}`);
 
     // `pnpm offline` starts no Yjs relay; with one the editors show their usual sync status
     const relay = testbed.yjs ? 'pnpm --filter yjs-worker dev & ' : '';
@@ -392,10 +375,7 @@ async function stopTestbed(testbed: Testbed): Promise<number> {
   for (const group of groups) killGroup(group, 'SIGTERM');
   compose(testbed, ['stop', databaseService]);
   rmSync(lockPath(testbed), { force: true });
-  printStep(
-    'stopped',
-    lock || groups.size > 0 ? (lock?.frontendUrl ?? testbed.frontendUrl) : pc.dim('no testbed was running'),
-  );
+  printStep('stopped', lock || groups.size > 0 ? (lock?.frontendUrl ?? testbed.frontendUrl) : pc.dim('no testbed was running'));
   return 0;
 }
 
@@ -422,9 +402,7 @@ export async function withTestbed<T>(
   const testbed = await resolveTestbed(repoRoot, data, blankEnv);
   const lock = ownLock(testbed);
   if (lock && destructive) {
-    throw new Error(
-      `a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm testbed stop\`)`,
-    );
+    throw new Error(`a testbed runs at ${lock.frontendUrl}: this command needs one of its own, so stop that one first (\`pnpm testbed stop\`)`);
   }
   if (lock && lock.data !== data) {
     throw new Error(
@@ -488,10 +466,7 @@ export const testbedCommand: Command<TestbedOptions, TestbedOptions['job']> = {
     ['--fresh', 'start from an empty database: migrate and seed it again', 'start'],
     ['--showcase', 'hold the showcase seed, which the screenshots shoot, for a review loop', 'start'],
   ],
-  passthrough: [
-    'command',
-    "after `--`: run it against the testbed (this checkout's running one, else one started for it and stopped after)",
-  ],
+  passthrough: ['command', "after `--`: run it against the testbed (this checkout's running one, else one started for it and stopped after)"],
   parse: ({ job, opts, passthrough }) => {
     if (job === 'stop' && passthrough.length > 0) throw new Error('stop takes no command');
     return { job, fresh: opts.fresh === true, showcase: opts.showcase === true, command: passthrough };

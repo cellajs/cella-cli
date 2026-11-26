@@ -41,9 +41,7 @@ it('refuses an arriving symlink beside a folder that differs from it in case', a
   exec(`git update-index --add --cacheinfo 100644,${blob('x\n')},own/Link/target.txt`, env.upstreamPath);
   exec('git commit -q -m "feat: own"', env.upstreamPath);
 
-  await expect(runUpgradeCommand(buildRuntimeConfig(env, { ignored: ['own'] }))).rejects.toThrow(
-    /differ only in letter case/,
-  );
+  await expect(runUpgradeCommand(buildRuntimeConfig(env, { ignored: ['own'] }))).rejects.toThrow(/differ only in letter case/);
   expect(fs.existsSync(victim)).toBe(true);
 });
 

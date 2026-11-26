@@ -8,27 +8,16 @@ import {
   runtimeSecrets,
 } from '../../lib/runtime-secrets';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { controlActor, makeControlClient, readRotations, recordRotation } from '../../lib/stack/control-store';
 import { checkMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { infraDir } from '../../lib/utils/paths';
 import { ensureDatabaseForStack } from '../../tasks/ensure-database';
 import { ensureSecrets } from '../../tasks/ensure-secrets';
-import { shortDate } from '../../tasks/manage-runtime-secrets';
 import { rememberedOperatorKey } from '../session';
-import {
-  acquireStackLockOrExit,
-  confirmOrDefault,
-  endsAction,
-  type InfraContext,
-  pointTo,
-  pulumiLoginAndSelect,
-  pulumiLoginUrl,
-  stackNameFor,
-} from '../shared';
+import { acquireStackLockOrEnd, confirmOrDefault, endsAction, type InfraContext, openStack, pointTo, stackNameFor } from '../shared';
+import { shortDate } from './manage-runtime-secrets';
 import { acquireAdmittedOperatorKey } from './operator-apply';
 import { redeployAfterRotation } from './start-deploy';
 
@@ -100,17 +89,10 @@ export async function runRotateSecrets(context: InfraContext): Promise<boolean> 
   if (!(await confirmOrDefault({ message: `Rotate the secrets of ${context.environment}?`, default: false }))) return false;
 
   const operator = await acquireAdmittedOperatorKey(context);
-  const stack = stackNameFor(context);
-  const env = buildProviderEnv(infraDir, {
-    ...operator,
-    projectId,
-    stateBackendUrl: pulumiLoginUrl(appConfig),
-    organizationId: operator.organizationId,
-  });
-  pulumiLoginAndSelect(infraDir, env, appConfig, stack);
+  const { stack, env } = openStack(context, operator);
 
   const state = stateKeyOf(operator, projectId);
-  const lock = await acquireStackLockOrExit({ appConfig, ...state, stack, operation: 'rotate-secrets' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...state, stack, operation: 'rotate-secrets' });
   try {
     const log = (message: string) => console.info(pc.dim(message));
     await ensureDatabaseForStack({
@@ -135,7 +117,7 @@ export async function runRotateSecrets(context: InfraContext): Promise<boolean> 
   }
   await redeployAfterRotation(context, operator).catch((error) => {
     if (endsAction(error)) throw error;
-    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
   });
   return true;
 }

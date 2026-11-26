@@ -1,7 +1,7 @@
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
 import { sameRules } from '../lib/scaleway/declared-identities';
-import { IAM_BASE, type IamAuth, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
-import { scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
+import { findPolicy, iamBase, policyRules, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
+import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 
 /** What one declared policy needs: nothing, a policy made, its rules replaced, or its application made first. */
 export interface DeclaredPolicyStep {
@@ -9,44 +9,17 @@ export interface DeclaredPolicyStep {
   change: 'none' | 'create' | 'update' | 'missing-application';
 }
 
-interface LivePolicy {
-  id: string;
-  name: string;
-  application_id?: string;
-}
-
-interface LiveRule {
-  permission_set_names?: string[];
-  project_ids?: string[];
-  organization_id?: string | null;
-  condition?: string | null;
-}
-
-async function livePolicy(auth: IamAuth, organizationId: string, name: string): Promise<LivePolicy | undefined> {
-  const { policies = [] } = await scwFetch<{ policies?: LivePolicy[] }>(
-    auth,
-    'GET',
-    `${IAM_BASE}/policies?organization_id=${organizationId}&policy_name=${encodeURIComponent(name)}&page_size=20`,
-  );
-  return policies.find((policy) => policy.name === name);
-}
-
-async function liveRules(auth: IamAuth, policyId: string): Promise<LiveRule[]> {
-  const { rules = [] } = await scwFetch<{ rules?: LiveRule[] }>(auth, 'GET', `${IAM_BASE}/rules?policy_id=${policyId}&page_size=100`);
-  return rules;
-}
-
 /** What writing the declared policies would change, read with any key that holds IAM read. Nothing is written. */
-export async function planDeclaredPolicies(auth: IamAuth, organizationId: string, wanted: readonly DeclaredPolicy[]): Promise<DeclaredPolicyStep[]> {
+export async function planDeclaredPolicies(auth: ScwAuth, organizationId: string, wanted: readonly DeclaredPolicy[]): Promise<DeclaredPolicyStep[]> {
   const steps: DeclaredPolicyStep[] = [];
   for (const policy of wanted) {
     if (!(await resolveApplicationIdByName(auth, organizationId, policy.applicationName))) {
       steps.push({ policy: policy.name, change: 'missing-application' });
       continue;
     }
-    const live = await livePolicy(auth, organizationId, policy.name);
+    const live = await findPolicy(auth, organizationId, policy.name);
     if (!live) steps.push({ policy: policy.name, change: 'create' });
-    else steps.push({ policy: policy.name, change: sameRules(await liveRules(auth, live.id), policy.rules) ? 'none' : 'update' });
+    else steps.push({ policy: policy.name, change: sameRules(await policyRules(auth, live.id), policy.rules) ? 'none' : 'update' });
   }
   return steps;
 }
@@ -56,7 +29,7 @@ export async function planDeclaredPolicies(auth: IamAuth, organizationId: string
  * between. Needs IAM write: an Owner API key. Every application must exist already (the registry principals are ensured first).
  */
 export async function writeDeclaredPolicies(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   wanted: readonly DeclaredPolicy[],
   log: (message: string) => void = console.info,
@@ -65,9 +38,9 @@ export async function writeDeclaredPolicies(
   for (const policy of wanted) {
     const applicationId = await resolveApplicationIdByName(auth, organizationId, policy.applicationName);
     if (!applicationId) throw new Error(`IAM application '${policy.applicationName}' does not exist, so '${policy.name}' cannot be written.`);
-    const live = await livePolicy(auth, organizationId, policy.name);
+    const live = await findPolicy(auth, organizationId, policy.name);
     if (!live) {
-      await scwFetch(auth, 'POST', `${IAM_BASE}/policies`, {
+      await scwFetch(auth, 'POST', `${iamBase}/policies`, {
         name: policy.name,
         description: policy.description,
         organization_id: organizationId,
@@ -82,11 +55,11 @@ export async function writeDeclaredPolicies(
     if (live.application_id && live.application_id !== applicationId) {
       throw new Error(`'${policy.name}' grants to another application than '${policy.applicationName}': fix it in the console.`);
     }
-    if (sameRules(await liveRules(auth, live.id), policy.rules)) {
+    if (sameRules(await policyRules(auth, live.id), policy.rules)) {
       steps.push({ policy: policy.name, change: 'none' });
       continue;
     }
-    await scwSend(auth, 'PUT', `${IAM_BASE}/rules`, { policy_id: live.id, rules: policy.rules });
+    await scwSend(auth, 'PUT', `${iamBase}/rules`, { policy_id: live.id, rules: policy.rules });
     log(`  updated the rules of ${policy.name}`);
     steps.push({ policy: policy.name, change: 'update' });
   }

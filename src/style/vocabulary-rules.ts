@@ -9,13 +9,11 @@ const logicRoots = ['backend/src/', 'shared/src/', 'frontend/src/'];
  * The app-side marker the cella-upgrade skill puts on intentional app edits: `// fork: <why>`, the css/md forms and a
  * ` * fork: <why>` line inside a JSDoc block. YAML has a `# fork: <why>` line, which elsewhere could be a private field.
  */
-const markerComment =
-  /\/\/[ \t]*fork:[^\n]*|\/\*[ \t]*fork:[\s\S]*?\*\/|<!--[ \t]*fork:[\s\S]*?-->|^[ \t]*\*[ \t]*fork:[^\n]*/gim;
+const markerComment = /\/\/[ \t]*fork:[^\n]*|\/\*[ \t]*fork:[\s\S]*?\*\/|<!--[ \t]*fork:[\s\S]*?-->|^[ \t]*\*[ \t]*fork:[^\n]*/gim;
 /** The YAML marker: a comment starts a line or follows whitespace, and a `#` inside a value is text. */
 const yamlMarkerComment = /(^|[ \t])#[ \t]*fork:[^\n]*/gim;
 const sourceControlAdvice = 'use template/app terminology';
-const productNameAdvice =
-  'derive it from appConfig or use a neutral name; the product name is not an identifier or wire string';
+const productNameAdvice = 'derive it from appConfig or use a neutral name; the product name is not an identifier or wire string';
 
 /** The CLI's source-control term in a file's path and text, outside the fork markers. */
 export const sourceControlTermRule: Rule = {
