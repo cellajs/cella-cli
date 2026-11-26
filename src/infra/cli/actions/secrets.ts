@@ -97,7 +97,9 @@ export function applyFirst(log: (message: string) => void, secret: RuntimeSecret
 function checkValue(input: string): true | string {
   const verdict = isEnvFileDeliverable(input.trim());
   if (verdict.ok) return true;
-  return verdict.reason === 'empty' ? 'Value is required' : 'One line only: base64-encode a multi-line value and decode it in the service';
+  if (verdict.reason === 'empty') return 'Value is required';
+  if (verdict.reason === 'quote') return "No single quote ('): the env file quotes each value with it. Choose a value without one";
+  return 'One line only: base64-encode a multi-line value and decode it in the service';
 }
 
 async function write(ctx: MenuContext, secret: RuntimeSecretDefinition, container: SecretManagerSecret, value: string): Promise<void> {

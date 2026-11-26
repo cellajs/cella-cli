@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { printable } from '../../../utils/terminal-text';
 import { commitRefs, listRemoteRefs } from '../../lib/deploy/git-remote';
 import { findJobDefinition, listJobRuns, runEnded, startJobRun } from '../../lib/deploy/job-runs';
 import { readLiveRecord } from '../../lib/deploy/live-record';
@@ -114,9 +115,10 @@ export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Pr
  * its retry counter. The running machines hold keys or values the rotation replaced, and a scheduled run deploys only when the target
  * moves; a deploy of the live commit, a release that deployed before, puts them on the rotated ones whatever becomes of the target. The
  * live run is followed to its end, as the target's run would wait on the lease behind it, and when it does not deploy the target is left
- * for the action that clears the block or `deploy`. A target that ran before is left as a scheduled run leaves it: a rotation
- * keeps a rollback in place. Before the first deploy there is no live commit, and when the live record cannot be read there is none known:
- * the target alone is started.
+ * for the action that clears the block or `deploy`. Where the live commit is not the target, a person confirms each deploy: the deploy key
+ * writes the live record and the run records, which set only the defaults. A no to the live commit deploys the target in its place, and a
+ * target that ran before is declined by default, as a scheduled run leaves it: a rotation keeps a rollback in place. Before the first
+ * deploy there is no live commit, and when the live record cannot be read there is none known: the target alone is started.
  */
 export async function redeployAfterRotation(context: InfraContext, key: KeyPair): Promise<void> {
   const auth = { secretKey: key.secretKey };
@@ -131,13 +133,11 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
     return undefined;
   });
   const target = await environmentTarget(context);
-  if (!live && !target) {
-    console.warn(
-      `${warningMark} ${context.environment} has no line in ${ENVIRONMENTS_FILE}, so no deploy replaces its machines: they hold what the rotation replaced.`,
-    );
-    return;
-  }
-  if (live) {
+  if (
+    live &&
+    (target?.sha === live ||
+      (await confirmOrDefault({ message: `The live record names ${commitName(await commitRefs(), live)}: deploy it again?`, default: true })))
+  ) {
     const outcome = await deployAndFollow(
       context,
       key,
@@ -149,17 +149,25 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
       console.warn(`${warningMark} The machines keep what the rotation replaced until a deploy succeeds; the target is not started.`);
       return;
     }
-    if (!target || target.sha === live || (await targetHasRun(context, key, live, target))) return;
+    if (!target || target.sha === live) return;
+    const ran = await targetHasRun(context, key, live, target);
+    const targetName = commitName(await commitRefs(), target.sha);
+    if (!(await confirmOrDefault({ message: `Deploy ${targetName} to ${context.environment}?`, default: !ran }))) return;
   }
-  if (!target) return;
+  if (!target) {
+    console.warn(
+      `${warningMark} ${context.environment} has no line in ${ENVIRONMENTS_FILE}, so no deploy replaces its machines: they hold what the rotation replaced.`,
+    );
+    return;
+  }
   await startJobRun(auth, { region, definitionId, values: { TARGET_SHA: target.sha, RETRY: String(target.retry) } });
   console.info(`${checkMark} Deploying ${commitName(await commitRefs(), target.sha)}.`);
 }
 
 /**
  * Whether the target has a run under its retry counter, which no scheduled run starts again (`decideScheduledRun`), said in one line: the
- * environment then stays on the live commit, as a rollback by hand left it. Runs that cannot be read count as one, so a rotation never
- * undoes a rollback it could not see.
+ * environment then stays on the live commit by default, as a rollback by hand left it. Runs that cannot be read count as one: a rotation
+ * never undoes a rollback it could not see.
  */
 async function targetHasRun(context: InfraContext, key: KeyPair, live: string, target: Target): Promise<boolean> {
   const state = stateKeyOf(key, context.projectId);
@@ -174,12 +182,12 @@ async function targetHasRun(context: InfraContext, key: KeyPair, live: string, t
   if (verdict.action === 'start') return false;
   if ('unread' in verdict) {
     console.warn(
-      `${warningMark} The runs of ${targetName} could not be read (${verdict.unread}): ${context.environment} stays on ${liveName}, and "${actionLabel('deploy')}" deploys ${targetName}.`,
+      `${warningMark} The runs of ${targetName} could not be read (${verdict.unread}): by default ${context.environment} stays on ${liveName}.`,
     );
     return true;
   }
   console.info(
-    `${checkMark} ${context.environment} stays on ${liveName}: ${targetName} has run ${verdict.record.run} (${verdict.record.outcome}); "${actionLabel('deploy')}" deploys it.`,
+    `${checkMark} ${targetName} has run ${printable(verdict.record.run)} (${printable(verdict.record.outcome)}): by default ${context.environment} stays on ${liveName}.`,
   );
   return true;
 }

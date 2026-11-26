@@ -41,6 +41,15 @@ describe("a machine's env file", () => {
     expect(new Set(namesIn(files[host ?? ''] ?? ''))).toEqual(registryNames([...servicesByName.keys()]));
   });
 
+  it('writes each value single-quoted for Compose to read literally, and blocks a value that would end the quote', () => {
+    const machines = machineEnvEntries(fakeConfig({ services: everyService }));
+    const values = valuesFor(machines);
+    values.set('cookie-secret', 'ab${X:?boom}cd #tail');
+    expect(Object.values(composeMachineEnvs(machines, values)).join('').split('\n')).toContain("COOKIE_SECRET='ab${X:?boom}cd #tail'");
+    values.set('cookie-secret', "ab' X='cd");
+    expect(() => composeMachineEnvs(machines, values)).toThrow(/single quote, which the env file cannot carry: COOKIE_SECRET \[cookie-secret\]/);
+  });
+
   it('ends the deploy blocked, naming every required value owed, before any machine is made', () => {
     const machines = machineEnvEntries(fakeConfig({ services: everyService }));
     const values = valuesFor(machines);

@@ -45,6 +45,7 @@ export interface S3Like {
   send(command: unknown): Promise<{
     Body?: { transformToString(): Promise<string> };
     ETag?: string;
+    LastModified?: Date;
     Versions?: ObjectVersion[];
     DeleteMarkers?: ObjectVersion[];
   }>;
@@ -59,12 +60,19 @@ export interface ConditionalWrite {
   ifNoneMatch?: string;
 }
 
-/** GET an object's text body + etag; `{}` when the object does not exist. */
-export async function readObjectText(s3: S3Like, bucket: string, key: string): Promise<{ body?: string; etag?: string }> {
+/** What one GET of an object returns. `modified` is the time Object Storage stored it, on the storage clock. */
+export interface ObjectText {
+  body?: string;
+  etag?: string;
+  modified?: Date;
+}
+
+/** GET an object's text body, etag and stored time; `{}` when the object does not exist. */
+export async function readObjectText(s3: S3Like, bucket: string, key: string): Promise<ObjectText> {
   const { GetObjectCommand } = await s3sdk();
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    return { body: res.Body ? await res.Body.transformToString() : '', etag: res.ETag };
+    return { body: res.Body ? await res.Body.transformToString() : '', etag: res.ETag, modified: res.LastModified };
   } catch (err) {
     if (isNotFound(err)) return {};
     throw err;
@@ -81,6 +89,28 @@ export async function readObjectEtag(s3: S3Like, bucket: string, key: string): P
     if (isNotFound(err)) return null;
     throw err;
   }
+}
+
+/** HEAD an object for the time Object Storage stored it; null when the object does not exist or the answer names no time. */
+export async function readObjectModified(s3: S3Like, bucket: string, key: string): Promise<Date | null> {
+  const { HeadObjectCommand } = await s3sdk();
+  try {
+    const res = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return res.LastModified ?? null;
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Whether a lost deploy key may have stored an object: it was stored at or before the last key rotation, or the bucket named no time for
+ * it. Never before the first key rotation. A rotation time that does not parse counts every object as stored before it.
+ */
+export function storedBeforeKeyRotation(modified: Date | undefined, keysRotatedAt: Date | string | undefined): boolean {
+  if (keysRotatedAt === undefined) return false;
+  const rotatedAt = typeof keysRotatedAt === 'string' ? Date.parse(keysRotatedAt) : keysRotatedAt.getTime();
+  return !(modified && modified.getTime() > rotatedAt);
 }
 
 /** PUT a JSON object body with optional conditional-write headers. */

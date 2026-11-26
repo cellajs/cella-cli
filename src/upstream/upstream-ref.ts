@@ -1,6 +1,7 @@
 import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
-import { spinnerText } from '../utils/display';
+import pc from '../utils/colors';
+import { printStep, spinnerText, warningMark } from '../utils/display';
 import { ensureRemote, fetchRemote, git, revParse } from '../utils/git';
 
 /** The upstream ref a run merges from, and its release tag when it is a release. */
@@ -36,10 +37,10 @@ export async function resolveUpstreamRef(config: RuntimeConfig): Promise<Upstrea
   if (config.ref) return resolvePinnedRef(config, branchRef, config.ref);
   if (runTrack(config) === 'branch') return { ref: branchRef };
 
-  const latest = await resolveLatestReleaseTag(config.repoRoot, defaultUpstreamRemote);
+  const latest = await resolveLatestReleaseTag(config.repoRoot, defaultUpstreamRemote, branchRef);
   if (!latest) {
     throw new Error(
-      `no upstream release tags found on '${defaultUpstreamRemote}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
+      `no upstream release tags found on ${branchRef}. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
         `or check that ${config.upstreamUrl} publishes release tags.`,
     );
   }
@@ -87,21 +88,31 @@ export async function fetchUpstreamTags(cwd: string, remoteName: string): Promis
 const releaseTagPattern = /^v?\d[\w.+-]*$/;
 
 /**
- * Resolve the latest upstream release tag (the highest version tag) from the
- * remote-scoped tag namespace. Returns the short tag name and its full ref, or null
- * when no release exists.
+ * Resolve the latest upstream release: the highest version tag in the remote-scoped tag namespace whose commit the
+ * upstream branch (`branchRef`) contains. A higher tag off the branch is named in a warning and never picked. Returns
+ * the short tag name and its full ref, or null when the branch holds no release.
  */
-async function resolveLatestReleaseTag(cwd: string, remoteName: string): Promise<{ tag: string; ref: string } | null> {
+async function resolveLatestReleaseTag(
+  cwd: string,
+  remoteName: string,
+  branchRef: string,
+): Promise<{ tag: string; ref: string } | null> {
   const prefix = `refs/${remoteName}/tags/`;
-  const output = await git(['for-each-ref', '--sort=-version:refname', '--format=%(refname)', prefix], cwd);
-  if (!output) return null;
-  for (const line of output.split('\n')) {
-    const ref = line.trim();
-    if (!ref) continue;
-    const tag = ref.slice(prefix.length);
-    if (releaseTagPattern.test(tag)) return { tag, ref };
+  const highest = async (...filter: string[]) => {
+    const output = await git(
+      ['for-each-ref', '--sort=-version:refname', '--format=%(refname)', ...filter, prefix],
+      cwd,
+    );
+    return output
+      .split('\n')
+      .map((line) => line.trim().slice(prefix.length))
+      .find((tag) => releaseTagPattern.test(tag));
+  };
+  const [tag, anywhere] = await Promise.all([highest(`--merged=refs/remotes/${branchRef}`), highest()]);
+  if (anywhere && anywhere !== tag) {
+    printStep('release', pc.yellow(`skipped ${anywhere}: its commit is not on ${branchRef}`), warningMark);
   }
-  return null;
+  return tag ? { tag, ref: `${prefix}${tag}` } : null;
 }
 
 /**

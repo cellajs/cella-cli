@@ -2,10 +2,11 @@ import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { BOOT_ACCOUNTS_PREFIX } from '../lib/deploy/boot-accounts';
+import { liveRecordKey } from '../lib/deploy/live-record';
 import { ENV_PREFIX, RELEASES_PREFIX } from '../lib/deploy/release-archives';
 import { RUNS_PREFIX } from '../lib/deploy/run-record';
 import { appStorageNeeds, services } from '../lib/services';
-import { CONTROL_PREFIX, lockKey } from '../lib/stack/control-store';
+import { CONTROL_PREFIX, lockKey, rotationsKey } from '../lib/stack/control-store';
 import { deployMode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
 import { DUMPS_PREFIX } from '../tasks/final-dump';
 import {
@@ -47,12 +48,12 @@ const humanAccess = (bucketName: pulumi.Input<string>) =>
   });
 
 /**
- * The deploy key's access on a bucket policy: objects only, under the prefixes given, the whole bucket without one (the frontend's files).
+ * The deploy key's access on a bucket policy: objects only, under the prefixes and at the keys given, the whole bucket by default (the frontend's).
  * A bucket's configuration and its policy are the apply's, and no version is deleted, so on a versioned bucket a leaked deploy key can
  * delete objects but not their history. Policies are deny-by-default, so a bucket without this statement, the private uploads bucket, and
  * a prefix outside it, such as the boot-diag bucket's final dumps, are out of the deploy key's reach.
  */
-const deployAccess = (bucketName: pulumi.Input<string>, prefixes: readonly string[] = ['']) => ({
+const deployAccess = (bucketName: pulumi.Input<string>, prefixes: readonly string[] = [''], keys: readonly string[] = []) => ({
   Sid: 'DeployAccess',
   Effect: 'Allow',
   Principal: { SCW: pulumi.interpolate`application_id:${ciDeployApplicationId}` },
@@ -65,7 +66,11 @@ const deployAccess = (bucketName: pulumi.Input<string>, prefixes: readonly strin
     's3:DeleteObject',
     's3:AbortMultipartUpload',
   ],
-  Resource: [bucketName, ...prefixes.map((prefix) => pulumi.interpolate`${bucketName}/${prefix}*`)],
+  Resource: [
+    bucketName,
+    ...prefixes.map((prefix) => pulumi.interpolate`${bucketName}/${prefix}*`),
+    ...keys.map((key) => pulumi.interpolate`${bucketName}/${key}`),
+  ],
 });
 
 /** The uploads application's statement on the upload buckets: object-level only, as the backend signs uploads and presigned URLs with its key. */
@@ -314,10 +319,10 @@ new scaleway.object.BucketPolicy(
     region,
     policy: pulumi.jsonStringify({
       Version: '2023-04-17',
-      // Four statements of the ten Scaleway allows: machines and the builder write through links the deploy key signs, so no machine is named.
+      // Five statements of the ten Scaleway allows. No machine is named: machines and the builder write through links the deploy key signs.
       Statement: pulumi.all([humanAccess(bootDiagBucket.name), observerApplicationId]).apply(([admin, observerId]) => [
         // The observer reads what machines wrote about their boot, every version of a run record, which it reads by the first, and the
-        // control records (the live record, the lease, the rotations); never an env file, which holds a machine's secret values.
+        // control records (the live record, the lease, the rotations, the applied engine); never an env file, which holds a machine's secret values.
         ...(observerId
           ? [
               {
@@ -336,8 +341,21 @@ new scaleway.object.BucketPolicy(
               },
             ]
           : []),
-        // The release's archives, manifest and builder reports, the env files, the boot accounts, the run records and the control records.
-        deployAccess(bootDiagBucket.name, [RELEASES_PREFIX, ENV_PREFIX, BOOT_ACCOUNTS_PREFIX, RUNS_PREFIX, CONTROL_PREFIX]),
+        // The release's archives, manifest and builder reports, the env files, the boot accounts, the run records, the lease and the live
+        // record. A lost deploy key cannot rewrite the applied engine or the rotations, which only the operator key writes.
+        deployAccess(
+          bootDiagBucket.name,
+          [RELEASES_PREFIX, ENV_PREFIX, BOOT_ACCOUNTS_PREFIX, RUNS_PREFIX],
+          [lockKey(deployMode), liveRecordKey(deployMode)],
+        ),
+        // Every deploy reads the rotations, to replace each machine booted before the newest rotation.
+        {
+          Sid: 'DeployReadsRotations',
+          Effect: 'Allow',
+          Principal: { SCW: pulumi.interpolate`application_id:${ciDeployApplicationId}` },
+          Action: ['s3:GetObject'],
+          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${rotationsKey(deployMode)}`],
+        },
         // The deploy deletes a booted machine's env file with its version, which no other object of the bucket may lose.
         {
           Sid: 'DeployEnvRemoval',

@@ -12,6 +12,19 @@ import { checkWaitingRelease } from './releases';
 import { startBlockedTarget } from './start-deploy';
 
 /**
+ * End the action while the database has a public endpoint, before an apply or a setup's resume runs `pulumi up`. The committed stack config
+ * never records an open endpoint: its plan keeps the endpoint and deletes the ACL.
+ */
+export async function exitOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
+  const open = await openDbEndpoints(context, secretKey);
+  if (open.length === 0) return;
+  console.error(
+    `${crossMark} Public DB endpoint ${open.join(', ')} is open, and a pulumi up would remove its ACL. Close it with "${menuPath('db-close')}", then run it again.`,
+  );
+  endAction(1, { fix: 'db-close' });
+}
+
+/**
  * Publish the engine image of this checkout, plan, ask, then one `pulumi up` with the operator key in SCW_* env, for changes to privileged
  * resources (DB, VPC, private network, buckets, DNS, the main job and its engine) the read-only CI key cannot make.
  * The declared applications and their policies are IAM, written by `pnpm cella infra identities` with an Owner API key, never by this apply.
@@ -25,14 +38,7 @@ export async function runApply(context: InfraContext): Promise<void> {
   const operator = await acquireAdmittedOperatorKey(context);
   // Before anything runs Pulumi, the close of an open endpoint included.
   await dropKeptPassphrase(context, operator);
-  // The committed stack config never records an open endpoint, so its plan keeps the endpoint and deletes the ACL.
-  const open = await openDbEndpoints(context, operator.secretKey);
-  if (open.length > 0) {
-    console.error(
-      `${crossMark} Public DB endpoint ${open.join(', ')} is open, and an apply would remove its ACL. Close it with "${menuPath('db-close')}", then apply.`,
-    );
-    endAction(1, { fix: 'db-close' });
-  }
+  await exitOnOpenDbEndpoint(context, operator.secretKey);
   // A missing identity would break the plan itself: the program looks up every application it names.
   await exitOnIdentityChanges(context, operator);
   // A release waiting on an apply deploys only on the description of its own checkout: another one ends the action before the build.

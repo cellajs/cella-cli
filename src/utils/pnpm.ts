@@ -90,9 +90,10 @@ export async function readReleaseAgeMinutes(cwd: string): Promise<number> {
 
 /**
  * Publish time per version of a package, as its registry lists them, next to `created` and
- * `modified` keys; null when it does not answer.
+ * `modified` keys; null when it does not answer, or when `name` starts with `-` and would pass as an option.
  */
 export async function fetchPublishTimes(name: string, cwd: string): Promise<Record<string, string> | null> {
+  if (name.startsWith('-')) return null;
   const times = await runPnpmJson(['view', name, 'time', '--json'], cwd);
   // A failed lookup still prints JSON, as `{ "error": … }`.
   return times && typeof times === 'object' && !('error' in times) ? (times as Record<string, string>) : null;

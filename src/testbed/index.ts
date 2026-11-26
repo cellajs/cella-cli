@@ -1,5 +1,5 @@
 import { type ChildProcess, spawn, spawnSync } from 'node:child_process';
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { constants } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
@@ -101,7 +101,7 @@ const shiftPort = (url: string) => {
   return next.toString().replace(/\/$/, '');
 };
 
-async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed'): Promise<Testbed> {
+async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed', blankEnv: string[] = []): Promise<Testbed> {
   const [facts, databases] = await Promise.all([
     loadAppConfig(repoRoot, appConfigSchema),
     loadLocalDatabases(repoRoot),
@@ -127,6 +127,8 @@ async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed'): Pro
       ...getEnvSnapshot(),
       ...(data === 'showcase' ? { ADMIN_EMAIL: showcaseAdmin(repoRoot) } : {}),
       ...composeEnv,
+      // An empty string wins over the value in .env
+      ...Object.fromEntries(blankEnv.map((name) => [name, ''])),
       NODE_ENV: 'development',
       DATABASE_URL: databases.url(database, 'runtime_role'),
       DATABASE_ADMIN_URL: databases.url(database, 'postgres'),
@@ -263,6 +265,8 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
     );
   }
   mkdirSync(testbed.stateDir, { recursive: true });
+  // The log holds what the servers print, a session or a key among it
+  chmodSync(testbed.stateDir, 0o700);
   // Written before the database starts, so a second start during the seed finds it
   writeFileSync(
     lockPath(testbed),
@@ -272,8 +276,9 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
       frontendUrl: testbed.frontendUrl,
       data: testbed.data,
     } satisfies Lock),
+    { mode: 0o600 },
   );
-  const log = openSync(logPath(testbed), 'w');
+  const log = openSync(logPath(testbed), 'w', 0o600);
   let stack: ChildProcess | undefined;
   let stopped = false;
 
@@ -320,7 +325,7 @@ async function startTestbed(testbed: Testbed, fresh: boolean, drop = false): Pro
       stdio: ['ignore', log, log],
     });
     if (prepared.status !== 0) throw new Error(`\`pnpm ${prepare.join(' ')}\` failed:\n${logTail(testbed)}`);
-    writeFileSync(dataPath(testbed), JSON.stringify({ data: testbed.data }));
+    writeFileSync(dataPath(testbed), JSON.stringify({ data: testbed.data }), { mode: 0o600 });
     printStep(
       'database',
       `${seeded ? 'migrated' : `seeded with ${describeData(testbed.data)}`}, port ${testbed.databasePort}`,
@@ -406,15 +411,15 @@ function ownLock(testbed: Testbed): Lock | undefined {
 /**
  * Runs `use` against a testbed: the one this checkout holds, once it answers, else one started for it and stopped after,
  * ctrl-c included. A `destructive` command writes and deletes rows, so it gets a testbed of its own on a new database,
- * removed after the run.
+ * removed after the run. `blankEnv` names the env the servers get as an empty string.
  * @throws for a destructive command while any testbed runs
  */
 export async function withTestbed<T>(
   repoRoot: string,
   use: (testbed: TestbedHandle) => Promise<T>,
-  { fresh = false, destructive = false, data = 'seed' as TestbedData } = {},
+  { fresh = false, destructive = false, data = 'seed' as TestbedData, blankEnv = [] as string[] } = {},
 ): Promise<T> {
-  const testbed = await resolveTestbed(repoRoot, data);
+  const testbed = await resolveTestbed(repoRoot, data, blankEnv);
   const lock = ownLock(testbed);
   if (lock && destructive) {
     throw new Error(

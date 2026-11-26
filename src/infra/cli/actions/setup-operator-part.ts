@@ -9,7 +9,7 @@ import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
 import { inFirstProvisioning } from '../../lib/stack/bootstrap-stack-state';
-import { controlActor, makeControlClient, recordRotation } from '../../lib/stack/control-store';
+import { controlActor, lockKey, makeControlClient, readObjectModified, recordRotation } from '../../lib/stack/control-store';
 import { importPlan, keptResources } from '../../lib/stack/kept-resources';
 import { writeStackFileProjectId } from '../../lib/stack/project-per-mode';
 import { runPulumiUpWithHint } from '../../lib/stack/pulumi-up';
@@ -35,6 +35,7 @@ import {
   pulumiLoginUrl,
   stackNameFor,
 } from '../shared';
+import { exitOnOpenDbEndpoint } from './apply';
 import { exitWhenShutOutOfBuckets } from './operator-apply';
 import type { OperatorKey } from './operator-unlock';
 import { printLaunchChecklist } from './setup-checklist';
@@ -139,6 +140,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
       if (!(await confirmOrDefault({ message: 'Continue with pulumi up anyway?', default: false }))) endAction(1);
     }
   }
+  if (ctx.context.state !== 'fresh') await exitOnOpenDbEndpoint(ctx.context, ctx.secretKey);
 
   // Lock provisioning against concurrent operators and deploys; every exit path releases it, and abandoned locks expire or clear with "Unlock".
   const stackLock = await acquireStackLockOrExit({
@@ -357,7 +359,11 @@ export async function copyDeployKeyForMainJob(
   );
 }
 
-/** Record a rotation of keys beside the live record, under the lease, with the operator key. */
+/**
+ * Record a rotation of keys beside the live record, under the lease, with the operator key. It is stamped with the time Object Storage
+ * stored the lease, which is taken after the Owner moment deleted the old keys: what a lost key wrote is older, whatever this machine's clock says.
+ * @throws when the lease answers no stored time, as when an Unlock removed it: nothing is recorded
+ */
 export async function recordKeyRotation(context: InfraContext, operatorKey: OperatorKey): Promise<void> {
   const { appConfig, projectId } = context;
   const stack = stackNameFor(context);
@@ -365,7 +371,10 @@ export async function recordKeyRotation(context: InfraContext, operatorKey: Oper
   const lock = await acquireStackLockOrExit({ appConfig, ...state, stack, operation: 'rotate-keys' });
   try {
     const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
-    const rotations = await recordRotation({ s3, bucket: deriveInfra(appConfig).naming.bootDiagBucket, stack, kind: 'keys', by: controlActor() });
+    const bucket = deriveInfra(appConfig).naming.bootDiagBucket;
+    const now = await readObjectModified(s3, bucket, lockKey(stack));
+    if (!now) throw new Error(`the lease of ${stack} is gone and no rotation was recorded: run "${actionLabel('rotate-keys')}" again`);
+    const rotations = await recordRotation({ s3, bucket, stack, kind: 'keys', by: controlActor(), now });
     console.info(
       `${checkMark} Rotation ${rotations.counter} recorded: the deploy that follows replaces every machine, the backend's with the new uploads key.`,
     );

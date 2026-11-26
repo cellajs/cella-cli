@@ -1,12 +1,99 @@
-import { existsSync, rmSync } from 'node:fs';
-import { basename } from 'node:path';
+import { existsSync, readFileSync, rmSync } from 'node:fs';
+import { basename, join } from 'node:path';
 import process from 'node:process';
 import { pathToFileURL } from 'node:url';
+import semver from 'semver';
 import pc from '../utils/colors';
-import { createSpinner, hyperlink, type NextStep, plural, spinnerSuccess } from '../utils/display';
+import { createSpinner, hyperlink, type NextStep, plural, spinnerSuccess, warningMark } from '../utils/display';
+import { git } from '../utils/git';
+import { printable } from '../utils/terminal-text';
 import { type DiffPageSection, diffPagePath, gitDiffFile, openInBrowser, writeDiffPage } from './diff-page';
 import type { MergeResult } from './model';
 import { filesWithStatus, findMaskingPins, findProtectedBehindUpstream } from './report';
+
+/** Paths whose change decides what `pnpm install`, `pnpm check`, a git hook or CI runs. */
+const runConfigPath =
+  /^(\.github\/(workflows|actions)\/|(pnpm-workspace\.yaml|\.?lefthook(-local)?\.(ya?ml|json|toml)|\.pnpmfile\.[cm]?js|(.*\/)?\.npmrc)$)/;
+
+/** The package.json keys whose entries install a package. */
+const dependencyKeys = ['dependencies', 'devDependencies', 'optionalDependencies', 'peerDependencies'];
+
+/** A package.json as far as {@link packageRunEntries} reads it. */
+type PackageEntries = Record<string, Record<string, unknown> | undefined>;
+
+/** A changed file that decides what runs. */
+export interface RunChange {
+  path: string;
+  /** For a package.json that parses: what in it changed that decides what runs; empty for the whole file */
+  entries: string[];
+}
+
+/**
+ * Whether a dependency spec resolves from the registry or inside the merged tree: a semver range, an
+ * `npm:` alias of one, `workspace:` or `catalog:`. A tag, a URL, a path or a git spec is not.
+ */
+function registrySpec(spec: unknown): boolean {
+  if (typeof spec !== 'string') return false;
+  return /^(workspace|catalog):/.test(spec) || semver.validRange(spec.replace(/^npm:(@[^/]+\/)?[^@]+@/, '')) !== null;
+}
+
+/** The entries of one package.json change that decide what runs: scripts, the `pnpm` field, specs off the registry. */
+function packageRunEntries(before: PackageEntries, after: PackageEntries): string[] {
+  const entries = JSON.stringify(before.pnpm) === JSON.stringify(after.pnpm) ? [] : ['pnpm'];
+  for (const key of ['scripts', ...dependencyKeys]) {
+    const [was, now] = [before[key] ?? {}, after[key] ?? {}];
+    for (const name of new Set([...Object.keys(was), ...Object.keys(now)])) {
+      const spec = now[name];
+      if (spec === was[name]) continue;
+      if (key === 'scripts') entries.push(`scripts.${name}`);
+      else if (spec !== undefined && !registrySpec(spec)) entries.push(`${key}.${name} ${String(spec)}`);
+    }
+  }
+  return entries;
+}
+
+/**
+ * What the change from commit `from` to `to` (the working tree when absent) brings that decides what
+ * runs: the files {@link runConfigPath} matches, and each package.json whose scripts, `pnpm` field
+ * or dependency specs off the registry change. A package.json that does not parse is listed whole.
+ */
+export async function listRunChanges(repoRoot: string, from: string, to?: string): Promise<RunChange[]> {
+  const diff = await git(['diff', '-z', '--name-only', from, ...(to ? [to] : [])], repoRoot);
+  // A file the merge wrote and did not stage is in no diff against a commit
+  const untracked = to ? '' : await git(['ls-files', '-z', '--others', '--exclude-standard'], repoRoot);
+  const read = async (ref: string | undefined, path: string): Promise<PackageEntries | null> => {
+    const file = join(repoRoot, path);
+    let raw = '';
+    if (ref) raw = await git(['show', `${ref}:${path}`], repoRoot, { ignoreErrors: true });
+    else if (existsSync(file)) raw = readFileSync(file, 'utf8');
+    try {
+      return raw ? JSON.parse(raw) : {};
+    } catch {
+      return null;
+    }
+  };
+
+  const changes: RunChange[] = [];
+  for (const path of `${diff}\0${untracked}`.split('\0').filter(Boolean)) {
+    if (runConfigPath.test(path)) changes.push({ path, entries: [] });
+    if (!/(^|\/)package\.json$/.test(path)) continue;
+    const [before, after] = await Promise.all([read(from, path), read(to, path)]);
+    const entries = before && after ? packageRunEntries(before, after) : [];
+    if (!before || !after || entries.length > 0) changes.push({ path, entries });
+  }
+  return changes;
+}
+
+/** Print `changes` under a warning `header`, one `→ path entries` line each; nothing without changes. */
+export function printRunChanges(header: string, changes: RunChange[]): void {
+  if (changes.length === 0) return;
+  console.info();
+  console.info(`${warningMark} ${pc.yellow(header)}`);
+  for (const { path, entries } of changes) {
+    const detail = entries.length > 0 ? ` ${pc.dim(printable(entries.join(', ')))}` : '';
+    console.info(`    ${pc.dim('→')} ${printable(path)}${detail}`);
+  }
+}
 
 /**
  * What one page renders at most; the rest is listed by path. A rendered patch line costs about
@@ -45,13 +132,18 @@ interface ReviewSection {
 }
 
 /**
- * The review page's sections for a run, from the same lists the terminal prints. Upgrade shows the
+ * The review page's sections for a run, from the same lists the terminal prints. Upgrade shows
+ * `arrived`, the files the merge in the working tree changes that decide what runs, then the
  * upstream changes it did not bring in; analyze adds pinned files missing upstream lines and the
  * app's own changes to files that still merge. Analyze lists ignored files only upstream changed
  * under protected but behind upstream, as its terminal does. Empty sections are left out, and so is
  * every section when the engine could not resolve the upgrade range.
  */
-export function reviewSections(result: MergeResult, command: 'analyze' | 'upgrade'): ReviewSection[] {
+export function reviewSections(
+  result: MergeResult,
+  command: 'analyze' | 'upgrade',
+  arrived: string[] = [],
+): ReviewSection[] {
   const [base, upstream] = result.upstreamDiffRange?.split('..') ?? [];
   if (!base || !upstream) return [];
   const sinceUpgradePoint = `${base}..${upstream}`;
@@ -59,6 +151,12 @@ export function reviewSections(result: MergeResult, command: 'analyze' | 'upgrad
   const sections: ReviewSection[] =
     command === 'upgrade'
       ? [
+          {
+            title: 'arrived and decides what runs',
+            hint: 'What the merge changes in files that decide what an install, pnpm check, a git hook or CI runs. Nothing has run yet: read these before the rerun installs and checks.',
+            range: 'HEAD',
+            paths: arrived,
+          },
           {
             title: 'protected files kept the app version',
             hint: 'What upstream changed in these files since the last upgrade. The app kept its own version, so none of it arrived: adopt what you need.',
@@ -176,7 +274,7 @@ export interface ReviewPageReport extends ReviewPage {
 /**
  * After an analyze or upgrade report: write the review page, one browser page per run holding the
  * diff of every file the run asks you to review, under the same sections the terminal prints. Upgrade opens it in the browser when
- * stdout is a terminal, since the upstream changes it lists did not arrive. Undefined when there
+ * stdout is a terminal, since the run stops for this review. Undefined when there
  * is nothing to review; a failure is undefined too and never fails the run. An upgrade with nothing to
  * review removes the page an earlier upgrade left, so a rerun that resumes this merge never lists it.
  */
@@ -184,8 +282,9 @@ export async function reportReviewPage(
   repoRoot: string,
   result: MergeResult,
   command: 'analyze' | 'upgrade',
+  arrived?: string[],
 ): Promise<ReviewPageReport | undefined> {
-  const sections = reviewSections(result, command);
+  const sections = reviewSections(result, command, arrived);
   let page: ReviewPage | undefined;
   if (sections.length > 0 && result.upstreamDiffRange) {
     createSpinner('writing review page...');
@@ -230,11 +329,12 @@ export async function existingUpgradeReviewPage(repoRoot: string): Promise<strin
 export function reviewStep(page: ReviewPageReport | string): NextStep {
   const path = typeof page === 'string' ? page : page.path;
   const url = pathToFileURL(path).href;
-  let detail = pc.dim('upstream changes the upgrade did not bring in, from the merge run');
+  const upgradeShows = 'what arrived that decides what runs, and upstream changes that did not';
+  let detail = pc.dim(`from the merge run: ${upgradeShows}`);
   if (typeof page !== 'string') {
     const what =
       page.command === 'upgrade'
-        ? `${plural(page.diffs, 'diff')} of upstream changes that did not arrive`
+        ? `${plural(page.diffs, 'diff')}: ${upgradeShows}`
         : `${plural(page.diffs, 'diff')} in ${plural(page.sections, 'section')}`;
     const notes = [
       page.listed > 0 ? `${page.listed} listed without a diff` : '',

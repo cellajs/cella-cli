@@ -17,6 +17,7 @@ import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
 import { git, splitPrNumber } from '../utils/git';
 import { writeOwnedFile } from '../utils/repo-files';
+import { printable } from '../utils/terminal-text';
 
 /** Upstream folder holding one subfolder per alignment. Upstream-only: never merged into an app. */
 export const alignmentsDir = 'cella/alignments';
@@ -115,8 +116,8 @@ export function parseAlignment(id: string, source: string, fileNames: string[]):
 
   return {
     id,
-    title: title || id,
-    summary,
+    title: printable(title || id),
+    summary: printable(summary),
     breaking: meta.get('breaking') === 'true',
     clientCacheBump: meta.get('clientCacheBump') === 'true',
     caughtBy: caughtByValue,

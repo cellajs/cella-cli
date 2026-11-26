@@ -19,7 +19,7 @@ vi.mock('./setup-operator-part', () => ({
 
 const { runSetup } = await import('./setup');
 
-const context = { environment: 'staging', projectId: 'project-staging', hasCiKey: true } as InfraContext;
+const context = { environment: 'staging', projectId: 'project-staging', hasCiKey: true, appConfig: { slug: 'demo' } } as InfraContext;
 const operator = { accessKey: 'SCWOPERATOR', secretKey: 'operator-secret', organizationId: 'org-1' };
 const ciKey = { accessKey: 'SCWNEWDEPLOY', secretKey: 'new-deploy-secret', projectId: 'project-staging', organizationId: 'org-1' };
 
@@ -55,6 +55,20 @@ describe('runSetup', () => {
 
   it('records no rotation and starts no deploy when the copy failed: those deploys would run on the key the rotation deleted', async () => {
     copyDeployKeyForMainJob.mockResolvedValue(false);
+    await expect(runSetup(context, 'rotate-keys')).rejects.toThrow(/exit code 1/);
+    expect(recordKeyRotation).not.toHaveBeenCalled();
+  });
+
+  it('records no rotation when the Owner key could not list the older deploy keys: the lost key still works', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    runOwnerMoment.mockResolvedValue({ projectId: 'project-staging', ciKey: { ...ciKey, purgeSkipped: true } });
+    await expect(runSetup(context, 'rotate-keys')).rejects.toThrow(/exit code 1/);
+    expect(recordKeyRotation).not.toHaveBeenCalled();
+  });
+
+  it('records no rotation when the uploads key was not replaced: the lost deploy key read the old one', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    runOwnerMoment.mockResolvedValue({ projectId: 'project-staging', ciKey, uploadsKeyKept: true });
     await expect(runSetup(context, 'rotate-keys')).rejects.toThrow(/exit code 1/);
     expect(recordKeyRotation).not.toHaveBeenCalled();
   });

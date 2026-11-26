@@ -29,6 +29,7 @@ import { bucketPresigner } from '../lib/scaleway/presign';
 import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { scwErrorStatus, scwFetch } from '../lib/scaleway/scw-fetch';
+import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
 import { runIfMain } from '../lib/utils/is-main';
@@ -49,8 +50,8 @@ const BUILDER_LINK_SECONDS = 60 * 60;
 
 /** What building a release does outside this module, so a test passes its own. */
 export interface BuildEffects {
-  /** The release's manifest in the boot-diag bucket, or undefined when no build wrote one. */
-  manifest(): Promise<ReleaseManifest | undefined>;
+  /** The release's manifest in the boot-diag bucket with the time Object Storage stored it, or undefined when no build wrote one. */
+  manifest(): Promise<{ manifest: ReleaseManifest; modified?: Date } | undefined>;
   /** True when the bucket holds the archive at `key` as the manifest names it: a single PUT's ETag is its md5, and the size matches. */
   archiveMatches(key: string, digest: ArchiveDigest): Promise<boolean>;
   /** Links for every write of a builder: its reports, each archive by name, the frontend archive and the manifest. */
@@ -82,6 +83,8 @@ export interface BuildReleaseOptions {
   /** Where the release's entry files are written for the publish and the smoke test. */
   distDir?: string;
   cloudConfig(input: { links: BuilderLinks; repositoryKey?: string }): string;
+  /** The last key rotation: a manifest stored at or before it, or with no stored time, may be the lost deploy key's and counts as missing. */
+  keysRotatedAt?: Date;
   timeoutMs?: number;
   pollMs?: number;
   log?: (message: string) => void;
@@ -120,7 +123,12 @@ export async function buildRelease(
       log(`[build] the manifest of ${opts.sha.slice(0, 10)} cannot be read (${errorMessage(error)}): it counts as missing`);
       return undefined;
     });
-  let manifest = await readManifest();
+  const stored = await readManifest();
+  let manifest = stored?.manifest;
+  if (stored && storedBeforeKeyRotation(stored.modified, opts.keysRotatedAt)) {
+    log(`[build] the manifest of ${opts.sha.slice(0, 10)} was stored before the last key rotation: it counts as missing`);
+    manifest = undefined;
+  }
   const missing = await missingParts(opts, fx, manifest);
 
   let outcome: 'present' | 'built' = 'present';
@@ -146,7 +154,8 @@ export async function buildRelease(
     } finally {
       for (const name of await fx.removeBuilders()) log(`  ~ deleted ${name}`);
     }
-    manifest = await readManifest();
+    // This run wrote the manifest it reads here: no age rule, so a clock difference never fails the deploy.
+    manifest = (await readManifest())?.manifest;
     const still = await missingParts(opts, fx, manifest);
     if (still.length > 0) throw new Error(`the builder reported a build, and the bucket lacks ${still.join(', ')} of it`);
   } else {
@@ -256,11 +265,9 @@ function liveEffects(opts: {
 
   return {
     manifest: async () => {
-      const text = await getObject(releaseManifestKey(opts.sha)).then(
-        (object) => object.Body?.transformToString(),
-        () => undefined,
-      );
-      return text === undefined ? undefined : parseReleaseManifest(text, opts.sha);
+      const object = await getObject(releaseManifestKey(opts.sha)).catch(() => undefined);
+      const text = await object?.Body?.transformToString();
+      return text === undefined ? undefined : { manifest: parseReleaseManifest(text, opts.sha), modified: object?.LastModified };
     },
     archiveMatches: async (key, digest) => {
       const { HeadObjectCommand } = await import('@aws-sdk/client-s3');
@@ -342,6 +349,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const servicesJson = getFlag(argv, '--services-json');
   const manifestOut = getFlag(argv, '--manifest-out');
   const distDir = getFlag(argv, '--dist') || undefined;
+  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
   if (!accessKey || !secretKey || !sha || !mode || !projectId || !buildImagesJson || !servicesJson || !manifestOut) {
     throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY, --sha, --mode, --project-id, --build-images-json, --services-json, --manifest-out');
   }
@@ -370,6 +378,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
       archives: [...rows.map((row) => row.service), AGENT_IMAGE_NAME],
       withFrontend: Boolean(frontendBucket),
       distDir,
+      keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
       cloudConfig: ({ links, repositoryKey }) =>
         builderCloudConfig({
           values: {

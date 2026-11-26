@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseBootPlanJson as parsePlan } from './plan';
+import { parseBootPlanJson as parsePlan, supportedImageContract } from './plan';
 
 /** Where cloud-init writes the plan, and so the one /etc directory it may name. */
 const planPath = '/etc/cella/boot-plan.json';
@@ -15,7 +15,7 @@ function plan(overrides: Record<string, unknown> = {}): string {
     profile: 'backend',
     services: ['backend'],
     releaseSha: 'abc123',
-    imageContract: 'docker-node-boot-v1',
+    imageContract: supportedImageContract,
     links: { env: link, bootAccount: link, archives: [archive] },
     bootDiagnostics: { logFile: '/var/log/infra-boot.log' },
     docker: { composeFile: '/opt/app/compose.yml' },

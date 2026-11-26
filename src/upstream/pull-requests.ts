@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { select } from '@inquirer/prompts';
+import semver from 'semver';
 import { resolveTrunk, upgradeBranchPrefix } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
@@ -10,6 +11,7 @@ import {
   countCommitsBetween,
   deleteBranch,
   flattenBranch,
+  getMergeBase,
   getShortSha,
   git,
   gitHubRepo,
@@ -19,8 +21,10 @@ import {
   pushBranch,
   readRemoteUrl,
 } from '../utils/git';
+import { printable } from '../utils/terminal-text';
 import { alignmentUrl, listAlignmentIds, readAlignment, readPending } from './alignments';
 import { upgradeAlignmentsStep } from './report';
+import { listRunChanges, printRunChanges } from './review-page';
 import { resolveTrunkRef, returnToTrunk } from './upgrade-branch';
 import { readManifest, readManifestAtRef, readUpgradePointAtRef } from './upgrade-point';
 
@@ -171,20 +175,26 @@ export async function buildUpgradeCommitMessage(repoRoot: string, upstreamRef: s
   if (!shortSha) return upgradePrTitle;
 
   const manifest = await readManifest(repoRoot);
-  const version =
-    manifest?.upstream.release ?? (await readPackageVersionAtRef(repoRoot, upstreamRef).catch(() => null));
-  return version
-    ? `${upgradePrTitle} to v${version.replace(/^v/, '')} (${shortSha})`
-    : `${upgradePrTitle} to ${shortSha}`;
+  const version = semver.valid(
+    manifest?.upstream.release ?? (await readPackageVersionAtRef(repoRoot, upstreamRef).catch(() => null)),
+  );
+  return version ? `${upgradePrTitle} to v${version} (${shortSha})` : `${upgradePrTitle} to ${shortSha}`;
 }
 
 /**
- * Qualify bare `#123` references in an upstream commit subject with the upstream repo slug.
- * Left bare, GitHub would auto-link them to the app's own issue/PR #123 in the PR body.
+ * Qualify bare `#123` references in an upstream commit subject with the upstream repo slug. A
+ * reader of the app's PR would take a bare one for the app's own issue or PR.
  */
 function qualifyPrRefs(subject: string, repoSlug?: string): string {
   if (!repoSlug) return subject;
   return subject.replace(/(^|[^\w/])#(\d+)\b/g, `$1${repoSlug}#$2`);
+}
+
+/** `text` as one Markdown code span: mentions, closing keywords and HTML in an upstream subject stay text. */
+function codeSpan(text: string): string {
+  const longest = Math.max(0, ...(text.match(/`+/g) ?? []).map((run) => run.length));
+  const [fence, pad] = ['`'.repeat(longest + 1), longest > 0 ? ' ' : ''];
+  return `${fence}${pad}${text}${pad}${fence}`;
 }
 
 /** Inputs for {@link buildUpgradePrBody}, recovered from the committed upgrade manifests. */
@@ -214,7 +224,8 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
     githubUrl ? `[\`${short(sha)}\`](${githubUrl}/commit/${sha})` : `\`${short(sha)}\``;
 
   const upstreamName = githubUrl ? `[${repoSlug}](${githubUrl})` : 'cella';
-  const versionSuffix = version ? ` (v${version.replace(/^v/, '')})` : '';
+  const validVersion = semver.valid(version);
+  const versionSuffix = validVersion ? ` (v${validVersion})` : '';
   const lines = [`Upgrades ${upstreamName} to ${commitRef(toSha)}${versionSuffix}.`];
 
   if (totalCount > 0 && fromSha) {
@@ -226,7 +237,7 @@ export function buildUpgradePrBody(input: UpgradePrBodyInput): string {
     );
     if (totalCount > commits.length) lines.push(`- …${totalCount - commits.length} earlier commit(s) not shown`);
     for (const commit of commits) {
-      lines.push(`- ${commitRef(commit.hash)} ${qualifyPrRefs(commit.message, repoSlug)}`);
+      lines.push(`- ${commitRef(commit.hash)} ${codeSpan(qualifyPrRefs(commit.message, repoSlug))}`);
     }
   }
 
@@ -357,6 +368,11 @@ export async function shipUpgradeBranch(config: RuntimeConfig, branch: string): 
   const upstreamCommit = (await readManifest(repoRoot))?.upstream.commit;
   const prTitle = upstreamCommit ? await buildUpgradeCommitMessage(repoRoot, upstreamCommit) : upgradePrTitle;
 
+  const cutPoint = await getMergeBase(repoRoot, trunkRef, 'HEAD');
+  printRunChanges(
+    `'${branch}' changes what CI runs, with this repository's secrets:`,
+    await listRunChanges(repoRoot, cutPoint, 'HEAD'),
+  );
   console.info(pc.dim(`pushing '${branch}' to origin...`));
   try {
     await pushBranch(repoRoot, 'origin', branch, { forceWithLease: flattened });
@@ -461,7 +477,7 @@ export async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<
     `${warningMark} ${pc.yellow(`${many ? `${open.length} earlier upgrade PRs are` : 'an earlier upgrade PR is'} still open and unmerged:`)}`,
   );
   for (const pr of open) {
-    console.info(pc.dim(`  #${pr.number}  ${pr.title}  by ${pr.author.login}`));
+    console.info(pc.dim(`  #${pr.number}  ${printable(pr.title)}  by ${printable(pr.author.login)}`));
     console.info(pc.dim(`         ${pr.url}`));
   }
   console.info(

@@ -20,6 +20,7 @@ function fake(
     earlier?: string;
     mismatch?: string;
     unparsable?: boolean;
+    storedAt?: Date;
   } = {},
 ) {
   const ops: string[] = [];
@@ -29,7 +30,7 @@ function fake(
   const fx: BuildEffects = {
     manifest: async () => {
       if (opts.unparsable && !built) throw new SyntaxError('Unexpected token b in JSON at position 33');
-      return opts.present || built ? manifest : undefined;
+      return opts.present || built ? { manifest, modified: opts.storedAt } : undefined;
     },
     archiveMatches: async (key) => !(opts.mismatch && key.includes(opts.mismatch) && !built),
     links: async (archives) => {
@@ -107,6 +108,12 @@ describe('buildRelease', () => {
     const { fx, ops } = fake({ present: true, unparsable: true });
     expect((await buildRelease(options(), fx)).outcome).toBe('built');
     expect(ops).toContain('start:app-builder-cccccccccc@nl-ams-1');
+  });
+
+  it('builds a release again whose manifest was stored before the key rotation, and accepts the manifest its own build then wrote', async () => {
+    // The lost deploy key could have written a manifest naming its own archives; the storage clock runs behind the rotation's here.
+    const { fx } = fake({ present: true, storedAt: new Date('2026-11-01T10:00:00Z') });
+    expect((await buildRelease(options({ keysRotatedAt: new Date('2026-11-01T11:00:00Z') }), fx)).outcome).toBe('built');
   });
 
   it('builds a missing release on a builder it deletes afterwards, then uploads its frontend files from their archive', async () => {

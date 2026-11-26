@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { leakableDsn } from '../../tests/helpers/fake-secrets';
 import { boot, waitForPrivateNetwork } from './boot';
 import type { ExecFn, ExecResult } from './exec';
+import { supportedImageContract } from './plan';
 
 /** The machine's files: the plan cloud-init writes, plus whatever boot writes itself. */
 const files = vi.hoisted(() => new Map<string, string>());
@@ -42,7 +43,7 @@ function writePlan(overrides: Record<string, unknown> = {}): void {
       profile: 'backend',
       services: ['backend'],
       releaseSha: 'abc123',
-      imageContract: 'docker-node-boot-v1',
+      imageContract: supportedImageContract,
       links: {
         env: envLink,
         bootAccount: accountLink,

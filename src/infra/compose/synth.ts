@@ -27,7 +27,9 @@ function needsQuote(v: string): boolean {
   return false;
 }
 
+/** A scalar on one line, quoted where YAML would read it as another type. @throws on a control character, which a quoted line folds or ends. */
 function scalar(v: string, forceQuote = false): string {
+  if (/\p{Cc}/u.test(v)) throw new Error(`compose synth: refused ${JSON.stringify(v)}, which holds a control character`);
   if (forceQuote || needsQuote(v)) return `'${v.replace(/'/g, "''")}'`;
   return v;
 }

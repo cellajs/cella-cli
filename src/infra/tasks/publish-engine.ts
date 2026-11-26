@@ -161,6 +161,11 @@ export async function publishEngine(opts: {
     .replace(/\.\d+Z$/, 'Z')}`;
   const context = stageContext(root);
   const docker = pushConfig(`rg.${region}.scw.cloud`, opts.secretKey);
+  // Ctrl-C reaches the build too, whose exit then runs the finally; any other exit before it still deletes the key's folder.
+  const ignoreInterrupt = () => {};
+  const removeKey = () => rmSync(docker.dir, { recursive: true, force: true });
+  process.on('SIGINT', ignoreInterrupt);
+  process.once('exit', removeKey);
   try {
     log(`→ Building the engine image from ${commit.slice(0, 10)} for ${opts.appConfig.mode} and pushing it to ${repository}…`);
     const args = [
@@ -190,7 +195,9 @@ export async function publishEngine(opts: {
     if (!pushed?.digest) throw new Error(`the registry has no digest for ${ENGINE_IMAGE_NAME}:${tag} after the push`);
     return { image: engineImageRef(repository, pushed.digest), imageDigest: pushed.digest, descriptionHash, describes, commit, tagId: pushed.id };
   } finally {
-    rmSync(docker.dir, { recursive: true, force: true });
+    process.off('SIGINT', ignoreInterrupt);
+    process.off('exit', removeKey);
+    removeKey();
     rmSync(context, { recursive: true, force: true });
   }
 }

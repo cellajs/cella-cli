@@ -5,8 +5,10 @@ import {
   controlPrefix,
   isPreconditionFailed,
   putJsonObject,
+  type Rotations,
   readObjectText,
   type S3Like,
+  storedBeforeKeyRotation,
 } from '../stack/control-store';
 import { errorMessage } from '../utils/errors';
 import { isRecord } from '../utils/guards';
@@ -66,10 +68,37 @@ export function parseLiveRecord(text: string): LiveRecord {
   return record;
 }
 
-/** Read the live record; the empty one, with no etag, before the first deploy. */
-export async function readLiveRecord(s3: S3Like, bucket: string, stack: string): Promise<{ record: LiveRecord; etag?: string }> {
-  const { body, etag } = await readObjectText(s3, bucket, liveRecordKey(stack));
-  return { record: body ? parseLiveRecord(body) : emptyLiveRecord(), etag };
+/** Read the live record with its etag and stored time; the empty one, with neither, before the first deploy. */
+export async function readLiveRecord(s3: S3Like, bucket: string, stack: string): Promise<{ record: LiveRecord; etag?: string; modified?: Date }> {
+  const { body, etag, modified } = await readObjectText(s3, bucket, liveRecordKey(stack));
+  return { record: body ? parseLiveRecord(body) : emptyLiveRecord(), etag, modified };
+}
+
+/** The record with every role pending under the rotation counter: each role's rotation at most one below it. */
+function withEveryRolePending(record: LiveRecord, rotation: number): LiveRecord {
+  const roles = Object.entries(record.roles).map(([role, entry]) => [role, { ...entry, rotation: Math.min(entry.rotation, rotation - 1) }]);
+  return { ...record, roles: Object.fromEntries(roles) };
+}
+
+/**
+ * Read the live record for a deploy. One stored at or before the last key rotation, or with no stored time, may be the lost deploy key's:
+ * it is written back under the etag it was read with, every role pending. Each switch reads the stored record again: a run that fails after
+ * one switch then leaves the other roles pending for the next run.
+ */
+export async function readLiveRecordForDeploy(
+  s3: S3Like,
+  bucket: string,
+  stack: string,
+  rotations: Rotations,
+  log: (message: string) => void,
+): Promise<LiveRecord> {
+  const { record, etag, modified } = await readLiveRecord(s3, bucket, stack);
+  const keysAt = rotations.keys?.at;
+  if (!etag || !storedBeforeKeyRotation(modified, keysAt)) return record;
+  const pending = withEveryRolePending(record, rotations.counter);
+  await writeLiveRecord(s3, bucket, stack, pending, { ifMatch: etag });
+  log(`[deploy] the live record was stored before the key rotation of ${keysAt}: every role is replaced`);
+  return pending;
 }
 
 /** Delete the live record, as a teardown does with the machines it names. */

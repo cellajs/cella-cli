@@ -1,3 +1,4 @@
+import { printable } from '../../../../utils/terminal-text';
 import { type AppliedEngine, engineImageRef, engineImageRepository } from '../../deploy/applied-engine';
 import { commandOf, readJobDefinitionSecrets } from '../../deploy/job-runs';
 import { declaredMainJob, MAIN_JOB_TIME_LIMIT_HOURS, type MainJobDeclaration, scheduleEveryMinutes } from '../../deploy/main-job';
@@ -139,12 +140,13 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
     }
   }
   const keysOf = new Map<string, typeof facts.apiKeys>();
-  const describe = (key: InventoryFacts['apiKeys'][number]) => `${key.access_key} (${key.description || 'no description'})`;
+  const note = (key: InventoryFacts['apiKeys'][number]) => printable(key.description ?? '') || 'no description';
+  const describe = (key: InventoryFacts['apiKeys'][number]) => `${key.access_key} (${note(key)})`;
   for (const key of facts.apiKeys) {
     if (key.user_id && !key.expires_at) {
       found.keys.push({
         detail: `a person's key without an end date: ${describe(key)}`,
-        item: [key.access_key, `a person's, without an end date (${key.description || 'no description'})`],
+        item: [key.access_key, `a person's, without an end date (${note(key)})`],
       });
     }
     if (key.application_id && own.has(key.application_id)) keysOf.set(key.application_id, [...(keysOf.get(key.application_id) ?? []), key]);
@@ -156,7 +158,7 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
         if (durableKeyLife({ expiresAt: key.expires_at ?? undefined }, now)) {
           found.operatorKeys.push({
             detail: `${name} holds a key that outlives a day: ${describe(key)}`,
-            item: [key.access_key, key.description || 'no description'],
+            item: [key.access_key, note(key)],
           });
         }
       }

@@ -4,6 +4,7 @@ import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { getEnvSnapshot } from './env';
+import { printable } from './terminal-text';
 
 const execFileAsync = promisify(execFile);
 
@@ -300,7 +301,7 @@ export interface CommitRangeEntry {
 export async function getCommitInfo(cwd: string, ref: string): Promise<CommitRangeEntry> {
   const format = '%H%n%s%n%ar'; // hash, subject, relative date
   const output = await git(['log', '-1', `--format=${format}`, ref], cwd);
-  const [hash, message, date] = output.split('\n');
+  const [hash, message, date] = output.split('\n').map(printable);
   return { hash, message, date };
 }
 
@@ -329,7 +330,8 @@ export async function listCommitsBetween(
   const commits: CommitRangeEntry[] = [];
   for (const line of output.split('\n')) {
     if (!line) continue;
-    const [hash, message, date, timestamp] = line.split('\x1f');
+    // Each field is filtered after the split: a subject that holds the separator shifts into the date
+    const [hash, message, date, timestamp] = line.split('\x1f').map(printable);
     if (!hash || !message || !date) continue;
     commits.push({ hash, message, date, timestamp: Number(timestamp) || undefined });
   }

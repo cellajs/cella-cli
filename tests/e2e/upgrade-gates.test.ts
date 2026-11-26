@@ -11,6 +11,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { RuntimeConfig } from '../../src/config/types';
 import { UpstreamConfigChangedError } from '../../src/upstream/gates';
 import { runUpgradeCommand } from '../../src/upstream/upgrade';
 import { buildRuntimeConfig, createTestEnv, exec, makeCommit, type TestEnv, tagUpstream } from '../helpers/test-env';
@@ -40,6 +41,12 @@ describe('upgrade stops before the merge', () => {
   }
 
   /** Move the trunk to the committed upgrade branch and drop that branch, as merging its PR would. */
+  /** Merge upstream and commit it: the merge run stops for review, the rerun commits. */
+  async function upgradeAndCommit(config: RuntimeConfig): Promise<void> {
+    await runUpgradeCommand(config);
+    await runUpgradeCommand(config);
+  }
+
   function landUpgradeBranch(): void {
     const branch = exec('git rev-parse --abbrev-ref HEAD', env.repoRoot);
     expect(branch).toMatch(/^cella\/upgrade\//);
@@ -110,7 +117,7 @@ describe('upgrade stops before the merge', () => {
     it('merges with the app config as it stands on --keep-config', async () => {
       setupConfigChange();
 
-      await runUpgradeCommand(buildRuntimeConfig(env, { pinned: ['a.ts'], keepConfig: true }));
+      await upgradeAndCommit(buildRuntimeConfig(env, { pinned: ['a.ts'], keepConfig: true }));
 
       // The path upstream now pins arrived as an ordinary merged file, and the run still reports the entries
       expect(exec('git rev-parse --abbrev-ref HEAD', env.repoRoot)).toMatch(/^cella\/upgrade\//);
@@ -124,7 +131,7 @@ describe('upgrade stops before the merge', () => {
       const config = buildRuntimeConfig(env, { pinned: ['a.ts', 'backend/src/bundle-config.ts'] });
       config.packageJsonKeys = ['dependencies', 'devDependencies', 'exports'];
 
-      await runUpgradeCommand(config);
+      await upgradeAndCommit(config);
 
       expect(exec('git log -1 --format=%s', env.repoRoot)).toMatch(/^chore: upgrade cella to/);
       // Pinned before it exists, as an alignment can ask: upstream's copy arrives as the app's first one
@@ -155,7 +162,7 @@ describe('upgrade stops before the merge', () => {
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v1\n' }, message: 'feat: v1' });
       tagUpstream(env.upstreamPath, 'v0.1.0');
       makeCommit(env.upstreamPath, { files: { 'version.ts': 'v2\n' }, message: 'feat: v2' });
-      await runUpgradeCommand(buildRuntimeConfig(env, { track: 'branch' }));
+      await upgradeAndCommit(buildRuntimeConfig(env, { track: 'branch' }));
       landUpgradeBranch();
       lines.length = 0;
       return exec('git rev-parse HEAD', env.repoRoot);
@@ -196,7 +203,7 @@ describe('upgrade stops before the merge', () => {
   it('leaves an app whose only change since the last upgrade is in an ignored path where it started', async () => {
     const config = buildRuntimeConfig(env, { ignored: ['docs'] });
     makeCommit(env.upstreamPath, { files: { 'feature.ts': 'export const f = 1;\n' }, message: 'feat: feature' });
-    await runUpgradeCommand(config);
+    await upgradeAndCommit(config);
     landUpgradeBranch();
     const head = makeCommit(env.repoRoot, { files: { 'docs/guide.md': '# App guide\n' }, message: 'docs: app guide' });
 

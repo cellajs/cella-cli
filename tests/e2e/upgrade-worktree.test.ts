@@ -52,6 +52,12 @@ function upgradeConfig(env: TestEnv, repoRoot: string): RuntimeConfig {
   return { ...buildRuntimeConfig(env), repoRoot };
 }
 
+/** Merge upstream in `repoRoot` and commit it: the merge run stops for review, the rerun commits. */
+async function upgradeAndCommit(env: TestEnv, repoRoot: string): Promise<void> {
+  await runUpgradeCommand(upgradeConfig(env, repoRoot));
+  await runUpgradeCommand(upgradeConfig(env, repoRoot));
+}
+
 describe('upgrade from a linked worktree', () => {
   let env: TestEnv;
 
@@ -117,7 +123,7 @@ describe('upgrade from a linked worktree', () => {
       const localMain = exec('git rev-parse main', env.repoRoot);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
 
-      await runUpgradeCommand(upgradeConfig(env, worktreePath));
+      await upgradeAndCommit(env, worktreePath);
 
       expect(exec('git rev-parse --abbrev-ref HEAD', worktreePath)).toMatch(/^cella\/upgrade\//);
       expect(fs.existsSync(path.join(worktreePath, 'upstream.ts'))).toBe(true);
@@ -136,7 +142,7 @@ describe('upgrade from a linked worktree', () => {
       // A merge commit between the stale trunk and origin's must not read as part of the upgrade branch
       const pushed = pushTeammateCommit(env, { merge: true });
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(upgradeConfig(env, worktreePath));
+      await upgradeAndCommit(env, worktreePath);
       const branch = exec('git rev-parse --abbrev-ref HEAD', worktreePath);
       const committed = exec('git rev-parse HEAD', worktreePath);
 
@@ -153,7 +159,7 @@ describe('upgrade from a linked worktree', () => {
     it('titles the PR after the upgrade commit when drift-triage commits sit on top', async () => {
       const worktreePath = setupAppWithWorktree(env);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
-      await runUpgradeCommand(upgradeConfig(env, worktreePath));
+      await upgradeAndCommit(env, worktreePath);
       const upgradeSubject = exec('git log -1 --format=%s', worktreePath);
       makeCommit(worktreePath, { files: { 'triage.ts': 'export const t = 1;\n' }, message: 'fix: drift triage' });
 
@@ -182,7 +188,7 @@ describe('upgrade from a linked worktree', () => {
       exec('git switch -q work', env.repoRoot);
       makeCommit(env.upstreamPath, { files: { 'upstream.ts': 'export const u = 1;\n' }, message: 'feat: upstream' });
 
-      await runUpgradeCommand(upgradeConfig(env, env.repoRoot));
+      await upgradeAndCommit(env, env.repoRoot);
 
       expect(exec('git rev-parse main', env.repoRoot)).toBe(pushed);
       expect(exec('git log -1 --format=%P', env.repoRoot)).toBe(pushed);

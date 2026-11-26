@@ -8,7 +8,8 @@ import { isRecord } from '../../lib/utils/guards';
  * an engine that writes it, and the agent refuses a plan of another version.
  */
 export const supportedSchemaVersion = 3;
-export const supportedImageContract = 'docker-node-boot-v1';
+/** v2: the env file writes each value single-quoted, and an agent of v1 would learn the quotes as part of the value it redacts. */
+export const supportedImageContract = 'docker-node-boot-v2';
 
 /** One image archive of the release: the image it holds, the link it is fetched through and the sha256 it must have. */
 export interface ReleaseArchive {

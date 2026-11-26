@@ -186,6 +186,10 @@ export function createRdbClient(opts: RdbClientOptions) {
     async exportBackup(backupId: string): Promise<RdbBackup> {
       return scwFetch<RdbBackup>(auth, 'POST', `${base}/backups/${encodeURIComponent(backupId)}/export`, {});
     },
+
+    async deleteBackup(backupId: string): Promise<void> {
+      await scwSend(auth, 'DELETE', `${base}/backups/${encodeURIComponent(backupId)}`);
+    },
   };
 }
 

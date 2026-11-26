@@ -23,7 +23,7 @@ function makePlan(overrides: Partial<GeoipRefreshPlan> = {}) {
     }),
     readManifest: vi.fn(async () => {
       calls.push('readManifest');
-      return MANIFEST;
+      return { manifest: MANIFEST };
     }),
     putObject: vi.fn(async (key: string) => {
       calls.push(`put ${key}`);
@@ -55,7 +55,7 @@ describe('sequenceGeoipRefresh', () => {
   });
 
   it('is a no-op when the manifest already carries the target month', async () => {
-    const { plan, calls } = makePlan({ readManifest: async () => ({ ...MANIFEST, month: '2026-09' }) });
+    const { plan, calls } = makePlan({ readManifest: async () => ({ manifest: { ...MANIFEST, month: '2026-09' } }) });
     const result = await sequenceGeoipRefresh(plan);
 
     expect(result).toMatchObject({ published: false, skipped: 'up-to-date' });
@@ -64,7 +64,7 @@ describe('sequenceGeoipRefresh', () => {
   });
 
   it('skips a manifest younger than maxAgeDays, the deploy pipeline gate', async () => {
-    const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ ...MANIFEST, publishedAt: '2026-09-01T00:00:00Z' }) });
+    const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ manifest: { ...MANIFEST, publishedAt: '2026-09-01T00:00:00Z' } }) });
     const result = await sequenceGeoipRefresh(plan);
 
     expect(result).toMatchObject({ published: false, skipped: 'fresh' });
@@ -76,8 +76,14 @@ describe('sequenceGeoipRefresh', () => {
     expect((await sequenceGeoipRefresh(plan)).published).toBe(true);
   });
 
+  it('publishes over a manifest dated in the future, which no age gate would ever let expire', async () => {
+    const future = { ...MANIFEST, month: '2099-12', publishedAt: '2099-12-01T00:00:00Z' };
+    const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ manifest: future }) });
+    expect((await sequenceGeoipRefresh(plan)).published).toBe(true);
+  });
+
   it('force republishes an up-to-date month', async () => {
-    const { plan } = makePlan({ force: true, readManifest: async () => ({ ...MANIFEST, month: '2026-09' }) });
+    const { plan } = makePlan({ force: true, readManifest: async () => ({ manifest: { ...MANIFEST, month: '2026-09' } }) });
     expect((await sequenceGeoipRefresh(plan)).published).toBe(true);
   });
 

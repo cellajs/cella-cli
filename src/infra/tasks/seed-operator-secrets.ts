@@ -31,8 +31,11 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
   for (const secret of operatorManagedRuntimeSecrets as RuntimeSecretDefinition[]) {
     const value = options.values[secret.id];
     if (!value) continue;
-    if (!isEnvFileDeliverable(value).ok)
-      throw new Error(`${secret.secretName}: one line only; the deploy checks presence, so the form is checked here`);
+    const verdict = isEnvFileDeliverable(value);
+    if (!verdict.ok) {
+      const form = verdict.reason === 'quote' ? "no single quote (')" : 'one line only';
+      throw new Error(`${secret.secretName}: ${form}. The deploy checks presence only, and the form is checked here.`);
+    }
 
     const existing = await client.getSecretByName(secret.secretName, RUNTIME_FOLDER);
     if (existing?.version_count && existing.version_count > 0) {

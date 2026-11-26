@@ -77,7 +77,7 @@ export function engineImageRef(repository: string, digest: string): string {
   return `${repository}@${digest}`;
 }
 
-/** `control/<mode>/applied.json`: what the last apply published, written on the operator key and read by the observer. */
+/** `control/<mode>/applied.json`: what the last apply published, written on the operator key alone and read by the next apply and the observer. */
 export interface AppliedEngine {
   /** The hash of the description the apply applied, which its engine image carries. */
   descriptionHash: string;

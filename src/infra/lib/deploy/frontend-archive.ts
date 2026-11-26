@@ -40,6 +40,8 @@ export function readUstar(archive: Buffer): ArchiveFile[] {
     const prefix = text(header, 345, 155);
     const name = prefix ? `${prefix}/${text(header, 0, 100)}` : text(header, 0, 100);
     const size = Number.parseInt(text(header, 124, 12).trim() || '0', 8);
+    // A negative size would move the next header back over this one, and a file would read bytes before its own.
+    if (!(size >= 0)) throw new Error(`frontend archive: '${name}' names no valid size`);
     const type = String.fromCharCode(header[156] ?? 0);
     const body = offset + BLOCK;
     if (type === '0' || type === '\0') {

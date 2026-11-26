@@ -269,6 +269,14 @@ function droppedUpstreamChange(
   return appChanged && (ignored || protection.isPinned(path)) ? { upstreamChanged: true } : {};
 }
 
+/** The paths the app moved a file away from since the merge-base. */
+function appMovedFrom(trees: Trees): Set<string> {
+  const moved = new Set<string>();
+  for (const change of trees.appChanges.values())
+    if (change.status === 'R' && change.oldPath) moved.add(change.oldPath);
+  return moved;
+}
+
 /**
  * Classify every file of the three trees: its status, and its resolution, what the upgrade does with
  * it. Upgrade compares the app at HEAD with upstream, adopt cella's branch (the app side) with the
@@ -289,9 +297,7 @@ export function classifyFiles(trees: Trees, protection: Protection): AnalyzedFil
     if (change.status === 'R' && change.oldPath) movedFrom.set(path, change.oldPath);
   const oldPaths = new Set(movedFrom.values());
   const changed = new Set([...trees.appChanges.keys(), ...upstreamChanges.keys()]);
-  const appMoved = new Set<string>();
-  for (const change of trees.appChanges.values())
-    if (change.status === 'R' && change.oldPath) appMoved.add(change.oldPath);
+  const appMoved = appMovedFrom(trees);
 
   return [...new Set([...trees.app.keys(), ...trees.upstream.keys()])].flatMap((path): AnalyzedFile[] => {
     const oldPath = movedFrom.get(path);
@@ -316,6 +322,68 @@ export function classifyFiles(trees: Trees, protection: Protection): AnalyzedFil
       },
     ];
   });
+}
+
+/** `path` and every folder above it. */
+function withFolders(path: string): string[] {
+  const names = [path];
+  for (let dir = dirnameOf(path); dir; dir = dirnameOf(dir)) names.push(dir);
+  return names;
+}
+
+/** One spelling for every name a case-insensitive disk stores as the same file: lowercase, composed. */
+const caseKey = (name: string) => name.normalize('NFC').toLowerCase();
+
+/**
+ * Pairs of an arriving path or folder and another one the merge leaves, equal in lowercase: a case-insensitive
+ * disk stores both as one file. Arriving is every path upstream adds or changes, whatever its resolution, but a path the
+ * app moved a file away from. A pair the app already holds is none.
+ */
+export function caseCollisions(trees: Trees, files: AnalyzedFile[]): [arriving: string, other: string][] {
+  const appMoved = appMovedFrom(trees);
+  const leaves = ({ path, resolution, existsInApp }: AnalyzedFile) =>
+    existsInApp
+      ? resolution !== 'remove'
+      : // git merges upstream's change to a path the app moved into the moved copy
+        resolution === 'take' || resolution === 'move' || (resolution === 'merge' && !appMoved.has(path));
+  const left = new Map<string, Set<string>>();
+  for (const file of files)
+    if (leaves(file))
+      for (const name of withFolders(file.path)) {
+        const key = caseKey(name);
+        left.set(key, (left.get(key) ?? new Set<string>()).add(name));
+      }
+
+  const held = new Set([...trees.app.keys()].flatMap(withFolders));
+  const pairs = new Map<string, [string, string]>();
+  for (const [path, hash] of trees.upstream) {
+    if (hash === trees.base.get(path) || appMoved.has(path)) continue;
+    for (const name of withFolders(path))
+      for (const other of left.get(caseKey(name)) ?? [])
+        if (other !== name && !(held.has(name) && held.has(other))) pairs.set(`${name}\0${other}`, [name, other]);
+  }
+  return [...pairs.values()];
+}
+
+/** The text naming each pair of {@link caseCollisions}: upgrade and adopt refuse with it, analyze prints it. */
+export function caseCollisionText(pairs: [string, string][]): string {
+  const list = pairs.map(([arriving, other]) => `${arriving} (arriving) and ${other}`).join(', ');
+  return (
+    `these paths differ only in letter case, and a case-insensitive disk stores each pair as one file: ${list}. ` +
+    'Upgrade and adopt refuse to run until one path of each pair is renamed or removed.'
+  );
+}
+
+/** A run's classified files, with the case collisions their merge would leave. */
+interface ClassifiedRun {
+  files: AnalyzedFile[];
+  collisions: [string, string][];
+}
+
+/** The files of a run that writes them, refused when their merge would leave a case collision. */
+function refuseCaseCollisions({ files, collisions }: ClassifiedRun): AnalyzedFile[] {
+  if (collisions.length > 0) throw new Error(caseCollisionText(collisions));
+  return files;
 }
 
 /**
@@ -366,8 +434,22 @@ async function countUpstreamLines(
 
 /**
  * Classify every file changed between the app and upstream refs from a shared merge-base, in a repo
- * that reaches all three, and size the upstream changes the upgrade leaves out.
+ * that reaches all three, size the upstream changes the upgrade leaves out, and name the case collisions.
  */
+async function classifyRefs(
+  repoRoot: string,
+  appRef: string,
+  upstreamRef: string,
+  baseRef: string,
+  protection: Protection,
+): Promise<ClassifiedRun> {
+  const trees = await readTrees(repoRoot, appRef, upstreamRef, baseRef);
+  const files = classifyFiles(trees, protection);
+  await countUpstreamLines(repoRoot, files, { appRef, upstreamRef, baseRef });
+  return { files, collisions: caseCollisions(trees, files) };
+}
+
+/** {@link classifyRefs} for adopt, which refuses a case collision. */
 export async function analyzeRefs(
   repoRoot: string,
   appRef: string,
@@ -375,9 +457,7 @@ export async function analyzeRefs(
   baseRef: string,
   protection: Protection,
 ): Promise<AnalyzedFile[]> {
-  const files = classifyFiles(await readTrees(repoRoot, appRef, upstreamRef, baseRef), protection);
-  await countUpstreamLines(repoRoot, files, { appRef, upstreamRef, baseRef });
-  return files;
+  return refuseCaseCollisions(await classifyRefs(repoRoot, appRef, upstreamRef, baseRef, protection));
 }
 
 /**
@@ -429,9 +509,14 @@ function upgradeProtection(config: RuntimeConfig): Protection {
 }
 
 /** Classify every file the upgrade compares: the app at HEAD against upstream at the run's ref, from the merge's base. */
-export function classifyUpgrade(config: RuntimeConfig, upstream: UpstreamContext): Promise<AnalyzedFile[]> {
+export function classifyUpgradeRun(config: RuntimeConfig, upstream: UpstreamContext): Promise<ClassifiedRun> {
   spinnerText('analyzing files...');
-  return analyzeRefs(config.repoRoot, 'HEAD', upstream.ref, upstream.mergeRef, upgradeProtection(config));
+  return classifyRefs(config.repoRoot, 'HEAD', upstream.ref, upstream.mergeRef, upgradeProtection(config));
+}
+
+/** {@link classifyUpgradeRun} for the upgrade, which refuses a case collision. */
+export async function classifyUpgrade(config: RuntimeConfig, upstream: UpstreamContext): Promise<AnalyzedFile[]> {
+  return refuseCaseCollisions(await classifyUpgradeRun(config, upstream));
 }
 
 /** Counts by status; a changed managed file counts as `managed`. */

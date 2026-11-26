@@ -1,6 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { deriveInfra } from '../../lib/naming';
 import { menuPath } from '../../lib/operator-actions';
@@ -187,14 +186,14 @@ function pendingClearEffects(env: NodeJS.ProcessEnv, stack: string, readPending:
       return path;
     },
     importState(document) {
-      const path = join(tmpdir(), `infra-state-import-${shortStack}-${stamp}.json`);
-      writeFileSync(path, JSON.stringify(document), { mode: 0o600 });
-      try {
-        const result = spawnSync('pulumi', ['stack', 'import', '--stack', stack, '--file', path], { cwd: infraDir, env, stdio: 'inherit' });
-        if (result.status !== 0) throw new Error(`pulumi stack import exited ${result.status}`);
-      } finally {
-        rmSync(path, { force: true });
-      }
+      // On stdin: a temporary file of the state would outlive a killed run.
+      const result = spawnSync('pulumi', ['stack', 'import', '--stack', stack], {
+        cwd: infraDir,
+        env,
+        input: JSON.stringify(document),
+        stdio: ['pipe', 'inherit', 'inherit'],
+      });
+      if (result.status !== 0) throw new Error(`pulumi stack import exited ${result.status}`);
     },
     readPending,
   };

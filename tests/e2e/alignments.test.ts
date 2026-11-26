@@ -172,7 +172,7 @@ describe('alignments e2e', () => {
     expect(out).toContain('after the upgrade: pnpm cella align');
     // Only the alignment changed upstream: the upgrade still records it and moves the upgrade point
     expect(out).toMatch(
-      / {2}1 upgrade {2}pnpm cella upgrade\n {13}commits on a fresh branch, a rerun opens the PR · no file changes\n/,
+      / {2}1 upgrade {2}pnpm cella upgrade\n {13}merges on a fresh branch and stops for review · no file changes\n/,
     );
     expect(out).toMatch(/ {2}2 align {4}1 alignment arrives with this upgrade\n/);
   });

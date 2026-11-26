@@ -361,7 +361,7 @@ function formatUpstreamChangedLines(file: AnalyzedFile): string {
   return pc.yellow(` · ${plural(file.upstreamChangedLines, 'line')} changed upstream`);
 }
 
-export function printUpgradeComplete(result: MergeResult, options: { stagedBranch?: string } = {}): void {
+export function printUpgradeComplete(result: MergeResult): void {
   const updated = changedFromUpstream(result.files);
   const merges = updated.filter((file) => file.resolution === 'merge').length;
   const merged = result.autoMergedFiles?.length ?? Math.max(0, merges - result.conflicts.length);
@@ -369,10 +369,7 @@ export function printUpgradeComplete(result: MergeResult, options: { stagedBranc
 
   const counts = `${plural(updated.length, 'file')} updated, ${merged} auto-merged, ${plural(conflicts, 'conflict')}`;
   console.info();
-  if (options.stagedBranch) {
-    console.info(`${checkMark} upgrade merge staged on '${options.stagedBranch}'`);
-    console.info(pc.dim(`  ${counts}. committing next...`));
-  } else if (conflicts > 0) {
+  if (conflicts > 0) {
     console.info(`${warningMark} upgrade merge staged with conflicts`);
     console.info(pc.dim(`  ${counts}`));
   } else {

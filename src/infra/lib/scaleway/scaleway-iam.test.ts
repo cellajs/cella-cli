@@ -88,6 +88,19 @@ describe('provisionScopedKey', () => {
     expect(apiKeyDeletes.map((c) => c.url)).toEqual([expect.stringContaining('/api-keys/OLD1'), expect.stringContaining('/api-keys/OLD2')]);
   });
 
+  it('reports a purge it could not run: a rotation must not count the older keys as deleted', async () => {
+    const { fn } = makeFetch([
+      { method: 'GET', match: '/iam/v1alpha1/applications?', body: { applications: [{ id: 'app-1', name: 'demo-demo-key' }] } },
+      { method: 'GET', match: '/iam/v1alpha1/policies?', body: { policies: [] } },
+      { method: 'POST', match: '/iam/v1alpha1/policies', body: { id: 'pol-1', name: 'demo-demo-key-policy' } },
+      { method: 'GET', match: '/iam/v1alpha1/api-keys?', body: { message: 'permissions_denied' }, status: 403 },
+      { method: 'POST', match: '/iam/v1alpha1/api-keys', body: { access_key: 'SCWNEW', secret_key: 's', application_id: 'app-1' } },
+    ]);
+    vi.stubGlobal('fetch', fn);
+
+    expect((await provisionScopedKey(baseOpts, config)).purgeSkipped).toBe(true);
+  });
+
   it('throws with a useful message on Scaleway error responses', async () => {
     const { fn } = makeFetch([{ method: 'GET', match: '/iam/v1alpha1/applications?', body: { message: 'forbidden' }, status: 403 }]);
     vi.stubGlobal('fetch', fn);

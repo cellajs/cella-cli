@@ -37,8 +37,8 @@ describe('buildUpgradePrBody', () => {
     expect(body).toContain(`[\`${'b'.repeat(7)}\`](https://github.com/cellajs/cella/commit/${shaB}) (v0.2.2).`);
     expect(body).toContain('**2 upstream commits since the last upgrade**');
     expect(body).toContain(`[compare](https://github.com/cellajs/cella/compare/${'a'.repeat(7)}...${'b'.repeat(7)})`);
-    // Bare #843 would auto-link to the app's own PR: it must be qualified with the upstream slug.
-    expect(body).toContain('fix: type in yjs Dockerfile (cellajs/cella#843)');
+    // A reader would take bare #843 for the app's own PR: it must be qualified with the upstream slug.
+    expect(body).toContain('`fix: type in yjs Dockerfile (cellajs/cella#843)`');
     expect(body).not.toContain('(#843)');
   });
 
@@ -89,8 +89,22 @@ describe('buildUpgradePrBody', () => {
       commits: [{ hash: shaA, message: 'fix: thing (#12)', date: 'today' }],
     });
     expect(body).toContain('Upgrades cella to `bbbbbbb`.');
-    expect(body).toContain('- `aaaaaaa` fix: thing (#12)');
+    expect(body).toContain('- `aaaaaaa` `fix: thing (#12)`');
     expect(body).not.toContain('https://github.com');
+  });
+
+  it('keeps an upstream subject from mentioning, closing or hiding anything in the app', () => {
+    const body = buildUpgradePrBody({
+      version: '1.0.0 <!--',
+      fromSha: shaA,
+      toSha: shaB,
+      totalCount: 1,
+      commits: [{ hash: shaA, message: 'fix: `x` closes #1, cc @octocat <!--', date: 'today' }],
+    });
+    expect(body).toBe(
+      'Upgrades cella to `bbbbbbb`.\n\n**1 upstream commit since the last upgrade**:\n\n' +
+        '- `aaaaaaa` `` fix: `x` closes #1, cc @octocat <!-- ``\n',
+    );
   });
 });
 

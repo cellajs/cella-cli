@@ -1,4 +1,5 @@
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { printable } from '../../../utils/terminal-text';
 import { listObjectEtags } from '../scaleway/s3-client';
 
 /**
@@ -81,7 +82,8 @@ export async function releaseAccounts(reader: BootAccountReader, services: reado
 }
 
 /** What a person reads first of a failed account: the error the agent wrote, then the end of its log. */
-export function accountExcerpt(body: string, lines = 30): string[] {
+export function accountExcerpt(account: string, lines = 30): string[] {
+  const body = printable(account);
   const error = /--- boot error ---\n([\s\S]*?)(?:\n\n|$)/.exec(body)?.[1]?.trim();
   const tail = body.trimEnd().split('\n').slice(-lines);
   return [...(error ? ['boot error:', ...error.split('\n'), ''] : []), ...tail];

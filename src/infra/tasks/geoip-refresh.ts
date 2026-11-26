@@ -1,6 +1,8 @@
 import { gunzipSync } from 'node:zlib';
+import { printable } from '../../utils/terminal-text';
 import type { KeyPair } from '../lib/scaleway/operator-identity';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
+import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { getFlag, getNumFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
 import { runIfMain } from '../lib/utils/is-main';
@@ -31,11 +33,14 @@ export interface GeoipRefreshPlan {
   force: boolean;
   /** Skip when the manifest is younger than this many days (the deploy pipeline's gate). */
   maxAgeDays?: number;
+  /** The last key rotation: a manifest stored at or before it, or with no stored time, may be the lost deploy key's and is due. */
+  keysRotatedAt?: Date;
   kinds: readonly GeoipKind[];
 
   // Injected effects
   fetchDatabase: (url: string) => Promise<{ status: number; body: Uint8Array | null }>;
-  readManifest: () => Promise<GeoipManifest | null>;
+  /** The manifest with the time Object Storage stored it; null when there is none. */
+  readManifest: () => Promise<{ manifest: GeoipManifest; modified?: Date } | null>;
   putObject: (key: string, body: Uint8Array, contentType: string) => Promise<void>;
   now: () => Date;
   log: (message: string) => void;
@@ -83,14 +88,19 @@ const ageDays = (iso: string, now: Date): number => (now.getTime() - new Date(is
  * so the bucket only ever moves from one complete set to the next.
  */
 export async function sequenceGeoipRefresh(plan: GeoipRefreshPlan): Promise<GeoipRefreshResult> {
-  const existing = await plan.readManifest();
-  if (existing && !plan.force) {
+  const stored = await plan.readManifest();
+  const existing = stored?.manifest;
+  const stale = storedBeforeKeyRotation(stored?.modified, plan.keysRotatedAt);
+  // A date in the future would keep the manifest younger than any age.
+  const due = existing !== undefined && (stale || new Date(existing.publishedAt).getTime() > plan.now().getTime());
+  if (due) plan.log('The GeoIP manifest was stored before the last key rotation, or is dated in the future: publishing again.');
+  if (existing && !plan.force && !due) {
     if (existing.month === plan.month) {
-      plan.log(`GeoIP data for ${plan.month} already published (${existing.publishedAt}); nothing to do.`);
+      plan.log(`GeoIP data for ${plan.month} already published (${printable(existing.publishedAt)}); nothing to do.`);
       return { published: false, skipped: 'up-to-date', manifest: existing };
     }
     if (plan.maxAgeDays !== undefined && ageDays(existing.publishedAt, plan.now()) < plan.maxAgeDays) {
-      plan.log(`GeoIP data published ${existing.publishedAt} is younger than ${plan.maxAgeDays} days; skipping.`);
+      plan.log(`GeoIP data published ${printable(existing.publishedAt)} is younger than ${plan.maxAgeDays} days; skipping.`);
       return { published: false, skipped: 'fresh', manifest: existing };
     }
   }
@@ -141,11 +151,11 @@ export async function createLiveEffects(opts: { bucket: string; region: string; 
       const res = await fetch(url);
       return { status: res.status, body: res.ok ? new Uint8Array(await res.arrayBuffer()) : null };
     },
-    readManifest: async (): Promise<GeoipManifest | null> => {
+    readManifest: async (): Promise<{ manifest: GeoipManifest; modified?: Date } | null> => {
       try {
         const out = await s3.send(new GetObjectCommand({ Bucket: opts.bucket, Key: manifestKey(opts.prefix) }));
         const text = await out.Body?.transformToString();
-        return text ? (JSON.parse(text) as GeoipManifest) : null;
+        return text ? { manifest: JSON.parse(text) as GeoipManifest, modified: out.LastModified } : null;
       } catch (err) {
         if (err instanceof Error && (err.name === 'NoSuchKey' || err.name === 'NotFound')) return null;
         throw err;
@@ -175,6 +185,7 @@ export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair }
   if (!bucket || !region) throw new ExitCodeError('geoip-refresh requires --bucket and --region', 2);
   const prefix = getFlag(argv, '--prefix') ?? DEFAULT_PREFIX;
   const maxAgeRaw = getFlag(argv, '--max-age-days');
+  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
   const effects = await createLiveEffects({ bucket, region, prefix, key: opts.key });
   const result = await sequenceGeoipRefresh({
     bucket,
@@ -182,6 +193,7 @@ export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair }
     month: getFlag(argv, '--month') ?? monthOf(new Date()),
     force: argv.includes('--force'),
     maxAgeDays: maxAgeRaw === undefined ? undefined : getNumFlag(argv, '--max-age-days', 0),
+    keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
     kinds: GEOIP_KINDS,
     ...effects,
     now: () => new Date(),
@@ -190,7 +202,7 @@ export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair }
   process.stdout.write(
     result.published
       ? `✓ GeoIP data ${result.manifest.month} published to ${bucket}/${prefix}\n`
-      : `✓ GeoIP data left as is (${result.skipped}: ${result.manifest.month}, ${result.manifest.publishedAt})\n`,
+      : `✓ GeoIP data left as is (${result.skipped}: ${printable(result.manifest.month)}, ${printable(result.manifest.publishedAt)})\n`,
   );
 }
 

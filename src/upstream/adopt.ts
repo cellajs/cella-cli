@@ -16,8 +16,9 @@ import {
   useState,
 } from '@inquirer/core';
 import { select } from '@inquirer/prompts';
+import { resolveAppModuleFolders } from '../config/app-modules';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from '../config/forks';
-import { defaultBranch, isUpstreamRepo, loadConfig } from '../config/load';
+import { defaultBranch, isUpstreamRepo } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
 import {
@@ -40,7 +41,9 @@ import {
   restoreWorktreeFromRef,
 } from '../utils/git';
 import { buildContribBranch, type ContribFile, detectContributableFiles } from './adopt-branch';
+import { parseOverrideLists } from './config-gate';
 import { gitDiffFile, openInBrowser, writeDiffPage } from './diff-page';
+import { configFile } from './managed-files';
 
 interface ContribItem extends ContribFile {
   /** Lines added in the fork vs cella base (null for binary files) */
@@ -241,11 +244,9 @@ async function collectContributions(
   const [sha = forkRef.slice(0, 7), date = 'unknown'] = meta.split('\t');
   const empty: Contributions = { items: [], branch: '', head: { sha, date } };
 
-  // The fork's own `ignored` folders hold its fork-specific modules; a fork without a config has none.
-  const forkTerritory = await loadConfig(resolvedPath).then(
-    (forkConfig) => forkConfig.ignored ?? [],
-    () => [],
-  );
+  // The other repository's `ignored` folders and app modules hold its own code, read as text: none of it runs.
+  const forkConfig = await git(['show', `${forkRef}:${configFile}`], repoRoot, { ignoreErrors: true });
+  const forkTerritory = [...(parseOverrideLists(forkConfig)?.ignored ?? []), ...resolveAppModuleFolders(resolvedPath)];
   const files = await detectContributableFiles(repoRoot, baseRef, forkRef, config, forkTerritory);
   if (files.length === 0) return empty;
   const { branch, appliedFiles } = await buildContribBranch(repoRoot, baseRef, forkRef, files, fork.name);

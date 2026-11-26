@@ -63,8 +63,8 @@ export interface DeployEffects {
    * holder keeps it.
    */
   lease(stack: string, operation: 'deploy', run: string): Promise<{ release(): Promise<void>; readonly lost: boolean }>;
-  /** The environment's machine roles, the live record and the rotation counter. */
-  readLive(stack: string): Promise<{ roles: MachineRole[]; record: LiveRecord; rotation: number }>;
+  /** The environment's machine roles, the live record, the rotation counter and the time of the last key rotation, none before the first. */
+  readLive(stack: string): Promise<{ roles: MachineRole[]; record: LiveRecord; rotation: number; keysRotatedAt?: string }>;
   /** The stamp of the engine image the run started from; undefined outside one. */
   engineStamp(): EngineStamp | undefined;
   /** The description of the app the engine image holds, which names what a target's own description changes. */
@@ -237,6 +237,8 @@ export async function runDeploy(
 
       // The release's archives and frontend files: a builder machine makes the missing ones and writes them through links, then the release's
       // entry files wait in a folder of their own for the publish below. No app code runs beside the deploy key.
+      // A manifest or a GeoIP file stored before the last key rotation is made again: a lost deploy key could have written it.
+      const keysRotated = live.keysRotatedAt ? ['--keys-rotated-at', live.keysRotatedAt] : [];
       const distDir = env.frontend_bucket ? await mkdtemp(join(tmpdir(), 'release-')) : '';
       const manifestFile = join(work, 'manifest.json');
       let manifest: ReleaseManifest | undefined;
@@ -256,6 +258,7 @@ export async function runDeploy(
           distDir,
           '--manifest-out',
           manifestFile,
+          ...keysRotated,
         ]);
         manifest = parseReleaseManifest(await fx.readFile(manifestFile), opts.sha);
       });
@@ -279,7 +282,7 @@ export async function runDeploy(
       });
 
       // The deploy writes no value of the app's: the apply makes them, and Update identities the uploads key. Here it reads them from the
-      // runtime folder and writes each role's env file, which only it reads; a value that is empty or not one line ends the run blocked
+      // runtime folder and writes each role's env file, which only it reads; a value that is empty, not one line or holds `'` ends the run blocked
       // before any machine of the release boots, and storing it starts the target again.
       await step('Compose runtime env', async () => {
         await fx.task('compose-env', ['--sha', opts.sha, '--project-id', process.env.SCW_DEFAULT_PROJECT_ID ?? '', '--out', envsFile]);
@@ -291,7 +294,7 @@ export async function runDeploy(
       if (env.public_bucket) {
         await step('Ensure GeoIP data', async () => {
           try {
-            await fx.task('geoip-refresh', ['--bucket', env.public_bucket, '--region', env.region, '--max-age-days', '35']);
+            await fx.task('geoip-refresh', ['--bucket', env.public_bucket, '--region', env.region, '--max-age-days', '35', ...keysRotated]);
           } catch (err) {
             say(`[deploy] GeoIP data refresh skipped: ${errorMessage(err)}`);
           }
@@ -499,7 +502,7 @@ function createRealEffects(): DeployEffects {
       };
     },
     async readLive(stack) {
-      const [{ engineConfig: appConfig }, { deriveInfra }, { machineRoles }, { readLiveRecord }, { readRotations }] = await Promise.all([
+      const [{ engineConfig: appConfig }, { deriveInfra }, { machineRoles }, { readLiveRecordForDeploy }, { readRotations }] = await Promise.all([
         import('infra/config/engine-config'),
         import('../lib/naming'),
         import('../lib/machine-roles'),
@@ -508,11 +511,9 @@ function createRealEffects(): DeployEffects {
       ]);
       const { naming, region } = deriveInfra(appConfig);
       const s3 = await controlClient(region);
-      const [{ record }, { rotations }] = await Promise.all([
-        readLiveRecord(s3, naming.bootDiagBucket, stack),
-        readRotations(s3, naming.bootDiagBucket, stack),
-      ]);
-      return { roles: machineRoles(appConfig), record, rotation: rotations.counter };
+      const { rotations } = await readRotations(s3, naming.bootDiagBucket, stack);
+      const record = await readLiveRecordForDeploy(s3, naming.bootDiagBucket, stack, rotations, (message) => console.info(message));
+      return { roles: machineRoles(appConfig), record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
     },
     async leftovers({ roles, record, sha, frontendBucket }) {
       const [{ engineConfig }, { deriveInfra }, { listRoleMachines }, { publicFrontendFile, releaseEntryPrefix }] = await Promise.all([

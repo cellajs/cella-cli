@@ -1,4 +1,5 @@
-import { warningMark } from '../../lib/utils/cli-output';
+import { principalNames } from '../../lib/scaleway/principals';
+import { crossMark, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { printInventory } from '../../tasks/status';
 import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
@@ -28,6 +29,8 @@ export async function runSetup(context: InfraContext, mode: SetupMode): Promise<
   // main job's copy of the deploy key, which is replaced first: a failed copy ends the rotation before they start on the deleted key.
   if (mode === 'rotate-keys') {
     if (!(await copyDeployKeyForMainJob(context, operatorKey, moment?.projectId ?? context.projectId, moment?.ciKey))) endAction(1);
+    if (moment?.ciKey.purgeSkipped) exitOnKeptDeployKeys(context, moment.ciKey.accessKey);
+    if (moment?.uploadsKeyKept) exitOnKeptUploadsKey();
     await recordKeyRotation(context, operatorKey);
     await redeployAfterRotation(context, operatorKey).catch((error) => {
       if (endsAction(error)) throw error;
@@ -39,4 +42,21 @@ export async function runSetup(context: InfraContext, mode: SetupMode): Promise<
       console.warn(`${warningMark} Could not read the inventory (${errorMessage(error)}): ${pointTo('status')} shows it.`),
     );
   } else await runOperatorPart(context, operatorKey, moment);
+}
+
+/** End a rotation whose Owner key could not list the deploy application's keys: the lost key still works, and no rotation is recorded. */
+function exitOnKeptDeployKeys(context: InfraContext, kept: string): never {
+  const application = principalNames(context.appConfig.slug, context.environment).ciDeploy;
+  console.error(`${crossMark} The Owner key may not list API keys and deleted none: every key of ${application} but the new ${kept} still works.`);
+  console.error(
+    `  Delete them in the Scaleway console (IAM, Applications, ${application}, API keys), then run ${pointTo('rotate-keys')} again with a key that also holds IAMReadOnly.`,
+  );
+  return endAction(1);
+}
+
+/** End a rotation whose uploads key step failed: the deploy key reads that key, the old one still works, and no rotation is recorded. */
+function exitOnKeptUploadsKey(): never {
+  console.error(`${crossMark} The uploads key was not replaced: the one a lost deploy key could read still works.`);
+  console.error(`  No rotation is recorded and no machine is replaced. Clear the warning above, then run ${pointTo('rotate-keys')} again.`);
+  return endAction(1);
 }
