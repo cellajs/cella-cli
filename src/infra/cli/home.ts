@@ -5,13 +5,14 @@ import { isOperatorActionId, menuPath } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import type { JobRun } from '../lib/scaleway/serverless-jobs';
 import { rowText } from '../lib/status/check';
+import { buildSession } from '../lib/status/session';
 import type { Check, CheckStatus, StatusReport } from '../lib/status/types';
 import { pc, warningMark } from '../lib/utils/cli-output';
-import { buildSession, fill, markOf, rememberReport, statusRow, statusRows } from '../tasks/status';
 import { liveDbEndpoints } from './actions/db-exposure';
 import type { UpNext } from './menu';
 import { rememberedOperatorKey } from './session';
 import type { InfraContext } from './shared';
+import { fill, markOf, rememberReport, statusRow, statusRows } from './status';
 
 /** What the home screen is drawn from: the status report and the facts its session read, with names for the commits. */
 export interface HomeFacts {

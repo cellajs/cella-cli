@@ -6,6 +6,7 @@ import { MANIFEST_KEY, renderMachineUserData, renderManifest } from '../lib/depl
 import { AGENT_IMAGE_NAME, imageRepositoryOf, type ReleaseManifest, releaseArchiveKey } from '../lib/deploy/release-archives';
 import { staticEnv } from '../lib/deploy/static-env';
 import type { EnvSupplier, EnvSupplierContext } from '../lib/env-suppliers';
+import { lbServerStats, waitForPools } from '../lib/health-probes';
 import {
   agentPort,
   checkedServicesOf,
@@ -27,7 +28,6 @@ import type { Environment } from '../lib/stack/environment';
 import { errorMessage } from '../lib/utils/errors';
 import { sleep } from '../lib/utils/sleep';
 import type { MachineEnv } from './compose-env';
-import { lbServerStats, waitForPools } from './wait-for-version';
 
 /**
  * How long a deploy waits for a new machine to serve, from its power-on: the boot, the archives and the env file, then the release

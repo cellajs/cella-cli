@@ -1,17 +1,12 @@
 import { uploadsKeySecrets } from '../lib/runtime-secrets';
 import { createApiKey, deleteApiKey, listApiKeys, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
 import { principalNames } from '../lib/scaleway/principals';
-import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
+import type { SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 
-/** The Secret Manager calls the uploads key needs, so a test passes its own. */
-export interface UploadsKeySecrets {
-  getSecretByName(name: string, path: string): Promise<SecretManagerSecret | undefined>;
-  ensureSecret(input: { name: string; path: string; description: string }): Promise<SecretManagerSecret>;
-  deleteSecret(secretId: string): Promise<void>;
-  putSecretValue(input: { secretId: string; value: string; description?: string; disablePrevious?: boolean }): Promise<unknown>;
-}
+/** The Secret Manager calls the uploads key needs. */
+export type UploadsKeySecrets = Pick<SecretManagerClient, 'getSecretByName' | 'ensureSecret' | 'deleteSecret' | 'putSecretValue'>;
 
 /** What the uploads key needs: nothing, a new key, or the removal of keys beside the stored one. */
 export interface UploadsKeyStep {

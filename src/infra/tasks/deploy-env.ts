@@ -1,22 +1,8 @@
+import type { BuildImageRow } from '../lib/builder/build-images';
 import type { EngineConfig } from '../lib/engine-config';
 import { machineRoles } from '../lib/machine-roles';
 import { deriveInfra, redirectedApexOrigin } from '../lib/naming';
 import { appStorageNeeds, enabledServices, serviceEndpoints } from '../lib/services';
-import type { BuildImageRow } from './build-images';
-
-/** Exact set of keys the deploy env table holds. Tests lock this. */
-export const ALLOWED_KEYS = [
-  'stack',
-  'region',
-  'frontend_bucket',
-  'public_bucket',
-  'diag_bucket',
-  'enabled_services',
-  'build_images',
-  'primary_role',
-  'apex_url',
-] as const;
-export type AllowedKey = (typeof ALLOWED_KEYS)[number];
 
 /** One enabled service as the deploy's build, frontend build and smoke tests read it; an absent value is ''. */
 export interface EnabledServiceRow {
@@ -30,10 +16,17 @@ export interface EnabledServiceRow {
 }
 
 /** The deploy env table: one string per key, but the enabled services and the images to build. */
-export type DeployEnv = Record<Exclude<AllowedKey, 'enabled_services' | 'build_images'>, string> & {
+export interface DeployEnv {
+  stack: string;
+  region: string;
+  frontend_bucket: string;
+  public_bucket: string;
+  diag_bucket: string;
   enabled_services: EnabledServiceRow[];
   build_images: BuildImageRow[];
-};
+  primary_role: string;
+  apex_url: string;
+}
 
 /** Pure builder that produces the deploy env table from an appConfig. */
 export function buildDeployEnv(appConfig: EngineConfig): DeployEnv {

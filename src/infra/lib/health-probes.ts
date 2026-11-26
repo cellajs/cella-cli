@@ -1,6 +1,41 @@
-import { healthContract } from '../lib/health-contract';
-import { type ScwAuth, scwFetch } from '../lib/scaleway/scw-fetch';
-import { sleep as defaultSleep } from '../lib/utils/sleep';
+import { healthContract } from './health-contract';
+import { type ScwAuth, scwFetch } from './scaleway/scw-fetch';
+import { sleep as defaultSleep } from './utils/sleep';
+
+/**
+ * Fetch `url` and `read` its answer, both aborted once `timeoutMs` passed. A ws(s):// URL is fetched over http(s)://: a WebSocket worker's
+ * health endpoint speaks HTTP, and fetch rejects the ws scheme.
+ */
+async function fetchWithTimeout<T>(url: string, timeoutMs: number, init: RequestInit, read: (res: Response) => T | Promise<T>): Promise<T> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await read(await fetch(url.replace(/^ws(s?):/, 'http$1:'), { ...init, signal: controller.signal }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+export interface HttpResponse {
+  status: number;
+  ok: boolean;
+  headers: Headers;
+  body: string;
+}
+
+/** Performs a single HTTP GET; `redirect: 'manual'` answers a redirect as the response it is. Injectable so the smoke checks can be unit-tested. */
+export type HttpGet = (url: string, init?: { redirect: 'manual' }) => Promise<HttpResponse>;
+
+/** Default GET using global fetch with no-cache headers and a timeout. */
+export function createFetchGet(timeoutMs: number): HttpGet {
+  return (url, init) =>
+    fetchWithTimeout(
+      url,
+      timeoutMs,
+      { redirect: init?.redirect ?? 'follow', headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' } },
+      async (res) => ({ status: res.status, ok: res.ok, headers: res.headers, body: await res.text() }),
+    );
+}
 
 export interface ProbeResult {
   /** HTTP status of the response, or 0 if the request failed entirely. */
@@ -25,16 +60,11 @@ export function isHealthy(result: ProbeResult, expectedSha: string): boolean {
 
 /** Default probe using global fetch with a per-request timeout. A network, TLS, or timeout failure reports status 0. */
 export function createFetchProbe(timeoutMs: number): ProbeFn {
-  return async (url) => {
-    try {
-      // Probe WebSocket services over HTTP because their health endpoint is not a WebSocket.
-      const res = await fetch(url.replace(/^ws(s?):/, 'http$1:'), { signal: AbortSignal.timeout(timeoutMs), redirect: 'follow' });
+  return (url) =>
+    fetchWithTimeout(url, timeoutMs, { redirect: 'follow' }, (res): ProbeResult => {
       const html = (res.headers.get('content-type') ?? '').startsWith('text/html');
       return { status: res.status, version: res.headers.get(healthContract.versionHeader) ?? undefined, ...(html ? { html: true as const } : {}) };
-    } catch {
-      return { status: 0, version: undefined };
-    }
-  };
+    }).catch(() => ({ status: 0, version: undefined }));
 }
 
 /** One server of a pool as the load balancer's stats name it. */
@@ -47,8 +77,8 @@ export interface PoolServerStat {
 }
 
 /**
- * Whether a pool routes to an address: its server there is `running`. The agent answers 200 only for the release its machine was made for,
- * so a running server is that release serving. `last_health_check_status` is no guide: in a measured switch it read `failed` while the server ran.
+ * Whether a pool routes to an address: its server there is `running`. The agent answers 200 only for the release its machine was made for:
+ * a running server is that release serving. `last_health_check_status` is no guide: in a measured switch it read `failed` while the server ran.
  */
 export function isServing(stats: readonly PoolServerStat[], backendId: string, address: string): boolean {
   return stats.some((stat) => stat.backend_id === backendId && stat.ip === address && stat.server_state === 'running');
@@ -62,7 +92,7 @@ export function lbServerStats(auth: ScwAuth, zone: string, lbId: string): () => 
 }
 
 /**
- * Wait until every pool given routes to `address` (`serving`), or none does any more (`out`). `failed` is asked each round, so a machine
+ * Wait until every pool given routes to `address` (`serving`), or none does any more (`out`). `failed` is asked each round: a machine
  * whose boot account says it failed ends the wait at once. A stats read that fails counts as no answer yet.
  * @returns `done`, `failed`, or `timeout` once `timeoutMs` passed
  */

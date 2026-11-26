@@ -1,7 +1,7 @@
-import { createFetchProbe } from '../../../tasks/wait-for-version';
 import type { LiveRecord } from '../../deploy/live-record';
 import type { EngineConfig } from '../../engine-config';
 import { healthContract } from '../../health-contract';
+import { createFetchProbe } from '../../health-probes';
 import { roleOf } from '../../machine-roles';
 import { enabledServices, serviceEndpoints } from '../../services';
 import { check, deployAction, diagAction } from '../check';

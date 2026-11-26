@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createFetchProbe, isHealthy, isServing, waitForPools } from './wait-for-version';
+import { createFetchProbe, isHealthy, isServing, waitForPools } from './health-probes';
 
 const SHA = 'abc1234';
 

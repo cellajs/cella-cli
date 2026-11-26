@@ -3,7 +3,7 @@ import { formatPostgresUrl } from '../lib/postgres-url';
 import { databaseRuntimeSecrets, type RuntimeSecretDefinition } from '../lib/runtime-secrets';
 import { expectedDbPrivileges, POSTGRES_ROLE_NAMES } from '../lib/scaleway/db-privileges';
 import { createRdbClient, type RdbPrivilege, type RdbUser } from '../lib/scaleway/scaleway-rdb';
-import { createSecretManagerClient, type SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
+import { createSecretManagerClient, type SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { ENGINE_FOLDER, RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { readDatabaseOutputs } from '../lib/stack/store-outputs';
 import type { DatabaseRole } from '../lib/stores';
@@ -18,12 +18,7 @@ export interface EnsureDatabaseRdb {
 }
 
 /** The Secret Manager calls the task needs. */
-export interface EnsureDatabaseSecrets {
-  getSecretByName(name: string, path: string): Promise<SecretManagerSecret | undefined>;
-  accessLatestValue(secretId: string): Promise<string>;
-  ensureSecret(input: { name: string; path: string; description?: string }): Promise<SecretManagerSecret>;
-  putSecretValue(input: { secretId: string; value: string; description?: string; disablePrevious?: boolean }): Promise<unknown>;
-}
+export type EnsureDatabaseSecrets = Pick<SecretManagerClient, 'getSecretByName' | 'accessLatestValue' | 'ensureSecret' | 'putSecretValue'>;
 
 /** The private endpoint of the database, from the store's stack outputs. */
 export interface DatabaseEndpoint {

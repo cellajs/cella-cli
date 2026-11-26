@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ALLOWED_KEYS, buildDeployEnv } from './deploy-env';
+import { buildDeployEnv } from './deploy-env';
 
 const fakeAppConfig = {
   slug: 'cella',
@@ -23,11 +23,6 @@ const fakeAppConfig = {
 } as any;
 
 describe('buildDeployEnv', () => {
-  it('returns exactly the allowlist of keys (no widening)', () => {
-    const out = buildDeployEnv(fakeAppConfig);
-    expect(Object.keys(out).sort()).toEqual([...ALLOWED_KEYS].sort());
-  });
-
   it('derives values from appConfig', () => {
     expect(buildDeployEnv(fakeAppConfig)).toEqual({
       stack: 'production',

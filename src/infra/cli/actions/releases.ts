@@ -3,6 +3,7 @@ import { appDescription } from '../../lib/deploy/app-description';
 import { APPLY_NEEDED, type AppliedEngine, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
 import { describeChanges } from '../../lib/deploy/description-diff';
 import { commitRefs } from '../../lib/deploy/git-remote';
+import { findMainJob } from '../../lib/deploy/main-job';
 import { parseReleaseManifest, type ReleaseManifest, releaseManifestKey } from '../../lib/deploy/release-archives';
 import { type RunRecord, runOutcomeText } from '../../lib/deploy/run-record';
 import type { RunStore } from '../../lib/deploy/run-store';
@@ -19,7 +20,7 @@ import { ESCAPED, menuSelect } from '../prompts/menu-select';
 import { asksPerson, confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { type BootDiag, bootDiagOn, deployAndFollow, deployFixes, liveCommit } from './deploy-follow';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
-import { environmentTarget, findMainJob } from './start-deploy';
+import { environmentTarget } from './start-deploy';
 
 const LISTED_RELEASES = 10;
 /** How many of the newest runs are searched for a release's deploys. */

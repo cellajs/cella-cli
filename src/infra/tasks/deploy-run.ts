@@ -8,10 +8,12 @@ import { type DeployTarget, type LiveRecord, rolesToReplace } from '../lib/deplo
 import { MAIN_JOB_EXIT } from '../lib/deploy/main-job';
 import { parseReleaseManifest, type ReleaseManifest } from '../lib/deploy/release-archives';
 import { type RunBootAccount, type RunRecord, RunRecorder, runId, runLogKey, runRecordKey, runStartedAt } from '../lib/deploy/run-record';
+import type { EngineConfig } from '../lib/engine-config';
 import type { MachineRole } from '../lib/machine-roles';
+import { deriveInfra } from '../lib/naming';
 import { actionCommand } from '../lib/operator-actions';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
-import { isEnvironment } from '../lib/stack/environment';
+import { type Environment, isEnvironment } from '../lib/stack/environment';
 import { getFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
 import { infraDir } from '../lib/utils/paths';
@@ -114,7 +116,7 @@ export function deployFailureHint(err: unknown, mode: string): { description: st
   if (step && !STEPS_WITH_MACHINES.has(step)) return { description: `${where}Re-running is safe: the live record says what serves.` };
   return {
     description: `${where}Re-running is safe: a role that switched serves the target and is left as it is. The run's record names each new machine's boot account, and Deploy logs prints a failed one:`,
-    command: `pnpm cella infra logs --mode ${mode}`,
+    command: `${actionCommand('logs')} --mode ${mode}`,
   };
 }
 
@@ -128,12 +130,21 @@ export function parseDeployArgs(argv: string[]): DeployOptions {
   return { mode, sha, retry, run: getFlag(argv, '--run') };
 }
 
-/** Derive the deploy env table from the app config for the requested mode. */
-async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<DeployEnv> {
-  process.env.APP_MODE = opts.mode;
+/** The app's config for the run's mode, with the names, region and zone the live effects address. */
+type RunConfig = ReturnType<typeof deriveInfra> & { appConfig: EngineConfig };
+
+/** Load the app's config for the requested mode, once per run: the deploy env table and every live effect read it. */
+async function loadRunConfig(mode: string): Promise<RunConfig> {
+  process.env.APP_MODE = mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
-  if (appConfig.mode !== opts.mode) throw new Error(`Mode mismatch: requested "${opts.mode}" but loaded config is "${appConfig.mode}"`);
-  return buildDeployEnv(appConfig);
+  if (appConfig.mode !== mode) throw new Error(`Mode mismatch: requested "${mode}" but loaded config is "${appConfig.mode}"`);
+  return { ...deriveInfra(appConfig), appConfig };
+}
+
+/** The run's mode as an environment; throws for any other mode. */
+function environmentOf(mode: string): Environment {
+  if (!isEnvironment(mode)) throw new Error(`a deploy goes to production or staging, not '${mode}'`);
+  return mode;
 }
 
 /**
@@ -142,11 +153,7 @@ async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<DeployEnv> 
  * taken off the new machines, the frontend entry files, the smoke checks, and boot accounts on failure. The main job runs this with the deploy key in `SCW_*`, the one key it needs; it
  * touches no Pulumi state, no network and no pool.
  */
-export async function runDeploy(
-  opts: DeployOptions,
-  fx: DeployEffects,
-  loadDeployEnv: (opts: DeployOptions) => Promise<DeployEnv> = loadDeployEnvFromConfig,
-): Promise<void> {
+export async function runDeploy(opts: DeployOptions, fx: DeployEffects, loadDeployEnv: (opts: DeployOptions) => Promise<DeployEnv>): Promise<void> {
   const env = await loadDeployEnv(opts);
   const stack = env.stack;
 
@@ -396,17 +403,14 @@ async function writeRunRecordToBucket(opts: { bucket: string; region: string; re
   );
 }
 
-async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string; region: string; sha: string }): Promise<void> {
-  const [{ PutObjectCommand }, { engineConfig }, { generalConfig }, { resolvePerMode }, { contentTypeFor, ENTRY_FILE_NAMES, pruneFrontendAssets }] =
-    await Promise.all([
-      import('@aws-sdk/client-s3'),
-      import('infra/config/engine-config'),
-      import('infra/config/general.config'),
-      import('../lib/general-config'),
-      import('./frontend-assets'),
-    ]);
-  const { mode } = engineConfig;
-  if (!isEnvironment(mode)) throw new Error(`a deploy goes to production or staging, not '${mode}'`);
+async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string; region: string; sha: string }, runMode: string): Promise<void> {
+  const [{ PutObjectCommand }, { generalConfig }, { resolvePerMode }, { contentTypeFor, ENTRY_FILE_NAMES, pruneFrontendAssets }] = await Promise.all([
+    import('@aws-sdk/client-s3'),
+    import('infra/config/general.config'),
+    import('../lib/general-config'),
+    import('./frontend-assets'),
+  ]);
+  const mode = environmentOf(runMode);
   const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
   for (const name of ENTRY_FILE_NAMES) {
@@ -455,18 +459,16 @@ async function controlClient(region: string) {
   return makeControlClient(region, projectAccessKey(accessKey, process.env.SCW_DEFAULT_PROJECT_ID ?? ''), secretKey);
 }
 
-function createRealEffects(): DeployEffects {
+function liveEffects(config: RunConfig): DeployEffects {
   return {
     task: (name, options) => taskRunners[name](options),
     readFile: (path) => readFile(path, 'utf8'),
     async lease(stack, operation, run) {
-      const [{ leaseOwnerOfRun, lockKey }, { acquireLease, installSignalRelease }, { engineConfig }, { deriveInfra }] = await Promise.all([
+      const [{ leaseOwnerOfRun, lockKey }, { acquireLease, installSignalRelease }] = await Promise.all([
         import('../lib/stack/control-store'),
         import('../lib/stack/stack-lease'),
-        import('infra/config/engine-config'),
-        import('../lib/naming'),
       ]);
-      const { naming, region } = deriveInfra(engineConfig);
+      const { naming, region } = config;
       // A deploy queues behind another one for a while; a dead holder's lease lapses within its lifetime.
       const result = await acquireLease({
         s3: await controlClient(region),
@@ -503,16 +505,13 @@ function createRealEffects(): DeployEffects {
       };
     },
     async readLive(stack) {
-      const [{ engineConfig: appConfig }, { deriveInfra }, { machineRoles }, { readLiveRecordForDeploy }, { readRotations }, { listRoleMachines }] =
-        await Promise.all([
-          import('infra/config/engine-config'),
-          import('../lib/naming'),
-          import('../lib/machine-roles'),
-          import('../lib/deploy/live-record'),
-          import('../lib/stack/control-store'),
-          import('./switch-machines'),
-        ]);
-      const { naming, region, zone } = deriveInfra(appConfig);
+      const [{ machineRoles }, { readLiveRecordForDeploy }, { readRotations }, { listRoleMachines }] = await Promise.all([
+        import('../lib/machine-roles'),
+        import('../lib/deploy/live-record'),
+        import('../lib/stack/control-store'),
+        import('./switch-machines'),
+      ]);
+      const { appConfig, naming, region, zone } = config;
       const s3 = await controlClient(region);
       const { rotations } = await readRotations(s3, naming.bootDiagBucket, stack);
       const roles = machineRoles(appConfig);
@@ -522,9 +521,11 @@ function createRealEffects(): DeployEffects {
       return { roles, record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
     },
     async leftovers({ roles, record, sha, frontendBucket }) {
-      const [{ engineConfig }, { deriveInfra }, { listRoleMachines }, { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix }] =
-        await Promise.all([import('infra/config/engine-config'), import('../lib/naming'), import('./switch-machines'), import('./frontend-assets')]);
-      const { naming, region, zone } = deriveInfra(engineConfig);
+      const [{ listRoleMachines }, { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix }] = await Promise.all([
+        import('./switch-machines'),
+        import('./frontend-assets'),
+      ]);
+      const { naming, region, zone } = config;
       const scope = { zone, projectId: process.env.SCW_DEFAULT_PROJECT_ID ?? '', naming };
       const auth = { secretKey: deployS3Key().secretKey };
       const strays = await Promise.all(
@@ -549,8 +550,6 @@ function createRealEffects(): DeployEffects {
     engineDescription: async () => (await import('../lib/deploy/app-description')).appDescription(),
     async switchMachines(request) {
       const [
-        { engineConfig: appConfig },
-        { deriveInfra },
         { readFoundation },
         { bucketPresigner },
         { recordRole },
@@ -560,8 +559,6 @@ function createRealEffects(): DeployEffects {
         { supplierContext },
         { projectAccessKey },
       ] = await Promise.all([
-        import('infra/config/engine-config'),
-        import('../lib/naming'),
         import('../lib/scaleway/foundation'),
         import('../lib/scaleway/presign'),
         import('../lib/deploy/live-record'),
@@ -573,11 +570,10 @@ function createRealEffects(): DeployEffects {
       ]);
       const { GetObjectCommand } = await import('@aws-sdk/client-s3');
       const { storedBeforeItsKey } = await import('../lib/deploy/boot-accounts');
-      const { naming, region, zone } = deriveInfra(appConfig);
+      const { appConfig, naming, region, zone } = config;
       const projectId = process.env.SCW_DEFAULT_PROJECT_ID ?? '';
       const { accessKey, secretKey } = deployS3Key();
-      const mode = appConfig.mode;
-      if (!isEnvironment(mode)) throw new Error(`a deploy goes to production or staging, not '${mode}'`);
+      const mode = environmentOf(appConfig.mode);
       const s3 = await diagnosticsClient(region);
       const control = await controlClient(region);
       const foundation = await readFoundation({ secretKey }, { region, zone, projectId, naming, mode, roles: request.roles });
@@ -616,17 +612,14 @@ function createRealEffects(): DeployEffects {
         effects,
       );
     },
-    publishEntryFiles: publishEntryFilesToBucket,
+    publishEntryFiles: (opts) => publishEntryFilesToBucket(opts, config.appConfig.mode),
     writeRunRecord: writeRunRecordToBucket,
     async bootAccounts(envs) {
-      const [{ accountFailed, BOOT_ACCOUNTS_PREFIX, storedBeforeItsKey }, { engineConfig }, { deriveInfra }, { GetObjectCommand }] =
-        await Promise.all([
-          import('../lib/deploy/boot-accounts'),
-          import('infra/config/engine-config'),
-          import('../lib/naming'),
-          import('@aws-sdk/client-s3'),
-        ]);
-      const { naming, region } = deriveInfra(engineConfig);
+      const [{ accountFailed, BOOT_ACCOUNTS_PREFIX, storedBeforeItsKey }, { GetObjectCommand }] = await Promise.all([
+        import('../lib/deploy/boot-accounts'),
+        import('@aws-sdk/client-s3'),
+      ]);
+      const { naming, region } = config;
       const s3 = await diagnosticsClient(region);
       return Promise.all(
         envs.map(async ({ service, bootAccount }): Promise<RunBootAccount> => {
@@ -646,5 +639,7 @@ function createRealEffects(): DeployEffects {
 
 /** Entry called by deploy.ts once APP_MODE is set: the imports here evaluate the app's config. */
 export async function main(argv: string[]): Promise<void> {
-  await runDeploy(parseDeployArgs(argv), createRealEffects());
+  const opts = parseDeployArgs(argv);
+  const config = await loadRunConfig(opts.mode);
+  await runDeploy(opts, liveEffects(config), async () => buildDeployEnv(config.appConfig));
 }

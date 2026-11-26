@@ -149,3 +149,6 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
     },
   };
 }
+
+/** The Secret Manager client. A task takes a `Pick` of the calls it makes, and a test passes its own. */
+export type SecretManagerClient = ReturnType<typeof createSecretManagerClient>;

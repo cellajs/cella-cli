@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { frontendProxyDockerfile } from '../lib/builder/builder-machine';
-import { rootNodeVersion } from '../lib/deploy/main-job';
+import { rootNodeVersion } from '../deploy/main-job';
 import { bakeDefinition } from './build-images';
+import { frontendProxyDockerfile } from './builder-machine';
 
 const nodeVersion = rootNodeVersion();
 const base = { registry: 'rg.nl-ams.scw.cloud', namespace: 'app', releaseSha: 'abc', nodeVersion, archiveDir: '/run/images' };

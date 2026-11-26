@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { rootPackage } from '../../utils/app';
+import { type BuildImageRow, bakeDefinition } from '../lib/builder/build-images';
 import {
   agentBundleScript,
   BUILDER_ARCHIVE_DIR,
@@ -11,6 +12,7 @@ import {
   builderReportPrefix,
   frontendScript,
 } from '../lib/builder/builder-machine';
+import { frontendBuildEnv } from '../lib/builder/frontend-build-env';
 import { readUstar, writeArchiveFiles } from '../lib/deploy/frontend-archive';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import {
@@ -34,9 +36,7 @@ import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
 import { repoRoot } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
-import { type BuildImageRow, bakeDefinition } from './build-images';
 import { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
-import { frontendBuildEnv } from './frontend-build-env';
 
 // 8 vCPUs: the bake and the frontend build run side by side; about two cents a build.
 const BUILDER_TYPE = 'POP2-HC-8C-16G';

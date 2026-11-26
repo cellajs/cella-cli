@@ -3,7 +3,7 @@ import { join } from 'node:path';
 import { printable } from '../../../utils/terminal-text';
 import { commitRefs, listRemoteRefs } from '../../lib/deploy/git-remote';
 import { readLiveRecord } from '../../lib/deploy/live-record';
-import { mainJobOutcome } from '../../lib/deploy/main-job';
+import { findMainJob, mainJobOutcome } from '../../lib/deploy/main-job';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
 import { commitRecords } from '../../lib/deploy/run-store';
 import { rotationTarget } from '../../lib/deploy/scheduled-run';
@@ -11,7 +11,7 @@ import { commitName, ENVIRONMENTS_FILE, parseEnvironmentsFile, resolveTarget, ty
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { findJobDefinition, listJobRuns, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
+import { listJobRuns, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
 import { leaseDeploys, leaseLive, lockKey, peekLock } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
@@ -64,12 +64,6 @@ async function followIfLive(context: InfraContext, key: KeyPair): Promise<Follow
   if (!live) return 'none';
   console.info(`${pc.yellow('●')} ${commitName(await commitRefs(), live.record.target)} is deploying.`);
   return followLiveDeploy(context, key, live);
-}
-
-/** The id of the environment's main job definition, read with `key`; undefined before an apply made it. */
-export async function findMainJob(context: InfraContext, key: { secretKey: string }): Promise<string | undefined> {
-  const { naming, region } = deriveInfra(context.appConfig);
-  return findJobDefinition({ secretKey: key.secretKey }, { region, projectId: context.projectId, name: naming.resource('main') });
 }
 
 /** How long a target read waits for the repository before it fails with a line, so a stalled remote never hangs an action. */

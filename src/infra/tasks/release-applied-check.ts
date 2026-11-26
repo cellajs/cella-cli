@@ -1,6 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync } from 'node:fs';
 import { appliedDescriptionVariable, followsReleases } from '../lib/deploy/release-gate';
+import { actionCommand } from '../lib/operator-actions';
 import { environments } from '../lib/stack/environment';
 import { stackFilePath } from '../lib/stack/project-per-mode';
 import { isRecord } from '../lib/utils/guards';
@@ -31,7 +32,7 @@ function releaseLine(mode: string, release: string, applied: unknown): { line: s
       : 'GitHub holds no description from its last apply';
   return {
     deploys: false,
-    line: `**${mode} owes an apply before this release merges:** ${state}. \`pnpm cella infra apply --mode ${mode}\` from main publishes main's description and runs this check again.`,
+    line: `**${mode} owes an apply before this release merges:** ${state}. \`${actionCommand('apply')} --mode ${mode}\` from main publishes main's description and runs this check again.`,
   };
 }
 

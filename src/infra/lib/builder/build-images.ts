@@ -1,7 +1,7 @@
 import { basename, dirname } from 'node:path';
-import { ENGINE_ASSETS } from '../lib/builder/builder-machine';
-import { pinnedNodeImage } from '../lib/deploy/node-image';
-import { AGENT_IMAGE_NAME } from '../lib/deploy/release-archives';
+import { pinnedNodeImage } from '../deploy/node-image';
+import { AGENT_IMAGE_NAME } from '../deploy/release-archives';
+import { ENGINE_ASSETS } from './builder-machine';
 
 // The bake definition the builder machine runs: targets derive from the deploy's build matrix, and each image is written as an archive.
 

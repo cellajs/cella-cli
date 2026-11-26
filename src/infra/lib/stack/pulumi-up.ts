@@ -118,7 +118,7 @@ export function pulumiUpArgs(stack: string, opts: PulumiUpOptions = {}): string[
 /** Run `pulumi up --yes --non-interactive` in the infra folder. `configFile` swaps the stack config for the DB-exposure overlay; a non-zero exit prints a permission hint when stderr indicates one. */
 export async function runPulumiUpWithHint(stack: string, env: NodeJS.ProcessEnv, opts: PulumiUpOptions = {}): Promise<PulumiUpResult> {
   const args = pulumiUpArgs(stack, opts);
-  console.info(`\n→ pulumi up (base infra)\n  $ pulumi ${args.join(' ')}`);
+  console.info(`\n→ pulumi up (foundation)\n  $ pulumi ${args.join(' ')}`);
   // stdout is teed, not inherited, so the Diagnostics section reaches parseOrphanedDeletes; --non-interactive already forces the plain display, so piping changes nothing for the operator.
   const child = spawn('pulumi', args, { cwd: infraDir, env, stdio: ['inherit', 'pipe', 'pipe'] });
   let stdoutBuf = '';

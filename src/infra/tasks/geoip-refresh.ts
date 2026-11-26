@@ -6,7 +6,7 @@ import { errorMessage } from '../lib/utils/errors';
 
 export type GeoipKind = 'country' | 'asn';
 export const GEOIP_KINDS: readonly GeoipKind[] = ['country', 'asn'];
-export const DEFAULT_PREFIX = 'geoip';
+const DEFAULT_PREFIX = 'geoip';
 
 /** What the prefix holds: the backend never reads it, operators and the staleness gate do. */
 export interface GeoipManifest {
@@ -139,7 +139,7 @@ export async function sequenceGeoipRefresh(plan: GeoipRefreshPlan): Promise<Geoi
 }
 
 /** Live effects: DB-IP over HTTPS, the bucket over the S3 API with the deploy key in the environment. */
-export async function createLiveEffects(opts: { bucket: string; region: string; prefix: string }) {
+export async function liveEffects(opts: { bucket: string; region: string; prefix: string }) {
   const { GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3');
   const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
@@ -191,7 +191,7 @@ export interface GeoipRefreshStep {
 /** The deploy's GeoIP step, this month's data under the default prefix. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket. */
 export async function main({ bucket, region, maxAgeDays, keysRotatedAt }: GeoipRefreshStep): Promise<void> {
   const prefix = DEFAULT_PREFIX;
-  const effects = await createLiveEffects({ bucket, region, prefix });
+  const effects = await liveEffects({ bucket, region, prefix });
   const result = await sequenceGeoipRefresh({
     bucket,
     prefix,

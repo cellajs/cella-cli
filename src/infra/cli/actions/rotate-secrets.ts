@@ -15,9 +15,9 @@ import { checkMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { ensureDatabaseForStack } from '../../tasks/ensure-database';
 import { ensureSecrets } from '../../tasks/ensure-secrets';
-import { shortDate } from '../../tasks/manage-runtime-secrets';
 import { rememberedOperatorKey } from '../session';
 import { acquireStackLockOrEnd, confirmOrDefault, endsAction, type InfraContext, openStack, pointTo, stackNameFor } from '../shared';
+import { shortDate } from './manage-runtime-secrets';
 import { acquireAdmittedOperatorKey } from './operator-apply';
 import { redeployAfterRotation } from './start-deploy';
 

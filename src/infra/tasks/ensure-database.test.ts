@@ -35,7 +35,7 @@ function fakeSecrets(store: Record<string, string | undefined>) {
     putSecretValue: async (input) => {
       writes[input.secretId] = input.value;
       store[input.secretId] = input.value;
-      return {};
+      return { revision: 1, secret_id: input.secretId };
     },
   };
   return { secrets, writes };

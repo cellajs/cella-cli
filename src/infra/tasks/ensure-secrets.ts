@@ -1,14 +1,12 @@
 import { randomBytes } from 'node:crypto';
 import { engineMadeRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
-import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
+import type { PutSecretValueInput, SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 
-/** The Secret Manager calls the task needs, so a test passes its own. */
-export interface EnsureSecretsClient {
-  getSecretByName(name: string, path: string): Promise<SecretManagerSecret | undefined>;
-  accessLatestValue(secretId: string): Promise<string>;
-  putSecretValue(input: { secretId: string; value: string; description?: string; disablePrevious?: boolean }): Promise<unknown>;
-}
+/** The Secret Manager calls the task needs. An app's test fake of the write answers what it likes: the task reads nothing of the answer. */
+export type EnsureSecretsClient = Pick<SecretManagerClient, 'getSecretByName' | 'accessLatestValue'> & {
+  putSecretValue(input: PutSecretValueInput): Promise<unknown>;
+};
 
 /** A fresh generated value: 32 URL-safe characters from 192 random bits. */
 export function generateSecretValue(): string {

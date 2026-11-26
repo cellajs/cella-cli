@@ -10,6 +10,7 @@ import {
 } from '../../lib/deploy/boot-accounts';
 import { classifyRun, scalewayStatus } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
+import { findMainJob } from '../../lib/deploy/main-job';
 import { type Growth, type RunRecord, rewriteNote, runSummaryLine, stepLine, wroteRecord } from '../../lib/deploy/run-record';
 import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
 import { commitName, type RemoteRef } from '../../lib/deploy/target';
@@ -36,7 +37,6 @@ import { BACK, RULE } from '../menu';
 import { PromptBack } from '../prompts/back';
 import { ESCAPED, menuSelect } from '../prompts/menu-select';
 import { asksPerson, endAction, type InfraContext, pointTo } from '../shared';
-import { findMainJob } from './start-deploy';
 
 const LIST_LENGTH = 10;
 const LOG_TAIL = 40;

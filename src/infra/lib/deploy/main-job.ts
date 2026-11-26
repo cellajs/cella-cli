@@ -1,7 +1,9 @@
 import { generalConfig } from 'infra/config/general.config';
 import { rootPackage } from '../../../utils/app';
+import type { EngineConfig } from '../engine-config';
 import { resolvePerMode } from '../general-config';
 import { ENGINE_FOLDER } from '../scaleway/secret-paths';
+import { findJobDefinition } from '../scaleway/serverless-jobs';
 import { isEnvironment } from '../stack/environment';
 import { repoRoot } from '../utils/paths';
 
@@ -32,6 +34,14 @@ export function mainJobOutcome(run: { state: string; exit_code?: number | null }
   if (run.state === 'succeeded') return 'deployed';
   if (run.state === 'failed' && run.exit_code === MAIN_JOB_EXIT.blocked) return 'blocked';
   return 'failed';
+}
+
+/** The id of the environment's main job definition, read with `key`; undefined before an apply made it. */
+export async function findMainJob(scope: { appConfig: EngineConfig; projectId: string }, key: { secretKey: string }): Promise<string | undefined> {
+  // Lazy: naming loads the app's services config, and the main job's process imports this file before it sets APP_MODE.
+  const { deriveInfra } = await import('../naming');
+  const { naming, region } = deriveInfra(scope.appConfig);
+  return findJobDefinition({ secretKey: key.secretKey }, { region, projectId: scope.projectId, name: naming.resource('main') });
 }
 
 /** The root `package.json`'s `engines.node`: the Node every run of the engine starts on. */

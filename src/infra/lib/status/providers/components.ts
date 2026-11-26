@@ -1,6 +1,6 @@
-import { createFetchGet } from '../../../tasks/smoke';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../../health-components';
 import { healthContract } from '../../health-contract';
+import { createFetchGet } from '../../health-probes';
 import { deployedServices, serviceEndpoints } from '../../services';
 import { check, diagAction } from '../check';
 import type { Check, StatusProvider } from '../types';

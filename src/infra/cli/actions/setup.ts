@@ -1,8 +1,8 @@
 import { principalNames } from '../../lib/scaleway/principals';
 import { crossMark, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { printInventory } from '../../tasks/status';
 import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
+import { printInventory } from '../status';
 import { acquireOperatorKey } from './operator-unlock';
 import { printLaunchChecklist } from './setup-checklist';
 import { copyDeployKeyForMainJob, recordKeyRotation, runOperatorPart } from './setup-operator-part';

@@ -33,15 +33,13 @@ if (!derived.hasDomain) {
   );
 }
 
-// Exposed here so resource modules import mode from one place.
-export const mode = appConfig.mode;
-
 // Deploys only target production/staging; narrow once to a typed Environment so
 // downstream sizing/config lookups don't need per-call assertions.
-if (!isEnvironment(mode)) {
-  throw new Error(`Pulumi deploys only support 'production' or 'staging' (got '${mode}').`);
+if (!isEnvironment(appConfig.mode)) {
+  throw new Error(`Pulumi deploys only support 'production' or 'staging' (got '${appConfig.mode}').`);
 }
-export const deployMode: Environment = mode;
+// Exposed here so resource modules import mode from one place.
+export const mode: Environment = appConfig.mode;
 
 // Per-service public endpoints (host + URL), derived from the service registry by slug.
 const endpointBySlug = new Map(serviceEndpoints(appConfig).map((e) => [e.slug, e]));

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../lib/health-components';
-import { type HttpResponse, main, missingSecurityHeaders, runSmoke, smokeTargets } from './smoke';
+import type { HttpResponse } from '../lib/health-probes';
+import { main, missingSecurityHeaders, runSmoke, smokeTargets } from './smoke';
 
 const SHA = 'abc1234';
 

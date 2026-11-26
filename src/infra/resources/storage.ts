@@ -7,7 +7,7 @@ import { ENV_PREFIX, RELEASES_PREFIX } from '../lib/deploy/release-archives';
 import { RUNS_PREFIX } from '../lib/deploy/run-record';
 import { appStorageNeeds, services } from '../lib/services';
 import { CONTROL_PREFIX, lockKey, rotationsKey } from '../lib/stack/control-store';
-import { deployMode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
+import { mode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
 import { DUMPS_PREFIX } from '../tasks/final-dump';
 import { ciDeployApplicationId, observerApplicationId, operatorPrincipals, transloaditApplicationId, uploadsApplicationId } from './identities';
 
@@ -298,7 +298,7 @@ const bootDiagBucket = new scaleway.object.Bucket(
         prefix: DUMPS_PREFIX,
       },
       // Every deploy and operator action writes the lease, and Scaleway refuses a write to an object of too many versions.
-      { id: 'expire-lease-versions', enabled: true, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: lockKey(deployMode) },
+      { id: 'expire-lease-versions', enabled: true, noncurrentVersionExpiration: { noncurrentDays: 1 }, prefix: lockKey(mode) },
     ],
   },
   kept,
@@ -335,18 +335,14 @@ new scaleway.object.BucketPolicy(
           : []),
         // The release's archives, manifest and builder reports, the env files, the boot accounts, the run records, the lease and the live
         // record. A lost deploy key cannot rewrite the applied engine or the rotations, which only the operator key writes.
-        deployAccess(
-          bootDiagBucket.name,
-          [RELEASES_PREFIX, ENV_PREFIX, BOOT_ACCOUNTS_PREFIX, RUNS_PREFIX],
-          [lockKey(deployMode), liveRecordKey(deployMode)],
-        ),
+        deployAccess(bootDiagBucket.name, [RELEASES_PREFIX, ENV_PREFIX, BOOT_ACCOUNTS_PREFIX, RUNS_PREFIX], [lockKey(mode), liveRecordKey(mode)]),
         // Every deploy reads the rotations, to replace each machine booted before the newest rotation.
         {
           Sid: 'DeployReadsRotations',
           Effect: 'Allow',
           Principal: { SCW: pulumi.interpolate`application_id:${ciDeployApplicationId}` },
           Action: ['s3:GetObject'],
-          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${rotationsKey(deployMode)}`],
+          Resource: [pulumi.interpolate`${bootDiagBucket.name}/${rotationsKey(mode)}`],
         },
         // The deploy deletes a booted machine's env file with its version, which no other object of the bucket may lose.
         {

@@ -5,21 +5,11 @@ import { actionLabel } from '../../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../../lib/runtime-secrets';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
-import { createSecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
+import { createSecretManagerClient, type SecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
 import { controlActor, makeControlClient, recordRotation } from '../../lib/stack/control-store';
 import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
 import { isEnvFileDeliverable } from '../../lib/utils/compose-env-value';
 import { errorMessage } from '../../lib/utils/errors';
-import {
-  formatSecretsTable,
-  type RuntimeContainer,
-  readContainers,
-  type SecretManagerClient,
-  type SecretRow,
-  secretRow,
-  secretsTable,
-  setValue,
-} from '../../tasks/manage-runtime-secrets';
 import { provisionManagedKey } from '../../tasks/provision-managed-key';
 import { BACK, type MenuChoice, RULE } from '../menu';
 import { confirm, PromptBack } from '../prompts/back';
@@ -28,6 +18,15 @@ import { ESCAPED, type MenuSelectOptions, menuSelect } from '../prompts/menu-sel
 import { leaveRow } from '../prompts/what-now';
 import { acquireStackLockOrEnd, asksPerson, confirmOrDefault, endsAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { bootDiagOn } from './deploy-follow';
+import {
+  formatSecretsTable,
+  type RuntimeContainer,
+  readContainers,
+  type SecretRow,
+  secretRow,
+  secretsTable,
+  setValue,
+} from './manage-runtime-secrets';
 import { acquireIdentityKey, acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { type OwnerKey, printRevokeReminder } from './owner-key';
 import { lastSecretsRotation, runRotateSecrets } from './rotate-secrets';

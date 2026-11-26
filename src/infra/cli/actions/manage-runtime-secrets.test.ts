@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import { describe, expect, it } from 'vitest';
-import type { RuntimeSecretDefinition } from '../lib/runtime-secrets';
+import type { RuntimeSecretDefinition } from '../../lib/runtime-secrets';
 import { formatSecretsTable, planEnvImport, secretsTable } from './manage-runtime-secrets';
 
 const definition = (overrides: Partial<RuntimeSecretDefinition>): RuntimeSecretDefinition => ({

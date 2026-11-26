@@ -34,6 +34,10 @@ export type NodeImageVariant = 'alpine' | 'bookworm' | 'bookworm-slim';
  */
 export function pinnedNodeImage(nodeVersion: string, variant: NodeImageVariant): string {
   const digest = nodeImageDigests[nodeVersion]?.[variant];
-  if (!digest) throw new Error(`lib/deploy/node-image.ts has no digest of node:${nodeVersion}-${variant}: a Node bump adds it`);
+  if (!digest) {
+    throw new Error(
+      `@cellajs/cli pins no digest of node:${nodeVersion}-${variant}: set the root package.json's engines.node to a Node it pins (${Object.keys(nodeImageDigests).join(', ')}), or upgrade @cellajs/cli to a release that pins ${nodeVersion}`,
+    );
+  }
   return `docker.io/library/node:${nodeVersion}-${variant}@${digest}`;
 }

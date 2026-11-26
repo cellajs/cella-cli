@@ -243,14 +243,14 @@ export function leaseDeploys(info: { owner?: string; operation?: string }): bool
   return Boolean(info.owner?.startsWith('run:') && info.operation === DEPLOY_OPERATION);
 }
 
-/** True while a lease runs at `now`. One at or past its `expiresAt`, or whose expiry does not parse, is broken by the next acquire. */
-export function leaseLive(info: Pick<LockInfo, 'expiresAt'>, now = Date.now()): boolean {
-  return Date.parse(info.expiresAt) > now;
+/** True while a lease runs at `now`. One at or past its `expiresAt`, or whose expiry is absent or does not parse, is broken by the next acquire. */
+export function leaseLive(info: Partial<Pick<LockInfo, 'expiresAt'>>, now = Date.now()): boolean {
+  return Date.parse(info.expiresAt ?? '') > now;
 }
 
 /** True while a deploy holds a live lease under this run: its record that says running is deploying, and interrupted otherwise. */
 export function leaseHeldByRun(lock: { owner?: string; operation?: string; expiresAt?: string } | undefined, run: string, now = Date.now()): boolean {
-  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === DEPLOY_OPERATION && Date.parse(lock.expiresAt ?? '') > now;
+  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === DEPLOY_OPERATION && leaseLive(lock, now);
 }
 
 /** Who holds a lease, as a person reads it: `run <id>` for a deploy, else the holder and its operation. */

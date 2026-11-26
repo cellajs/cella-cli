@@ -7,7 +7,7 @@ import {
   PutBucketVersioningCommand,
   type S3Client,
 } from '@aws-sdk/client-s3';
-import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
+import { isAccessDenied, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 
 export type EnsureResult = 'exists' | 'created';
 
@@ -21,12 +21,12 @@ export async function ensureStateBucket(s3: S3Client, bucketName: string): Promi
     .send(new HeadBucketCommand({ Bucket: bucketName }))
     .then(() => true)
     .catch((err: { $metadata?: { httpStatusCode?: number } }) => {
-      const status = err.$metadata?.httpStatusCode;
       // 403 is ambiguous on Scaleway (foreign-owned, missing perms, stale reservation), so CreateBucket gives the definite answer.
-      if (status === 403) {
+      if (isAccessDenied(err)) {
         headWasAmbiguous403 = true;
         return false;
       }
+      const status = err.$metadata?.httpStatusCode;
       if (status === 404 || status === 301) return false;
       throw err;
     });
@@ -71,8 +71,7 @@ export async function hardenStateBucket(
       await run();
       applied.push(label);
     } catch (err: unknown) {
-      const status = (err as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode;
-      if (status === 403) {
+      if (isAccessDenied(err)) {
         denied.push(label);
         return;
       }

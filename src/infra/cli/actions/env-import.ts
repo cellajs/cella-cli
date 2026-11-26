@@ -3,13 +3,13 @@ import { resolve } from 'node:path';
 import { actionLabel } from '../../lib/operator-actions';
 import { runtimeSecrets } from '../../lib/runtime-secrets';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
+import { createSecretManagerClient, type SecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
 import { parseEnvText, rootEnvFile } from '../../lib/utils/env-files';
 import { errorMessage } from '../../lib/utils/errors';
-import { formatEnvImport, planEnvImport, readContainers, type SecretManagerClient, setValue } from '../../tasks/manage-runtime-secrets';
 import { confirm, input } from '../prompts/back';
 import type { InfraContext } from '../shared';
+import { formatEnvImport, planEnvImport, readContainers, setValue } from './manage-runtime-secrets';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { applyFirst, offerDeploy } from './secrets';
 

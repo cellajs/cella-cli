@@ -2,10 +2,10 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../lib/health-components';
 import { healthContract } from '../lib/health-contract';
+import { createFetchGet, type HttpGet, isHealthy } from '../lib/health-probes';
 import { errorMessage } from '../lib/utils/errors';
 import { pollUntil } from '../lib/utils/retry';
 import { sleep as defaultSleep } from '../lib/utils/sleep';
-import { isHealthy } from './wait-for-version';
 
 /** Extract the hashed entry script src (e.g. /assets/index-abc123.js) from HTML. */
 function extractEntryAsset(html: string): string | undefined {
@@ -39,42 +39,10 @@ export function missingSecurityHeaders(headers: Headers): string[] {
   return SECURITY_HEADERS.filter((h) => headers.get(h) === null);
 }
 
-export interface HttpResponse {
-  status: number;
-  ok: boolean;
-  headers: Headers;
-  body: string;
-}
-
-/** Performs a single HTTP GET; `redirect: 'manual'` answers a redirect as the response it is. Injectable so the smoke checks can be unit-tested. */
-export type HttpGet = (url: string, init?: { redirect: 'manual' }) => Promise<HttpResponse>;
-
 /** One enabled service as deploy-env's enabled_services lists it. */
 export interface SmokeService {
   service: string;
   health_url: string;
-}
-
-/**
- * Default GET using global fetch with no-cache headers and a timeout.
- * ws(s):// URLs are probed over plain HTTP on the same host, because a WebSocket worker's /health speaks HTTP and fetch rejects the ws scheme.
- */
-export function createFetchGet(timeoutMs: number): HttpGet {
-  return async (rawUrl, init) => {
-    const url = rawUrl.replace(/^ws(s?):/, 'http$1:');
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), timeoutMs);
-    try {
-      const res = await fetch(url, {
-        signal: controller.signal,
-        redirect: init?.redirect ?? 'follow',
-        headers: { 'Cache-Control': 'no-cache', Pragma: 'no-cache' },
-      });
-      return { status: res.status, ok: res.ok, headers: res.headers, body: await res.text() };
-    } finally {
-      clearTimeout(timer);
-    }
-  };
 }
 
 export interface SmokeOptions {
