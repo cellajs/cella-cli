@@ -1,6 +1,7 @@
 import type { AppliedEngine } from '../deploy/applied-engine';
 import type { JobDefinitionFacts, JobRun } from '../deploy/job-runs';
 import type { LiveRecord } from '../deploy/live-record';
+import type { EngineConfig } from '../engine-config';
 import type { KeyPair } from '../scaleway/operator-identity';
 import type { StackState } from '../stack/bootstrap-stack-state';
 
@@ -61,7 +62,7 @@ export interface LockFacts {
   stale?: boolean;
 }
 
-/** Facts shared by the state, live and inventory providers (one read): the state bucket's presence and the control records. */
+/** Facts shared by the state, live, inventory, schedule and runs providers (one read): the state bucket's presence and the control records. */
 export interface ScalewayFacts {
   /** undefined = not checked (no creds or error). */
   stateBucketExists?: boolean;
@@ -77,7 +78,7 @@ export interface ScalewayFacts {
 /** Everything a provider's `gather` may draw on: stack context, the probe key, and the memoized control-object read the providers share. */
 export interface ProbeSession {
   mode: string;
-  appConfig: import('../engine-config').EngineConfig;
+  appConfig: EngineConfig;
   stackState: StackState;
   stackYaml?: string;
   projectId?: string;

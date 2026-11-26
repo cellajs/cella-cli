@@ -11,7 +11,6 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { gitDiffFile, openInBrowser, renderDiffPage, writeDiffPage } from '../../src/upstream/diff-page';
-import { getEnv } from '../../src/utils/env';
 import { exec, gitUser } from '../helpers/test-env';
 
 describe('diff helpers', () => {
@@ -61,7 +60,7 @@ describe('diff helpers', () => {
     fs.writeFileSync(path.join(repoRoot, 'x.ts'), 'const side = "upstream content";\n');
     exec('git add -A && git commit -m "initial"', repoRoot);
 
-    originalPath = getEnv('PATH');
+    originalPath = process.env.PATH;
     vi.stubEnv('PATH', `${binDir}:${originalPath ?? ''}`);
     vi.stubEnv('OPEN_ARGS_FILE', argsFile);
   });

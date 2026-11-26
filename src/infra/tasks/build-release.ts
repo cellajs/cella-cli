@@ -32,7 +32,6 @@ import { scwErrorStatus, scwFetch } from '../lib/scaleway/scw-fetch';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
 import { bakeDefinition, parseBuildRows } from './build-images';
@@ -339,7 +338,7 @@ function liveEffects(opts: {
  * The deploy's step: the deploy key in `SCW_ACCESS_KEY` / `SCW_SECRET_KEY`; names, the repository and the pnpm version from the config. The
  * checked manifest goes to `--manifest-out`, from which the deploy hands each new machine the digests of the archives it loads.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
   const sha = getFlag(argv, '--sha');
@@ -419,5 +418,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   );
   await writeFile(manifestOut, JSON.stringify(manifest), { mode: 0o600 });
 }
-
-runIfMain(import.meta.url, main);

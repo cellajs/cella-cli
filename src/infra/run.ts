@@ -23,7 +23,7 @@ const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
 
 /**
  * Runs a task, or the infra CLI with every other first word: the CLI reads its words from `process.argv` and ends the
- * process itself.
+ * process itself, after a prompt aborted at its top level too.
  * @returns a task's exit code
  */
 export async function runInfra(words: string[]): Promise<number> {
@@ -31,7 +31,13 @@ export async function runInfra(words: string[]): Promise<number> {
   const task = Object.hasOwn(tasks, first) ? tasks[first] : undefined;
   if (!task) {
     process.argv = [process.argv[0] ?? 'node', 'infra', ...words];
-    await import('./cli/infra-cli');
+    try {
+      await import('./cli/infra-cli');
+    } catch (error) {
+      // A rejection at the CLI's top level rejects this import, and the CLI's uncaught-exception handler never sees it
+      const { endIfPromptAbort } = await import('./cli/prompts/abort');
+      if (!endIfPromptAbort(error)) throw error;
+    }
     return 0;
   }
   process.argv = [process.argv[0] ?? 'node', first, ...rest, ...(first === 'compose-check' ? ['--check'] : [])];

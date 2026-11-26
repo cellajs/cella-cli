@@ -3,7 +3,6 @@ import { existsSync } from 'node:fs';
 import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
-import { getEnvSnapshot } from './env';
 import { printable } from './terminal-text';
 
 const execFileAsync = promisify(execFile);
@@ -38,7 +37,7 @@ interface GitCommandOptions {
  */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
-    ...getEnvSnapshot(),
+    ...process.env,
     GIT_LITERAL_PATHSPECS: '1',
     ...(options.skipEditor ? { GIT_EDITOR: 'true' } : {}),
     ...options.env,

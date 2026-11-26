@@ -1,7 +1,3 @@
-/**
- * Command-line parsing: commander wiring for every command, and the interactive menu.
- */
-
 import process from 'node:process';
 import { Command as CommanderCommand, Option } from 'commander';
 import type { Command, CommandGroup, MenuContext } from './command';
@@ -42,9 +38,9 @@ function addCommand(
     .description(declared.description)
     .helpGroup(groupHeadings[declared.group]);
   if (declared.handsOver) {
-    const [words, description] = declared.passthrough ?? ['words', 'what the program it hands over to reads'];
+    const [words, description] = declared.passthrough ?? ['words', 'what the command parses itself'];
     command.helpOption(false).allowUnknownOption().allowExcessArguments().argument(`[${words}...]`, description);
-    // The words as typed, in order: the program the command hands them to parses them, `--help` included
+    // The words as typed, in order: the command parses them itself, `--help` included
     command.action(() => {
       const passthrough = argv.slice(argv.indexOf(declared.name, 2) + 1);
       const options = declared.parse({ job: undefined, operands: [], opts: {}, passthrough });

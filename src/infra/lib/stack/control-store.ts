@@ -3,12 +3,6 @@ import { makeS3Client } from '../scaleway/s3-client';
 import { errorMessage } from '../utils/errors';
 import { isRecord } from '../utils/guards';
 
-/**
- * The control records of an environment, under `control/<mode>/` of its boot-diagnostics bucket: the live record (lib/deploy/live-record.ts),
- * the lease, the rotations and the applied engine an apply publishes (lib/deploy/applied-engine.ts). The observer reads them all, and the
- * Pulumi program reads the applied engine alone.
- */
-
 /** One rotation: when, and who ran it. */
 export interface RotationRecord {
   at: string;
@@ -159,7 +153,10 @@ const modeOf = (stack: string): string => stack.split('/').pop() ?? stack;
 /** Where every environment's control records live in its boot-diagnostics bucket. */
 export const CONTROL_PREFIX = 'control/';
 
-/** The folder of an environment's control records. */
+/**
+ * The folder of an environment's control records: the live record (lib/deploy/live-record.ts), the lease, the rotations and the applied
+ * engine an apply publishes (lib/deploy/applied-engine.ts). The observer reads them all, and the Pulumi program reads the applied engine alone.
+ */
 export const controlPrefix = (stack: string): string => `${CONTROL_PREFIX}${modeOf(stack)}/`;
 
 /** The lease one deploy or operator action holds at a time. */

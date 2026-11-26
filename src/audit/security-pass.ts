@@ -1,10 +1,3 @@
-/**
- * The security pass of the audit command. Audit overrides are derived data: every run drops them,
- * resolves the workspace without them in a staging copy, and puts back only what a current
- * advisory still needs. The workspace itself changes once, at the end, when the staged result
- * differs from what is there.
- */
-
 import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -263,9 +256,11 @@ function writeWorkspace(repoRoot: string, files: Record<string, string>, install
 }
 
 /**
- * Run the security pass on the workspace at `repoRoot`, with the update step's `edits` already in
- * place in the staging copy, so the plan judges the workspace as it will be. The workspace is
- * written once, at the end; with `apply` off nothing is written.
+ * Run the audit's security pass on the workspace at `repoRoot`, with the update step's `edits` already in
+ * place in the staging copy, so the plan judges the workspace as it will be. Audit overrides are derived
+ * data: every run drops them, resolves the workspace without them in the staging copy, and puts back only
+ * what a current advisory still needs. The workspace is written once, at the end, when the staged result
+ * differs from what is there; with `apply` off nothing is written.
  */
 export async function runSecurityPass(
   repoRoot: string,

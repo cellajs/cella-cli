@@ -13,18 +13,12 @@ import { actionCommand } from '../lib/operator-actions';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { getFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 import type { MachineEnv } from './compose-env';
 import { type AllowedKey, buildDeployEnv } from './deploy-env';
 import type { SwitchResult } from './switch-machines';
 
-/**
- * The whole deploy, in order: the lease, the live record's verdict, the engine image it runs, the required runtime values, the build, the
- * target's description held against the engine's, each role's env file, the switch of every role that does not serve the target, the links
- * taken off the new machines, the frontend entry files, the smoke checks, and boot accounts on failure. The main job runs this with the deploy key in `SCW_*`, the one key it needs; it
- * touches no Pulumi state, no network and no pool.
- */
+/** One run's environment, target, retry counter and run id. */
 export interface DeployOptions {
   mode: string;
   sha: string;
@@ -34,7 +28,7 @@ export interface DeployOptions {
   run?: string;
 }
 
-/** Deploy step tasks runnable in-process (tasks/<name>.ts, main(argv) throws on failure). */
+/** The deploy's steps that run in-process: each is a task's `main(argv)`, which throws on failure. */
 export type TaskName = 'build-release' | 'compose-env' | 'clear-machine-links' | 'geoip-refresh' | 'smoke';
 
 /** What the switch step is handed: the roles to switch, the record they switch from, the target, and the release the build checked. */
@@ -114,7 +108,7 @@ export function deployFailureHint(err: unknown, mode: string): { description: st
 export function parseDeployArgs(argv: string[]): DeployOptions {
   const mode = getFlag(argv, '--mode');
   const sha = getFlag(argv, '--sha');
-  if (!mode || !sha) throw new Error('Usage: deploy.ts --mode <staging|production> --sha <git-sha> [--retry <n>]');
+  if (!mode || !sha) throw new Error('Usage: deploy --mode <staging|production> --sha <git-sha> [--retry <n>]');
   if (sha === 'latest' || sha.endsWith(':latest')) throw new Error(`Refusing to deploy non-pinned image tag '${sha}'`);
   const retry = Number(getFlag(argv, '--retry') ?? '0');
   if (!Number.isInteger(retry) || retry < 0) throw new Error('--retry must be a whole number');
@@ -126,9 +120,15 @@ async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<Record<Allo
   process.env.APP_MODE = opts.mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   if (appConfig.mode !== opts.mode) throw new Error(`Mode mismatch: requested "${opts.mode}" but loaded config is "${appConfig.mode}"`);
-  return buildDeployEnv(appConfig, { imageTag: opts.sha });
+  return buildDeployEnv(appConfig);
 }
 
+/**
+ * The whole deploy, in order: the lease, the live record's verdict, the engine image it runs, the required runtime values, the build, the
+ * target's description held against the engine's, each role's env file, the switch of every role that does not serve the target, the links
+ * taken off the new machines, the frontend entry files, the smoke checks, and boot accounts on failure. The main job runs this with the deploy key in `SCW_*`, the one key it needs; it
+ * touches no Pulumi state, no network and no pool.
+ */
 export async function runDeploy(
   opts: DeployOptions,
   fx: DeployEffects,
@@ -378,11 +378,6 @@ export async function runDeploy(
     if (!recordUnwritable) fx.info(`[deploy] record of run ${run}: s3://${env.diag_bucket}/${runRecordKey(run)} (log: ${runLogKey(run)})`);
   }
 }
-const ENTRY_FILES: Array<{ name: string; contentType: string }> = [
-  { name: 'index.html', contentType: 'text/html; charset=utf-8' },
-  { name: 'sw.js', contentType: 'text/javascript; charset=utf-8' },
-  { name: 'manifest.webmanifest', contentType: 'application/manifest+json' },
-];
 
 /** Write a run's record and log to the diagnostics bucket with the deploy key, which may write objects there. */
 async function writeRunRecordToBucket(opts: { bucket: string; region: string; record: RunRecord; log: string }): Promise<void> {
@@ -397,27 +392,28 @@ async function writeRunRecordToBucket(opts: { bucket: string; region: string; re
 }
 
 async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string; region: string; sha: string }): Promise<void> {
-  const [{ PutObjectCommand }, { engineConfig }, { generalConfig }, { resolvePerMode }, { pruneFrontendAssets }] = await Promise.all([
-    import('@aws-sdk/client-s3'),
-    import('infra/config/engine-config'),
-    import('infra/config/general.config'),
-    import('../lib/general-config'),
-    import('./frontend-assets'),
-  ]);
+  const [{ PutObjectCommand }, { engineConfig }, { generalConfig }, { resolvePerMode }, { contentTypeFor, ENTRY_FILE_NAMES, pruneFrontendAssets }] =
+    await Promise.all([
+      import('@aws-sdk/client-s3'),
+      import('infra/config/engine-config'),
+      import('infra/config/general.config'),
+      import('../lib/general-config'),
+      import('./frontend-assets'),
+    ]);
   const { mode } = engineConfig;
   if (mode !== 'production' && mode !== 'staging') throw new Error(`a deploy goes to production or staging, not '${mode}'`);
   const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
-  for (const file of ENTRY_FILES) {
-    const path = resolve(opts.distDir, file.name);
+  for (const name of ENTRY_FILE_NAMES) {
+    const path = resolve(opts.distDir, name);
     if (!existsSync(path)) continue;
     const body = await readFile(path);
     await s3.send(
       new PutObjectCommand({
         Bucket: opts.bucket,
-        Key: file.name,
+        Key: name,
         Body: body,
-        ContentType: file.contentType,
+        ContentType: contentTypeFor(name),
         CacheControl: 'no-cache, no-store, must-revalidate',
       }),
     );
@@ -428,7 +424,7 @@ async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string
   );
 }
 
-// Each task stays an independent CLI (tsx tasks/<name>.ts) for operators, while the deploy runs the same mains in-process so config is read once and a failing step keeps its stack trace.
+// The deploy runs each step's main in-process: config is read once and a failing step keeps its stack trace.
 const taskRunners: Record<TaskName, (argv: string[]) => Promise<void>> = {
   'build-release': async (argv) => (await import('./build-release')).main(argv),
   'compose-env': async (argv) => (await import('./compose-env')).main(argv),
@@ -516,12 +512,8 @@ function createRealEffects(): DeployEffects {
       return { roles: machineRoles(appConfig), record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
     },
     async leftovers({ roles, record, sha, frontendBucket }) {
-      const [{ engineConfig }, { deriveInfra }, { listRoleMachines }, { publicFrontendFile, releaseEntryPrefix }] = await Promise.all([
-        import('infra/config/engine-config'),
-        import('../lib/naming'),
-        import('./switch-machines'),
-        import('./frontend-assets'),
-      ]);
+      const [{ engineConfig }, { deriveInfra }, { listRoleMachines }, { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix }] =
+        await Promise.all([import('infra/config/engine-config'), import('../lib/naming'), import('./switch-machines'), import('./frontend-assets')]);
       const { naming, region, zone } = deriveInfra(engineConfig);
       const scope = { zone, projectId: process.env.SCW_DEFAULT_PROJECT_ID ?? '', naming };
       const auth = { secretKey: deployS3Key().secretKey };
@@ -533,7 +525,7 @@ function createRealEffects(): DeployEffects {
         ),
       );
       const entries = await Promise.all(
-        (frontendBucket ? ENTRY_FILES : []).map(async ({ name }) => {
+        (frontendBucket ? ENTRY_FILE_NAMES : []).map(async (name) => {
           const [released, published] = await Promise.all([
             publicFrontendFile(frontendBucket, region, `${releaseEntryPrefix(sha)}${name}`),
             publicFrontendFile(frontendBucket, region, name),
@@ -640,9 +632,7 @@ function createRealEffects(): DeployEffects {
   };
 }
 
-/** Entry called by tasks/deploy.ts once APP_MODE is set (imports here evaluate shared). */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+/** Entry called by deploy.ts once APP_MODE is set: the imports here evaluate the app's config. */
+export async function main(argv: string[]): Promise<void> {
   await runDeploy(parseDeployArgs(argv), createRealEffects());
 }
-
-runIfMain(import.meta.url, main);

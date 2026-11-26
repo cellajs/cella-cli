@@ -12,9 +12,3 @@ export type ServiceName = keyof typeof appServices;
 export const services: readonly ServiceMeta[] = Object.values(composeConfig.services)
   .map((svc) => svc['x-service'])
   .filter((meta): meta is ServiceMeta => meta !== undefined);
-
-/**
- * Ordered service slugs: the canonical list every consumer derives from. Every `x-service` block is authored from an `appServices` key, so the assertion restores the literal union.
- * @public
- */
-export const serviceNames = services.map((s) => s.slug) as readonly ServiceName[];

@@ -1,4 +1,4 @@
-import { operatorManagedRuntimeSecrets, type RuntimeSecretDefinition } from '../lib/runtime-secrets';
+import { operatorManagedRuntimeSecrets } from '../lib/runtime-secrets';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { isEnvFileDeliverable } from '../lib/utils/env-file';
@@ -28,7 +28,7 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
   const log = options.log ?? defaultLog;
   const client = createSecretManagerClient({ secretKey: options.secretKey, region: options.region, projectId: options.projectId });
 
-  for (const secret of operatorManagedRuntimeSecrets as RuntimeSecretDefinition[]) {
+  for (const secret of operatorManagedRuntimeSecrets) {
     const value = options.values[secret.id];
     if (!value) continue;
     const verdict = isEnvFileDeliverable(value);

@@ -1,4 +1,4 @@
-import { type ScwAuth, scwFetch } from '../scaleway/scw-fetch.ts';
+import { type ScwAuth, scwFetch } from '../scaleway/scw-fetch';
 
 /** How a definition or a run names what it executes: the startup command and its arguments, and the single command Scaleway deprecates. */
 interface CommandFields {

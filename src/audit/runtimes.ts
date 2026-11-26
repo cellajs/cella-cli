@@ -1,9 +1,3 @@
-/**
- * Runtime pins for the audit: the Node and pnpm versions the root package.json pins, and the image
- * tags of the Dockerfiles, checked against their release feeds (see feeds.ts). Reading the pins
- * and planning their updates are pure; rewriting a pin returns the new file content.
- */
-
 import { readFileSync } from 'node:fs';
 import { basename, dirname, join } from 'node:path';
 import semver from 'semver';

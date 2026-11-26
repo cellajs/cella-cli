@@ -1,9 +1,3 @@
-/**
- * The release and advisory feeds the audit checks the runtime pins and this machine's tools
- * against. Each feed is asked once per run, for every version that needs it. A fetch never throws:
- * a feed that does not answer is null, which leaves only its runtime or tool unchecked.
- */
-
 import semver from 'semver';
 import { fetchPublishTimes, severities, type VulnerabilitySeverity } from '../utils/pnpm';
 
@@ -177,7 +171,11 @@ async function fetchOsvSeverities(module: string, version: string): Promise<Vuln
   return [...byGhsa.values()];
 }
 
-/** Ask every feed the request needs, in parallel. */
+/**
+ * Ask every feed the request needs, in parallel: the release and advisory feeds the audit checks the runtime pins and
+ * this machine's tools against. Each feed is asked once per run, for every version that needs it. A fetch never
+ * throws: a feed that does not answer is null, which leaves only its runtime or tool unchecked.
+ */
 export async function fetchFeeds(request: FeedRequest, cwd: string, now: number): Promise<Feeds> {
   const pnpm = request.pnpm.length > 0;
   const [node, pnpmTimes, pnpmAdvisories, images, gh, ghAdvisories] = await Promise.all([

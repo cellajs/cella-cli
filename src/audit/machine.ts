@@ -1,9 +1,3 @@
-/**
- * The tools this machine works on the workspace with: the Node that runs it, the pnpm a terminal
- * starts, and gh. Each is checked against its feeds (see feeds.ts) for the security fixes it
- * misses. The audit only reports them, with the upgrade command that fits how the tool was installed.
- */
-
 import { execFile } from 'node:child_process';
 import { existsSync, realpathSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -11,7 +5,6 @@ import { delimiter, dirname, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import semver from 'semver';
 import { plural } from '../utils/display';
-import { getEnv, getEnvSnapshot } from '../utils/env';
 import { type VulnerabilitySeverity, worstSeverity } from '../utils/pnpm';
 import type { Feeds } from './feeds';
 import { newestAged } from './runtimes';
@@ -33,7 +26,10 @@ export interface LocalTools {
   gh: InstalledTool | null;
 }
 
-/** One tool as the audit shows it. */
+/**
+ * One tool this machine works on the workspace with, as the audit shows it. The audit only reports a tool, with the
+ * upgrade command that fits how it was installed.
+ */
 export interface LocalToolCheck {
   name: string;
   version: string;
@@ -47,7 +43,7 @@ export interface LocalToolCheck {
 
 /** The first `name` binary on PATH outside `node_modules/.bin` folders and the folders in `skip`. */
 function findOnPath(name: string, skip: string[] = []): string | null {
-  for (const dir of (getEnv('PATH') ?? '').split(delimiter)) {
+  for (const dir of (process.env.PATH ?? '').split(delimiter)) {
     if (!dir || skip.includes(dir) || dir.endsWith(`node_modules${sep}.bin`)) continue;
     if (existsSync(join(dir, name))) return join(dir, name);
   }
@@ -86,13 +82,13 @@ async function readTool(
  * on PATH, so the folder of the running pnpm is skipped.
  */
 export async function readLocalTools(): Promise<LocalTools> {
-  const running = getEnv('npm_execpath');
+  const running = process.env.npm_execpath;
   const [pnpm, gh] = await Promise.all([
     readTool(findOnPath('pnpm', running ? [dirname(running)] : []), {
       cwd: tmpdir(),
       // A `packageManager` field planted in the temp folder or a parent of it would make pnpm switch to that release
       env: {
-        ...getEnvSnapshot(),
+        ...process.env,
         pnpm_config_pm_on_fail: 'ignore',
         npm_config_manage_package_manager_versions: 'false',
       },

@@ -1,5 +1,6 @@
 import type { ManagedKeyDefinition } from '../lib/managed-keys';
 import type { MintedKeyField } from '../lib/managed-keys-config';
+import { actionCommand } from '../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
 import { provisionScopedKey } from '../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient, type SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
@@ -60,7 +61,7 @@ export async function provisionManagedKey(opts: ProvisionManagedKeyOptions): Pro
     const container = await client.getSecretByName(secret.secretName, RUNTIME_FOLDER);
     if (!container) {
       throw new Error(
-        `${secret.secretName} (${secret.envVar}) has no container yet: run \`pulumi up\` so Pulumi creates it, then provision the ${definition.label} key.`,
+        `${secret.secretName} (${secret.envVar}) has no container yet: \`${actionCommand('apply')}\` creates it, then provision the ${definition.label} key.`,
       );
     }
     containersBySecretName.set(secret.secretName, container);

@@ -7,7 +7,7 @@ import { enabledServices, serviceEndpoints } from '../../services';
 import { check, deployAction, diagAction } from '../check';
 import type { StatusProvider } from '../types';
 
-/** First 7 chars of a git SHA, the length humans and logs use. */
+/** First 7 chars of a git SHA. */
 const short = (sha: string): string => sha.slice(0, 7);
 
 /** A public service's live health/version probe, cross-referenced with the live record. */
@@ -55,7 +55,7 @@ export const liveProvider: StatusProvider<LiveServiceFact[]> = {
         return {
           slug: endpoint.slug,
           healthUrl,
-          probe: { status: result.status, version: result.version },
+          probe: result,
           ...expectedRelease(session.appConfig, endpoint.slug, live),
         };
       }),

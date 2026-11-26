@@ -5,13 +5,12 @@ import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { region, tags } from '../pulumi-context';
 import { derivedRuntimeSecretData } from './stores';
 
-// One container per value, in the runtime folder, which only the deploy key reads: the deploy composes each machine's env file from them.
-
-// The values a store supplies (connection strings, CA data) are bound by the store plugins in resources/stores and written as versions here.
-// Generated and derived values are made by the operator task ensure-secrets, and database connection strings by ensure-database, straight
-// into Secret Manager, so they never pass through the state.
-
-/** The value a store supplies for a runtime secret, or undefined for one the program writes no version of. */
+/**
+ * The value a store supplies for a runtime secret, or undefined for one the program writes no version of. The store plugins in
+ * resources/stores bind these values (connection strings, CA data), written as versions here. The operator task ensure-secrets makes
+ * the generated and derived values, and ensure-database the database connection strings, straight into Secret Manager: they never pass
+ * through the state.
+ */
 function storeSuppliedData(definition: RuntimeSecretDefinition): pulumi.Input<string> | undefined {
   if (definition.valueSource !== 'engine') return undefined;
   const supplied = derivedRuntimeSecretData[definition.id];
@@ -23,7 +22,8 @@ function storeSuppliedData(definition: RuntimeSecretDefinition): pulumi.Input<st
 }
 
 /**
- * A runtime secret's container. One whose value protects stored data outlives a destroy and a registry entry that disappears, as the final
+ * A runtime secret's container, one per value, in the runtime folder, which only the deploy key reads: the deploy composes each machine's
+ * env file from them. One whose value protects stored data outlives a destroy and a registry entry that disappears, as the final
  * dump of a teardown needs it, and a setup adopts it again (lib/stack/kept-resources.ts).
  */
 function secretContainer(definition: RuntimeSecretDefinition): void {

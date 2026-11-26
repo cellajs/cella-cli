@@ -22,12 +22,6 @@ export interface InfraContext extends StackContext {
   hasCiKey: boolean;
 }
 
-export interface StepOptions {
-  cwd?: string;
-  retry?: boolean;
-  env?: NodeJS.ProcessEnv;
-}
-
 /** What a failed action offers after it printed its failure. */
 export interface EndOptions {
   /** The actions that fix the failure: a menu session offers each by its menu name, a single-action run prints its command. */
@@ -89,21 +83,19 @@ export async function confirmOrDefault(opts: { message: string; default: boolean
   return confirm(opts);
 }
 
-/** Optional free-text `input` that resolves to env/default under `--defaults`. */
-export async function inputOrDefault(opts: { message: string; envName?: string; default?: string }): Promise<string> {
-  const fromEnv = opts.envName ? process.env[opts.envName]?.trim() : undefined;
+/** Optional free-text `input` that resolves to its default under `--defaults`. */
+export async function inputOrDefault(opts: { message: string; default?: string }): Promise<string> {
   if (autoAcceptDefaults()) {
-    const value = fromEnv ?? opts.default ?? '';
+    const value = opts.default ?? '';
     console.info(pc.dim(`  [defaults] ${opts.message} -> ${value || '<empty>'}`));
     return value;
   }
-  if (fromEnv) return fromEnv;
   return input({ message: opts.message, default: opts.default });
 }
 
-/** The stack name every action targets: derived from the mode on the DIY backend (`organization/infra/<mode>`); `INFRA_STACK_NAME` overrides it for unusual layouts. Never prompted. */
+/** The stack name every action targets, derived from the mode on the DIY backend: `organization/infra/<mode>`. Never prompted. */
 export function stackNameFor(context: Pick<InfraContext, 'environment'>): string {
-  return process.env.INFRA_STACK_NAME?.trim() || `organization/infra/${context.environment}`;
+  return `organization/infra/${context.environment}`;
 }
 
 /** S3-backend login URL for the app's Pulumi state bucket. */
@@ -217,40 +209,6 @@ export async function acquireStackLockOrExit(opts: {
   };
   heldLocks.add(handle);
   return handle;
-}
-
-/** Step runner: runs a labelled command, offering retry on failure; `must` ends the action on a non-zero code. */
-export function createStepRunner(infraDir: string, defaultEnv: NodeJS.ProcessEnv) {
-  const step = async (
-    label: string,
-    cmd: string,
-    args: string[],
-    run: (cmd: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'inherit' }) => { status: number | null },
-    opts: StepOptions = {},
-  ): Promise<number> => {
-    while (true) {
-      console.info(`\n→ ${label}\n  $ ${cmd} ${args.join(' ')}`);
-      const { status } = run(cmd, args, { cwd: opts.cwd ?? infraDir, env: opts.env ?? defaultEnv, stdio: 'inherit' });
-      if (status === 0) return 0;
-      console.error(`\n${crossMark} ${label} failed (exit ${status}).`);
-      if (!opts.retry || !(await confirm({ message: 'Retry?', default: true }))) {
-        return status ?? 1;
-      }
-    }
-  };
-
-  const must = async (
-    label: string,
-    cmd: string,
-    args: string[],
-    run: (cmd: string, args: string[], opts: { cwd: string; env: NodeJS.ProcessEnv; stdio: 'inherit' }) => { status: number | null },
-    opts: StepOptions = {},
-  ) => {
-    const code = await step(label, cmd, args, run, opts);
-    if (code !== 0) endAction(code);
-  };
-
-  return { must };
 }
 
 /** Where a message sends the operator for an action: its menu name in a menu session, the command a single-action run types. */

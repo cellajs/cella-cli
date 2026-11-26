@@ -1,7 +1,3 @@
-/**
- * Config loading utilities for the cella CLI.
- */
-
 import { existsSync, readFileSync, realpathSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { z } from 'zod';

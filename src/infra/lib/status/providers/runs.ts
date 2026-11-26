@@ -46,7 +46,7 @@ async function newestRecord(session: ProbeSession): Promise<RunsFacts['record']>
 const START_VALUES = new Set(['TARGET_SHA', 'RETRY']);
 
 /**
- * What a run was started with beyond the target and the retry counter (D-b): a value the definition does not set, another value for one it
+ * What a run was started with beyond the target and the retry counter: a value the definition does not set, another value for one it
  * sets, or a startup command or arguments of its own. The schedule sets none, and a rotation, an apply and Deploy now the two only, so anything
  * else is a key holder's own start, which no check inside the job can stop. A run started before the definition's last change ran the values
  * and command of that time, a key the apply removed included, so nothing is compared for it. Empty for a run started as the engine starts one.

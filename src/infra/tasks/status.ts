@@ -1,5 +1,3 @@
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
 import { readAppliedEngine } from '../lib/deploy/applied-engine';
 import { commitRefs } from '../lib/deploy/git-remote';
@@ -10,19 +8,14 @@ import type { EngineConfig } from '../lib/engine-config';
 import { deriveInfra, hasDomain as hasDeployDomain } from '../lib/naming';
 import { type KeyPair, resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
-import { pickStackShort, type StackState } from '../lib/stack/bootstrap-stack-state';
+import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import { lockKey, makeControlClient, peekLock, stateBucket } from '../lib/stack/control-store';
-import { loadStackContext } from '../lib/stack/stack-context';
 import { nameSubject, rowText } from '../lib/status/check';
 import { buildStatusReport, checkGroups, groupOf } from '../lib/status/registry';
 import type { Check, CheckStatus, ProbeSession, ScalewayFacts, StatusReport } from '../lib/status/types';
-import { getFlag } from '../lib/utils/args';
 import { checkMark, crossMark, DIVIDER, pc, warningMark, withSpinner } from '../lib/utils/cli-output';
-import { loadRootEnvFile } from '../lib/utils/env-files';
-import { runIfMain } from '../lib/utils/is-main';
-import { infraDir } from '../lib/utils/paths';
 
-/** Everything the report needs about the target stack, from the menu or standalone. */
+/** Everything the report needs about the target stack, from the menu. */
 export interface StatusContext {
   mode: string;
   appConfig: EngineConfig;
@@ -236,15 +229,7 @@ export function formatReport(report: StatusReport, refs?: readonly RemoteRef[]):
   return lines.join('\n');
 }
 
-/** Print the report as JSON or human text. */
-export function printReport(report: StatusReport, opts: { json?: boolean; refs?: readonly RemoteRef[] }): void {
-  console.info(opts.json ? JSON.stringify(report, null, 2) : formatReport(report, opts.refs));
-}
-
-/**
- * Menu entry: report status for an already-loaded CLI context. Human output;
- * the standalone `pnpm --filter infra status --json` path serves machines.
- */
+/** Menu entry: report status for an already-loaded CLI context. */
 export async function runStatus(context: {
   environment: string;
   appConfig: EngineConfig;
@@ -266,7 +251,7 @@ export async function runStatus(context: {
         operatorKey: context.operatorKey,
       }),
     ));
-  printReport(report, { json: false, refs: await commitRefs() });
+  console.info(formatReport(report, await commitRefs()));
 }
 
 /** How long a report the home screen read serves the full table too, so one key after the home does not read everything again. */
@@ -299,21 +284,3 @@ export async function printInventory(context: Parameters<typeof runStatus>[0]): 
   console.info(`\n${pc.bold('Inventory')} ${pc.dim('(what exists beside what the environment declares)')}`);
   for (const check of inventory) for (const line of checkLines(check)) console.info(line);
 }
-
-/** Standalone entry: `pnpm --filter infra status [--mode <m>] [--json]`. */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
-  const flagMode = getFlag(argv, '--mode') ?? process.env.INFRA_MODE;
-  if (flagMode && flagMode !== 'production' && flagMode !== 'staging')
-    throw new Error(`--mode must be 'production' or 'staging' (got '${flagMode}')`);
-  const mode = (flagMode as 'production' | 'staging' | undefined) ?? pickStackShort((name) => existsSync(resolve(infraDir, `Pulumi.${name}.yaml`)));
-  const json = argv.includes('--json');
-
-  loadRootEnvFile();
-  const { appConfig, state: stackState, stackYaml, projectId } = await loadStackContext(mode);
-  const report = await withSpinner(`Checking ${mode}`, () =>
-    buildReport({ mode, appConfig, stackState, stackYaml, projectId: projectId || undefined }),
-  );
-  printReport(report, { json, refs: json ? undefined : await commitRefs() });
-}
-
-runIfMain(import.meta.url, main);

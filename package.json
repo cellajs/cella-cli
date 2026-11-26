@@ -3,7 +3,7 @@
   "version": "0.9.1",
   "private": false,
   "license": "MIT",
-  "description": "CLI for managing your monorepo and upgrading it with upstream Cella.",
+  "description": "CLI for apps built from the cella template: a testbed and its tools, upgrades from upstream cella, and deploys.",
   "repository": {
     "type": "git",
     "url": "https://github.com/cellajs/cella-cli"
@@ -150,7 +150,10 @@
     "cellajs",
     "cli",
     "upgrade",
-    "template"
+    "template",
+    "deploy",
+    "scaleway",
+    "pulumi"
   ],
   "packageManager": "pnpm@11.28.7",
   "commitlint": {

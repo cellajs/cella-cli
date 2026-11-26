@@ -1,19 +1,8 @@
-/**
- * Audit command for the Cella CLI.
- *
- * One table and one checkbox for outdated packages and runtime pins (Node, pnpm, image tags). The
- * picked updates become file edits that the security pass (see security-pass.ts) stages, checks
- * and writes, so the workspace changes once and only with a single install. Below the table, the
- * security fixes this machine's own Node, pnpm and gh miss (see machine.ts), and what pnpm audit
- * reports before the prompt that the security pass waits for.
- */
-
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
 import { checkbox, confirm, Separator } from '@inquirer/prompts';
 import pc from '../utils/colors';
 import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
-import { getEnv } from '../utils/env';
 import {
   type OutdatedPackage,
   readReleaseAgeMinutes,
@@ -85,7 +74,10 @@ async function readRuntimes(repoRoot: string, now: number) {
 
 /**
  * Report the updates and the security plan, and in a terminal offer to take them; with `fix`, ask which to take and
- * write them.
+ * write them. One table and one checkbox hold the outdated packages and runtime pins (Node, pnpm, image tags). Below
+ * the table come the security fixes this machine's own Node, pnpm and gh miss, and what pnpm audit reports before the
+ * prompt the security pass waits for. The picked updates become file edits that the security pass stages, checks and
+ * writes: the workspace changes once, with a single install.
  * @returns 1 when a step gave no answer or failed, 0 for a report, a cancelled prompt and a written fix
  */
 export async function runAudit(repoRoot: string, fix: boolean): Promise<number> {
@@ -486,7 +478,7 @@ function printNext(bumped: RuntimeUpdate[]): void {
   const steps: Array<[command: string, why: string]> = [];
   const node = bumped.find((update) => update.pin.type === 'node');
   if (node && process.version !== `v${node.target}`) {
-    const command = getEnv('VOLTA_HOME') ? `volta install node@${node.target}` : `switch to node ${node.target}`;
+    const command = process.env.VOLTA_HOME ? `volta install node@${node.target}` : `switch to node ${node.target}`;
     steps.push([command, `this machine runs ${process.version.slice(1)}`]);
   }
   for (const update of bumped) {

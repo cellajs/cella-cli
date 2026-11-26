@@ -1,11 +1,6 @@
-/**
- * Reads and edits the settings in `pnpm-workspace.yaml` that the audit command manages. Edits go
- * through a parsed document, so comments, quoting and every other setting stay as they are.
- */
-
 import { type Document, isMap, isScalar, isSeq, parseDocument, type YAMLMap } from 'yaml';
 
-/** The audit-related settings of a `pnpm-workspace.yaml`. */
+/** The settings of a `pnpm-workspace.yaml` that the audit command reads and edits. */
 export interface AuditSettings {
   /** `overrides`: selector key to target range. */
   overrides: Record<string, string>;
@@ -109,8 +104,9 @@ function mergeList(doc: Document, path: string[], entries: string[]): void {
 }
 
 /**
- * The file content with the audit settings replaced by `next`. A block that ends up empty is
- * removed, and so is an `auditConfig` left without keys.
+ * The file content with the audit settings replaced by `next`. The edit goes through a parsed
+ * document: comments, quoting and every other setting stay as they are. A block that ends up empty
+ * is removed, and so is an `auditConfig` left without keys.
  */
 export function writeAuditSettings(content: string, next: AuditSettings): string {
   const doc = parseDocument(content);

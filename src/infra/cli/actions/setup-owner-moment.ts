@@ -27,7 +27,6 @@ export type SetupMode = Extract<CliMode, 'resume' | 'rotate-keys'>;
 export interface CiKeyResult {
   accessKey: string;
   secretKey: string;
-  organizationId: string;
   /** Set when the Owner key may not list the deploy application's keys: the ones made before this key still work. */
   purgeSkipped?: true;
 }
@@ -54,10 +53,10 @@ async function mintCiKey(
         slug: opts.appConfig.slug,
         mode: opts.mode,
       });
-      return { accessKey: key.accessKey, secretKey: key.secretKey, organizationId: key.organizationId, purgeSkipped: key.purgeSkipped };
+      return { accessKey: key.accessKey, secretKey: key.secretKey, purgeSkipped: key.purgeSkipped };
     } catch (error) {
       console.error(`\n${warningMark} CI key setup failed: ${errorMessage(error)}`);
-      if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '', organizationId: '' };
+      if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '' };
     }
   }
 }

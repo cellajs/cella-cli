@@ -1,7 +1,6 @@
 import { writeFileSync } from 'node:fs';
 import type { PrivilegedFootprint } from '../lib/stack/privileged-footprint';
 import { getFlag } from '../lib/utils/args';
-import { runIfMain } from '../lib/utils/is-main';
 
 /** The project and organization a keyless render names: fixed words, so a base and a head render compare on what the code declares. */
 const PROJECT = 'project';
@@ -13,12 +12,12 @@ const ORGANIZATION = 'organization';
  * program holds the foundation only, as a deploy makes the machines. The stack file is not read: the committed one holds markers only, and a database's exposure lives
  * in the operator's own overlay. Writes JSON to `--out`; the pull request check compares a base's with a head's (tasks/privileged-check.ts).
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const mode = getFlag(argv, '--mode');
   const out = getFlag(argv, '--out');
-  if (!mode || !out) throw new Error('Usage: privileged-footprint.ts --mode <environment> --out <file>');
+  if (!mode || !out) throw new Error('Usage: privileged-footprint --mode <environment> --out <file>');
 
-  // Before anything imports @pulumi/pulumi or the shared config, which read these at evaluation.
+  // Before anything imports @pulumi/pulumi or the app's config, which read these at evaluation.
   process.env.PULUMI_NODEJS_PROJECT = 'infra';
   process.env.PULUMI_NODEJS_STACK = mode;
   process.env.APP_MODE = mode;
@@ -50,5 +49,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   };
   writeFileSync(out, `${JSON.stringify(footprint, null, 2)}\n`);
 }
-
-runIfMain(import.meta.url, main);

@@ -1,6 +1,6 @@
 import { spawn } from 'node:child_process';
 import { rerunReleaseCheck } from '../../lib/deploy/release-gate';
-import { actionLabel, menuPath } from '../../lib/operator-actions';
+import { actionLabel } from '../../lib/operator-actions';
 import { shutOutOfBuckets } from '../../lib/scaleway/bucket-admission';
 import { describeKey } from '../../lib/scaleway/operator-identity';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
@@ -76,11 +76,6 @@ async function infraTask(env: NodeJS.ProcessEnv, args: string[]): Promise<{ stat
  * Returns the provider env and stack for reading outputs after the lock releases, and exits the process on hard failures before the `up` loop.
  */
 export async function runOperatorApply(context: InfraContext, opts: OperatorApplyOptions): Promise<OperatorApplyResult> {
-  if (context.state !== 'bootstrapped') {
-    console.error(`${warningMark} This action requires a fully bootstrapped stack (state=${context.state}). Run "${menuPath('resume')}" first.`);
-    endAction(1);
-  }
-
   const { projectId, appConfig } = context;
 
   const operator = await acquireAdmittedOperatorKey(context);

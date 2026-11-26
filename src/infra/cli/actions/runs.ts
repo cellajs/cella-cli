@@ -115,7 +115,7 @@ function interrupted(record: RunRecord, lock: LockInfo | undefined): string {
     : '';
 }
 
-/** A run started with values or a command of its own, which no start of the engine sets (D-b): flagged, as only a key holder's start does it. */
+/** A run started with values or a command of its own, which no start of the engine sets: flagged, as only a key holder's start does it. */
 function ownValues(run: JobRun | undefined, definition: JobDefinitionFacts | undefined): string {
   const own = run && definition ? runOverrides(run, definition) : [];
   return own.length > 0 ? `  ${warningMark} started with its own values: ${own.join(', ')}` : '';
@@ -209,12 +209,8 @@ export async function showRuns(
  * The machines' own accounts, beside the runs: with `sha`, each service's account of that release and the builder's report; without, each
  * service's newest account, a boot outside any run included.
  */
-async function showMachines(
-  reader: BootAccountReader,
-  services: readonly string[],
-  opts: { sha?: string; print?: (...lines: string[]) => void },
-): Promise<void> {
-  const print = opts.print ?? ((...lines: string[]) => console.info(lines.join('\n')));
+async function showMachines(reader: BootAccountReader, services: readonly string[], opts: { sha?: string }): Promise<void> {
+  const print = (...lines: string[]) => console.info(lines.join('\n'));
   if (opts.sha) {
     for (const found of await releaseAccounts(reader, services, opts.sha)) {
       if (!found.account) {

@@ -29,7 +29,6 @@ export async function exitOnOpenDbEndpoint(context: InfraContext, secretKey: str
  * resources (DB, VPC, private network, buckets, DNS, the main job and its engine) the read-only CI key cannot make.
  * The declared applications and their policies are IAM, written by `pnpm cella infra identities` with an Owner API key, never by this apply.
  * The plan is made before the lease is taken, so it is taken only for a plan the operator said yes to.
- * It runs against a bootstrapped stack, so it must NOT set the computeDeferred marker, which belongs to the fresh-provision flow in setup.ts.
  */
 export async function runApply(context: InfraContext): Promise<void> {
   console.info(pc.dim(`\n${actionLabel('apply')}: plan what differs between code and live stack and apply it.\n`));

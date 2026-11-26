@@ -40,18 +40,7 @@ describe('confirmOrDefault', () => {
 });
 
 describe('inputOrDefault', () => {
-  it('prefers the env var under --defaults', async () => {
-    process.argv = ['node', 'infra-cli.ts', '--defaults'];
-    vi.stubEnv('TEST_INPUT_VAR', 'from-env');
-    await expect(inputOrDefault({ message: 'name', envName: 'TEST_INPUT_VAR', default: 'fallback' })).resolves.toBe('from-env');
-  });
-
-  it('falls back to the default under --defaults when the env var is unset', async () => {
-    process.argv = ['node', 'infra-cli.ts', '--defaults'];
-    await expect(inputOrDefault({ message: 'name', envName: 'TEST_INPUT_VAR', default: 'fallback' })).resolves.toBe('fallback');
-  });
-
-  it('resolves to empty string when neither env nor default is present', async () => {
+  it('resolves to empty string when no default is present', async () => {
     process.argv = ['node', 'infra-cli.ts', '--defaults'];
     await expect(inputOrDefault({ message: 'name' })).resolves.toBe('');
   });
@@ -100,11 +89,6 @@ describe('withSpinner', () => {
 
 describe('stackNameFor', () => {
   it('derives the DIY-backend stack name from the mode', () => {
-    vi.stubEnv('INFRA_STACK_NAME', undefined);
     expect(stackNameFor({ environment: 'production' })).toBe('organization/infra/production');
-  });
-  it('honours INFRA_STACK_NAME for unusual layouts', () => {
-    vi.stubEnv('INFRA_STACK_NAME', 'org/other/prod');
-    expect(stackNameFor({ environment: 'production' })).toBe('org/other/prod');
   });
 });

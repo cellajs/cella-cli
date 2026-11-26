@@ -8,7 +8,6 @@ import {
   type S3Client,
 } from '@aws-sdk/client-s3';
 import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
-import { runIfMain } from '../lib/utils/is-main';
 
 export type EnsureResult = 'exists' | 'created';
 
@@ -142,11 +141,8 @@ export async function assertBucketProject(s3: S3Client, bucketName: string, expe
   }
 }
 
-/**
- * The setup's step: make the bucket in the environment's project and harden it, on the operator key. `--check` is the deploy's: the bucket
- * must exist in the project, and nothing is made or changed, as a bucket's configuration is the apply's.
- */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+/** The setup's step: make the bucket in the environment's project and harden it, on the operator key. */
+export async function main(_words: string[]): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
   if (!accessKey || !secretKey) throw new Error('SCW_ACCESS_KEY and SCW_SECRET_KEY must be set');
@@ -162,21 +158,9 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   if (!expectedProjectId) console.warn("⚠ SCW_DEFAULT_PROJECT_ID not set: the state bucket follows the key's preferred project.");
 
   const s3 = await makeS3Client(region, expectedProjectId ? projectAccessKey(accessKey, expectedProjectId) : accessKey, secretKey);
-  if (argv.includes('--check')) {
-    const found = await s3.send(new HeadBucketCommand({ Bucket: bucketName })).then(
-      () => true,
-      () => false,
-    );
-    if (!found) throw new Error(`The Pulumi state bucket '${bucketName}' is not there: the setup makes it (pnpm cella infra).`);
-    if (expectedProjectId) await assertBucketProject(s3, bucketName, expectedProjectId);
-    console.info(`Pulumi state bucket: s3://${bucketName} (${region})`);
-    return;
-  }
   const result = await ensureStateBucket(s3, bucketName);
   if (expectedProjectId) await assertBucketProject(s3, bucketName, expectedProjectId);
   await hardenStateBucket(s3, bucketName);
   if (result === 'exists') console.info(`Pulumi state bucket already exists: s3://${bucketName} (${region})`);
   else console.info(`Created Pulumi state bucket: s3://${bucketName} (${region})`);
 }
-
-runIfMain(import.meta.url, main);

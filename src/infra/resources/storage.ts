@@ -371,7 +371,7 @@ new scaleway.object.BucketPolicy(
   kept,
 );
 
-// Skipped buckets export empty strings, matching the provision-less primary-store contract in resources/program.ts.
+// Skipped buckets export empty strings.
 
 export const frontendBucketName = frontendBucket?.name ?? pulumi.output('');
 

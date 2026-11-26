@@ -1,17 +1,3 @@
-/**
- * Upstream alignments, read from git.
- *
- * Upstream ships one alignment per breaking change in `cella/alignments/<id>/`: a README.md
- * that opens with flat frontmatter, then the title and a summary paragraph, plus at most one codemod
- * (the one non-test `.ts` file). The folder is upstream-only: the upgrade never brings it into the
- * app and removes a copy it finds. Alignments are read from upstream commits the upgrade already fetched.
- *
- * The app records only the alignments it has not handled yet, in `cella/cella.alignments.json` as
- * `{ "pending": [...] }`. The upgrade adds the ones that arrive with it; `cella align mark` removes
- * them. A missing file means nothing is pending, so a new app needs no seed. Alignments are
- * information, never a gate: nothing blocks on a pending one.
- */
-
 import { existsSync } from 'node:fs';
 import { readFile, rm } from 'node:fs/promises';
 import { join } from 'node:path';
@@ -19,10 +5,19 @@ import { git, splitPrNumber } from '../utils/git';
 import { writeOwnedFile } from '../utils/repo-files';
 import { printable } from '../utils/terminal-text';
 
-/** Upstream folder holding one subfolder per alignment. Upstream-only: never merged into an app. */
+/**
+ * Upstream folder holding one subfolder per breaking change: a README.md that opens with flat frontmatter, then the
+ * title and a summary paragraph, plus at most one codemod (the one non-test `.ts` file). Upstream-only: the upgrade
+ * never brings it into an app and removes a copy it finds. Alignments are read from upstream commits the upgrade
+ * already fetched.
+ */
 export const alignmentsDir = 'cella/alignments';
 
-/** The app's record of alignments still to handle. */
+/**
+ * The app's record of alignments still to handle, as `{ "pending": [...] }`: the upgrade adds the ones that arrive with
+ * it, and `cella align mark` removes them. A missing file means nothing is pending, so a new app needs no seed. A
+ * pending alignment is information, never a gate.
+ */
 export const pendingFile = 'cella/cella.alignments.json';
 
 /** An alignment folder name: `<YYYYMMDDThhmm>-<slug>`, UTC minute precision, so ids sort chronologically. */

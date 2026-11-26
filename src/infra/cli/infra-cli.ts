@@ -15,7 +15,7 @@ import { installedPulumiVersion, pulumiCliLagWarning, sdkPulumiVersion } from '.
 import { type ActionOutcome, runAction } from './actions';
 import { printLaunchChecklist } from './actions/setup-checklist';
 import { parseCliArgs } from './args';
-import { checkoutVersion, formatHeader, formatLogo } from './header';
+import { checkoutVersion, formatHeader } from './header';
 import { collectHome, formatHome, type HomeFacts, upNextOf } from './home';
 import { BACK, disabledReason, type MenuState, mainMenuItems, pickItems, QUIT, UP_NEXT, visibleRows } from './menu';
 import { installPromptAbortHandler } from './prompts/abort';
@@ -233,6 +233,10 @@ if (args.unknownAction) {
   printHelp();
   process.exit(2);
 }
+if (args.mode !== undefined && args.mode !== 'production' && args.mode !== 'staging') {
+  console.error(`${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`);
+  process.exit(2);
+}
 
 // The deploy reads the Compose file the service registry renders: kept current on every run, said only when it changed.
 if (writeCompose() === 'written') console.info(pc.dim('infra/compose.gen.yml follows the service registry again: commit it.'));
@@ -251,7 +255,6 @@ let context = await loadContext(environment, (message) => console.info(pc.dim(me
   }
 }
 
-if (!args.action) console.info(`${formatLogo(context.appConfig.slug).join('\n')}\n`);
 printStackNotices(context);
 if (droppedFromEnv.length > 0) {
   console.warn(

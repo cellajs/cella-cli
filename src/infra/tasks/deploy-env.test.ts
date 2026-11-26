@@ -30,8 +30,6 @@ describe('buildDeployEnv', () => {
 
   it('derives values from appConfig', () => {
     expect(buildDeployEnv(fakeAppConfig)).toEqual({
-      environment: 'production',
-      image_tag: '',
       stack: 'production',
       region: 'nl-ams',
       frontend_bucket: 'cella-frontend',
@@ -67,10 +65,6 @@ describe('buildDeployEnv', () => {
       primary_role: 'backend',
       apex_url: 'https://cella.example',
     });
-  });
-
-  it('emits the supplied image tag', () => {
-    expect(buildDeployEnv(fakeAppConfig, { imageTag: 'abc123' }).image_tag).toBe('abc123');
   });
 
   it('derives public URLs in enabled_services_json from appConfig.services', () => {

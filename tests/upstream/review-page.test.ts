@@ -23,7 +23,6 @@ import {
   reviewStep,
   writeReviewPage,
 } from '../../src/upstream/review-page';
-import { getEnv } from '../../src/utils/env';
 import { createRepo, exec, write } from '../helpers/test-env';
 
 /**
@@ -130,7 +129,7 @@ describe('review page', () => {
       fs.writeFileSync(shim, `#!/bin/sh\nprintf '%s\\n' "$*" >> "$OPEN_ARGS_FILE"\n`);
       fs.chmodSync(shim, 0o755);
     }
-    vi.stubEnv('PATH', `${binDir}:${getEnv('PATH') ?? ''}`);
+    vi.stubEnv('PATH', `${binDir}:${process.env.PATH ?? ''}`);
     vi.stubEnv('OPEN_ARGS_FILE', argsFile);
   });
 

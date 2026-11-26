@@ -7,7 +7,7 @@ import type { AppServiceConfig, AppServices, ComposeFile, ComposeService, Health
  */
 export const AGENT_PORT_OFFSET = 5000;
 
-/** Helper for `services.config.ts`: typed identity that preserves literal keys. */
+/** Helper for `services.config.ts`: checks the ports and path prefixes, and returns the services with their literal keys. */
 export function defineServices<const T extends AppServices>(services: T): T {
   validateInternalPorts(services);
   validateAgentPorts(services);

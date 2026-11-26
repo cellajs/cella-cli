@@ -1,9 +1,3 @@
-/**
- * The plan behind the audit's security pass: which advisories an override can fix, which have a
- * fix that is too young to install, and which have none. Pure, so the command around it only
- * gathers the inputs and carries the plan out.
- */
-
 import semver from 'semver';
 import { type AuditResult, severities, type VulnerabilitySeverity, worstSeverity } from '../utils/pnpm';
 import { isBreakingJump } from '../utils/versions';
@@ -147,6 +141,10 @@ export function standingOverrides(
 }
 
 /**
+ * The plan behind the audit's security pass: which advisories an override can fix, which have a fix
+ * that is too young to install, and which have none. Pure: the command around it only gathers the
+ * inputs and carries the plan out.
+ *
  * One item per package and remedy. What the advisory database claims as patched is not trusted,
  * because pnpm guesses it: the fix for an advisory is the lowest published release above what is
  * installed that leaves its range. A release outside every range of the package comes first, and

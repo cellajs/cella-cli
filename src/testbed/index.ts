@@ -3,13 +3,13 @@ import { chmodSync, closeSync, existsSync, mkdirSync, openSync, readFileSync, rm
 import { constants } from 'node:os';
 import { join } from 'node:path';
 import process from 'node:process';
+import { setTimeout as sleep } from 'node:timers/promises';
 import { parseEnv } from 'node:util';
 import { z } from 'zod';
 import type { Command } from '../command';
 import { loadAppConfig, loadLocalDatabases, toolDir } from '../utils/app';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
-import { getEnvSnapshot } from '../utils/env';
 import { onShutdown } from '../utils/signals';
 
 /** Above the checkout's own ports, clear of `pnpm dev` and of a second stack at offset 50 or 60. */
@@ -124,7 +124,7 @@ async function resolveTestbed(repoRoot: string, data: TestbedData = 'seed', blan
     env: {
       // The seed creates the admin that the env file names, and a command signs in as that user
       ...(fileEnv.ADMIN_EMAIL ? { ADMIN_EMAIL: fileEnv.ADMIN_EMAIL } : {}),
-      ...getEnvSnapshot(),
+      ...process.env,
       ...(data === 'showcase' ? { ADMIN_EMAIL: showcaseAdmin(repoRoot) } : {}),
       ...composeEnv,
       // An empty string wins over the value in .env
@@ -186,8 +186,6 @@ const reachable = (url: string) =>
     (response) => response.status < 500,
     () => false,
   );
-
-const sleep = (ms: number) => new Promise((done) => setTimeout(done, ms));
 
 function compose(testbed: Testbed, args: string[], stdio: 'inherit' | 'ignore' = 'ignore'): boolean {
   const composeArgs = ['compose', '-f', 'backend/compose.yaml', '--profile', database, ...args];

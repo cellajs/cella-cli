@@ -1,10 +1,3 @@
-/**
- * Static analysis of module ownership. A module with `owner: 'app'` in its `registerModule`,
- * `defineBackendModule` or `defineFrontendModule` call is app territory: its source folder, plus
- * a matching frontend static asset folder, never merges and is never offered back upstream.
- * Parsing is syntax-only (ts-morph, no type-checker).
- */
-
 import { existsSync } from 'node:fs';
 import { basename, join, relative, sep } from 'node:path';
 import { Project, SyntaxKind } from 'ts-morph';
@@ -28,7 +21,10 @@ function readOwner(call: import('ts-morph').CallExpression): string | undefined 
 }
 
 /**
- * Scan a repository for module territory owned by the app (`owner: 'app'`).
+ * Scan a repository for module territory owned by the app. A module with `owner: 'app'` in its `registerModule`,
+ * `defineBackendModule` or `defineFrontendModule` call is app territory: its source folder, plus a matching frontend
+ * static asset folder, never merges and is never offered back upstream. The parse is syntax-only (ts-morph, no
+ * type-checker).
  *
  * @param repoPath - Absolute path to the repository root to scan.
  * @returns Repo-relative folder paths (POSIX separators), deduplicated.

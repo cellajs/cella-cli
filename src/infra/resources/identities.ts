@@ -7,9 +7,11 @@ import { allPrincipalNames } from '../lib/scaleway/principals';
 import { errorMessage } from '../lib/utils/errors';
 import { mode, organizationId } from '../pulumi-context';
 
+/**
+ * The canonical per-mode names the engine's IAM principals are resolved by. A required principal throws on a resolution failure; an
+ * optional one warns and drops its statements, and a missing admin app never blocks a release.
+ */
 const names = allPrincipalNames(appConfig, mode);
-
-// The engine's IAM principals, resolved by their canonical per-mode names. A required principal throws on a resolution failure; an optional one warns and drops its statements, so a missing admin app never blocks a release.
 
 /**
  * Whether a failed principal lookup means the application or group does not exist. Only a real not-found counts: a transient IAM outage

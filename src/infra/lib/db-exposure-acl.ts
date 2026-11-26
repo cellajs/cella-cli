@@ -1,7 +1,3 @@
-// Pure rules for the database public-endpoint ACL, free of prompts and I/O. The CLI validates the operator's input
-// with them, and the postgres store validates the stack config again before it creates the ACL. Scaleway's database
-// ACL takes IPv4 CIDRs only (the provider refuses IPv6 at apply time), so these are IPv4 rules.
-
 import { isIP } from 'node:net';
 
 /** Narrowest prefix an entry may have without `allowWide` (`infra:dbPublicAclAllowWide`). */
@@ -47,7 +43,9 @@ export type AclParse = { ok: true; cidrs: string[] } | { ok: false; reason: stri
  * entry becomes the IPv4 range it names. Refused: IPv6 and malformed input, any range opening the database to the
  * whole internet (a `/0` or the unspecified network), a prefix wider than `/24` unless `allowWide`, and entries that
  * together open more than half of IPv4, the most one entry may open. Sizes add up as written, so nested wide ranges
- * count twice; they are redundant anyway.
+ * count twice; they are redundant anyway. Free of prompts and I/O: the CLI checks the operator's input with it, and the
+ * postgres store checks the stack config again before it creates the ACL. Scaleway's database ACL takes IPv4 CIDRs only,
+ * and the provider refuses IPv6 at apply time.
  */
 export function parseAclInput(raw: string, allowWide = false): AclParse {
   const entries = raw

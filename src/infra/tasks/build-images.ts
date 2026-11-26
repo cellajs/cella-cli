@@ -1,8 +1,5 @@
 import { basename, dirname } from 'node:path';
 import { ENGINE_ASSETS } from '../lib/builder/builder-machine';
-
-export { frontendProxyDockerfile } from '../lib/builder/builder-machine';
-
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import { AGENT_IMAGE_NAME } from '../lib/deploy/release-archives';
 import { parseServiceRows } from '../lib/utils/service-rows';

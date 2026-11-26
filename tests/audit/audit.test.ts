@@ -4,7 +4,6 @@ import { delimiter, join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { runAudit } from '../../src/audit/audit';
 import { hyperlink } from '../../src/utils/display';
-import { getEnv } from '../../src/utils/env';
 import { runPnpmJson } from '../../src/utils/pnpm';
 
 const securityPass = vi.hoisted(() => vi.fn());
@@ -62,7 +61,7 @@ describe('audit', () => {
         ].join('\n'),
       );
       chmodSync(script, 0o755);
-      vi.stubEnv('PATH', `${bin}${delimiter}${getEnv('PATH') ?? ''}`);
+      vi.stubEnv('PATH', `${bin}${delimiter}${process.env.PATH ?? ''}`);
     });
 
     afterEach(() => {

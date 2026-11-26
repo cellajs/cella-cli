@@ -30,7 +30,7 @@ export type BuilderLinks = Record<string, string>;
 
 /**
  * Where the builder writes the release's archives before it uploads them: its disk, which holds them, and not `/run`, a tmpfs in memory.
- * The script names the same folder, as no dollar-brace may appear in it.
+ * The script spells the same folder out.
  */
 export const BUILDER_ARCHIVE_DIR = '/var/lib/release/images';
 
@@ -40,8 +40,9 @@ export function builderReportPrefix(sha: string): string {
 }
 
 /**
- * The script. Written with String.raw: every backslash reaches bash as it stands, and no dollar-brace may appear. It holds no key: every
- * write is a PUT to a link from `/etc/builder-links.tsv`, and the log it uploads is the script's own output.
+ * The script. Written with String.raw: every backslash reaches bash as it stands, and every dollar-brace is a substitution made here, which
+ * bash never sees. It holds no key: every write is a PUT to a link from `/etc/builder-links.tsv`, and the log it uploads is the script's
+ * own output.
  */
 export const BUILDER_SCRIPT = String.raw`#!/bin/bash
 set -a; . /etc/builder.env; set +a
@@ -158,7 +159,7 @@ put manifest /run/manifest.json
 finish ok
 `;
 
-/** The keyless container that builds the agent bundle: the engine's workspace only. */
+/** The keyless container that builds the agent bundle: the app's infra workspace only. */
 export function agentBundleScript(pnpmVersion: string): string {
   return [
     `npm install -g --silent pnpm@${pnpmVersion}`,

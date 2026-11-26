@@ -1,11 +1,10 @@
 import { errorMessage } from '../utils/errors';
-/**
- * What an environment deploys: production the newest release, any other environment only what its line in the repository's environments
- * file names. A line also pins a release or a commit, or raises the retry counter; an environment that follows the releases takes `releases`
- * or a release tag only. Every scheduled run of the main job reads this, as data.
- */
 
-/** Where the environments file lives in the repository, relative to its root. */
+/**
+ * Where the environments file lives in the repository, relative to its root. It says what an environment deploys: production the newest
+ * release, any other environment only what its line names. A line also pins a release or a commit, or raises the retry counter; an
+ * environment that follows the releases takes `releases` or a release tag only. Every scheduled run of the main job reads it, as data.
+ */
 export const ENVIRONMENTS_FILE = 'infra/environments';
 
 /** How an environment's target is found. */

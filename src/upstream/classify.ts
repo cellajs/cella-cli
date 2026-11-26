@@ -146,12 +146,7 @@ export interface Trees {
 }
 
 /** Read the trees {@link classifyFiles} compares, with git plumbing on refs only, never the working tree. */
-export async function readTrees(
-  repoRoot: string,
-  appRef: string,
-  upstreamRef: string,
-  baseRef: string,
-): Promise<Trees> {
+async function readTrees(repoRoot: string, appRef: string, upstreamRef: string, baseRef: string): Promise<Trees> {
   // Changes between base and each tip; rename detection runs at -M90%.
   const [base, app, upstream, appChanges, upstreamChanges] = await Promise.all([
     getFileHashesAtRef(repoRoot, baseRef),

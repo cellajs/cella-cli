@@ -27,7 +27,6 @@ import {
   acquireStackLockOrExit,
   autoAcceptDefaults,
   confirmOrDefault,
-  createStepRunner,
   endAction,
   endActionWithHint,
   endsAction,
@@ -53,20 +52,29 @@ async function optionalSecret(message: string): Promise<string> {
   }
 }
 
+/** Run a labelled command in the infra folder and end the action on a non-zero exit; with `retry`, a failure first asks to run it again. */
+async function mustRun(label: string, cmd: string, args: string[], env: NodeJS.ProcessEnv, opts: { retry?: boolean } = {}): Promise<void> {
+  while (true) {
+    console.info(`\n→ ${label}\n  $ ${cmd} ${args.join(' ')}`);
+    const { status } = spawnSync(cmd, args, { cwd: infraDir, env, stdio: 'inherit' });
+    if (status === 0) return;
+    console.error(`\n${crossMark} ${label} failed (exit ${status}).`);
+    if (!opts.retry || !(await confirm({ message: 'Retry?', default: true }))) endAction(status ?? 1);
+  }
+}
+
 /** What the operator part of a setup shares. */
 interface SetupContext {
   context: InfraContext;
   appConfig: InfraContext['appConfig'];
   projectId: string;
-  /** The operator key: provider auth, Secret Manager writes and IAM reads. */
-  accessKey: string;
+  /** The operator key's secret: provider auth, Secret Manager writes and IAM reads. */
   secretKey: string;
   /** The key for the state side (backend login, lease): the operator key, naming this project. */
   stateKey: KeyPair;
   stackName: string;
   /** Child-process env carrying the provider key. */
   childEnv: Record<string, string>;
-  must: ReturnType<typeof createStepRunner>['must'];
 }
 
 /** Operator secret values gathered at the first-setup prompts, seeded once the first `pulumi up` made their containers. */
@@ -183,7 +191,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
   while (true) {
     const { code } = await runPulumiUpWithHint(ctx.stackName, infraDir, ctx.childEnv);
     if (code === 0) break;
-    if (!(await confirm({ message: 'Retry?', default: true }))) {
+    if (!(await confirm({ message: 'Retry?', default: false }))) {
       await stackLock.release();
       endActionWithHint(
         `Base provisioning failed (pulumi up exited ${code})`,
@@ -281,24 +289,21 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
     organizationId: operatorKey.organizationId,
   });
 
-  const { must } = createStepRunner(infraDir, childEnv);
   const ctx: SetupContext = {
     context,
     appConfig,
     projectId,
-    accessKey: operatorKey.accessKey,
     secretKey: operatorKey.secretKey,
     stateKey,
     stackName,
     childEnv,
-    must,
   };
 
   // State backend + stack
-  await must('Ensure Pulumi state bucket', 'pnpm', ['ensure-state-bucket'], spawnSync, { retry: true });
-  await must('Pulumi login (S3 backend)', 'pulumi', ['login', pulumiLoginUrl(appConfig)], spawnSync, { retry: true });
+  await mustRun('Ensure Pulumi state bucket', 'pnpm', ['ensure-state-bucket'], childEnv, { retry: true });
+  await mustRun('Pulumi login (S3 backend)', 'pulumi', ['login', pulumiLoginUrl(appConfig)], childEnv, { retry: true });
   const selected = spawnSync('pulumi', ['stack', 'select', stackName], { cwd: infraDir, env: childEnv, stdio: 'ignore' });
-  if (selected.status !== 0) await must('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], spawnSync);
+  if (selected.status !== 0) await mustRun('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], childEnv);
   writeStackFileProjectId(environment, projectId);
 
   // Identity ids come from the IAM API, so stack config only needs a non-secret bootstrap marker.
@@ -306,11 +311,11 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   await copyDeployKeyForMainJob(context, operatorKey, projectId, ciKey);
   // Set once: a new value on each resume would change the committed stack file and offer a commit every time.
   if (!context.hasCiKey && ciKey?.accessKey) {
-    await must(
+    await mustRun(
       'Mark bootstrap complete',
       'pulumi',
       ['config', 'set', 'infra:bootstrapComplete', new Date().toISOString(), '--stack', stackName],
-      spawnSync,
+      childEnv,
     );
   }
 

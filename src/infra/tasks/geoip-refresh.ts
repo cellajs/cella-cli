@@ -1,11 +1,9 @@
 import { gunzipSync } from 'node:zlib';
 import { printable } from '../../utils/terminal-text';
-import type { KeyPair } from '../lib/scaleway/operator-identity';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { getFlag, getNumFlag } from '../lib/utils/args';
-import { ExitCodeError, errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
+import { errorMessage } from '../lib/utils/errors';
 
 export type GeoipKind = 'country' | 'asn';
 export const GEOIP_KINDS: readonly GeoipKind[] = ['country', 'asn'];
@@ -141,10 +139,10 @@ export async function sequenceGeoipRefresh(plan: GeoipRefreshPlan): Promise<Geoi
   return { published: true, manifest };
 }
 
-/** Live effects: DB-IP over HTTPS, the bucket over the S3 API with `key` when given, else the deploy key in the environment. */
-export async function createLiveEffects(opts: { bucket: string; region: string; prefix: string; key?: KeyPair }) {
+/** Live effects: DB-IP over HTTPS, the bucket over the S3 API with the deploy key in the environment. */
+export async function createLiveEffects(opts: { bucket: string; region: string; prefix: string }) {
   const { GetObjectCommand, PutObjectCommand } = await import('@aws-sdk/client-s3');
-  const { accessKey, secretKey } = opts.key ?? deployS3Key();
+  const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
   return {
     fetchDatabase: async (url: string) => {
@@ -176,17 +174,17 @@ export async function createLiveEffects(opts: { bucket: string; region: string; 
 }
 
 /**
- * CLI: `tsx infra/tasks/geoip-refresh.ts --bucket <name> --region <region> [--prefix geoip] [--month YYYY-MM]
- * [--force] [--max-age-days N]`. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket.
+ * The deploy's GeoIP step: `--bucket <name> --region <region> [--prefix geoip] [--month YYYY-MM] [--force] [--max-age-days N]
+ * [--keys-rotated-at <time>]`. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket.
  */
-export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair } = {}): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const bucket = getFlag(argv, '--bucket');
   const region = getFlag(argv, '--region');
-  if (!bucket || !region) throw new ExitCodeError('geoip-refresh requires --bucket and --region', 2);
+  if (!bucket || !region) throw new Error('geoip-refresh requires --bucket and --region');
   const prefix = getFlag(argv, '--prefix') ?? DEFAULT_PREFIX;
   const maxAgeRaw = getFlag(argv, '--max-age-days');
   const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
-  const effects = await createLiveEffects({ bucket, region, prefix, key: opts.key });
+  const effects = await createLiveEffects({ bucket, region, prefix });
   const result = await sequenceGeoipRefresh({
     bucket,
     prefix,
@@ -205,5 +203,3 @@ export async function main(argv = process.argv.slice(2), opts: { key?: KeyPair }
       : `✓ GeoIP data left as is (${result.skipped}: ${printable(result.manifest.month)}, ${printable(result.manifest.publishedAt)})\n`,
   );
 }
-
-runIfMain(import.meta.url, main);

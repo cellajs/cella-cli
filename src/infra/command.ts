@@ -8,7 +8,7 @@ interface InfraOptions {
 }
 
 /** The manifest of the app's `infra` workspace, relative to the app's root. */
-export const infraManifest = join('infra', 'package.json');
+const infraManifest = join('infra', 'package.json');
 
 /** Whether `dir` is the app's root with an `infra` workspace, or that workspace itself, where its scripts run. */
 export function hasInfraWorkspace(dir: string): boolean {

@@ -4,11 +4,10 @@ import { join, relative } from 'node:path';
 import { deployS3Key, listObjectEtags, makeS3Client } from '../lib/scaleway/s3-client';
 import { putJsonObject, readObjectText } from '../lib/stack/control-store';
 
-// The deploy command owns asset semantics (the SST StaticSite pattern): the
-// hashed bundle uploads before the switches, entry files publish only after
-// them (deploy-run.publishEntryFiles).
-
-/** Entry files that must NOT upload with the bundle: they go live last. */
+/**
+ * Entry files that must not upload with the bundle: they go live last. The deploy owns asset semantics (the SST StaticSite pattern): the
+ * hashed bundle uploads before the switches, and the deploy publishes these, from this list, only after them (`publishEntryFiles`).
+ */
 export const ENTRY_FILE_NAMES = ['index.html', 'sw.js', 'sw.js.map', 'manifest.webmanifest'] as const;
 
 /** Where a release's entry files wait in the frontend bucket until the deploy publishes them: nothing serves this prefix. */

@@ -3,12 +3,8 @@ import { machineRoles } from '../lib/machine-roles';
 import { deriveInfra, redirectedApexOrigin } from '../lib/naming';
 import { appStorageNeeds, enabledServices, serviceEndpoints } from '../lib/services';
 
-type Cfg = EngineConfig;
-
-/** Exact set of keys this script is allowed to emit. Tests lock this. */
+/** Exact set of keys the deploy env table holds. Tests lock this. */
 export const ALLOWED_KEYS = [
-  'environment',
-  'image_tag',
   'stack',
   'region',
   'frontend_bucket',
@@ -22,7 +18,7 @@ export const ALLOWED_KEYS = [
 export type AllowedKey = (typeof ALLOWED_KEYS)[number];
 
 /** Pure builder that produces the deploy env table from an appConfig. */
-export function buildDeployEnv(appConfig: Cfg, opts: { imageTag?: string } = {}): Record<AllowedKey, string> {
+export function buildDeployEnv(appConfig: EngineConfig): Record<AllowedKey, string> {
   const { naming, dnsZone } = deriveInfra(appConfig);
   const enabled = enabledServices(appConfig.services);
   const serviceUrls = appConfig.services as Record<string, { publicUrl?: string }>;
@@ -47,8 +43,6 @@ export function buildDeployEnv(appConfig: Cfg, opts: { imageTag?: string } = {})
     });
 
   return {
-    environment: appConfig.mode,
-    image_tag: opts.imageTag ?? '',
     stack: appConfig.mode,
     region: appConfig.s3.region,
     // Empty when the registry implies no SPA bucket (frontend-less app); the deploy skips asset upload + entry publish on ''.

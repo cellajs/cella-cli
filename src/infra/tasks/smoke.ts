@@ -4,7 +4,6 @@ import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealth
 import { healthContract } from '../lib/health-contract';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { pollUntil } from '../lib/utils/retry';
 import { parseServiceRows } from '../lib/utils/service-rows';
 import { sleep as defaultSleep } from '../lib/utils/sleep';
@@ -280,7 +279,7 @@ export function parseArgs(argv: string[]): CliArgs {
   const sha = getFlag(argv, '--sha');
   if (!primaryUrl || !sha) {
     throw new Error(
-      'Usage: smoke.ts [--frontend <url>] [--apex <url>] --backend <url> | --primary <slug> --sha <git-sha> [--services-json <json>] [--timeout ms]',
+      'Usage: smoke [--frontend <url>] [--apex <url>] --backend <url> | --primary <slug> --sha <git-sha> [--services-json <json>] [--timeout ms]',
     );
   }
   const timeoutRaw = getFlag(argv, '--timeout');
@@ -320,7 +319,7 @@ export function resolveWorkerScriptPath(dist: string | undefined): string | unde
   return dist && existsSync(join(dirname(dist), 'sw.js')) ? '/sw.js' : undefined;
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const args = parseArgs(argv);
   const expectedAsset = resolveExpectedAsset(args.dist);
   const results = await runSmoke({
@@ -347,5 +346,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   const failed = results.filter((r) => r.status === 'fail');
   if (failed.length > 0) throw new Error(`${failed.length} smoke check(s) failed`);
 }
-
-runIfMain(import.meta.url, main);

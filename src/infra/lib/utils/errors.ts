@@ -9,7 +9,7 @@ export function errorMessage(err: unknown): string {
 
 /**
  * A task failure that asks for a specific process exit code. Being thrown, it stops a caller that runs the task
- * in-process (the deploy); the standalone entry (`runIfMain`) exits with `exitCode`.
+ * in-process (the deploy); `runTask` (run.ts) exits with `exitCode`.
  */
 export class ExitCodeError extends Error {
   readonly exitCode: number;

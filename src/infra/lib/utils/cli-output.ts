@@ -1,6 +1,6 @@
 import pc from '../../../utils/colors';
 
-// Console formatting for the infra CLI and tasks. Vendored so the engine has no workspace dependencies at runtime.
+// Console formatting for the infra CLI and tasks.
 
 export { pc };
 

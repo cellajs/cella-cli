@@ -4,7 +4,7 @@ import { dirname, join } from 'node:path';
 import { localesDir } from '../i18n/locales';
 import { loadAppConfig, rootPackage } from '../utils/app';
 import { printStep } from '../utils/display';
-import { toHtml, writePdf } from '../utils/report-document';
+import { tableCell, toHtml, writePdf } from '../utils/report-document';
 import { manualSteps, screenReaderSteps } from './criteria';
 import { automated, type Ledger, type LedgerRow, readLedger, type Status } from './ledger';
 import { type AppConfig, appConfigSchema } from './scope';
@@ -15,10 +15,6 @@ const statusLabel: Record<Status, string> = {
   'does-not-support': 'Does Not Support',
   'not-applicable': 'Not Applicable',
 };
-
-/** Text made safe for a Markdown table cell; backslashes first, so the escapes added after them stay intact. */
-const cell = (text: string) =>
-  text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, ' ');
 
 /** A row's remarks for the reader; a failing row also names what the audit found. */
 function remarksOf(r: LedgerRow) {
@@ -33,7 +29,7 @@ function row(r: LedgerRow) {
   const provisional = r.decidedBy === 'agent' ? ' *(agent review, to confirm)*' : '';
   const conformance = r.status ? `Web: ${statusLabel[r.status]}${provisional}` : '**Not evaluated yet**';
   const en = r.en301549 ? `<br>EN 301 549: ${r.en301549}` : '';
-  return `| ${r.id} ${r.name} (Level ${r.level})${en} | ${conformance} | ${cell(remarksOf(r))} |`;
+  return `| ${r.id} ${r.name} (Level ${r.level})${en} | ${conformance} | ${tableCell(remarksOf(r))} |`;
 }
 
 /** The ledger's rows as the report and the checklist group them; an open row or an agent's decision keeps it a draft. */

@@ -91,16 +91,20 @@ export function endOnPromptAbort(overrides: Partial<PromptAbortEffects> = {}): v
   else fx.exit(0);
 }
 
+/** End the run through {@link endOnPromptAbort} for a prompt abort, or an Esc nothing stepped back from. False for any other error. */
+export function endIfPromptAbort(error: unknown): boolean {
+  if (!isPromptAbort(error) && !(error instanceof PromptBack)) return false;
+  endOnPromptAbort();
+  return true;
+}
+
 /**
  * Route every uncaught error of the CLI process: a prompt abort ends the run through {@link endOnPromptAbort}, anything else prints the way
  * Node prints an uncaught error and exits 1. Install it before the first prompt.
  */
 export function installPromptAbortHandler(): void {
   process.on('uncaughtException', (error) => {
-    if (isPromptAbort(error) || error instanceof PromptBack) {
-      endOnPromptAbort();
-      return;
-    }
+    if (endIfPromptAbort(error)) return;
     console.error(error);
     process.exit(1);
   });

@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { menuPath } from '../../lib/operator-actions';
 import { type KeyPair, organizationIdOfKey } from '../../lib/scaleway/operator-identity';
 import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { projectAccessKey } from '../../lib/scaleway/s3-client';
@@ -42,10 +41,6 @@ export interface ReviewedPlan {
  * (organization id). Nothing is locked or written: the returned checkpoint lets the apply tell whether the plan still holds once it is.
  */
 export async function reviewPlan(context: InfraContext, key: KeyPair, opts: { engineImage?: string } = {}): Promise<ReviewedPlan> {
-  if (context.state !== 'bootstrapped') {
-    console.error(`${warningMark} A plan needs a fully bootstrapped stack (state=${context.state}). Run "${menuPath('resume')}" first.`);
-    endAction(1);
-  }
   const { projectId, appConfig } = context;
   const stack = stackNameFor(context);
 

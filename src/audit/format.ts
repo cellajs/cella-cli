@@ -1,7 +1,3 @@
-/**
- * How the audit draws its rows: severity dots, names cut to a column, and dependents.
- */
-
 import pc from '../utils/colors';
 import { checkMark, plural, warningMark } from '../utils/display';
 import type { VulnerabilitySeverity } from '../utils/pnpm';

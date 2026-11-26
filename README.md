@@ -1,8 +1,8 @@
 # @cellajs/cli
 
 The command line of apps built from the [cella template](https://github.com/cellajs/cella): a testbed and the tools that
-run on it (load tests, an accessibility audit, a security scan, the marketing screenshots), the style check, and
-upgrades from upstream cella that keep your customizations.
+run on it (load tests, an accessibility audit, a security scan, the marketing screenshots), the style check,
+upgrades from upstream cella that keep your customizations, and the engine that deploys the app to Scaleway.
 
 ## Usage
 
@@ -18,7 +18,8 @@ pnpm cella audit
 ```
 
 The CLI runs on macOS and Linux with Node 26 or later, and calls `git` and `pnpm` from the PATH. Every command needs a
-git repository except `audit`, which runs in any folder. The upstream commands, `style` and `i18n unused` read
+git repository except `audit`, which runs in any folder, and `infra`, whose tasks the engine image and the builder run
+without a checkout. The upstream commands, `style` and `i18n unused` read
 `cella/cella.config.ts`; the other commands run without it.
 
 ## Commands
@@ -65,7 +66,9 @@ Across 1.x releases these stay as they are, and a change to one waits for 2.0:
 
 Every command exits 0 when its run is done or a plain rerun advances it, 1 when a check failed or a person must act
 before it can go on, and 2 on a usage or runtime error. A run stopped by ctrl-c exits 130, and one stopped by SIGTERM
-143, after its cleanup ran.
+143, after its cleanup ran. One exception: in `cella infra`, the deploy's `main-job` task exits 2 when the deploy is
+blocked and waits for a person, on a missing runtime value or an apply it owes. The engine reads that code back from
+the job's run history as blocked.
 
 Until 1.0 two older shapes still load, each with a warning that says what to move: a `cella.config.ts` in the 0.7 shape,
 with `settings` and `overrides` blocks, and the style exceptions in `shared/config/vocabulary-allowlist.ts`.
@@ -224,12 +227,12 @@ database after, since the scans write rows and run into the rate limits. It refu
 | `zap` | ZAP's API scan from the app's OpenAPI spec with the organization's ids filled in: passive rules, then a capped active scan, signed in as its admin |
 
 A run fails on a finding of high or critical severity, and every read the probe lets through to a caller but the
-admin is one. A
-scanner that failed or timed out fails it too. `pnpm cella pentest report` prints the last run's findings.
+admin is one. A scanner that failed or timed out fails it too. `pnpm cella pentest report` prints the last run's
+findings.
 
 The scanners run as Docker images pinned by digest, on the host network, where they reach the testbed by its own origin.
-Results stay in `.git/cella-pentest/`, out of the repository, because the scanners' output can hold the sessions, which
-the run signs out at the end.
+Results stay in `.git/cella-pentest/`, out of the repository, because the scanners' output can hold session cookies.
+Each names a session in the testbed's own database, which the run removes when it ends, ctrl-c included.
 
 `cella/pentest.ts` describes the app: the query that picks the seeded users, the operations a scan must skip because
 they end its session or delete what it needs, the guards that mark a route as scoped, what fills each route's ids, the

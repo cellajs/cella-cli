@@ -1,4 +1,4 @@
-# infra/lib/stack
+# lib/stack
 
 The stack's state beside Pulumi's own, and the CLI's edits to Pulumi's.
 

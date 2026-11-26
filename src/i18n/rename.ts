@@ -117,7 +117,7 @@ function sortWithBiome(repoRoot: string, files: string[]): boolean {
   return spawnSync(biome, ['check', '--write', ...files], { cwd: repoRoot, stdio: 'ignore' }).status === 0;
 }
 
-export async function rename(repoRoot: string, options: RenameOptions): Promise<RenameReport> {
+async function rename(repoRoot: string, options: RenameOptions): Promise<RenameReport> {
   const locales = readLocales(repoRoot);
   const from = parseKey(options.from, locales);
   const to = parseKey(options.to, locales);

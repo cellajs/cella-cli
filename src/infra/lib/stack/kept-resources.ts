@@ -1,7 +1,7 @@
 import type { ImportResource } from '@pulumi/pulumi/automation';
 import type { EngineConfig } from '../engine-config';
 import { deriveInfra } from '../naming';
-import { protectsStoredData, type RuntimeSecretDefinition, runtimeSecrets } from '../runtime-secrets';
+import { protectsStoredData, runtimeSecrets } from '../runtime-secrets';
 import type { SecretManagerSecret } from '../scaleway/scaleway-secret-manager';
 import { ENGINE_FOLDER, RUNTIME_FOLDER } from '../scaleway/secret-paths';
 import { appStorageNeeds, services } from '../services';
@@ -26,7 +26,7 @@ type ListedSecret = Pick<SecretManagerSecret, 'id' | 'name' | 'path'>;
  * the containers of the values that protect stored data, which the final dump in the boot-diag bucket needs. The program declares each
  * with `retainOnDelete`; the state bucket itself is no resource of the program.
  */
-export function keptResources(appConfig: EngineConfig, definitions: readonly RuntimeSecretDefinition[] = runtimeSecrets): KeptResource[] {
+export function keptResources(appConfig: EngineConfig): KeptResource[] {
   const { naming } = deriveInfra(appConfig);
   const bucket = (name: string, live: string, policy: string): KeptResource[] => [
     { type: BUCKET, name, adopt: { bucket: live } },
@@ -41,7 +41,7 @@ export function keptResources(appConfig: EngineConfig, definitions: readonly Run
       : []),
     ...bucket('boot-diag-bucket', naming.bootDiagBucket, 'boot-diag-policy'),
     { type: BUCKET_POLICY, name: 'state-bucket-policy' },
-    ...definitions
+    ...runtimeSecrets
       .filter(protectsStoredData)
       .map((definition): KeptResource => ({ type: SECRET, name: `secret-${definition.secretName}`, adopt: { secret: definition.secretName } })),
   ];

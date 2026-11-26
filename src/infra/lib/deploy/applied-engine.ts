@@ -15,7 +15,7 @@ export const APPLY_NEEDED = 'apply needed';
 /** The engine image's repository name in the environment's registry namespace. */
 export const ENGINE_IMAGE_NAME = 'infra-engine';
 
-/** Where the engine image keeps its stamp, written by its build (infra/Dockerfile): outside any checkout, so only an engine image has one. */
+/** Where the engine image keeps its stamp, written by its build (src/infra/Dockerfile): outside any checkout, so only an engine image has one. */
 const ENGINE_STAMP_PATH = '/engine/stamp.json';
 
 /** A sha256 in hex: a description's hash, an archive's digest. */

@@ -73,6 +73,7 @@ export function machineRoles(appConfig: Pick<EngineConfig, 'services' | 'singleV
       role: machine.slug,
       services: carried,
       pools: carried.flatMap(servicePools),
+      // A stop-first worker on the host leaves it start-first: the new copy waits for the cdc slot and the cron claim until the old machine goes.
       strategy: machine.replacementStrategy,
       drainSeconds: Math.max(0, ...carried.map((service) => service.drainSeconds)),
       primary: machine.primaryRollout === true,

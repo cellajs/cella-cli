@@ -6,7 +6,6 @@ import { owedWork, owedWorkLines, type PrivilegedFootprint } from '../lib/stack/
 import { environments, stackFilePath } from '../lib/stack/project-per-mode';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 
 const RENDER_SCRIPT = 'privileged-footprint';
@@ -36,9 +35,9 @@ function render(dir: string, command: string[], mode: string, out: string): Priv
  * render fails it. `--base` is a checkout of the base commit with its workspace installed. Whether the release PR deploys without an apply
  * is release-applied-check.ts.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const baseRoot = getFlag(argv, '--base');
-  if (!baseRoot) throw new Error('Usage: privileged-check.ts --base <checkout of the base commit>');
+  if (!baseRoot) throw new Error('Usage: privileged-check --base <checkout of the base commit>');
   const baseInfra = join(baseRoot, 'infra');
   const work = mkdtempSync(join(tmpdir(), 'privileged-check-'));
   const lines: string[] = ['### Privileged changes', ''];
@@ -77,5 +76,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   process.stdout.write(text);
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
 }
-
-runIfMain(import.meta.url, main);

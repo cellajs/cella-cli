@@ -5,12 +5,6 @@ import { resolvePerMode } from '../general-config';
 import { ENGINE_FOLDER } from '../scaleway/secret-paths';
 import { infraDir } from '../utils/paths';
 
-/**
- * The main job: one Serverless Jobs definition per environment, made by the operator's apply, that runs at most one deploy of a target
- * per run on the engine image the apply published. Its keys arrive by secret reference. A run its schedule starts finds the target itself;
- * a start by hand carries the target and the retry counter, which anyone who reads job runs can see, so they are the only values a start carries.
- */
-
 /** The deploy key's copy the main job's definition references: `{ accessKey, secretKey }`, written when the key is made or replaced. */
 const DEPLOY_KEY_SECRET_NAME = 'deploy-key';
 
@@ -87,7 +81,12 @@ function mainJobSchedule(everyMinutes: number): MainJobSchedule {
   return { schedule: everyMinutes === 1 ? '* * * * *' : `*/${everyMinutes} * * * *`, timezone: 'Etc/UTC' };
 }
 
-/** The main job's definition as the last apply publishes it (D-b): the apply writes it, and the inventory compares the live one against it. */
+/**
+ * The main job's definition as the last apply publishes it: the apply writes it, and the inventory compares the live one against it. The
+ * main job is one Serverless Jobs definition per environment that runs at most one deploy of a target per run on the engine image the
+ * apply published. Its keys arrive by secret reference. A run its schedule starts finds the target itself; a start by hand carries the
+ * target and the retry counter, the only values a start carries: anyone who reads job runs can see them.
+ */
 export interface MainJobDeclaration {
   imageUri: string;
   startupCommands: string[];

@@ -3,7 +3,7 @@ import { deriveInfra } from '../../naming';
 import { scwFetch } from '../../scaleway/scw-fetch';
 import { serviceEndpoints } from '../../services';
 import { check, runSetup } from '../check';
-import type { StatusProvider } from '../types';
+import type { ProbeSession, StatusProvider } from '../types';
 
 /** DNS resolution of the app's browser-facing host, and the addresses of the project's load balancers. */
 export interface DnsFacts {
@@ -15,7 +15,7 @@ export interface DnsFacts {
 }
 
 /** The load balancers' public addresses in the environment's zone, read with the session's key. */
-async function loadBalancerIps(session: Parameters<NonNullable<StatusProvider<DnsFacts>['gather']>>[0]): Promise<string[] | undefined> {
+async function loadBalancerIps(session: ProbeSession): Promise<string[] | undefined> {
   if (!session.scalewayKeyAvailable || !session.secretKey || !session.projectId) return undefined;
   try {
     const { zone } = deriveInfra(session.appConfig);

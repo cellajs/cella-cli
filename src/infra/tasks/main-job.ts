@@ -10,7 +10,6 @@ import { COMMIT, commitName, defaultRule, isReleaseCommit, type RemoteRef } from
 import { leaseOwnerOfRun } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
 import { isRecord } from '../lib/utils/guards';
-import { isMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 
 /** Run one infra task to its end with the env given, its output in the run's log; resolves to its exit code. */
@@ -258,5 +257,3 @@ export function liveEffects(): MainJobEffects {
       spawnSync('pnpm', ['--silent', 'run', script, ...args], { cwd: infraDir, stdio: 'inherit', env }).status ?? MAIN_JOB_EXIT.failed,
   };
 }
-
-if (isMain(import.meta.url)) process.exit(await mainJob(process.env, liveEffects()));

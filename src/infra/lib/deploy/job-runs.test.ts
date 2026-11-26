@@ -38,7 +38,7 @@ describe('the Serverless Jobs calls', () => {
     expect(['initialized', 'validated', 'queued', 'running', 'retrying', 'interrupting'].some((state) => runEnded({ state }))).toBe(false);
   });
 
-  it("reads the main job's startup command and each run's, so a run started with its own is flagged (D-b, measured 2026-10-29)", async () => {
+  it("reads the main job's startup command and each run's, so a run started with its own is flagged (measured 2026-10-29)", async () => {
     const declared = declaredMainJob({
       projectId: 'p',
       organizationId: 'o',

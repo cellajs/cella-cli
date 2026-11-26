@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { repositoryUrl } from './repository-key';
-import { parseLsRemote, type RemoteRef } from './target.ts';
+import { parseLsRemote, type RemoteRef } from './target';
 
 const execFileAsync = promisify(execFile);
 

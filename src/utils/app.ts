@@ -4,7 +4,6 @@ import { createRequire } from 'node:module';
 import { dirname, join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import type { z } from 'zod';
-import { setEnv } from './env';
 
 /** The app's local database helpers (`shared/src/local-database.ts`), as the develop commands call them. */
 interface LocalDatabases {
@@ -26,7 +25,7 @@ async function importFromApp(
 ): Promise<Record<string, unknown>> {
   const path = join(repoRoot, file);
   if (!existsSync(path)) throw new Error(`not an app built from cella: ${path} is missing`);
-  setEnv('NODE_ENV', mode);
+  process.env.NODE_ENV = mode;
   return import(pathToFileURL(path).href);
 }
 

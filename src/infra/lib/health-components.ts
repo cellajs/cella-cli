@@ -1,8 +1,3 @@
-/**
- * Component verdicts from the primary service's aggregate `/health?depth=full` body, shared by the post-deploy smoke
- * step and `infra status` so both read the same body the same way and agree on what warns and what fails.
- */
-
 /** A single non-healthy component found in a /health?depth=full body. */
 export interface ComponentIssue {
   name: string;
@@ -13,7 +8,10 @@ export interface ComponentIssue {
 /** How a set of component issues should surface: `warn` keeps a run green with an annotation, `error` fails it. */
 export type ComponentSeverity = 'warn' | 'error';
 
-/** Every non-healthy component in a deep health response. A malformed response yields a synthetic issue. */
+/**
+ * Every non-healthy component in the primary service's aggregate `/health?depth=full` body. A malformed response yields a synthetic issue.
+ * The post-deploy smoke step and `infra status` both read the body through it, and agree on what warns and what fails.
+ */
 export function unhealthyComponents(body: string): ComponentIssue[] {
   let parsed: { components?: Record<string, { status?: string; reason?: string }> };
   try {

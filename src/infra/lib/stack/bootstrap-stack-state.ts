@@ -15,9 +15,11 @@ export function detectStackState(probe: StackProbe): StackState {
   return yamlText.includes(bootstrapMarker) ? 'bootstrapped' : 'partial';
 }
 
+const environments: readonly Environment[] = ['production', 'staging'];
+
 /** Pick the first stack short-name whose Pulumi file is present, falling back to production for a fresh checkout. Pure: the caller supplies the existence check. */
-export function pickStackShort(exists: (shortName: string) => boolean, candidates: readonly Environment[] = ['production', 'staging']): Environment {
-  return candidates.find(exists) ?? 'production';
+export function pickStackShort(exists: (shortName: string) => boolean): Environment {
+  return environments.find(exists) ?? 'production';
 }
 
 /** Extract the plaintext `bootstrap:computeDeferred: <iso-timestamp>` marker, set before a fresh provision's first `pulumi up` and cleared once the foundation is up. */

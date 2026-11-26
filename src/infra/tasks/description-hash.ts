@@ -5,7 +5,7 @@ const argv = process.argv.slice(2);
 const modeIndex = argv.indexOf('--mode');
 const mode = modeIndex >= 0 ? argv[modeIndex + 1] : process.env.APP_MODE;
 if (!mode) {
-  console.error('Usage: description-hash.ts --mode <staging|production> [--json] (or APP_MODE)');
+  console.error('Usage: description-hash --mode <staging|production> [--json] (or APP_MODE)');
   process.exit(1);
 }
 process.env.APP_MODE = mode;

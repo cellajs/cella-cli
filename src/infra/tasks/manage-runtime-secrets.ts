@@ -3,7 +3,6 @@ import type { createSecretManagerClient, SecretManagerSecret } from '../lib/scal
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { crossMark, pc } from '../lib/utils/cli-output';
 import { isEnvFileDeliverable } from '../lib/utils/env-file';
-import { isMain } from '../lib/utils/is-main';
 
 export type SecretManagerClient = ReturnType<typeof createSecretManagerClient>;
 
@@ -148,9 +147,4 @@ export function formatEnvImport(lines: readonly EnvImportLine[]): string[] {
     const text = `  ${line.key.padEnd(width)}  ${line.note}`;
     return line.write ? text : pc.dim(text);
   });
-}
-
-if (isMain(import.meta.url)) {
-  process.stderr.write('Run this task through the infra CLI (Env vars & secrets) so prompts and stack context stay aligned.\n');
-  process.exit(1);
 }

@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { type ScwAuth, scwErrorStatus, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 import { getFlag } from '../lib/utils/args';
-import { isMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 
 const CERT_TYPE = 'scaleway:loadbalancers/certificate:Certificate';
@@ -79,7 +78,7 @@ async function liveStatus(auth: ScwAuth, id: string): Promise<LiveCertStatus> {
   }
 }
 
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const stack = getFlag(argv, '--stack');
   if (!stack) throw new Error('Usage: repair-certs --stack <stack>');
   const secretKey = process.env.SCW_SECRET_KEY;
@@ -113,5 +112,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     }
   }
 }
-
-if (isMain(import.meta.url)) await main();

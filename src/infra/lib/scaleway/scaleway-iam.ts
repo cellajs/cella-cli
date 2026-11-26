@@ -1,6 +1,6 @@
 import { changeMark, checkMark, tildeMark } from '../utils/cli-output';
 import { errorMessage } from '../utils/errors';
-import { createApiKey, deleteApiKey, IAM_BASE, listApiKeys, resolveApplicationIdByName } from './iam-client';
+import { createApiKey, deleteApiKey, IAM_BASE, listApiKeys, listOrganizationPolicies, resolveApplicationIdByName } from './iam-client';
 import { principalNames, principalTags } from './principals';
 import { scwErrorStatus, scwFetch, scwSend } from './scw-fetch';
 
@@ -106,14 +106,9 @@ async function writeApplicationPolicy(
   const log = opts.log ?? ((msg) => console.info(msg));
   const policyName = `${app.name}-policy`;
   try {
-    const { policies } = await scwFetch<{ policies: ScwPolicy[] }>(
-      { secretKey: callerSecretKey },
-      'GET',
-      `${IAM_BASE}/policies?application_id=${app.id}&organization_id=${organizationId}&page_size=20`,
-    );
-    const existingPolicy = policies.find((p) => p.name === policyName);
-    if (existingPolicy) {
-      await scwSend({ secretKey: callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${existingPolicy.id}`);
+    const existingId = await findPolicyIdByName(callerSecretKey, organizationId, policyName);
+    if (existingId) {
+      await scwSend({ secretKey: callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${existingId}`);
       log(`  ${tildeMark} Removed existing policy: ${policyName} (recreating with current rules)`);
     }
   } catch (error) {
@@ -178,7 +173,7 @@ export async function provisionScopedKey(opts: ProvisionScopedKeyOptions, config
   return { ...key, applicationId: app.id, organizationId: opts.organizationId };
 }
 
-/** Find an IAM policy id by exact name within an organization. Detects an orphaned policy that must be adopted into Pulumi state. */
+/** An IAM policy's id by its exact name within an organization, or undefined: the name filter narrows the list, and the name decides. */
 async function findPolicyIdByName(secretKey: string, organizationId: string, name: string): Promise<string | undefined> {
   const { policies } = await scwFetch<{ policies: ScwPolicy[] }>(
     { secretKey },
@@ -311,12 +306,7 @@ export async function deleteApplicationCascade(opts: {
   const auth = { secretKey: opts.callerSecretKey };
   const apiKeys = await listApiKeys(auth, opts.organizationId, opts.applicationId);
   for (const key of apiKeys) await deleteApiKey(auth, key.access_key);
-  // The list endpoint's application_id filter is unreliable; filter client-side on the principal each item carries.
-  const { policies = [] } = await scwFetch<{ policies?: Array<ScwPolicy & { application_id?: string }> }>(
-    { secretKey: opts.callerSecretKey },
-    'GET',
-    `${IAM_BASE}/policies?organization_id=${opts.organizationId}&page_size=100`,
-  );
+  const policies = await listOrganizationPolicies(auth, opts.organizationId);
   for (const policy of policies.filter((p) => p.application_id === opts.applicationId)) {
     await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${policy.id}`);
   }

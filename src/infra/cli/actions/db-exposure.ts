@@ -94,7 +94,7 @@ function writeDbCaFile(env: NodeJS.ProcessEnv, stack: string): string | undefine
   return caPath;
 }
 
-/** The secret key a converge env authenticates with: the key minted from the operator key for this run. */
+/** The secret key a converge env authenticates with: the operator key this run holds. */
 function convergeSecretKey(env: NodeJS.ProcessEnv): string {
   if (!env.SCW_SECRET_KEY) throw new Error('the converge environment carries no SCW_SECRET_KEY');
   return env.SCW_SECRET_KEY;
@@ -221,21 +221,17 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
   let acl = '';
   await steps([
     async () => {
-      const raw = await input({
+      // The prompt resolves only after `validate` accepts the answer: its parse is the one kept.
+      await input({
         id: 'db-open.acl',
         message: 'Allow from',
         default: suggestion || undefined,
         validate: (value) => {
           const parsed = parseAclInput(value);
+          if (parsed.ok) acl = parsed.cidrs.join(',');
           return parsed.ok || parsed.reason;
         },
       });
-      const parsed = parseAclInput(raw);
-      if (!parsed.ok) {
-        console.error(`${crossMark} ${parsed.reason}`);
-        endAction(1);
-      }
-      acl = parsed.cidrs.join(',');
     },
     async () => {
       console.warn(`${warningMark} Anyone on the internet can reach this address; only ${pc.cyan(acl)} may connect.`);

@@ -53,16 +53,6 @@ export function deployedServices(serviceConfig: Record<string, EngineServiceEndp
   return placeServices(enabledServices(serviceConfig), singleVM).vm;
 }
 
-/** Enabled workers folded into the host process under singleVM, empty when singleVM is off. Their runtime secrets union onto the host machine and a stop-first one makes the host a singleton host. */
-export function coHostedServices(serviceConfig: Record<string, EngineServiceEndpoint>, singleVM: boolean): readonly ServiceDefinition[] {
-  return placeServices(enabledServices(serviceConfig), singleVM).coHosted;
-}
-
-/** Enabled `placement: 'host'` containers the agent starts beside the host container under singleVM. Their LB pools follow the host's switch, and their secrets union onto the host machine. */
-export function collocatedServices(serviceConfig: Record<string, EngineServiceEndpoint>, singleVM: boolean): readonly ServiceDefinition[] {
-  return placeServices(enabledServices(serviceConfig), singleVM).collocated;
-}
-
 /** The services one machine carries: its own, and on the singleVM host every co-hosted worker and collocated container. */
 export function carriedServices(
   serviceConfig: Record<string, EngineServiceEndpoint>,
@@ -72,18 +62,6 @@ export function carriedServices(
   if (!singleVM || !machine.primaryRollout) return [machine];
   const placed = placeServices(enabledServices(serviceConfig), singleVM);
   return [machine, ...placed.coHosted, ...placed.collocated];
-}
-
-/**
- * True for the singleVM host when it runs a stop-first worker (the cdc replication slot, the cron maintainer). The host still switches start-first:
- * PostgreSQL lets one session hold the slot and pg-boss claims each cron period once, so the new machine's copies wait while the old one lives.
- * They take over once the old machine drained and went.
- */
-export function isSingletonHost(serviceConfig: Record<string, EngineServiceEndpoint>, singleVM: boolean, svc: ServiceDefinition): boolean {
-  if (!singleVM || !svc.primaryRollout) return false;
-  const placed = placeServices(enabledServices(serviceConfig), singleVM);
-  if (!placed.vm.some((s) => s.slug === svc.slug)) return false;
-  return [...placed.coHosted, ...placed.collocated].some((s) => s.replacementStrategy === 'stop-first');
 }
 
 /**
@@ -115,11 +93,10 @@ export interface ServiceEndpoint {
  * Must stay a function taking the resolved appConfig: this module is imported before APP_MODE is set, so it can never read appConfig at module level.
  */
 export function serviceEndpoints(cfg: EngineConfig): readonly ServiceEndpoint[] {
-  const serviceUrls = cfg.services as Record<string, EngineServiceEndpoint>;
   return services
     .filter((s) => s.lbRoute)
     .map((s) => {
-      const url = serviceUrls[s.slug]?.publicUrl;
+      const url = cfg.services[s.slug]?.publicUrl;
       if (!url) throw new Error(`Public service '${s.slug}' (lbRoute set) has no URL in appConfig`);
       return { slug: s.slug, url, host: new URL(url).hostname };
     });

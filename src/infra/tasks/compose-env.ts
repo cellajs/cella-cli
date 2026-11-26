@@ -13,7 +13,6 @@ import { carriedServices, deployedServices } from '../lib/services';
 import { getFlag } from '../lib/utils/args';
 import { isEnvFileDeliverable } from '../lib/utils/env-file';
 import { ExitCodeError } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 
 /** One machine's env file of a release: the env object it is written to and the boot account key its machine uploads to. */
 export interface MachineEnv {
@@ -108,7 +107,7 @@ function bootAccountKey(service: string, now: Date): string {
  * machine's env file and write it to the boot-diag bucket under `env/`, where only the deploy key reads it, and the env objects and boot
  * account keys to `--out`, from which the deploy hands each new machine its links.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const check = argv.includes('--check');
   const sha = getFlag(argv, '--sha');
   const projectId = getFlag(argv, '--project-id');
@@ -149,5 +148,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   await writeFile(out, JSON.stringify(written, null, 2), { mode: 0o600 });
 }
-
-runIfMain(import.meta.url, main);

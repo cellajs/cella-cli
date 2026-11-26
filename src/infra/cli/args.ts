@@ -6,7 +6,7 @@ export interface CliArgs {
   action?: OperatorActionId;
   /** A first word that names no action; the CLI lists the ones that exist. */
   unknownAction?: string;
-  /** `--mode <production|staging>`; validated where the mode is resolved. */
+  /** `--mode <production|staging>`; the CLI refuses any other value as a usage error before it resolves the mode. */
   mode?: string;
   /** `--once`: leave after the first action chosen in the menu. */
   once: boolean;

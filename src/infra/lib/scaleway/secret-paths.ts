@@ -1,10 +1,8 @@
-// The path hierarchy is the security boundary: an IAM condition grants secret-value reads by `resource.name.startsWith(<path>)`, so where a
-// secret lives decides who reads it. Every environment has a Scaleway project of its own, and each rule names that project, so the folders
-// start at the project's root.
-
 /**
  * Folder of the values a deploy reads: one container per runtime secret, named by its `secretName`, which the deploy composes into each
  * machine's env file, beside the repository read key and the uploads key's two halves. No machine holds a key that reads it.
+ * The folders are the security boundary: an IAM condition grants secret-value reads by `resource.name.startsWith(<path>)`, and where a
+ * secret lives decides who reads it. They start at the root of the environment's own project, which each rule names.
  */
 export const RUNTIME_FOLDER = '/runtime/';
 

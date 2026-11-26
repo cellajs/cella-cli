@@ -61,7 +61,7 @@ export interface RdbBackup {
   download_url_expires_at?: string | null;
 }
 
-/** Scaleway's coarse per-database permission. `all` is what `database.ts` declares for both roles. */
+/** Scaleway's coarse per-database permission. `all` is what tasks/ensure-database.ts grants both roles. */
 export type RdbPermission = 'readonly' | 'readwrite' | 'all' | 'custom' | 'none';
 
 interface InstanceListResponse {

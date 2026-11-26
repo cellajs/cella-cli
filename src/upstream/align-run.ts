@@ -1,10 +1,3 @@
-/**
- * `align run <id>`: an alignment's codemod, run from an extracted copy inside the app, followed by
- * the restore that gives each file identical to upstream before the run its upstream content back.
- * The restore runs after a failed codemod too, since one that stopped halfway may have rewritten
- * files already.
- */
-
 import { execFileSync, spawnSync } from 'node:child_process';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { dirname, join } from 'node:path';
@@ -41,7 +34,9 @@ async function writeAlignmentFolder(repoRoot: string, ref: string, id: string): 
 /**
  * Run the alignment's codemod with `tsx` from the app root, `codemodArgs` after its script (an
  * inventory over its roots when empty), then restore the files it changed that were identical to
- * `ref`, the upstream commit the app last upgraded to.
+ * `ref`, the upstream commit the app last upgraded to. This is `align run <id>`: the codemod runs from
+ * a copy extracted inside the app. The restore runs after a failed codemod too: one that stopped
+ * halfway may have rewritten files already.
  * @returns 1 when the codemod failed
  * @throws for an unknown alignment and for one without a codemod script
  */

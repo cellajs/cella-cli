@@ -3,7 +3,6 @@ import { appendFileSync, existsSync } from 'node:fs';
 import { appliedDescriptionVariable, followsReleases } from '../lib/deploy/release-gate';
 import { environments, stackFilePath } from '../lib/stack/project-per-mode';
 import { isRecord } from '../lib/utils/guards';
-import { runIfMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 
 /** The repository's variables, as the workflow passes them in `REPOSITORY_VARIABLES` (`toJSON(vars)`). */
@@ -57,5 +56,3 @@ export async function main(): Promise<void> {
   if (process.env.GITHUB_STEP_SUMMARY) appendFileSync(process.env.GITHUB_STEP_SUMMARY, text);
   if (owes) process.exitCode = 1;
 }
-
-runIfMain(import.meta.url, main);

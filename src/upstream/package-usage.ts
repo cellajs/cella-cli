@@ -1,15 +1,3 @@
-/**
- * Where the app's own code still uses a package or a script.
- *
- * The package merge removes an entry upstream dropped when the app never touched it in
- * package.json, but an app can use an inherited entry without touching it: an import in an
- * app-only module, a CLI in an app script, a script name in an app workflow. Only app-authored
- * content is searched: files that differ from upstream after the file merge, and package.json
- * scripts the app added or changed. Upstream no longer uses what it dropped, so a reference in
- * that content is the app's own. A false match keeps the entry, which is the safe side: a stale
- * entry costs an install, a missing one breaks the app.
- */
-
 import { existsSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { git } from '../utils/git';
@@ -26,7 +14,13 @@ interface AppSource {
   text: () => string;
 }
 
-/** Answers where the app still uses an entry upstream dropped; undefined when nowhere. */
+/**
+ * Answers where the app's own code still uses an entry upstream dropped; undefined when nowhere. The package merge
+ * removes such an entry when the app never touched it in package.json, but an app can use an inherited entry without
+ * touching it: an import in an app-only module, a CLI in an app script, a script name in an app workflow. Upstream does
+ * not use what it dropped: a reference in app-authored content is the app's own. A false match keeps the entry,
+ * which is the safe side: a stale entry costs an install, a missing one breaks the app.
+ */
 export interface AppUsage {
   /** An app-authored place inside `location` that imports `name` or runs one of its CLIs */
   findPackage(location: string, name: string): string | undefined;

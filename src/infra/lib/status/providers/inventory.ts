@@ -200,7 +200,7 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
 const folderOf = (path: string | undefined) => (path ?? '').replace(/\/+$/, '');
 
 /**
- * Where a definition differs from the declared one (D-b): a key that may edit it can make a run read another secret. The image, the command,
+ * Where a definition differs from the declared one: a key that may edit it can make a run read another secret. The image, the command,
  * the schedule, every env value, an env var it adds, and each secret reference: one outside the engine folder, one the declaration does not
  * name, one that reads another secret, and a required one that is gone. A definition without its schedule deploys nothing by itself.
  */

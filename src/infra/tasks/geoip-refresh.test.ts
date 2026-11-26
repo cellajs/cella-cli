@@ -133,8 +133,8 @@ describe('monthOf', () => {
 });
 
 describe('main', () => {
-  it('refuses to run without a bucket and region by throwing exit code 2, never exiting in-process', async () => {
-    await expect(main([])).rejects.toMatchObject({ name: 'ExitCodeError', exitCode: 2 });
-    await expect(main(['--bucket', 'b'])).rejects.toMatchObject({ exitCode: 2 });
+  it('refuses to run without a bucket and region by throwing, never exiting in-process, with no exit code of a blocked run', async () => {
+    await expect(main([])).rejects.toThrow('geoip-refresh requires --bucket and --region');
+    await expect(main(['--bucket', 'b'])).rejects.not.toHaveProperty('exitCode');
   });
 });

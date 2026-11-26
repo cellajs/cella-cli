@@ -1,6 +1,13 @@
 import { launchBrowser } from './browser';
 
 /**
+ * Text kept in one table cell as `toHtml` reads it back. Backslashes go first to keep the pipe escapes intact; a line
+ * break would end the table.
+ */
+export const tableCell = (text: string) =>
+  text.replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\s+/g, ' ');
+
+/**
  * A report's Markdown as one HTML page: headings, tables (the first cell of a row is its header), lists, `> ` notes,
  * bold, code and `*(...)*` asides. `extraStyle` is CSS appended to the shared look.
  */

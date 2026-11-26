@@ -14,8 +14,6 @@ const DESCRIPTION = 'd'.repeat(64);
 /** Cella-shaped deploy env table, injected in place of the shared config load. */
 async function fakeDeployEnv(opts: DeployOptions): Promise<Record<AllowedKey, string>> {
   return {
-    environment: opts.mode,
-    image_tag: opts.sha,
     stack: opts.mode,
     region: 'fr-par',
     public_bucket: '',

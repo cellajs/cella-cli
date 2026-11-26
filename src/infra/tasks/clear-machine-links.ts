@@ -5,7 +5,6 @@ import { withoutLinks } from '../lib/scaleway/presign';
 import { deployS3Key, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
-import { runIfMain } from '../lib/utils/is-main';
 import type { MachineEnv } from './compose-env';
 
 /** A machine a deploy made, by its role; `kept` when a failed stop-first switch left it, as a late boot may still serve. */
@@ -70,7 +69,7 @@ export async function clearMachineLinks(
  * The deploy's step after the switches, and its last act: `--envs` the compose step's output, `--machines` the machines the switches made.
  * `--no-wait` at the end of a run, where a machine that never reported loses its links all the same.
  */
-export async function main(argv = process.argv.slice(2)): Promise<void> {
+export async function main(argv: string[]): Promise<void> {
   const envsFile = getFlag(argv, '--envs');
   const machinesFile = getFlag(argv, '--machines');
   const projectId = process.env.SCW_DEFAULT_PROJECT_ID;
@@ -107,5 +106,3 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     { waitMs: argv.includes('--no-wait') ? 0 : 3 * 60_000 },
   );
 }
-
-runIfMain(import.meta.url, main);

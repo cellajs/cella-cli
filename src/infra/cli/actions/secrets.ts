@@ -156,12 +156,7 @@ async function handleSetAll(ctx: MenuContext, definitions: readonly RuntimeSecre
   }
 }
 
-/**
- * Mint (or rotate) a managed key: a scoped Scaleway IAM key cella creates and
- * writes into its runtime secrets without requiring an operator-created key.
- * Needs an IAMManager-capable caller key. The heavy lifting (verify containers
- * exist → mint → write versions) lives in `provision-managed-key.ts`.
- */
+/** Mint (or rotate) a managed key, a scoped Scaleway IAM key, with an Owner API key and write it into the runtime secrets it fills. */
 async function handleMint(ctx: MenuContext, key: ManagedKeyDefinition): Promise<void> {
   const confirmed = await ctx.prompts.confirm({
     message: `${warningMark} Mint a new key for ${key.label}? It takes your Owner key.`,
@@ -205,7 +200,7 @@ async function handleValue(ctx: MenuContext, secret: RuntimeSecretDefinition, co
           {
             name: 'Mint key',
             value: 'mint' as const,
-            description: `Mint a scoped Scaleway key (${ctx.slug}-${mintKey.suffix}) and write it here: it takes an Owner API key.`,
+            description: `Mint a scoped Scaleway key (${ctx.slug}-${ctx.mode}-${mintKey.suffix}) and write it here: it takes an Owner API key.`,
           },
         ]
       : []),

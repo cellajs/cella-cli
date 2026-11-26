@@ -1,10 +1,3 @@
-/**
- * Adopt command for the cella CLI, run in upstream cella: pick one of the configured `forks`, pull
- * its `pullBranch` onto a clean local `contrib/<fork>` branch that holds only the fork's
- * contributed files (see adopt-branch.ts), then review them and adopt single files into the
- * working tree.
- */
-
 import {
   createPrompt,
   isDownKey,
@@ -288,9 +281,10 @@ async function applyContributions(
 }
 
 /**
- * Run the adopt command: pick a fork, collect what it contributes, then print it as JSON or review
- * it and apply the selected files. Returns 1 without forks to adopt from, when the pull failed and
- * when a file did not apply.
+ * Run the adopt command, in upstream cella: pick one of the configured `forks`, pull its `pullBranch`
+ * onto a clean local `contrib/<fork>` branch that holds only the files it contributes, then print
+ * them as JSON or review them and adopt single files into the working tree. Returns 1 without forks
+ * to adopt from, when the pull failed and when a file did not apply.
  */
 export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Promise<number> {
   const forks = config.forks ?? [];

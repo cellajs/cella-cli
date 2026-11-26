@@ -25,8 +25,8 @@ interface CommandBase<Options, Job extends string | undefined> {
   /** Runs outside a git repository too: the entry skips its git check. */
   outsideGit?: true;
   /**
-   * Hands every word after its name, unparsed, to a program the app runs, which prints all the run shows: the entry
-   * adds no header or closing line, and `--help` after the name is that program's.
+   * Takes every word after its name unparsed, parses them itself and prints all the run shows: the entry adds no
+   * header or closing line, and `--help` after the name is the command's own.
    */
   handsOver?: true;
   /**

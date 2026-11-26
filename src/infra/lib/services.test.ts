@@ -1,15 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  appStorageNeeds,
-  coHostedServices,
-  collocatedServices,
-  deployedServices,
-  enabledServices,
-  isSingletonHost,
-  placeServices,
-  type ServiceDefinition,
-  services,
-} from './services';
+import { appStorageNeeds, deployedServices, enabledServices, placeServices, type ServiceDefinition, services } from './services';
 
 const allOn = { yjs: { enabled: true }, mcp: { enabled: true }, oauth: { enabled: true } };
 const allOff = { yjs: { enabled: false }, mcp: { enabled: false }, oauth: { enabled: false } };
@@ -46,7 +36,7 @@ describe('service registry: enabledServices', () => {
   });
 });
 
-describe('service registry: singleVM (deployedServices / coHostedServices)', () => {
+describe('service registry: singleVM (deployedServices)', () => {
   it('split mode (singleVM off) deploys every enabled service on its own machine', () => {
     const deployed = deployedServices(allOn, false).map((s) => s.slug);
     expect(deployed).toEqual(enabledServices(allOn).map((s) => s.slug));
@@ -58,49 +48,6 @@ describe('service registry: singleVM (deployedServices / coHostedServices)', () 
   it('singleVM folds workers and collocates the SPA proxy: only the host machine remains', () => {
     const deployed = deployedServices(allOn, true).map((s) => s.slug);
     expect(deployed).toEqual(['backend']);
-  });
-
-  it('collocatedServices lists placement-host services, only under singleVM', () => {
-    expect(collocatedServices(allOn, false)).toEqual([]);
-    expect(collocatedServices(allOn, true).map((s) => s.slug)).toEqual(['frontend']);
-  });
-
-  it('a disabled placement-host service is not collocated', () => {
-    expect(collocatedServices({ frontend: { enabled: false } }, true)).toEqual([]);
-  });
-
-  it('coHostedServices lists only enabled co-hosted workers, and only under singleVM', () => {
-    expect(coHostedServices(allOn, false)).toEqual([]);
-    const folded = coHostedServices(allOn, true).map((s) => s.slug);
-    expect(folded).toContain('cdc');
-    expect(folded).toContain('yjs');
-    expect(folded).toContain('mcp');
-    expect(folded).not.toContain('backend');
-    expect(folded).not.toContain('frontend');
-  });
-
-  it('a disabled co-hosted worker is neither deployed nor folded under singleVM', () => {
-    const cfg = { yjs: { enabled: false }, mcp: { enabled: true } };
-    expect(coHostedServices(cfg, true).map((s) => s.slug)).not.toContain('yjs');
-    expect(deployedServices(cfg, true).map((s) => s.slug)).not.toContain('yjs');
-  });
-});
-
-describe('isSingletonHost', () => {
-  const backend = services.find((s) => s.slug === 'backend')!;
-  const yjs = services.find((s) => s.slug === 'yjs')!;
-
-  it('is true for the singleVM host running the stop-first cdc and jobs workers in-process', () => {
-    expect(isSingletonHost(allOn, true, backend)).toBe(true);
-  });
-
-  it('is false under split mode, where cdc and jobs have machines of their own', () => {
-    expect(isSingletonHost(allOn, false, backend)).toBe(false);
-  });
-
-  it('is false for a non-host service and when no stop-first worker is enabled', () => {
-    expect(isSingletonHost(allOn, true, yjs)).toBe(false);
-    expect(isSingletonHost({ ...allOff, cdc: { enabled: false }, jobs: { enabled: false } }, true, backend)).toBe(false);
   });
 });
 

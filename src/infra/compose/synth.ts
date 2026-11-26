@@ -1,15 +1,19 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { isMain } from '../lib/utils/is-main';
 import { infraDir } from '../lib/utils/paths';
 import { composeConfig } from './compose';
 import type { ComposeFile } from './types';
 
 const GENERATED_HEADER = [
-  '# DO NOT EDIT: generated from infra/compose/ by `pnpm --filter infra compose:generate`.',
-  '# Edit services.config.ts (the service registry) and re-run synth.',
-  '# Deploy machinery and rationale live in infrastructure.ts.',
+  '# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.',
+  '# Edit the service registry there and re-run the command.',
+  '# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).',
 ].join('\n');
+
+/** A Compose file without its leading comment lines: a file whose header an older release wrote is still current. */
+function withoutHeader(yaml: string): string {
+  return yaml.replace(/^(?:#.*\n)*/, '');
+}
 
 /** Keys whose array value is rendered as an inline flow sequence, not a block. */
 const FLOW_KEYS = new Set(['profiles', 'test']);
@@ -91,7 +95,7 @@ export function main(): void {
       console.error(`::error::${OUTPUT_PATH} is missing: run \`pnpm --filter infra compose:generate\`.`);
       process.exit(1);
     }
-    if (current !== yaml) {
+    if (withoutHeader(current) !== withoutHeader(yaml)) {
       console.error(`::error::${OUTPUT_PATH} is out of date: run \`pnpm --filter infra compose:generate\` and commit.`);
       process.exit(1);
     }
@@ -111,9 +115,7 @@ export function writeCompose(): 'written' | 'unchanged' {
   } catch {
     // Missing: written below.
   }
-  if (current === yaml) return 'unchanged';
+  if (withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
   writeFileSync(OUTPUT_PATH, yaml);
   return 'written';
 }
-
-if (isMain(import.meta.url)) main();

@@ -6,7 +6,6 @@ import { z } from 'zod';
 import { importFromWorkspace } from './app';
 import { launchBrowser } from './browser';
 import { mintSession, type Session, signOut } from './drive';
-import { getEnv, setEnv } from './env';
 import { onShutdown } from './signals';
 
 /** Brings the signed-in user into the state the pages expect, before the first page. */
@@ -94,7 +93,7 @@ export async function signIn(
   { prepare, placeholders }: SignInSetup,
   { email, env }: { email?: string; env?: NodeJS.ProcessEnv },
 ): Promise<SignedInRun> {
-  const address = email ?? env?.ADMIN_EMAIL ?? getEnv('ADMIN_EMAIL');
+  const address = email ?? env?.ADMIN_EMAIL ?? process.env.ADMIN_EMAIL;
   if (!address) throw new Error('no user to sign in as: pass --email, or set ADMIN_EMAIL in .env');
   const user = mintSession(address, { repoRoot, env, hours: 4 });
   let browser: Browser | undefined;
@@ -135,7 +134,7 @@ interface TsxApi {
  */
 async function importAdapter(repoRoot: string, file: string): Promise<unknown> {
   // An adapter reads the app config, which takes the development ports and URLs in development mode only
-  setEnv('NODE_ENV', 'development');
+  process.env.NODE_ENV = 'development';
   const { tsImport } = await importFromWorkspace<TsxApi>(repoRoot, '.', 'tsx/esm/api');
   const module = await tsImport(pathToFileURL(join(repoRoot, file)).href, import.meta.url);
   return module.default;
