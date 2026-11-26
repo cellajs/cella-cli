@@ -93,7 +93,8 @@ function bindingPart(input: StaticEnvInput, binding: EffectiveBinding, target: s
 /**
  * A role's static `.env`, one `NAME=value` per line: the registry, the mode, the release tag of every image it runs, the agent's tag and
  * folder, then each compose placeholder of its services from a binding or an app supplier. It holds no secret: the runtime values travel in
- * the machine's env file. A placeholder neither defines throws, naming where to add it.
+ * the machine's env file. A placeholder neither defines throws, naming where to add it, as does a value with a control character, which
+ * would end its line here or in a header the Caddy proxy sends from it.
  */
 export function staticEnv(input: StaticEnvInput): string {
   const { role } = input;
@@ -130,7 +131,10 @@ export function staticEnv(input: StaticEnvInput): string {
     env[name] = supply(input.context);
   }
   return Object.entries(env)
-    .map(([name, value]) => `${name}=${value}`)
+    .map(([name, value]) => {
+      if (/\p{Cc}/u.test(value)) throw new Error(`static env: ${name} holds a control character: fix the binding or supplier that defines it.`);
+      return `${name}=${value}`;
+    })
     .join('\n');
 }
 

@@ -1,4 +1,5 @@
 import { GetObjectCommand, type S3Client } from '@aws-sdk/client-s3';
+import { printable } from '../../../utils/terminal-text';
 import { listObjectEtags } from '../scaleway/s3-client';
 
 /**
@@ -36,6 +37,16 @@ export function serviceAccountKeys(keys: readonly string[], service: string): st
     .filter((key) => pattern.test(key))
     .sort()
     .reverse();
+}
+
+/**
+ * Whether an account was stored over a minute before the time its key names, when the deploy composed the key: no machine of that deploy
+ * wrote it, and a lost deploy key could have. False when the key names no time or the bucket gave none.
+ */
+export function storedBeforeItsKey(key: string, modified: Date | undefined): boolean {
+  const [, year, month, day, hour, minute, second] = /-(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})Z-boot\.log$/.exec(key) ?? [];
+  if (!second || !modified) return false;
+  return modified.getTime() < Date.parse(`${year}-${month}-${day}T${hour}:${minute}:${second}Z`) - 60_000;
 }
 
 /** The release an account names on its `release=` line. */
@@ -81,7 +92,8 @@ export async function releaseAccounts(reader: BootAccountReader, services: reado
 }
 
 /** What a person reads first of a failed account: the error the agent wrote, then the end of its log. */
-export function accountExcerpt(body: string, lines = 30): string[] {
+export function accountExcerpt(account: string, lines = 30): string[] {
+  const body = printable(account);
   const error = /--- boot error ---\n([\s\S]*?)(?:\n\n|$)/.exec(body)?.[1]?.trim();
   const tail = body.trimEnd().split('\n').slice(-lines);
   return [...(error ? ['boot error:', ...error.split('\n'), ''] : []), ...tail];

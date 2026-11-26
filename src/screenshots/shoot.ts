@@ -1,8 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
-import process from 'node:process';
 import type { BrowserContext, Page } from 'playwright';
 import type { TestbedHandle } from '../testbed';
 import {
@@ -90,10 +89,11 @@ function writeShot(image: Buffer, path: string, format: Format): void {
     writeFileSync(path, image);
     return;
   }
-  const source = join(tmpdir(), `cella-shot-${process.pid}.png`);
+  const folder = mkdtempSync(join(tmpdir(), 'cella-shot-'));
+  const source = join(folder, 'shot.png');
   writeFileSync(source, image);
   const encoded = spawnSync('cwebp', ['-quiet', '-lossless', '-z', '9', source, '-o', path], { encoding: 'utf8' });
-  rmSync(source, { force: true });
+  rmSync(folder, { recursive: true, force: true });
   if (encoded.status !== 0) throw new Error(`cwebp could not write ${path}: ${encoded.stderr.trim()}`);
 }
 

@@ -28,12 +28,16 @@ export interface CiKeyResult {
   accessKey: string;
   secretKey: string;
   organizationId: string;
+  /** Set when the Owner key may not list the deploy application's keys: the ones made before this key still work. */
+  purgeSkipped?: true;
 }
 
 /** What an Owner moment hands to the operator part of the same run. */
 export interface OwnerMomentResult {
   projectId: string;
   ciKey: CiKeyResult;
+  /** Set when the uploads key step failed: the key made before, which the deploy key reads, still works. */
+  uploadsKeyKept?: true;
 }
 
 /** Mint (or rotate) the deploy key, retrying on operator confirm. */
@@ -50,7 +54,7 @@ async function mintCiKey(
         slug: opts.appConfig.slug,
         mode: opts.mode,
       });
-      return { accessKey: key.accessKey, secretKey: key.secretKey, organizationId: key.organizationId };
+      return { accessKey: key.accessKey, secretKey: key.secretKey, organizationId: key.organizationId, purgeSkipped: key.purgeSkipped };
     } catch (error) {
       console.error(`\n${warningMark} CI key setup failed: ${errorMessage(error)}`);
       if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '', organizationId: '' };
@@ -58,7 +62,8 @@ async function mintCiKey(
   }
 }
 
-function printSummary(opts: { rotated: boolean; ciAccessKey: string }): void {
+function printSummary(opts: { rotated: boolean; ciAccessKey: string; keptKeys: boolean }): void {
+  if (opts.rotated && opts.ciAccessKey && opts.keptKeys) return;
   if (opts.ciAccessKey) console.info(`\n${checkMark} ${pc.bold(pc.greenBright(opts.rotated ? 'Keys rotated.' : 'Deploy keys created.'))}`);
   else console.info(`\n${warningMark} ${pc.bold(pc.yellowBright('Done, but the deploy key was not created.'))} Run ${pointTo('rotate-keys')}.`);
 }
@@ -170,6 +175,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
     return undefined;
 
   // The uploads key goes to the runtime folder, where the deploy composes it into the backend's env file; a rotation makes it anew.
+  let uploadsKeyKept = false;
   if (declaresUploads()) {
     console.info('\n→ Uploads key');
     try {
@@ -185,6 +191,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
       const step = mode === 'rotate-keys' ? { ...planned, change: 'make' as const } : planned;
       await writeUploadsKey({ auth, secrets, organizationId, projectId, step });
     } catch (error) {
+      uploadsKeyKept = true;
       console.warn(`${warningMark} Uploads key incomplete: ${errorMessage(error)}. Run ${pointTo('identities')}.`);
     }
   }
@@ -201,8 +208,8 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
     console.warn(`${warningMark} Observer incomplete: ${errorMessage(error)}. Run ${pointTo('identities')}.`),
   );
 
-  printSummary({ rotated: mode === 'rotate-keys', ciAccessKey: ciKey.accessKey });
+  printSummary({ rotated: mode === 'rotate-keys', ciAccessKey: ciKey.accessKey, keptKeys: uploadsKeyKept || Boolean(ciKey.purgeSkipped) });
   // Revoking is the moment's last call: a key may delete itself, and nothing after this needs it.
   await offerOwnerKeyRevoke(pair);
-  return { projectId, ciKey };
+  return { projectId, ciKey, ...(uploadsKeyKept ? { uploadsKeyKept: true as const } : {}) };
 }

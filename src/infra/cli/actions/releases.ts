@@ -15,7 +15,7 @@ import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
-import { makeControlClient, readObjectText, type S3Like } from '../../lib/stack/control-store';
+import { makeControlClient, readObjectText, readRotations, type S3Like, storedBeforeKeyRotation } from '../../lib/stack/control-store';
 import { accessDenied } from '../../lib/status/providers/runs';
 import { checkMark, crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
@@ -103,21 +103,26 @@ async function servingCommit(context: InfraContext, diag: BootDiag): Promise<str
   return record.roles[primary.role]?.commit;
 }
 
-/** A release's manifest, which the deploy reuses with its archives; undefined once the bucket let it expire, or before its first build. */
-async function readManifest(diag: BootDiag, sha: string): Promise<ReleaseManifest | undefined> {
-  const { body } = await readObjectText(diag.control, diag.bucket, releaseManifestKey(sha));
-  return body ? parseReleaseManifest(body, sha) : undefined;
+/**
+ * A release's manifest with the time Object Storage stored it, which the deploy reuses with its archives; undefined once the bucket let it
+ * expire, or before its first build.
+ */
+async function readManifest(diag: BootDiag, sha: string): Promise<{ manifest: ReleaseManifest; modified?: Date } | undefined> {
+  const { body, modified } = await readObjectText(diag.control, diag.bucket, releaseManifestKey(sha));
+  return body ? { manifest: parseReleaseManifest(body, sha), modified } : undefined;
 }
 
 /**
  * Whether a release can deploy on the applied engine, said in lines: its build kept or not, and its description against the applied one.
  * False when the deploy would end apply needed whatever is done here: the release describes the app otherwise, or predates descriptions.
  */
-function deployable(tag: string, manifest: ReleaseManifest | undefined, applied: AppliedEngine | undefined): boolean {
+function deployable(tag: string, manifest: ReleaseManifest | undefined, applied: AppliedEngine | undefined, stale: boolean): boolean {
   console.info(
-    manifest
-      ? `  ${checkMark} Its build is kept: the deploy skips the build.`
-      : `  ${pc.dim('○')} Its build is gone (kept 60 days): the deploy builds it again, about 5 minutes.`,
+    stale
+      ? `  ${pc.dim('○')} Its build was stored before the last key rotation: the deploy builds it again, about 5 minutes.`
+      : manifest
+        ? `  ${checkMark} Its build is kept: the deploy skips the build.`
+        : `  ${pc.dim('○')} Its build is gone (kept 60 days): the deploy builds it again, about 5 minutes.`,
   );
   if (manifest && !manifest.description) {
     console.warn(`  ${warningMark} ${tag} is older than the applied engine, which cannot deploy it: roll forward to a newer release.`);
@@ -152,10 +157,11 @@ export async function runReleases(context: InfraContext): Promise<void> {
   }
   const environment = context.environment;
   const diag = await bootDiagOn(context, observer);
-  const [refs, live, applied] = await Promise.all([
+  const [refs, live, applied, { rotations }] = await Promise.all([
     commitRefs(),
     servingCommit(context, diag),
     readAppliedEngine(diag.control, diag.bucket, environment),
+    readRotations(diag.control, diag.bucket, stackNameFor(context)),
   ]);
   if (!refs) {
     console.error(
@@ -190,14 +196,16 @@ export async function runReleases(context: InfraContext): Promise<void> {
   if (!picked) return;
 
   let operator: OperatorKey | undefined;
-  const manifest = await readManifest(diag, picked.sha).catch(async (error: unknown) => {
+  const stored = await readManifest(diag, picked.sha).catch(async (error: unknown) => {
     // A bucket policy that refuses the observer the manifest leaves it to the operator key.
     if (!accessDenied(error)) throw error;
     operator = await acquireOperatorKey(context);
     return readManifest(await bootDiagOn(context, operator), picked.sha);
   });
+  // The deploy's age rule: a manifest stored at or before the last key rotation counts as missing, and so does its description.
+  const stale = stored !== undefined && storedBeforeKeyRotation(stored.modified, rotations.keys?.at);
   console.info('');
-  if (!deployable(picked.tag, manifest, applied)) return;
+  if (!deployable(picked.tag, stale ? undefined : stored?.manifest, applied, stale)) return;
   const name = environment.charAt(0).toUpperCase() + environment.slice(1);
   const until = environment === 'production' ? 'the next release' : 'its target moves';
   console.info(
@@ -226,7 +234,12 @@ async function waitingRelease(
   const [run] = await diag.store.listRuns(1);
   const record = run ? await diag.store.currentRecord(run) : undefined;
   if (record?.outcome !== APPLY_NEEDED) return undefined;
-  const manifest = await readManifest(diag, record.target);
+  const [stored, { rotations }] = await Promise.all([
+    readManifest(diag, record.target),
+    readRotations(diag.control, diag.bucket, stackNameFor(context)),
+  ]);
+  // The deploy's age rule, as in runReleases: a lost deploy key could have written the description.
+  const manifest = stored && !storedBeforeKeyRotation(stored.modified, rotations.keys?.at) ? stored.manifest : undefined;
   return manifest?.description && manifest.describes ? { sha: record.target, hash: manifest.description, describes: manifest.describes } : undefined;
 }
 

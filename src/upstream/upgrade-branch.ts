@@ -1,3 +1,4 @@
+import { readFile, rm, writeFile } from 'node:fs/promises';
 import { buildUpgradeBranchName, resolveTrunk } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
@@ -15,6 +16,7 @@ import {
   getMergeBase,
   getTrackingBranch,
   getTrackingStatus,
+  gitPath,
   isAncestor,
   isClean,
   mergeAbort,
@@ -175,13 +177,36 @@ export async function discardUnusedUpgradeBranch(repoRoot: string, branch: Upgra
 }
 
 /**
- * Whether the merge in progress is one an upgrade run finished: the manifest it writes last records
- * MERGE_HEAD as the upstream commit. A run stopped by ctrl-c or a throw leaves a merge without it.
+ * Whether the merge in progress is one an upgrade run took past its merge step: the manifest records MERGE_HEAD as the
+ * upstream commit. A run stopped by ctrl-c or a throw before the manifest leaves a merge without it. A run stopped
+ * after it can end before its stop printed anything, which {@link reviewStopShown} answers.
  */
 export async function upgradeFinishedMerge(repoRoot: string): Promise<boolean> {
   // MERGE_HEAD of a release tag names the tag object
   const [recorded, merged] = await Promise.all([readUpgradePoint(repoRoot), revParse(repoRoot, 'MERGE_HEAD^{commit}')]);
   return recorded !== null && recorded === merged;
+}
+
+/** The file in the git dir that holds the upstream commit of the merge whose review or conflict stop a run printed. */
+const reviewStopFile = 'cella-upgrade-review-stop';
+
+/** Record that this run printed the stop, with the list of what arrived, for the merge in progress. */
+export async function recordReviewStop(repoRoot: string): Promise<void> {
+  await writeFile(await gitPath(repoRoot, reviewStopFile), `${await revParse(repoRoot, 'MERGE_HEAD^{commit}')}\n`);
+}
+
+/** Whether a run printed the stop for the merge in progress: a record of another merge does not count. */
+export async function reviewStopShown(repoRoot: string): Promise<boolean> {
+  const [record, merged] = await Promise.all([
+    readFile(await gitPath(repoRoot, reviewStopFile), 'utf8').catch(() => ''),
+    revParse(repoRoot, 'MERGE_HEAD^{commit}'),
+  ]);
+  return merged !== null && record.trim() === merged;
+}
+
+/** Remove the record of the stop, once the merge is committed. */
+export async function clearReviewStop(repoRoot: string): Promise<void> {
+  await rm(await gitPath(repoRoot, reviewStopFile), { force: true });
 }
 
 /**

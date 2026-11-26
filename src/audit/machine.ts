@@ -11,7 +11,7 @@ import { delimiter, dirname, join, sep } from 'node:path';
 import { promisify } from 'node:util';
 import semver from 'semver';
 import { plural } from '../utils/display';
-import { getEnv } from '../utils/env';
+import { getEnv, getEnvSnapshot } from '../utils/env';
 import { type VulnerabilitySeverity, worstSeverity } from '../utils/pnpm';
 import type { Feeds } from './feeds';
 import { newestAged } from './runtimes';
@@ -66,10 +66,13 @@ function installerOf(file: string): Installer {
 }
 
 /** The binary's version (the first x.y.z its `--version` prints) and installer; null when it is missing or does not run. */
-async function readTool(file: string | null, cwd?: string): Promise<InstalledTool | null> {
+async function readTool(
+  file: string | null,
+  options?: { cwd: string; env: NodeJS.ProcessEnv },
+): Promise<InstalledTool | null> {
   if (!file) return null;
   try {
-    const { stdout } = await execFileAsync(file, ['--version'], { encoding: 'utf8', timeout: 10_000, cwd });
+    const { stdout } = await execFileAsync(file, ['--version'], { encoding: 'utf8', timeout: 10_000, ...options });
     const version = stdout.match(/\d+\.\d+\.\d+/)?.[0];
     return version ? { version, installer: installerOf(file) } : null;
   } catch {
@@ -85,7 +88,15 @@ async function readTool(file: string | null, cwd?: string): Promise<InstalledToo
 export async function readLocalTools(): Promise<LocalTools> {
   const running = getEnv('npm_execpath');
   const [pnpm, gh] = await Promise.all([
-    readTool(findOnPath('pnpm', running ? [dirname(running)] : []), tmpdir()),
+    readTool(findOnPath('pnpm', running ? [dirname(running)] : []), {
+      cwd: tmpdir(),
+      // A `packageManager` field planted in the temp folder or a parent of it would make pnpm switch to that release
+      env: {
+        ...getEnvSnapshot(),
+        pnpm_config_pm_on_fail: 'ignore',
+        npm_config_manage_package_manager_versions: 'false',
+      },
+    }),
     readTool(findOnPath('gh')),
   ]);
   return { node: { version: process.version.slice(1), installer: installerOf(process.execPath) }, pnpm, gh };

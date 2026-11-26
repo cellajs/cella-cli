@@ -17,6 +17,14 @@ describe('isEnvFileDeliverable', () => {
     expect(isEnvFileDeliverable('value\rmore')).toEqual({ ok: false, reason: 'multiline' });
   });
 
+  it('rejects a value holding a single quote, which would end the quote the composer writes around it', () => {
+    expect(isEnvFileDeliverable("ab'cd")).toEqual({ ok: false, reason: 'quote' });
+  });
+
+  it('rejects a value that ends in a backslash, which Compose reads with the closing quote as an escaped quote', () => {
+    expect(isEnvFileDeliverable('abc\\')).toEqual({ ok: false, reason: 'quote' });
+  });
+
   it('rejects an empty value', () => {
     expect(isEnvFileDeliverable('')).toEqual({ ok: false, reason: 'empty' });
   });

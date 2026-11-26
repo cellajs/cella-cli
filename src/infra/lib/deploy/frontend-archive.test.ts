@@ -48,4 +48,10 @@ describe('the frontend archive', () => {
     expect(() => readUstar(entry('/etc/cron.d/x', '0', 'x'))).toThrow(/refused/);
     expect(() => readUstar(entry('assets', '1'))).toThrow(/refused/);
   });
+
+  it('must not let a negative size move the read back over its own header, which would loop without end', () => {
+    const hostile = entry('index.html', '0');
+    hostile.write('-0001000\0', 124);
+    expect(() => readUstar(hostile)).toThrow(/no valid size/);
+  });
 });

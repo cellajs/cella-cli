@@ -35,28 +35,41 @@ import {
   readUpstreamReports,
   upgradeAlignmentsStep,
 } from './report';
-import { existingUpgradeReviewPage, type ReviewPageReport, reportReviewPage, reviewStep } from './review-page';
 import {
+  existingUpgradeReviewPage,
+  listRunChanges,
+  printRunChanges,
+  type ReviewPageReport,
+  type RunChange,
+  reportReviewPage,
+  reviewStep,
+} from './review-page';
+import {
+  clearReviewStop,
   cutUpgradeBranch,
   discardUnusedUpgradeBranch,
   discardUpgradeBranch,
+  recordReviewStop,
+  reviewStopShown,
   undoUnfinishedMerge,
   upgradeFinishedMerge,
 } from './upgrade-branch';
 import { ensureUpgradePoint, readAlignmentsInRange, readUpgradeRange, recordUpgrade } from './upgrade-point';
 import { fetchUpstream, resolveUpstreamRef } from './upstream-ref';
 
-/** An upgrade's merge result, with the review page the run wrote. */
+/** An upgrade's merge result, with what arrived that decides what runs and the review page the run wrote. */
 interface UpgradeRunResult extends MergeResult {
+  runChanges: RunChange[];
   reviewPage?: ReviewPageReport;
 }
 
 /**
  * Run the standalone `cella upgrade` command, in the app itself so conflicts surface in the IDE.
- * Idempotent: each run advances the upgrade one stage (cut and merge, commit, ship) and never commits
- * and ships in the same run; after conflicts, resolve them and rerun to finish the same merge. Returns
- * 0 when a stage finished, there was nothing to upgrade or the person cancelled, and 1 where a person
- * must act before a rerun can go on.
+ * Idempotent: each run advances the upgrade one stage (cut and merge, install and check and commit,
+ * ship). The run that merges runs nothing the merge brought, and the run that commits never ships;
+ * after conflicts, resolve them and rerun to finish the same merge. Returns 0 when a stage finished,
+ * there was nothing to upgrade or the person cancelled, and 1 where a person must act before a
+ * rerun can go on.
  */
 export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> {
   const { repoRoot } = config;
@@ -77,9 +90,11 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> 
   if (guard !== 'continue') return guard === 'refused' ? 1 : 0;
 
   const branch = await cutUpgradeBranch(config);
+  // A stop shown for a merge that was aborted since says nothing about the merge this run makes
+  await clearReviewStop(repoRoot);
   let run: UpgradeRunResult;
   try {
-    run = await runUpgrade(config, { stagedBranch: branch.name });
+    run = await runUpgrade(config);
   } catch (error) {
     const discarded = await discardUnusedUpgradeBranch(repoRoot, branch).catch(() => false);
     // Tracking a release or branch the last upgrade went past is nothing to upgrade, not a failure.
@@ -102,10 +117,7 @@ export async function runUpgradeCommand(config: RuntimeConfig): Promise<number> 
  * resolve upstream, gate, classify, apply, merge package.json, record the upgrade point, report.
  * A gate stops the run before anything merges.
  */
-export async function runUpgrade(
-  config: RuntimeConfig,
-  options?: { stagedBranch?: string },
-): Promise<UpgradeRunResult> {
+export async function runUpgrade(config: RuntimeConfig): Promise<UpgradeRunResult> {
   const { repoRoot } = config;
   createSpinner('starting upgrade...');
 
@@ -156,13 +168,16 @@ export async function runUpgrade(
     console.info();
   }
 
-  const staged = await mergeInProgress(repoRoot);
-  const stagedBranch =
-    options?.stagedBranch && result.conflicts.length === 0 && staged ? options.stagedBranch : undefined;
-  printUpgradeComplete(result, { stagedBranch });
-  const reviewPage = await reportReviewPage(repoRoot, result, 'upgrade');
+  printUpgradeComplete(result);
+  const runChanges = await listRunChanges(repoRoot, 'HEAD');
+  const reviewPage = await reportReviewPage(
+    repoRoot,
+    result,
+    'upgrade',
+    runChanges.map((change) => change.path),
+  );
 
-  return { ...result, reviewPage };
+  return { ...result, runChanges, reviewPage };
 }
 
 /** Close a run that found nothing to upgrade: already up to date, or upstream behind the last upgrade. */
@@ -231,22 +246,51 @@ function finalizeWorkspace(repoRoot: string): boolean {
  * Commit an in-progress merge on the temporary upgrade branch as one single-parent commit, then stop
  * there for drift triage; shipping is always its own rerun. Stops early, returning 1, while conflicts
  * remain or when `pnpm install` or `pnpm check` fails. `run` is the merge this run made, absent when
- * it resumes an earlier run's merge.
+ * it resumes an earlier run's merge: a clean merge this run made is staged and left for review,
+ * returning 0, before anything it brought runs. A resumed merge whose stop no run recorded stops the same way.
  */
 async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: UpgradeRunResult): Promise<number> {
   const { repoRoot } = config;
   const conflicts = await getConflictedFiles(repoRoot);
+  // A first run can end before its stop printed the list: the rerun then stops in its place
+  const stops = run !== undefined || (conflicts.length === 0 && !(await reviewStopShown(repoRoot)));
+  if (stops) {
+    const runChanges = run?.runChanges ?? (await listRunChanges(repoRoot, 'HEAD'));
+    printRunChanges('what arrived that decides what runs:', runChanges);
+  }
 
   console.info();
   if (conflicts.length > 0) {
     const where = run ? `on '${branch}'` : `still conflict on '${branch}'`;
     printStep('conflicts', `${plural(conflicts.length, 'file')} ${where}`, warningMark);
     printNextSteps(await conflictSteps(config, conflicts, run));
+    if (stops) await recordReviewStop(repoRoot);
     return 1;
   }
 
   // Stage resolved conflicts and manual edits before tooling that may fail, so they are recorded.
   await stageAll(repoRoot);
+
+  if (stops) {
+    printStep('review', `the merge is staged on '${branch}': nothing it brought has run yet`, warningMark);
+    const steps: Array<NextStep | undefined> = [
+      {
+        label: 'diff',
+        line: 'git diff --cached',
+        details: [pc.dim('the whole merge: `pnpm check` runs the merged source, not only the files listed above')],
+      },
+      await upgradeReviewStep(config, run),
+      {
+        label: 'finish',
+        line: 'pnpm cella upgrade',
+        details: [pc.dim('runs `pnpm install` and `pnpm check` on the merge, then commits it')],
+      },
+      await upgradeAlignmentsStep(config, run),
+    ];
+    printNextSteps(steps.filter((step): step is NextStep => !!step));
+    await recordReviewStop(repoRoot);
+    return 0;
+  }
 
   if (!finalizeWorkspace(repoRoot)) {
     console.info();
@@ -266,6 +310,7 @@ async function commitUpgradeMerge(config: RuntimeConfig, branch: string, run?: U
   const message = await buildUpgradeCommitMessage(repoRoot, 'MERGE_HEAD');
   await stageAll(repoRoot);
   await commitSquash(repoRoot, message);
+  await clearReviewStop(repoRoot);
   console.info();
   printStep('committed', `${message}\n${pc.dim(`on '${branch}', not pushed`)}`);
   const steps: Array<NextStep | undefined> = [

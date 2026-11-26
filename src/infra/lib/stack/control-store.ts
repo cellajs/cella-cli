@@ -1,5 +1,7 @@
 import { randomUUID } from 'node:crypto';
+import { actionCommand } from '../operator-actions';
 import { makeS3Client } from '../scaleway/s3-client';
+import { warningMark } from '../utils/cli-output';
 import { errorMessage } from '../utils/errors';
 import { isRecord } from '../utils/guards';
 
@@ -45,6 +47,7 @@ export interface S3Like {
   send(command: unknown): Promise<{
     Body?: { transformToString(): Promise<string> };
     ETag?: string;
+    LastModified?: Date;
     Versions?: ObjectVersion[];
     DeleteMarkers?: ObjectVersion[];
   }>;
@@ -59,12 +62,19 @@ export interface ConditionalWrite {
   ifNoneMatch?: string;
 }
 
-/** GET an object's text body + etag; `{}` when the object does not exist. */
-export async function readObjectText(s3: S3Like, bucket: string, key: string): Promise<{ body?: string; etag?: string }> {
+/** What one GET of an object returns. `modified` is the time Object Storage stored it, on the storage clock. */
+export interface ObjectText {
+  body?: string;
+  etag?: string;
+  modified?: Date;
+}
+
+/** GET an object's text body, etag and stored time; `{}` when the object does not exist. */
+export async function readObjectText(s3: S3Like, bucket: string, key: string): Promise<ObjectText> {
   const { GetObjectCommand } = await s3sdk();
   try {
     const res = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
-    return { body: res.Body ? await res.Body.transformToString() : '', etag: res.ETag };
+    return { body: res.Body ? await res.Body.transformToString() : '', etag: res.ETag, modified: res.LastModified };
   } catch (err) {
     if (isNotFound(err)) return {};
     throw err;
@@ -81,6 +91,28 @@ export async function readObjectEtag(s3: S3Like, bucket: string, key: string): P
     if (isNotFound(err)) return null;
     throw err;
   }
+}
+
+/** HEAD an object for the time Object Storage stored it; null when the object does not exist or the answer names no time. */
+export async function readObjectModified(s3: S3Like, bucket: string, key: string): Promise<Date | null> {
+  const { HeadObjectCommand } = await s3sdk();
+  try {
+    const res = await s3.send(new HeadObjectCommand({ Bucket: bucket, Key: key }));
+    return res.LastModified ?? null;
+  } catch (err) {
+    if (isNotFound(err)) return null;
+    throw err;
+  }
+}
+
+/**
+ * Whether a lost deploy key may have stored an object: it was stored at or before the last key rotation, or the bucket named no time for
+ * it. Never before the first key rotation. A rotation time that does not parse counts every object as stored before it.
+ */
+export function storedBeforeKeyRotation(modified: Date | undefined, keysRotatedAt: Date | string | undefined): boolean {
+  if (keysRotatedAt === undefined) return false;
+  const rotatedAt = typeof keysRotatedAt === 'string' ? Date.parse(keysRotatedAt) : keysRotatedAt.getTime();
+  return !(modified && modified.getTime() > rotatedAt);
 }
 
 /** PUT a JSON object body with optional conditional-write headers. */
@@ -138,9 +170,15 @@ export const lockKey = (stack: string): string => `${controlPrefix(stack)}lock.j
 /** The rotations an operator records. */
 export const rotationsKey = (stack: string): string => `${controlPrefix(stack)}rotations.json`;
 
+/** A rotations record holds a counter below this: far above any count of rotations, and the next rotation's counter still parses. */
+const maxRotationCounter = 1_000_000;
+
+/** What the operator does about a rotations record that does not parse. */
+const replaceRotations = `run \`${actionCommand('rotate-keys')}\`, which replaces it`;
+
 function parseRotationRecord(kind: string, value: unknown): RotationRecord {
   if (!isRecord(value) || typeof value.at !== 'string' || typeof value.by !== 'string') {
-    throw new Error(`rotations: ${kind} must be { at, by } strings`);
+    throw new Error(`rotations: ${kind} must be { at, by } strings; ${replaceRotations}`);
   }
   return { at: value.at, by: value.by };
 }
@@ -151,10 +189,13 @@ export function parseRotations(text: string): Rotations {
   try {
     raw = JSON.parse(text);
   } catch (err) {
-    throw new Error(`rotations: not valid JSON (${errorMessage(err)})`);
+    throw new Error(`rotations: not valid JSON (${errorMessage(err)}); ${replaceRotations}`);
   }
-  if (!isRecord(raw) || typeof raw.counter !== 'number') throw new Error('rotations: counter must be a number');
-  const rotations: Rotations = { counter: raw.counter };
+  const counter = isRecord(raw) ? raw.counter : undefined;
+  if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter >= maxRotationCounter) {
+    throw new Error(`rotations: counter must be a whole number from 0 and below ${maxRotationCounter}; ${replaceRotations}`);
+  }
+  const rotations: Rotations = { counter };
   if (raw.keys !== undefined) rotations.keys = parseRotationRecord('keys', raw.keys);
   if (raw.secrets !== undefined) rotations.secrets = parseRotationRecord('secrets', raw.secrets);
   if (raw.values !== undefined) rotations.values = parseRotationRecord('values', raw.values);
@@ -174,7 +215,7 @@ export function withRotation(rotations: Rotations, kind: RotationKind, record: R
 
 /**
  * Record a rotation. The caller holds the lease; the write is conditional on the object it read, so a write that raced it fails loudly and
- * nothing is lost.
+ * nothing is lost. A key rotation replaces a stored record that does not parse with its own, counter 1; any other kind throws on one.
  */
 export async function recordRotation(opts: {
   s3: S3Like;
@@ -184,7 +225,15 @@ export async function recordRotation(opts: {
   by: string;
   now?: Date;
 }): Promise<Rotations> {
-  const { rotations, etag } = await readRotations(opts.s3, opts.bucket, opts.stack);
+  const { body, etag } = await readObjectText(opts.s3, opts.bucket, rotationsKey(opts.stack));
+  let rotations: Rotations = { counter: 0 };
+  try {
+    if (body) rotations = parseRotations(body);
+  } catch (err) {
+    // A lost deploy key could have written the record, and only a key rotation ends what that key wrote.
+    if (opts.kind !== 'keys') throw err;
+    console.warn(`${warningMark} The stored rotations could not be read: this key rotation replaces them.`);
+  }
   const next = withRotation(rotations, opts.kind, { at: (opts.now ?? new Date()).toISOString(), by: opts.by });
   await putJsonObject(opts.s3, opts.bucket, rotationsKey(opts.stack), `${JSON.stringify(next, null, 2)}\n`, conditionOn(etag));
   return next;

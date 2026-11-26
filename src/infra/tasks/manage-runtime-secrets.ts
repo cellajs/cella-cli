@@ -134,7 +134,8 @@ export function planEnvImport(
     if (!definition) return { key, note: 'no such env var' };
     if (definition.valueSource !== 'operator') return { key, note: 'made by infra' };
     const verdict = isEnvFileDeliverable(value);
-    if (!verdict.ok) return { key, note: verdict.reason === 'empty' ? 'empty' : 'not one line' };
+    if (!verdict.ok)
+      return { key, note: { empty: 'empty', multiline: 'not one line', quote: "holds a single quote (') or ends in a backslash" }[verdict.reason] };
     const held = containers.get(definition.secretName);
     const replaces = holdsValue(held) ? ` · replaces the value set ${shortDate(held?.setAt)}`.trimEnd() : '';
     return { key, note: `set (${value.length} chars)${replaces}`, write: { definition, value } };

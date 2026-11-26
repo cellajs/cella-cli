@@ -6,11 +6,11 @@ import { writeFileMode } from './fs-utils';
 /** Ceiling on one fetch of the env file, a few kilobytes: a stalled one fails and is retried. */
 const fetchAttemptTimeoutSeconds = 60;
 
-/** The values of an env file, one `NAME=value` per line, so the agent redacts each wherever it shows up. */
+/** The raw values of an env file of `NAME='value'` or `NAME=value` lines: the agent redacts each wherever it shows up. */
 export function envFileValues(content: string): string[] {
   return content
     .split('\n')
-    .map((line) => line.slice(line.indexOf('=') + 1))
+    .map((line) => line.slice(line.indexOf('=') + 1).replace(/^'(.*)'$/, '$1'))
     .filter((value, index, all) => value !== '' && all.indexOf(value) === index);
 }
 

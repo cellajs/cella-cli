@@ -1,9 +1,10 @@
 import { execFile } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
+import { lstat, mkdir, readdir, rmdir, unlink } from 'node:fs/promises';
 import { dirname, join, resolve } from 'node:path';
 import { promisify } from 'node:util';
 import { getEnvSnapshot } from './env';
+import { printable } from './terminal-text';
 
 const execFileAsync = promisify(execFile);
 
@@ -29,11 +30,16 @@ interface GitCommandOptions {
   ignoreErrors?: boolean;
   /** Additional environment variables for the git command */
   env?: Record<string, string>;
+  /** Run the repository's git hooks: only the upgrade commit and the push that ships a branch do. */
+  hooks?: boolean;
 }
 
+/** Arguments that turn git hooks off for one command: no hook a merge brought runs before the person reviews it. */
+export const noHooks = ['-c', 'core.hooksPath=/dev/null'];
+
 /**
- * Executes a git command and returns trimmed stdout. Pathspecs are literal, so a file name with glob
- * characters (`[id].tsx`) names that file alone; a caller that globs sets `GIT_LITERAL_PATHSPECS: '0'`.
+ * Executes a git command, with git hooks off, and returns trimmed stdout. Pathspecs are literal: a file name with glob
+ * characters (`[id].tsx`) names that file alone, and a caller that globs sets `GIT_LITERAL_PATHSPECS: '0'`.
  */
 export async function git(args: string[], cwd: string, options: GitCommandOptions = {}): Promise<string> {
   const env = {
@@ -44,7 +50,11 @@ export async function git(args: string[], cwd: string, options: GitCommandOption
   };
 
   try {
-    const { stdout } = await execFileAsync('git', args, { cwd, env, maxBuffer });
+    const { stdout } = await execFileAsync('git', [...(options.hooks ? [] : noHooks), ...args], {
+      cwd,
+      env,
+      maxBuffer,
+    });
     return stdout.trim();
   } catch (error) {
     if (options.ignoreErrors) return '';
@@ -174,7 +184,9 @@ export async function pushBranch(
   branch: string,
   options: { forceWithLease?: boolean } = {},
 ): Promise<void> {
-  await git(['push', '-u', ...(options.forceWithLease ? ['--force-with-lease'] : []), remote, branch], cwd);
+  await git(['push', '-u', ...(options.forceWithLease ? ['--force-with-lease'] : []), remote, branch], cwd, {
+    hooks: true,
+  });
 }
 
 /**
@@ -217,14 +229,14 @@ export async function commitSquash(cwd: string, message: string): Promise<void> 
     const path = await gitPath(cwd, file);
     if (existsSync(path)) await unlink(path);
   }
-  await git(['commit', '-m', message], cwd, { skipEditor: true });
+  await git(['commit', '-m', message], cwd, { skipEditor: true, hooks: true });
 }
 
 /**
  * Absolute path of a file in the current worktree's git dir. In a linked worktree `.git` is a
  * pointer file and the git dir lives under the main checkout's `.git/worktrees/<name>`.
  */
-async function gitPath(cwd: string, file: string): Promise<string> {
+export async function gitPath(cwd: string, file: string): Promise<string> {
   return resolve(cwd, await git(['rev-parse', '--git-path', file], cwd));
 }
 
@@ -300,7 +312,7 @@ export interface CommitRangeEntry {
 export async function getCommitInfo(cwd: string, ref: string): Promise<CommitRangeEntry> {
   const format = '%H%n%s%n%ar'; // hash, subject, relative date
   const output = await git(['log', '-1', `--format=${format}`, ref], cwd);
-  const [hash, message, date] = output.split('\n');
+  const [hash, message, date] = output.split('\n').map(printable);
   return { hash, message, date };
 }
 
@@ -329,7 +341,8 @@ export async function listCommitsBetween(
   const commits: CommitRangeEntry[] = [];
   for (const line of output.split('\n')) {
     if (!line) continue;
-    const [hash, message, date, timestamp] = line.split('\x1f');
+    // Each field is filtered after the split: a subject that holds the separator shifts into the date
+    const [hash, message, date, timestamp] = line.split('\x1f').map(printable);
     if (!hash || !message || !date) continue;
     commits.push({ hash, message, date, timestamp: Number(timestamp) || undefined });
   }
@@ -510,6 +523,16 @@ export async function getFileChanges(
   return changes;
 }
 
+/** The old paths of the files moved between two refs at git's merge threshold (50% similar): a merge follows them. */
+export async function listMovedFrom(cwd: string, fromRef: string, toRef: string): Promise<Set<string>> {
+  const out = await git(['diff', '--name-status', '-z', '-M50%', '--diff-filter=R', fromRef, toRef], cwd);
+  const fields = out.split('\0');
+  const moved = new Set<string>();
+  // Each move is three fields: `R<score>`, the old path, the new path
+  for (let i = 0; i + 2 < fields.length; i += 3) moved.add(fields[i + 1]);
+  return moved;
+}
+
 /** Lines added/removed for one path (`null` for binary files, where git reports `-`). */
 interface DiffStat {
   additions: number | null;
@@ -582,6 +605,7 @@ export async function gitRm(cwd: string, paths: string[], options: { cached?: bo
 export async function moveFromRef(cwd: string, ref: string, from: string, to: string): Promise<void> {
   const [mode, , blob] = (await git(['ls-tree', ref, '--', from], cwd)).split(/\s+/);
   if (!blob) throw new Error(`${ref} holds no ${from}`);
+  await assertRealFolder(cwd, to);
   await removeFilesFully(cwd, [from]);
   await gitRm(cwd, [to], { cached: true });
   await git(['update-index', '--add', '--cacheinfo', `${mode},${blob},${to}`], cwd);
@@ -590,10 +614,31 @@ export async function moveFromRef(cwd: string, ref: string, from: string, to: st
 }
 
 /**
- * Remove a file from the worktree filesystem if it exists.
- * Used to clean up files that git rm may not have removed (e.g., after squash merge).
+ * Refuse a write or removal at `path` when a folder above it is a symlink: the change would reach a file the
+ * repository does not name. A folder stored in another letter case or composition is the same folder and passes.
+ * @throws naming the path and the symlinked folder
+ */
+export async function assertRealFolder(cwd: string, path: string): Promise<void> {
+  const parts = dirname(path).split('/');
+  for (let depth = 1; depth <= parts.length && parts[0] !== '.'; depth++) {
+    const folder = parts.slice(0, depth).join('/');
+    const entry = await lstat(join(cwd, folder)).catch(() => null);
+    // A folder that does not exist yet is made by the write itself
+    if (!entry) return;
+    if (entry.isSymbolicLink()) {
+      throw new Error(
+        `refused to change ${printable(path)}: its folder ${printable(folder)} is a symlink. Remove the link, then rerun.`,
+      );
+    }
+  }
+}
+
+/**
+ * Remove a file from the worktree filesystem if it exists: what git rm leaves behind, such as after a squash merge.
+ * @throws when its folder resolves elsewhere ({@link assertRealFolder})
  */
 export async function removeFileFromWorktree(cwd: string, filePath: string): Promise<void> {
+  await assertRealFolder(cwd, filePath);
   const fullPath = join(cwd, filePath);
   try {
     await unlink(fullPath);
@@ -608,6 +653,7 @@ export async function removeFileFromWorktree(cwd: string, filePath: string): Pro
  * for cases git rm leaves behind (e.g. during a merge), including empty parent dirs.
  */
 export async function removeFilesFully(cwd: string, paths: string[]): Promise<void> {
+  for (const path of paths) await assertRealFolder(cwd, path);
   await gitRm(cwd, paths);
   for (const path of paths) await removeFileFromWorktree(cwd, path);
 }

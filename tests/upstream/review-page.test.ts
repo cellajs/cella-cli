@@ -329,12 +329,14 @@ describe('review page', () => {
     it('says what an upgrade page shows and that it opened', () => {
       const step = reviewStep(page({ command: 'upgrade', diffs: 7, listed: 0, opened: true }));
 
-      expect(plain(step)[1]).toBe('7 diffs of upstream changes that did not arrive · opened in the browser');
+      expect(plain(step)[1]).toBe(
+        '7 diffs: what arrived that decides what runs, and upstream changes that did not · opened in the browser',
+      );
     });
 
     it('describes a page an earlier run wrote without counts', () => {
       expect(plain(reviewStep('/repo/.git/cella-diff/upgrade-review.html'))[1]).toBe(
-        'upstream changes the upgrade did not bring in, from the merge run',
+        'from the merge run: what arrived that decides what runs, and upstream changes that did not',
       );
     });
   });

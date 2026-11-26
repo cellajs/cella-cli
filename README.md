@@ -340,6 +340,9 @@ which only drops upstream's next change to it.
 cella release tag, and each bump maps to a changelog. `branch` follows the tip of `upstreamBranch`, for cella
 maintainers and active development.
 
+A release counts only when its commit is on `upstreamBranch`. A higher tag off the branch is skipped, with a warning
+that names it.
+
 `--track` overrides the mode for one run, and `--ref` pins one upstream point: a commit sha, a release tag or an
 upstream branch name, resolved on the upstream remote (`main` is upstream's `main`). The ref must be on `upstreamBranch`
 or in an upstream release; a release tag upgrades as that release, anything else is recorded like branch tracking.
@@ -361,21 +364,30 @@ upgrade is refused. Either way the run changes nothing and leaves you on the bra
 main ──▶ cella/upgrade/<stamp> ──(3-way merge)──▶ PR ──(squash)──▶ main
 ```
 
-It runs a real git three-way merge, in stages: each run advances the upgrade one stage, and the run that commits never
-ships. The pause on the committed branch is where drift triage (`pnpm cella analyze` reads the committed HEAD) and
-follow-up commits happen.
+It runs a real git three-way merge, in stages: each run advances the upgrade one stage. The run that merges runs nothing
+the merge brought, and the run that commits never ships. The pause on the committed branch is where drift triage
+(`pnpm cella analyze` reads the committed HEAD) and follow-up commits happen.
 
-1. **The first run** cuts the branch and merges. A clean merge is committed right away, after `pnpm install` and
-   `pnpm check` reconcile the dependencies, and the run stops on the branch. A conflicted merge stops before the commit:
-   resolve it in your editor, `git add` the files and rerun to commit.
-2. **The next run** ships the committed branch: it pushes to `origin`, opens a PR into the trunk with `gh`, titled like
-   the upgrade commit, and switches you back to the trunk.
+1. **The first run** cuts the branch, merges and stops with the merge staged, before anything from upstream runs. It
+   lists what arrived that decides what runs: changed package scripts, dependencies from outside the registry or aliased
+   to another package, the `pnpm` settings, `patches/`, `.npmrc`, the git hooks and the GitHub workflows and actions,
+   every `action.yml` included. Read them, and the rest of the merge, since `pnpm check` runs the merged source. A
+   conflicted merge stops the same way: resolve it in your editor and `git add` the files.
+2. **The second run** runs `pnpm install` and `pnpm check` on the merge, then commits it and stops on the branch.
+   The CLI's own git calls run no git hook until this commit. A second run that finds no record of the first run's
+   stop prints the list and stops in its place.
+3. **The third run** ships the committed branch: it lists the changes CI will run with the repository's secrets, pushes
+   to `origin`, opens a PR into the trunk with `gh`, titled like the upgrade commit, and switches you back to the trunk.
 
 Before it merges, the first run prints upstream's range and checks that it can go ahead. It stops without changing
 anything when upstream needs a newer `@cellajs/cli` than the one running, or changed its own CLI config in ways yours
 does not follow (see [Upstream changes that never merge](#upstream-changes-that-never-merge)): the temporary branch is
 removed and you are back where you started. After the merge it prints the package.json merge, then the merge summary and
 `next steps`.
+
+It also stops when a path upstream adds or changes differs only in letter case from another path the merge writes or
+leaves. A case-insensitive disk stores such a pair as one file, and removing one would delete the other. `upgrade` and
+`adopt` name both paths and change nothing; `analyze` reports the pair.
 
 The upgrade commit has a single parent (`chore: upgrade cella to <sha>`): the PR holds the incremental diff alone. Let
 the rerun commit: a manual `git commit` records a merge commit, whose PR lists upstream's whole history. Ancestry lives
@@ -407,7 +419,7 @@ next steps
   1 review   file:///Users/you/app/.git/cella-diff/analyze-review.html
              22 diffs in 3 sections · 42 listed without a diff
   2 upgrade  pnpm cella upgrade
-             commits on a fresh branch, a rerun opens the PR · 36 update, 2 merge
+             merges on a fresh branch and stops for review · 36 update, 2 merge
   3 align    1 alignment arrives with this upgrade
              ○ Migration notes become alignments · manual · not breaking
              after the upgrade: pnpm cella align
@@ -545,12 +557,16 @@ already staged merge never stops for this.
 
 The terminal lists files; the review page shows their diffs, side by side and highlighted, on one page in your browser
 under the same section titles. `analyze` and `upgrade` write it whenever a list has files, and list it first under
-`next steps`. A diff shows what upstream changed since the last upgrade, except in two sections only `analyze` has:
-`protected in app` compares the app with upstream as both are now, and `drifted` shows what the app changed.
+`next steps`.
 
-`upgrade` opens the page in your browser when it runs in a terminal: the files on it are upstream changes the merge did
-not bring in, and the committed upgrade branch is where you adopt them. `analyze` only lists it. The page lives in the
-git directory, out of `git status`, and each run overwrites it. A page with too many diffs lists the rest by path, as it
+A diff shows what upstream changed since the last upgrade, except in three sections. The first section of `upgrade`,
+`arrived and decides what runs`, shows the staged merge. Of the sections only `analyze` has, `protected in app` compares
+the app with upstream as both are now, and `drifted` shows what the app changed.
+
+`upgrade` opens the page in your browser when it runs in a terminal, at the stop for review. Its other sections are
+upstream changes the merge did not bring in, and the committed upgrade branch is where you adopt them. `analyze` only
+lists it. The page lives in the git directory, out of `git status`, and each run overwrites it. A page with too many
+diffs lists the rest by path, as it
 does files without a text diff.
 
 ## Package.json merge
@@ -670,6 +686,8 @@ forks: [
 `pnpm cella adopt` asks for a fork, fetches its `pullBranch` and builds a clean local `contrib/<fork>` branch with only
 that fork's contributed files. Press `d` on a file to open its diff in your browser. Accepted files are checked out from
 the contrib branch and staged for review.
+
+Nothing of the fork runs: its `ignored` list is read from its committed `cella/cella.config.ts` as text.
 
 ## Stats of a branch
 

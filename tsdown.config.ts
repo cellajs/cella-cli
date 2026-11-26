@@ -26,7 +26,7 @@ export default defineConfig([
     // The engine's build files, which the apply and the builder read beside the bundle (lib/utils/paths.ts)
     copy: [
       { from: 'src/infra/Dockerfile', to: 'dist/infra-assets' },
-      { from: ['src/infra/agent/Dockerfile'], to: 'dist/infra-assets/agent' },
+      { from: ['src/infra/agent/Dockerfile', 'src/infra/agent/docker.asc'], to: 'dist/infra-assets/agent' },
       { from: ['src/infra/caddy/Dockerfile', 'src/infra/caddy/Caddyfile'], to: 'dist/infra-assets/caddy' },
     ],
   },

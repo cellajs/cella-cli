@@ -187,8 +187,8 @@ function pnpmUpdate(
   };
 }
 
-/** A newer minor tag in the pin's line: the same major and suffix, and as many version parts. */
-function imageUpdate(pin: ImagePin, feed: ImageTags | null, now: number): RuntimeUpdate | null {
+/** A newer minor tag in the pin's line pushed before `cutoff`: the same major and suffix, as many version parts. */
+function imageUpdate(pin: ImagePin, feed: ImageTags | null, now: number, cutoff: number): RuntimeUpdate | null {
   const [, version, suffix = ''] = pin.tag.match(minorTag) ?? [];
   if (!version || !feed) return null;
   // A tag naming a minor reads as a version: `2.8` is 2.8.0.
@@ -196,6 +196,7 @@ function imageUpdate(pin: ImagePin, feed: ImageTags | null, now: number): Runtim
   const newer = feed.tags.flatMap((tag) => {
     const [, tagVersion, tagSuffix = ''] = tag.name.match(minorTag) ?? [];
     if (!tagVersion || tagSuffix !== suffix || tagVersion.split('.').length !== version.split('.').length) return [];
+    if (tag.pushedAt > cutoff) return [];
     const parsed = semver.coerce(tagVersion)!;
     return parsed.major === pinned.major && semver.gt(parsed, pinned) ? [{ tag, version: tagVersion, parsed }] : [];
   });
@@ -232,7 +233,7 @@ export function planRuntimeUpdates(
   const updates = [
     pins.node && node ? nodeUpdate(pins.node, node, cutoff) : null,
     pins.pnpm && pnpm && pnpmAdvisories ? pnpmUpdate(pins.pnpm, pnpm, pnpmAdvisories, cutoff) : null,
-    ...pins.images.map((pin, i) => imageUpdate(pin, images[i], options.now)),
+    ...pins.images.map((pin, i) => imageUpdate(pin, images[i], options.now, cutoff)),
   ];
   const unchecked = [
     ...(pins.node && !node ? ['node'] : []),

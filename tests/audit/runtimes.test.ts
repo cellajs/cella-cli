@@ -65,7 +65,8 @@ FROM nginx`;
         {
           pinned: { name: '2.8-alpine', pushedAt: ago(24 * 400) },
           tags: [
-            { name: '2.11-alpine', pushedAt: ago(10) },
+            { name: '2.12-alpine', pushedAt: ago(10) },
+            { name: '2.11-alpine', pushedAt: ago(48) },
             { name: '2.11.7-alpine', pushedAt: ago(10) },
             { name: '2.10-alpine', pushedAt: ago(24 * 100) },
             { name: '3.0-alpine', pushedAt: ago(10) },

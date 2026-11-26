@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { copyFileSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { isIPv4 } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { parseAclInput } from '../../lib/db-exposure-acl';
@@ -46,13 +47,13 @@ export function removeExposureOverlay(environment: string): void {
   rmSync(exposureOverlayPath(environment), { force: true });
 }
 
-/** Detect the operator's current public IPv4 via a well-known echo service. */
+/** Detect the operator's current public IPv4 via a well-known echo service: undefined unless its whole body is one IPv4 address. */
 export async function detectPublicIp(): Promise<string | undefined> {
   try {
     const res = await fetch('https://api.ipify.org', { signal: AbortSignal.timeout(5000) });
     if (!res.ok) return undefined;
     const body = (await res.text()).trim();
-    return body || undefined;
+    return isIPv4(body) ? body : undefined;
   } catch {
     return undefined;
   }
@@ -115,11 +116,11 @@ async function findDbInstance(context: InfraContext, secretKey: string) {
   return { client, instanceId };
 }
 
-/** The instance's live public endpoints and ACL rules, read over the RDB API (RelationalDatabasesReadOnly is enough). */
-async function readDbExposure(context: InfraContext, secretKey: string): Promise<{ endpoints: RdbEndpoint[]; aclRules: number }> {
+/** The instance's live public endpoints and the address each ACL rule admits, read over the RDB API (RelationalDatabasesReadOnly is enough). */
+async function readDbExposure(context: InfraContext, secretKey: string): Promise<{ endpoints: RdbEndpoint[]; aclRules: string[] }> {
   const { client, instanceId } = await findDbInstance(context, secretKey);
   const [instance, rules] = await Promise.all([client.getInstance(instanceId), client.listAclRules(instanceId)]);
-  return { endpoints: publicEndpoints(instance), aclRules: rules.length };
+  return { endpoints: publicEndpoints(instance), aclRules: rules.map((rule) => rule.ip) };
 }
 
 /** The live public endpoints as `host:port`: none before the instance exists. */
@@ -249,7 +250,7 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
     },
   ]);
 
-  let live: { endpoints: RdbEndpoint[]; aclRules: number } | undefined;
+  let live: { endpoints: RdbEndpoint[]; aclRules: string[] } | undefined;
   const { env, stack } = await convergeOrExit(context, 'expose-db', {
     prepare: prepareExpose(context, acl),
     afterUp: async (e) => {
@@ -259,8 +260,15 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
 
   if (live && live.endpoints.length === 0) {
     console.warn(`${warningMark} The up completed, but the instance has no public endpoint. Re-run "${actionLabel('db-open')}".`);
+  } else if (live?.aclRules.includes('0.0.0.0/0')) {
+    console.error(
+      `${crossMark} Public endpoint ${live.endpoints.map(endpointAddress).join(', ')} admits every address (ACL: ${live.aclRules.join(', ')}). Run "${actionLabel('db-close')}" now.`,
+    );
+    endAction(1);
   } else if (live) {
-    console.info(`${checkMark} Public endpoint ${live.endpoints.map(endpointAddress).join(', ')} is open with ${live.aclRules} ACL rule(s).`);
+    console.info(
+      `${checkMark} Public endpoint ${live.endpoints.map(endpointAddress).join(', ')} is open to ${live.aclRules.join(', ') || 'no address'}.`,
+    );
   }
   const dsn = await readPublicDsn(env, stack, context);
   if (!dsn) {

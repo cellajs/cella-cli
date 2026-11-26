@@ -18,10 +18,13 @@ ARG NODE_VERSION
 ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim
 FROM ${NODE_IMAGE}
 
+# Docker's package signing key ships beside this file, with the fingerprint
+# 9DC8 5822 9FC7 DD38 854A E2D8 8D81 803C 0EBF CD88. The build fetches no key:
+# nothing it downloads decides which packages apt trusts.
+COPY docker.asc /etc/apt/keyrings/docker.asc
+
 RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates curl gnupg iproute2 \
- && install -m 0755 -d /etc/apt/keyrings \
- && curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc \
+ && apt-get install -y --no-install-recommends ca-certificates iproute2 \
  && chmod a+r /etc/apt/keyrings/docker.asc \
  && echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian $(. /etc/os-release && echo "$VERSION_CODENAME") stable" > /etc/apt/sources.list.d/docker.list \
  && apt-get update \

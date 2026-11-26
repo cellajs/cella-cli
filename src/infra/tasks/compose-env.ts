@@ -33,8 +33,9 @@ export function machineEnvEntries(appConfig: Pick<EngineConfig, 'services' | 'si
 }
 
 /**
- * Compose each machine's env file from the runtime values, one `NAME=value` line per name it carries. A required name without a value, or a
- * value that is not one line, ends the deploy blocked before any machine exists: the operator stores it, which starts the target again.
+ * Compose each machine's env file from the runtime values, one `NAME='value'` line per name it carries, which Compose reads literally. A
+ * required name without a value, or a value that is not one line or holds `'`, ends the deploy blocked before any machine exists: the
+ * operator stores it, which starts the target again.
  * @throws ExitCodeError with the blocked exit code, naming every value owed
  */
 export function composeMachineEnvs(
@@ -42,7 +43,8 @@ export function composeMachineEnvs(
   values: ReadonlyMap<string, string>,
 ): Record<string, string> {
   const missing = new Set<string>();
-  const malformed = new Set<string>();
+  const multiline = new Set<string>();
+  const quoted = new Set<string>();
   const files: Record<string, string> = {};
   for (const { service, entries } of machines) {
     const lines: string[] = [];
@@ -52,15 +54,17 @@ export function composeMachineEnvs(
         if (entry.required) missing.add(`${entry.envVar} [${entry.secretName}]`);
         continue;
       }
-      if (!isEnvFileDeliverable(value).ok) malformed.add(`${entry.envVar} [${entry.secretName}]`);
-      else lines.push(`${entry.envVar}=${value}`);
+      const verdict = isEnvFileDeliverable(value);
+      if (verdict.ok) lines.push(`${entry.envVar}='${value}'`);
+      else (verdict.reason === 'quote' ? quoted : multiline).add(`${entry.envVar} [${entry.secretName}]`);
     }
     files[service] = lines.length > 0 ? `${lines.join('\n')}\n` : '';
   }
-  if (missing.size > 0 || malformed.size > 0) {
+  if (missing.size + multiline.size + quoted.size > 0) {
     throw blocked([
       ...(missing.size > 0 ? [`required runtime values are not set: ${[...missing].join(', ')}`] : []),
-      ...(malformed.size > 0 ? [`values are not one line: ${[...malformed].join(', ')}`] : []),
+      ...(multiline.size > 0 ? [`values are not one line: ${[...multiline].join(', ')}`] : []),
+      ...(quoted.size > 0 ? [`values hold a single quote or end in a backslash, which the env file cannot carry: ${[...quoted].join(', ')}`] : []),
     ]);
   }
   return files;
@@ -76,7 +80,7 @@ function blocked(owed: string[]): ExitCodeError {
 
 /**
  * The required names no container of the runtime folder holds a version of, from the folder's listing alone: the deploy's check before the
- * build, which reads no value. A version that holds an empty or a multi-line value still ends the run blocked at the composition.
+ * build, which reads no value. A version whose value is empty, spans lines or holds `'` still ends the run blocked at the composition.
  */
 export function requiredWithoutValue(
   machines: ReadonlyArray<{ entries: readonly RuntimeEnvEntry[] }>,

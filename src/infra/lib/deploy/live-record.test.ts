@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import { type LiveRecord, type LiveRole, liveRecordKey, parseLiveRecord, recordRole, rolesToReplace } from './live-record';
+import { makeLockS3 } from '../../tests/helpers/fake-lock-s3';
+import { type LiveRecord, type LiveRole, liveRecordKey, parseLiveRecord, readLiveRecordForDeploy, recordRole, rolesToReplace } from './live-record';
 
 const commit = 'a'.repeat(40);
 const entry = (over: Partial<LiveRole> = {}): LiveRole => ({ slot: 'a', machine: 'srv-1', commit, retry: 0, rotation: 0, ...over });
@@ -59,6 +60,17 @@ describe('the live record', () => {
     expect(Object.keys(read().roles).sort()).toEqual(['backend', 'cdc', 'frontend']);
     await recordRole(s3, 'b', 'production', 'backend', undefined, { by: 'job:test' });
     expect(Object.keys(read().roles).sort()).toEqual(['cdc', 'frontend']);
+  });
+
+  it('keeps from a record stored before the key rotation only the entries whose machine the Instances API lists on that slot, pending', async () => {
+    // The lost deploy key could name a machine of its own on a role's slot, which the deploy would then delete or route around.
+    const bucket = makeLockS3();
+    bucket.storedAt(new Date('2026-11-01T10:00:00Z'));
+    bucket.overwrite(record({ backend: entry({ rotation: 3 }), frontend: entry({ machine: 'srv-forged', rotation: 3 }) }));
+    const rotations = { counter: 3, keys: { at: '2026-11-01T11:00:00.000Z', by: 'operator' } };
+    const machinesOf = async () => [{ id: 'srv-1', slot: 'a' as const }];
+    await readLiveRecordForDeploy(bucket.s3, 'b', 'production', rotations, machinesOf, () => {});
+    expect(parseLiveRecord(bucket.current()?.body ?? '').roles).toEqual({ backend: entry({ rotation: -1 }) });
   });
 
   it('creates the first record create-only', async () => {

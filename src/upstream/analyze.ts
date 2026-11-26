@@ -1,10 +1,24 @@
 import type { RuntimeConfig } from '../config/types';
 import pc from '../utils/colors';
-import { createSpinner, type NextStep, plural, printNextSteps, printStep, writeStdout } from '../utils/display';
+import {
+  createSpinner,
+  type NextStep,
+  plural,
+  printNextSteps,
+  printStep,
+  warningMark,
+  writeStdout,
+} from '../utils/display';
 import { gitHubRepo, readRemoteUrl } from '../utils/git';
 import { alignmentsStep } from './align';
 import { printAnalysisFileGroups } from './analyze-report';
-import { changedFromUpstream, classifiedResult, classifyUpgrade, enrichChangeInfo } from './classify';
+import {
+  caseCollisionText,
+  changedFromUpstream,
+  classifiedResult,
+  classifyUpgradeRun,
+  enrichChangeInfo,
+} from './classify';
 import { assertAheadOfUpgradePoint, assertCliVersion } from './gates';
 import { configFile } from './managed-files';
 import type { MergeResult } from './model';
@@ -77,7 +91,8 @@ export async function runAnalyze(config: RuntimeConfig, output: AnalyzeOutput = 
   await assertAheadOfUpgradePoint(config, upstream);
 
   const alignments = await readAlignmentsInRange(repoRoot, upstream);
-  const files = await classifyUpgrade(config, upstream);
+  const { files, collisions } = await classifyUpgradeRun(config, upstream);
+  if (collisions.length > 0) printStep('case', pc.yellow(caseCollisionText(collisions)), warningMark);
   await enrichChangeInfo(repoRoot, files, upstream.mergeBase, 'HEAD', upstream.ref);
   const result: MergeResult = {
     ...classifiedResult(files),
@@ -168,7 +183,7 @@ function upgradeStep(result: MergeResult): NextStep | undefined {
     line: 'pnpm cella upgrade',
     details: [
       pc.dim(
-        `commits on a fresh branch, a rerun opens the PR · ${changes.length > 0 ? changes.join(', ') : 'no file changes'}`,
+        `merges on a fresh branch and stops for review · ${changes.length > 0 ? changes.join(', ') : 'no file changes'}`,
       ),
     ],
   };

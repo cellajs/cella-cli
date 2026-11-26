@@ -7,7 +7,7 @@ import { staticEnv } from './static-env';
 const envOf = (text: string) =>
   Object.fromEntries(text.split('\n').map((line) => [line.slice(0, line.indexOf('=')), line.slice(line.indexOf('=') + 1)]));
 
-function render(singleVM: boolean, role: string) {
+function render(singleVM: boolean, role: string, csp = 'csp') {
   const { services } = fakeConfig();
   const config = fakeConfig({ singleVM, services: { ...services, yjs: { ...services.yjs, enabled: true } } });
   const machine = machineRoles(config).find((candidate) => candidate.role === role);
@@ -22,7 +22,7 @@ function render(singleVM: boolean, role: string) {
       lbInternalAddress: '10.0.0.200',
       suppliers: {
         APP_ORIGIN: ({ serviceUrl }) => serviceUrl('frontend'),
-        FRONTEND_CSP: () => 'csp',
+        FRONTEND_CSP: () => csp,
         FRONTEND_EMBED_CSP: () => 'csp',
         FRONTEND_PERMISSIONS_POLICY: () => 'policy',
         ORIGIN_HOST: () => 'bucket',
@@ -49,5 +49,9 @@ describe("a machine's static env", () => {
       AGENT_TAG: 'abc',
       AGENT_DIR: '/etc/cella',
     });
+  });
+
+  it('must not let a value end its line: a CRLF in the CSP would add a header the Caddy proxy sends', () => {
+    expect(() => render(true, 'backend', "default-src 'self'\r\nSet-Cookie: a=b")).toThrow(/FRONTEND_CSP holds a control character/);
   });
 });

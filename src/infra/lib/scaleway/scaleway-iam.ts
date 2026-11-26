@@ -60,6 +60,8 @@ export interface ScopedKeyResult {
   secretKey: string;
   applicationId: string;
   organizationId: string;
+  /** Set when the caller may not list the application's keys: the keys made before this one were not deleted and still work. */
+  purgeSkipped?: true;
 }
 
 /**
@@ -141,12 +143,13 @@ async function mintApplicationKey(
   opts: ProvisionScopedKeyOptions,
   app: { id: string },
   suffix: string,
-): Promise<{ accessKey: string; secretKey: string }> {
+): Promise<Pick<ScopedKeyResult, 'accessKey' | 'secretKey' | 'purgeSkipped'>> {
   const { callerSecretKey, organizationId, projectId } = opts;
   const log = opts.log ?? ((msg) => console.info(msg));
   const description = `${suffix}: rotated ${new Date().toISOString().slice(0, 10)}`;
   const apiKey = await createApiKey({ secretKey: callerSecretKey }, { applicationId: app.id, description, defaultProjectId: projectId });
   log(`  ${changeMark} Created API key: ${apiKey.access_key}`);
+  const minted = { accessKey: apiKey.access_key, secretKey: apiKey.secret_key };
   try {
     for (const key of await listApiKeys({ secretKey: callerSecretKey }, organizationId, app.id)) {
       if (key.access_key === apiKey.access_key) continue;
@@ -156,8 +159,9 @@ async function mintApplicationKey(
   } catch (error) {
     if (!isPermissionDenied(error)) throw error;
     log(`  ${tildeMark} Cannot list API keys (IAMManager without IAMReadOnly): skipping the orphan purge`);
+    return { ...minted, purgeSkipped: true };
   }
-  return { accessKey: apiKey.access_key, secretKey: apiKey.secret_key };
+  return minted;
 }
 
 /**

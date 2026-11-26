@@ -1,6 +1,8 @@
+import semver from 'semver';
 import { defaultUpstreamRemote, resolveUpstream } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
-import { spinnerText } from '../utils/display';
+import pc from '../utils/colors';
+import { printStep, spinnerText, warningMark } from '../utils/display';
 import { ensureRemote, fetchRemote, git, revParse } from '../utils/git';
 
 /** The upstream ref a run merges from, and its release tag when it is a release. */
@@ -36,10 +38,10 @@ export async function resolveUpstreamRef(config: RuntimeConfig): Promise<Upstrea
   if (config.ref) return resolvePinnedRef(config, branchRef, config.ref);
   if (runTrack(config) === 'branch') return { ref: branchRef };
 
-  const latest = await resolveLatestReleaseTag(config.repoRoot, defaultUpstreamRemote);
+  const latest = await resolveLatestReleaseTag(config.repoRoot, defaultUpstreamRemote, branchRef);
   if (!latest) {
     throw new Error(
-      `no upstream release tags found on '${defaultUpstreamRemote}'. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
+      `no upstream release tags found on ${branchRef}. Set upstreamTrack: 'branch' to follow ${branchRef}, ` +
         `or check that ${config.upstreamUrl} publishes release tags.`,
     );
   }
@@ -81,27 +83,36 @@ export async function fetchUpstreamTags(cwd: string, remoteName: string): Promis
 }
 
 /**
- * A template release tag is a version, with or without the `v` prefix (`0.18.1`, `v0.5.0`).
- * Component tags (`create-cella-0.2.3`) and other namespaces (`archive/pre-release`) start with a name.
+ * Whether a tag names a template release: a semver version without a prerelease part, with or without the `v` prefix
+ * (`0.18.1`, `v0.5.0`). A pre-release (`0.49.0-rc.1`), a component tag (`create-cella-0.2.3`) or another namespace
+ * (`archive/pre-release`) is none.
  */
-const releaseTagPattern = /^v?\d[\w.+-]*$/;
+const isReleaseTag = (tag: string) => semver.valid(tag) !== null && semver.prerelease(tag) === null;
 
 /**
- * Resolve the latest upstream release tag (the highest version tag) from the
- * remote-scoped tag namespace. Returns the short tag name and its full ref, or null
- * when no release exists.
+ * Resolve the latest upstream release: the highest release tag by semver in the remote-scoped tag namespace whose
+ * commit the upstream branch (`branchRef`) contains. A higher tag off the branch is named in a warning and never
+ * picked. Returns the short tag name and its full ref, or null when the branch holds no release.
  */
-async function resolveLatestReleaseTag(cwd: string, remoteName: string): Promise<{ tag: string; ref: string } | null> {
+async function resolveLatestReleaseTag(
+  cwd: string,
+  remoteName: string,
+  branchRef: string,
+): Promise<{ tag: string; ref: string } | null> {
   const prefix = `refs/${remoteName}/tags/`;
-  const output = await git(['for-each-ref', '--sort=-version:refname', '--format=%(refname)', prefix], cwd);
-  if (!output) return null;
-  for (const line of output.split('\n')) {
-    const ref = line.trim();
-    if (!ref) continue;
-    const tag = ref.slice(prefix.length);
-    if (releaseTagPattern.test(tag)) return { tag, ref };
+  const highest = async (...filter: string[]) => {
+    const output = await git(['for-each-ref', '--format=%(refname)', ...filter, prefix], cwd);
+    return output
+      .split('\n')
+      .map((line) => line.trim().slice(prefix.length))
+      .filter(isReleaseTag)
+      .sort(semver.rcompare)[0];
+  };
+  const [tag, anywhere] = await Promise.all([highest(`--merged=refs/remotes/${branchRef}`), highest()]);
+  if (anywhere && anywhere !== tag) {
+    printStep('release', pc.yellow(`skipped ${anywhere}: its commit is not on ${branchRef}`), warningMark);
   }
-  return null;
+  return tag ? { tag, ref: `${prefix}${tag}` } : null;
 }
 
 /**
@@ -121,7 +132,7 @@ export async function resolveUpstreamCommit(
   for (const candidate of [`refs/remotes/${remoteName}/${ref}`, tagRef, ref]) {
     const sha = await revParse(cwd, `${candidate}^{commit}`);
     if (!sha) continue;
-    const release = candidate === tagRef && releaseTagPattern.test(ref) ? { tag: ref, ref: tagRef } : undefined;
+    const release = candidate === tagRef && isReleaseTag(ref) ? { tag: ref, ref: tagRef } : undefined;
     return { sha, release };
   }
   return null;

@@ -127,6 +127,7 @@ describe('storage module', () => {
     expect(Statement.map((statement) => statement.Sid).sort()).toEqual([
       'DeployAccess',
       'DeployEnvRemoval',
+      'DeployReadsRotations',
       'ObserverReadBootDiagnostics',
       'OperatorAccess',
     ]);
@@ -150,11 +151,27 @@ describe('storage module', () => {
     const bucket = String(h.resources.find((r) => r.name === 'boot-diag-bucket')?.inputs.name);
     const { Statement } = JSON.parse(String(h.resources.find((r) => r.name === 'boot-diag-policy')?.inputs.policy)) as { Statement: Statement[] };
     const deploy = Statement.find((statement) => statement.Sid === 'DeployAccess');
-    expect(deploy?.Resource.filter((resource) => resource !== bucket)).toEqual(
-      ['releases/', 'env/', 'boot-diag/', 'runs/', 'control/'].map((prefix) => `${bucket}/${prefix}*`),
-    );
+    expect(deploy?.Resource.filter((resource) => resource !== bucket)).toEqual([
+      ...['releases/', 'env/', 'boot-diag/', 'runs/'].map((prefix) => `${bucket}/${prefix}*`),
+      `${bucket}/control/production/lock.json`,
+      `${bucket}/control/production/live.json`,
+    ]);
     const objects = deploy?.Resource.filter((resource) => resource !== bucket) ?? [];
     expect(objects.some((resource) => `${bucket}/dumps/staging/x.dump`.startsWith(resource.replace(/\*$/, '')))).toBe(false);
+  });
+
+  it('must not let a lost deploy key decide after a rotation of keys: it reaches no applied engine and only reads the rotations', () => {
+    type Statement = { Principal: unknown; Action: string[]; Resource: string[] };
+    const bucket = String(h.resources.find((r) => r.name === 'boot-diag-bucket')?.inputs.name);
+    const { Statement } = JSON.parse(String(h.resources.find((r) => r.name === 'boot-diag-policy')?.inputs.policy)) as { Statement: Statement[] };
+    const reaching = (key: string) =>
+      Statement.filter(
+        (statement) =>
+          JSON.stringify(statement.Principal).includes('-ci-deploy-id') &&
+          statement.Resource.some((resource) => (resource.endsWith('*') ? key.startsWith(resource.slice(0, -1)) : resource === key)),
+      ).flatMap((statement) => statement.Action);
+    expect(reaching(`${bucket}/control/production/applied.json`)).toEqual([]);
+    expect(reaching(`${bucket}/control/production/rotations.json`)).toEqual(['s3:GetObject']);
   });
 
   it('expires env files and their versions within a day, and release archives with the records', () => {

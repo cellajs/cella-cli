@@ -1,3 +1,4 @@
+import { printable } from '../../../utils/terminal-text';
 import {
   accountExcerpt,
   accountFailed,
@@ -220,13 +221,17 @@ async function showMachines(
         print(`${warningMark} ${found.service}: no account of ${opts.sha.slice(0, 10)}: its agent has not finished (its serial console says more)`);
         continue;
       }
-      print('', pc.bold(`${found.service} (boot-diag/${found.account.key})${found.account.failed ? ': boot failed' : ''}`), found.account.body);
+      print(
+        '',
+        pc.bold(`${found.service} (boot-diag/${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
+        printable(found.account.body),
+      );
     }
     const keys = await reader.list();
     const builder = (name: string) => keys.find((key) => key.startsWith('builder/') && key.endsWith(`/${name}`) && key.includes(opts.sha ?? ''));
     for (const name of ['result', 'log']) {
       const key = builder(name);
-      if (key) print('', pc.bold(`builder (boot-diag/${key})`), await reader.read(key));
+      if (key) print('', pc.bold(`builder (boot-diag/${key})`), printable(await reader.read(key)));
     }
     return;
   }
