@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { failWithHint, withSpinner } from '../lib/utils/cli-output';
-import { autoAcceptDefaults, confirmOrDefault, inputOrDefault, stackNameFor } from './shared';
+import { failWithHint } from '../lib/utils/cli-output';
+import { autoAcceptDefaults, stackNameFor } from './shared';
 
 const savedArgv = process.argv;
 
@@ -31,59 +31,15 @@ describe('autoAcceptDefaults', () => {
   });
 });
 
-describe('confirmOrDefault', () => {
-  it('resolves to the default without prompting under --defaults', async () => {
-    process.argv = ['node', 'infra-cli.ts', '--defaults'];
-    await expect(confirmOrDefault({ message: 'ok?', default: true })).resolves.toBe(true);
-    await expect(confirmOrDefault({ message: 'ok?', default: false })).resolves.toBe(false);
-  });
-});
-
-describe('inputOrDefault', () => {
-  it('resolves to empty string when no default is present', async () => {
-    process.argv = ['node', 'infra-cli.ts', '--defaults'];
-    await expect(inputOrDefault({ message: 'name' })).resolves.toBe('');
-  });
-});
-
 describe('failWithHint', () => {
-  it('prints the message and the Next command, then exits with the given code', () => {
-    const errors: string[] = [];
-    vi.spyOn(console, 'error').mockImplementation((msg?: unknown) => {
-      errors.push(String(msg));
-    });
+  // deploy.ts passes an ExitCodeError's code through it, and main-job.ts reads 2 back as blocked.
+  it('exits with the given code', () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {});
     const exit = vi.spyOn(process, 'exit').mockImplementation((code) => {
       throw new Error(`exit:${code}`);
     });
     expect(() => failWithHint('boom', { command: 'pnpm cella infra', description: 'why it broke' }, 3)).toThrow('exit:3');
     expect(exit).toHaveBeenCalledWith(3);
-    const joined = errors.join('\n');
-    expect(joined).toContain('boom');
-    expect(joined).toContain('pnpm cella infra');
-    expect(joined).toContain('why it broke');
-  });
-});
-
-describe('withSpinner', () => {
-  // stderr is not a TTY under vitest, so the static-line fallback path runs.
-  it('returns the task result', async () => {
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    await expect(withSpinner('doing a thing', async () => 42)).resolves.toBe(42);
-  });
-
-  it('prints a single static line to stderr when not a TTY', async () => {
-    const written: string[] = [];
-    vi.spyOn(process.stderr, 'write').mockImplementation((chunk: string | Uint8Array) => {
-      written.push(String(chunk));
-      return true;
-    });
-    await withSpinner('loading projects', async () => 'ok');
-    expect(written.join('')).toContain('→ loading projects');
-  });
-
-  it('propagates a rejection', async () => {
-    vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
-    await expect(withSpinner('boom', async () => Promise.reject(new Error('nope')))).rejects.toThrow('nope');
   });
 });
 

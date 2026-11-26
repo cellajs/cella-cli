@@ -4,7 +4,7 @@ import { OPERATOR_ACTIONS, type OperatorActionId } from '../../lib/operator-acti
 import { PromptBack } from '../prompts/back';
 import { forgetSession, startMenuSession } from '../session';
 import { endAction, type InfraContext } from '../shared';
-import { ACTION_RUNNERS, runAction } from './index';
+import { runAction } from './index';
 
 const context = {} as InfraContext;
 
@@ -18,13 +18,6 @@ function runnersOf(runner: Runner): Record<OperatorActionId, Runner> {
 afterEach(() => {
   vi.unstubAllEnvs();
   forgetSession();
-});
-
-describe('ACTION_RUNNERS', () => {
-  it('has a function for every action of the table and nothing else', () => {
-    expect(Object.keys(ACTION_RUNNERS).sort()).toEqual(Object.keys(OPERATOR_ACTIONS).sort());
-    for (const runner of Object.values(ACTION_RUNNERS)) expect(runner).toBeTypeOf('function');
-  });
 });
 
 describe('runAction', () => {

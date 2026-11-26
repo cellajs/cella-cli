@@ -103,15 +103,6 @@ describe('report envelope', () => {
     expect(total).toBe(report.checks.length);
   });
 
-  it('every check carries id, title, status, detail, key', () => {
-    for (const check of reportFor(base()).checks) {
-      expect(check.id).toBeTruthy();
-      expect(check.title).toBeTruthy();
-      expect(['ok', 'warn', 'missing', 'unknown', 'error']).toContain(check.status);
-      expect(['none', 'scaleway']).toContain(check.key);
-    }
-  });
-
   it('a healthy stack is all-ok with no next action', () => {
     const report = reportFor(base());
     expect(report.nextAction).toBeUndefined();

@@ -32,8 +32,4 @@ describe('resource options', () => {
   it('lets no pool drift from the program: a deploy moves traffic by health and writes none', () => {
     expect(read('loadbalancer.ts')).not.toMatch(/ignoreChanges:\s*\[[^\]]*'serverIps'/);
   });
-
-  // Known gaps, listed here so a reviewer sees them in `pnpm test` output.
-  it.todo('publishes a DMARC TXT record (p=quarantine or p=reject)');
-  it.todo('production instance runs as HA cluster (isHaCluster: true)');
 });

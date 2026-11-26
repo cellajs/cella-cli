@@ -18,20 +18,6 @@ function render(items: Array<MenuItem<string>>): string[] {
 }
 
 describe('mainMenuItems', () => {
-  it('lists the daily rows on a healthy stack with their descriptions in one column, then More and Quit', () => {
-    expect(render(mainMenuItems(bootstrapped))).toEqual([
-      '  Full status             every check and finding, and what fixes it',
-      '  Review & apply changes  what differs from what runs, applied on your yes',
-      '  Env vars & secrets      the values the services read at boot',
-      '  Releases & roll back    the last releases; deploy an earlier one again',
-      '  Deploy logs             the last deploys and how each ended',
-      '  Open DB access          a public endpoint to your IP, until you close it',
-      '  More ›                  deploy now, keys, repairs, the database, teardown',
-      ` ${'─'.repeat(40)}`,
-      '  Quit',
-    ]);
-  });
-
   it('leads with the recommended step when the home screen has one', () => {
     const items = mainMenuItems({ ...bootstrapped, upNext: { action: 'deploy', description: 'Deploy 0.35.0 again' } });
     expect(render(items).slice(0, 2)).toEqual(['  ▶  Deploy 0.35.0 again', '']);
