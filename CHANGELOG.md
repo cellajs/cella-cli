@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.1](https://github.com/cellajs/cella-cli/compare/cli-0.9.0...cli-0.9.1) (2026-11-26)
+
+
+### 🐞 Bug fixes
+
+* **infra:** a task that fails without throwing ends `cella infra` with its exit code ([#113](https://github.com/cellajs/cella-cli/issues/113)) ([d2ddbaa](https://github.com/cellajs/cella-cli/commit/d2ddbaaf4df94ab9515f6cf6bfe0d9d5a586253a))
+
 ## [0.9.0](https://github.com/cellajs/cella-cli/compare/cli-0.8.4...cli-0.9.0) (2026-11-25)
 
 
