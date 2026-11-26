@@ -1,7 +1,20 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { operatorActions } from './lib/operator-actions';
 import { ExitCodeError } from './lib/utils/errors';
-import { runTask, tasks } from './run';
+import { runInfra, runTask, tasks } from './run';
+
+// The CLI's import loads the app's config: an app whose config did not load got an import error where it asked for help
+vi.mock('./cli/infra-cli', () => {
+  throw new Error('the help loaded the app config');
+});
+
+it('prints a help page that names every action, without loading the app config', async () => {
+  const write = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+  expect(await runInfra(['apply', '--help'])).toBe(0);
+  const page = String(write.mock.calls[0]?.[0]);
+  for (const id of Object.keys(operatorActions)) expect(page).toMatch(new RegExp(`^ {2}${id} `, 'm'));
+  write.mockRestore();
+});
 
 // `deploy` named both, and `pnpm cella infra deploy` ran the task where the docs promised Deploy now: a task is looked up first
 it('names no task by the id of an operator action', () => {

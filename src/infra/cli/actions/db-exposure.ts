@@ -22,7 +22,7 @@ import { hardenPublicDsn } from '../../lib/utils/public-dsn';
 import { within } from '../../lib/utils/retry';
 import { rolePasswordSecretName } from '../../tasks/ensure-database';
 import { confirm, input, steps } from '../prompts/back';
-import { endAction, endsAction, type InfraContext } from '../shared';
+import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
 import { type OperatorApplyOptions, runOperatorApply } from './operator-apply';
 import { acquireOperatorKey } from './operator-unlock';
 
@@ -255,10 +255,10 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
   });
 
   if (live && live.endpoints.length === 0) {
-    console.warn(`${warningMark} The up completed, but the instance has no public endpoint. Re-run "${actionLabel('db-open')}".`);
+    console.warn(`${warningMark} The up completed, but the instance has no public endpoint. Re-run ${pointTo('db-open')}.`);
   } else if (live?.aclRules.includes('0.0.0.0/0')) {
     console.error(
-      `${crossMark} Public endpoint ${live.endpoints.map(endpointAddress).join(', ')} admits every address (ACL: ${live.aclRules.join(', ')}). Run "${actionLabel('db-close')}" now.`,
+      `${crossMark} Public endpoint ${live.endpoints.map(endpointAddress).join(', ')} admits every address (ACL: ${live.aclRules.join(', ')}). Run ${pointTo('db-close')} now.`,
     );
     endAction(1);
   } else if (live) {
@@ -284,7 +284,7 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
     console.info(`  ${pc.dim('Example, setting the password for this one command:')} PGPASSWORD=${quotedPassword} psql "${shownDsn}"`);
     if (!caPath) console.warn(`  ${warningMark} CA output unavailable; DSN left encrypt-only (sslmode=require). Re-run to pick up the CA.`);
   }
-  console.info(`\n  ${pc.bold(`When finished, run "${actionLabel('db-close')}": a deploy does not close it.`)}`);
+  console.info(`\n  ${pc.bold(`When finished, run ${pointTo('db-close')}: a deploy does not close it.`)}`);
 }
 
 /** Close the database's public endpoint: delete it over the RDB API, converge without the exposure config, and confirm the instance has none left. */
@@ -305,11 +305,9 @@ export async function runUnexposeDatabase(context: InfraContext): Promise<void> 
   removeExposureOverlay(context.environment);
 
   if (!left) {
-    console.warn(`${warningMark} Could not re-read the instance after the up; the delete before it was confirmed. Check "${actionLabel('status')}".`);
+    console.warn(`${warningMark} Could not re-read the instance after the up; the delete before it was confirmed. Check ${pointTo('status')}.`);
   } else if (left.length > 0) {
-    console.warn(
-      `${warningMark} The instance has public endpoint ${left.map(endpointAddress).join(', ')} again. Re-run "${actionLabel('db-close')}".`,
-    );
+    console.warn(`${warningMark} The instance has public endpoint ${left.map(endpointAddress).join(', ')} again. Re-run ${pointTo('db-close')}.`);
   } else {
     console.info(`\n${checkMark} ${pc.bold('Public endpoint closed.')} The database is private-only again.`);
   }

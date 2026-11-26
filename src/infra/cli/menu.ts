@@ -1,5 +1,15 @@
-import { Separator } from '@inquirer/prompts';
-import { actionLabel, type MenuRowId, menuRow, menuRows, moreSections, type OperatorActionId, operatorActions } from '../lib/operator-actions';
+import { type MenuItem, rule } from '../../utils/menu';
+import {
+  actionCommand,
+  actionLabel,
+  type MenuRowId,
+  menuPath,
+  menuRow,
+  menuRows,
+  moreSections,
+  type OperatorActionId,
+  operatorActions,
+} from '../lib/operator-actions';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import type { Environment } from '../lib/stack/environment';
 import { pc } from '../lib/utils/cli-output';
@@ -20,20 +30,6 @@ export interface MenuState {
   liveEndpoints?: string[];
   upNext?: UpNext;
 }
-
-/** A selectable menu entry. An entry that cannot run now stays in the list with `disabled` saying why. */
-export interface MenuChoice<T extends string> {
-  name: string;
-  value: T;
-  description?: string;
-  disabled?: string;
-}
-
-/** A menu entry, the heading of a group of entries (an empty one is a blank line), or a rule. */
-export type MenuItem<T extends string> = MenuChoice<T> | { group: string } | Separator;
-
-/** The rule above the way out of a menu, and between the sections of the More pick. */
-export const rule = new Separator(pc.dim('─'.repeat(40)));
 
 export const backChoice = 'back';
 /** The value of the row that quits the CLI: the main menu's, and the frame's after a first setup. */
@@ -57,11 +53,16 @@ const needsBootstrappedStack: readonly OperatorActionId[] = [
   'releases',
 ];
 
-/** Why an action cannot run now, undefined when it can. Each reason names the action that lifts it, and stays short enough for one 80-column row. */
-export function disabledReason(id: OperatorActionId, state: MenuState): string | undefined {
-  if (id === 'db-seed' && state.environment === 'production') return 'seed data never goes to production';
+/**
+ * Why an action cannot run now, undefined when it can. Each reason names the action that lifts it: for the menu by its menu path, short
+ * enough for one 80-column row; for a run without the menu (`menu` false) as whole sentences that end on the command.
+ */
+export function disabledReason(id: OperatorActionId, state: MenuState, menu = true): string | undefined {
+  if (id === 'db-seed' && state.environment === 'production') return `seed data never goes to production${menu ? '' : '.'}`;
   if (needsBootstrappedStack.includes(id) && state.stackState !== 'bootstrapped') {
-    return `needs a set-up environment: run "${actionLabel('resume')}"`;
+    return menu
+      ? `needs a set-up environment: run "${menuPath('resume')}"`
+      : `it needs a set-up environment.\n  Run ${pc.cyan(`${actionCommand('resume')} --mode ${state.environment}`)}`;
   }
   return undefined;
 }

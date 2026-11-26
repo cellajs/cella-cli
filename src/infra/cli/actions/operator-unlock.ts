@@ -1,4 +1,3 @@
-import { menuPath } from '../../lib/operator-actions';
 import { describeKey, durableKeyLife, endingKeyMinutes, type KeyDescription, type KeyPair } from '../../lib/scaleway/operator-identity';
 import { type AppPrincipalNames, allPrincipalNames, appPrincipalNames } from '../../lib/scaleway/principals';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
@@ -10,7 +9,7 @@ import { sleep } from '../../lib/utils/sleep';
 import { keyPairPrompt } from '../prompts/key-pair';
 import { keptKeyNote, leaveChoice, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
 import { forgetOperatorKey, operatorKeyMintedThisRun, rememberedOperatorKey, rememberOperatorKey } from '../session';
-import { endAction, type InfraContext } from '../shared';
+import { endAction, type InfraContext, pointTo } from '../shared';
 import { acquireOwnerKey, type OwnerKey } from './owner-key';
 
 type StackRef = Pick<InfraContext, 'appConfig' | 'environment' | 'projectId'>;
@@ -31,7 +30,7 @@ export function refusalLines(opts: { status: number | undefined; detail: string;
   if (opts.status !== 403) return [`Scaleway did not take the key: ${opts.detail}`];
   return [
     `Scaleway refused the key (403): it reads no IAM, so it is no key of '${names.operator}' and none of a member of '${names.operators}'.`,
-    `Made it a few minutes ago? Its access can take a few minutes to hold. The organization Owner makes both: "${menuPath('operators')}".`,
+    `Made it a few minutes ago? Its access can take a few minutes to hold. The organization Owner makes both: ${pointTo('operators')}.`,
   ];
 }
 
@@ -58,7 +57,7 @@ async function bearerVerdict(desc: KeyDescription, pair: KeyPair, names: AppPrin
     });
     if (!group) {
       return {
-        refusal: `The app has no operators group ('${names.operators}') that ${desc.name} could be in, or the key cannot read it. The organization Owner makes it: "${menuPath('operators')}".`,
+        refusal: `The app has no operators group ('${names.operators}') that ${desc.name} could be in, or the key cannot read it. The organization Owner makes it: ${pointTo('operators')}.`,
       };
     }
     if (!(group.user_ids ?? []).includes(desc.bearerId)) {

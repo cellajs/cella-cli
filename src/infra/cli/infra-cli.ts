@@ -1,8 +1,8 @@
 import { existsSync } from 'node:fs';
-import { select } from '@inquirer/prompts';
+import { escaped, menuSelect } from '../../utils/menu';
 import { writeCompose } from '../compose/synth';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
-import { actionLabel, type MenuRowId, menuRow, type OperatorActionId, operatorActions, pulumiActions } from '../lib/operator-actions';
+import { actionLabel, type MenuRowId, menuRow, type OperatorActionId, pulumiActions } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { detectComputeDeferred, pickStackShort } from '../lib/stack/bootstrap-stack-state';
 import { type Environment, environments, isEnvironment } from '../lib/stack/environment';
@@ -13,28 +13,16 @@ import { dropPromptOnlyEnv, loadRootEnvFile, removeModeProjectId } from '../lib/
 import { installedPulumiVersion, pulumiCliLagWarning, sdkPulumiVersion } from '../lib/utils/pulumi-version';
 import { type ActionOutcome, runAction } from './actions';
 import { printLaunchChecklist } from './actions/setup-checklist';
-import { parseCliArgs } from './args';
+import { type CliArgs, splitFlagValues } from './args';
 import { checkoutVersion, formatHeader } from './header';
 import { collectHome, formatHome, type HomeFacts, upNextOf } from './home';
 import { backChoice, disabledReason, type MenuState, mainMenuItems, pickItems, quitChoice, upNext, visibleRows } from './menu';
 import { installPromptAbortHandler } from './prompts/abort';
-import { escaped, menuSelect } from './prompts/menu-select';
+import { select } from './prompts/back';
 import { leaveChoice } from './prompts/what-now';
-import { startMenuSession } from './session';
+import { rememberEnvironment, startMenuSession } from './session';
 import type { InfraContext } from './shared';
-import { autoAcceptDefaults } from './shared';
-
-/** The commands of the CLI, one line per action. */
-function printHelp(): void {
-  const ids = Object.keys(operatorActions) as OperatorActionId[];
-  const width = Math.max(...ids.map((id) => id.length));
-  console.info('Usage: pnpm cella infra [action] [--mode production|staging] [--once] [--defaults]\n');
-  console.info('Without an action the menu opens on the home screen; an action runs alone and exits with its result.\n');
-  for (const id of ids) console.info(`  ${pc.cyan(id.padEnd(width))}  ${actionLabel(id)}`);
-  console.info(`\n  ${pc.dim('--once      leave after the first action chosen in the menu')}`);
-  console.info(`  ${pc.dim('--defaults  take every optional default; required inputs are still asked')}`);
-  console.info(`\n  ${pc.dim('Releases deploy by themselves within minutes of a merge; deploy-now starts one now.')}`);
-}
+import { autoAcceptDefaults, pointTo } from './shared';
 
 /**
  * The target mode. `--mode` or INFRA_MODE selects it explicitly, including a fresh stack with no Pulumi.<mode>.yaml yet;
@@ -82,6 +70,7 @@ async function resolveMode(flag: string | undefined): Promise<Environment> {
  * next round reads the env file, the stack config and the stack state as the action left them; `log` receives the env-file notices.
  */
 async function loadContext(environment: Environment, log?: (message: string) => void): Promise<InfraContext> {
+  rememberEnvironment(environment);
   const stack = await loadStackContext(environment, log);
   // The project id scopes every Scaleway call. Only a fresh install may lack one: the setup wizard picks or creates the project and writes it to the stack file.
   if (!stack.projectId && stack.state !== 'fresh') {
@@ -110,8 +99,8 @@ function menuState(context: InfraContext, home?: HomeFacts): MenuState {
   };
 }
 
-/** The header, then the notices that hold for the whole run: key misconfigurations and deferred compute. */
-function printStackNotices(context: InfraContext): void {
+/** The header, then the notices that hold for the whole run: key misconfigurations and deferred compute. `menu` when the menu follows. */
+function printStackNotices(context: InfraContext, menu = true): void {
   const host = context.appConfig.frontendUrl ? new URL(context.appConfig.frontendUrl).host : undefined;
   const [line, divider] = formatHeader({
     slug: context.appConfig.slug,
@@ -126,7 +115,7 @@ function printStackNotices(context: InfraContext): void {
   for (const warning of [...context.envWarnings, ...resolveOperatorIdentity().warnings]) console.warn(`${warningMark} ${warning}`);
 
   if (detectComputeDeferred(context.stackYaml)) {
-    console.warn(`${warningMark} ${pc.bold('The first setup has not finished')}: "${actionLabel('resume')}" continues it.\n`);
+    console.warn(`${warningMark} ${pc.bold('The first setup has not finished')}: ${pointTo('resume', menu)} continues it.\n`);
   }
 }
 
@@ -228,10 +217,13 @@ function readAhead(environment: Environment): { startedAt: number; context: Prom
 }
 
 /**
- * The infra CLI on the words after `infra`: the menu, or one action with `pnpm cella infra <action>`. It ends the process itself, with
- * the action's code or the menu's way out.
+ * The infra CLI on a command line `runInfra` accepted: the menu, or one action with `pnpm cella infra <action>`. It ends the process
+ * itself, with the action's code or the menu's way out.
  */
-export async function runInfraCli(words: string[]): Promise<void> {
+export async function runInfraCli(args: CliArgs): Promise<void> {
+  // The actions read their flags on process.argv, where `--sha=<sha>` must read as `--sha <sha>` too.
+  process.argv = splitFlagValues(process.argv);
+
   // Load the repo-root .env so infra child tasks share the app's local config; ambient env keeps precedence over the file.
   loadRootEnvFile();
 
@@ -240,22 +232,6 @@ export async function runInfraCli(words: string[]): Promise<void> {
 
   // A Ctrl-C at any prompt below ends the run with one line and releases a held lease.
   installPromptAbortHandler();
-
-  const args = parseCliArgs(words);
-
-  if (args.help) {
-    printHelp();
-    process.exit(0);
-  }
-  if (args.unknownAction) {
-    console.error(`${crossMark} '${args.unknownAction}' is no action of the infra CLI.\n`);
-    printHelp();
-    process.exit(2);
-  }
-  if (args.mode !== undefined && !isEnvironment(args.mode)) {
-    console.error(`${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`);
-    process.exit(2);
-  }
 
   // The deploy reads the Compose file the service registry renders: kept current on every run, said only when it changed.
   if (writeCompose() === 'written') console.info(pc.dim('infra/compose.gen.yml follows the service registry again: commit it.'));
@@ -274,7 +250,7 @@ export async function runInfraCli(words: string[]): Promise<void> {
     }
   }
 
-  printStackNotices(context);
+  printStackNotices(context, !args.action);
   if (droppedFromEnv.length > 0) {
     console.warn(
       `${warningMark} ${droppedFromEnv.join(', ')} ${droppedFromEnv.length === 1 ? 'is' : 'are'} set in this shell or in .env and not read: the CLI asks for a privileged key at the prompt.\n`,
@@ -283,9 +259,9 @@ export async function runInfraCli(words: string[]): Promise<void> {
 
   // `pnpm cella infra <action>`: one action, no menu. An action the stack cannot run now says why, as its menu entry does.
   if (args.action) {
-    const reason = disabledReason(args.action, menuState(context));
+    const reason = disabledReason(args.action, menuState(context), false);
     if (reason) {
-      console.error(`${crossMark} "${actionLabel(args.action)}" cannot run now: ${reason}.`);
+      console.error(`${crossMark} ${args.action} cannot run now: ${reason}`);
       process.exit(1);
     }
     if (!pulumiReady(args.action)) process.exit(1);

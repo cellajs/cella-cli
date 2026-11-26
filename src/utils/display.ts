@@ -1,15 +1,13 @@
 import process from 'node:process';
 import packageJson from '../../package.json' with { type: 'json' };
 import pc from './colors';
+import { spinnerFrames, terminalColumns } from './layout';
 
 /** Version from package.json */
 export const version = packageJson.version;
 
 /** Line divider */
 export const divider = '─'.repeat(60);
-
-/** Divider used above the exit entry of interactive menus */
-export const menuDivider = '─'.repeat(40);
 
 /** Width of the label column of step lines (`✓ upstream   …`) */
 const stepLabelWidth = 9;
@@ -68,19 +66,24 @@ export function printLogo(): void {
   console.info();
   for (const line of logo) console.info(pc.cyan(line));
   console.info();
-  console.info(pc.dim(packageJson.description));
+  // Wrapped at a word: the terminal breaks a line mid-word
+  for (const line of packageJson.description.match(new RegExp(`.{1,${terminalColumns() - 1}}(?= |$)`, 'g')) ?? []) {
+    console.info(pc.dim(line.trim()));
+  }
 }
 
-export function printHeader(): void {
+/** The package's name, version and site over a rule, with a blank line above and below: the menu draws it as part of its own lines. */
+export function header(): string {
   const left = '⧈ cella cli';
   const versionLabel = ` · v${version}`;
   const right = 'cellajs.com';
   // Padding counts the visible characters only, not the ANSI codes
   const padding = Math.max(1, divider.length - `${left}${versionLabel}${right}`.length);
-  console.info();
-  console.info(`${pc.cyan(left)}${pc.dim(versionLabel)}${pc.cyan(`${' '.repeat(padding)}${right}`)}`);
-  console.info(divider);
-  console.info();
+  return `\n${pc.cyan(left)}${pc.dim(versionLabel)}${pc.cyan(`${' '.repeat(padding)}${right}`)}\n${divider}\n`;
+}
+
+export function printHeader(): void {
+  console.info(header());
 }
 
 /** Start a progress spinner; suppressed in test environments and JSON mode. */
@@ -88,7 +91,6 @@ export function createSpinner(text: string): Spinner {
   // One line holds one spinner: a new one replaces the one still running
   stopSpinner();
   const enabled = !jsonMode && !process.env.VITEST && process.env.NODE_ENV !== 'test' && !!process.stdout.isTTY;
-  const frames = ['-', '\\', '|', '/'];
   let frame = 0;
   let timer: ReturnType<typeof setInterval> | undefined;
   const spinner: Spinner = {
@@ -98,7 +100,7 @@ export function createSpinner(text: string): Spinner {
       if (enabled) process.stdout.write('\r\x1b[2K');
     },
   };
-  const render = () => process.stdout.write(`\r${pc.cyan(frames[frame++ % frames.length])} ${spinner.text}`);
+  const render = () => process.stdout.write(`\r${pc.cyan(spinnerFrames[frame++ % spinnerFrames.length])} ${spinner.text}`);
   if (enabled) {
     render();
     // A spinner a thrown error leaves running must not hold the process open

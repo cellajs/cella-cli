@@ -1,4 +1,5 @@
 import { spawnSync } from 'node:child_process';
+import { escaped, menuSelect, rule } from '../../../utils/menu';
 import { appDescription } from '../../lib/deploy/app-description';
 import { type AppliedEngine, applyNeeded, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
 import { describeChanges } from '../../lib/deploy/description-diff';
@@ -14,9 +15,8 @@ import { isAccessDenied } from '../../lib/scaleway/s3-client';
 import { readObjectText, readRotations, storedBeforeKeyRotation } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { repoRoot } from '../../lib/utils/paths';
-import { backChoice, rule } from '../menu';
+import { backChoice } from '../menu';
 import { PromptBack } from '../prompts/back';
-import { escaped, menuSelect } from '../prompts/menu-select';
 import { asksPerson, confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { type BootDiag, bootDiagOn, deployAndFollow, deployFixes, liveCommit } from './deploy-follow';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
@@ -105,7 +105,7 @@ function deployable(tag: string, manifest: ReleaseManifest | undefined, applied:
     console.info(`  ${checkMark} Same infrastructure as the applied one: no apply needed.`);
     return true;
   }
-  console.warn(`  ${warningMark} It needs an apply from a checkout at ${tag} first (${actionLabel('apply')}).`);
+  console.warn(`  ${warningMark} It needs an apply from a checkout at ${tag} first (${pointTo('apply')}).`);
   if (manifest.describes && applied.describes) console.warn(pc.dim(`    ${describeChanges(applied.describes, manifest.describes).join(', ')}`));
   return false;
 }

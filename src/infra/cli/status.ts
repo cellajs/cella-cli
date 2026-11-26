@@ -1,3 +1,4 @@
+import { terminalColumns, visibleWidth } from '../../utils/layout';
 import { commitRefs } from '../lib/deploy/git-remote';
 import { commitName, type RemoteRef } from '../lib/deploy/target';
 import type { EngineConfig } from '../lib/engine-config';
@@ -8,6 +9,7 @@ import { checkGroups, groupOf } from '../lib/status/registry';
 import { buildReport } from '../lib/status/session';
 import type { Check, CheckStatus, StatusReport } from '../lib/status/types';
 import { checkMark, crossMark, divider, pc, warningMark, withSpinner } from '../lib/utils/cli-output';
+import { inMenuSession } from './session';
 
 const marks: Record<CheckStatus, string> = { ok: checkMark, warn: warningMark, missing: crossMark, error: crossMark, unknown: pc.dim('?') };
 
@@ -18,13 +20,12 @@ export function markOf(status: CheckStatus): string {
 
 /** Where a row's detail starts: the mark, a space, the label padded to 12, a space. */
 const detailColumn = 15;
-/** The widest line a row prints. */
-const rowWidth = 100;
 const indent = ' '.repeat(detailColumn);
 
-/** One status row: mark, bold label padded to the detail column, detail. */
+/** One status row: mark, bold label padded to the detail column, detail. A detail wider than the terminal wraps at a word under itself. */
 export function statusRow(mark: string, label: string, detail: string): string {
-  return `${mark} ${pc.bold(label.padEnd(detailColumn - 3))} ${detail}`;
+  const [first = '', ...rest] = fill(detail.split(' '), ' ');
+  return [`${mark} ${pc.bold(label.padEnd(detailColumn - 3))} ${first}`, ...rest.map((line) => `${indent}${line}`)].join('\n');
 }
 
 /** A row whose detail runs on: its first line beside the label, the others under it at the detail column. */
@@ -32,12 +33,12 @@ export function statusRows(mark: string, label: string, lines: readonly string[]
   return lines.map((line, index) => (index === 0 ? statusRow(mark, label, line) : `${indent}${line}`));
 }
 
-/** Parts joined by `separator` into lines of at most `width` characters, a part never split. */
-export function fill(parts: readonly string[], separator: string, width = rowWidth - detailColumn): string[] {
+/** Parts joined by `separator` into lines of at most `width` visible columns, the terminal's beside the detail column, a part never split. */
+export function fill(parts: readonly string[], separator: string, width = terminalColumns() - detailColumn): string[] {
   const lines: string[] = [];
   for (const part of parts) {
     const last = lines.at(-1);
-    if (last !== undefined && last.length + separator.length + part.length <= width) lines[lines.length - 1] = `${last}${separator}${part}`;
+    if (last !== undefined && visibleWidth(`${last}${separator}${part}`) <= width) lines[lines.length - 1] = `${last}${separator}${part}`;
     else lines.push(part);
   }
   return lines;
@@ -53,13 +54,17 @@ function itemLines(items: readonly string[][]): string[] {
   });
 }
 
-/** A check's row; one that needs a person adds the items it names, or the detail its headline shortens, and what fixes it. */
+/**
+ * A check's row; one that needs a person adds the items it names, or the detail its headline shortens, and what fixes it: the next
+ * action's words in a menu session, its command in a run without the menu.
+ */
 export function checkLines(check: Check, refs?: readonly RemoteRef[]): string[] {
   const lines = [statusRow(marks[check.status], check.title, rowText(check, refs))];
   if (check.status === 'ok' || check.status === 'unknown') return lines;
   if (check.items?.length) lines.push(...itemLines(check.items));
   else if (check.headline) lines.push(...fill(nameSubject(check, refs).split(' '), ' ').map((line) => `${indent}${pc.dim(line)}`));
-  const fixes = [check.fix, check.nextAction?.description].flatMap((fix) => (fix ? fill(fix.split(' '), ' ', rowWidth - detailColumn - 5) : []));
+  const next = inMenuSession() ? check.nextAction?.description : check.nextAction && pc.cyan(check.nextAction.command);
+  const fixes = [check.fix, next].flatMap((fix) => (fix ? fill(fix.split(' '), ' ', terminalColumns() - detailColumn - 5) : []));
   lines.push(...fixes.map((line, index) => `${indent}${index === 0 ? pc.bold('Fix') : '   '}  ${line}`));
   return lines;
 }

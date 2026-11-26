@@ -1,6 +1,6 @@
 import { emitKeypressEvents } from 'node:readline';
-import { createPrompt, isEnterKey, isTabKey, makeTheme, type Status, useKeypress, usePrefix, useState } from '@inquirer/core';
-import { select as inquirerSelect } from '@inquirer/prompts';
+import inquirerSelect from '@inquirer/select';
+import { confirm as confirmPrompt, type InputPromptConfig, input as inputPrompt } from '../../../utils/prompts';
 import { recalledAnswer, rememberAnswer } from '../session';
 
 /** Thrown when the operator presses Esc at a prompt: a flow goes back one step, and its first step back to the menu. */
@@ -58,50 +58,6 @@ export async function steps(list: ReadonlyArray<() => Promise<void>>): Promise<v
   }
 }
 
-/** The answer a y/n line gives: empty takes the default, and undefined is no answer. */
-function yesOrNo(line: string, fallback: boolean): boolean | undefined {
-  const value = line.trim().toLowerCase();
-  if (value === '') return fallback;
-  if ('yes'.startsWith(value)) return true;
-  if ('no'.startsWith(value)) return false;
-  return undefined;
-}
-
-interface ConfirmPromptConfig {
-  message: string;
-  default: boolean;
-}
-
-const confirmPrompt = createPrompt<boolean, ConfirmPromptConfig>((config, done) => {
-  const theme = makeTheme();
-  const [status, setStatus] = useState<Status>('idle');
-  const [value, setValue] = useState('');
-  const [errorMsg, setError] = useState<string>();
-  const prefix = usePrefix({ status, theme });
-
-  useKeypress((key, rl) => {
-    if (status !== 'idle') return;
-    if (isEnterKey(key)) {
-      const answer = yesOrNo(value, config.default);
-      if (answer === undefined) {
-        rl.write(value);
-        setError('Answer y or n.');
-        return;
-      }
-      setValue(answer ? 'Yes' : 'No');
-      setStatus('done');
-      done(answer);
-    } else {
-      setValue(rl.line);
-      setError(undefined);
-    }
-  });
-
-  const message = theme.style.message(config.message, status);
-  if (status === 'done') return `${prefix} ${message} ${theme.style.answer(value)}`;
-  return [`${prefix} ${message} ${theme.style.defaultAnswer(config.default ? 'Y/n' : 'y/N')} ${value}`, errorMsg ? theme.style.error(errorMsg) : ''];
-});
-
 /** A prompt's config with the id its answer is kept under, for a step back or a retry. */
 type Recorded<C> = C & { id?: string };
 
@@ -113,50 +69,6 @@ export async function confirm(config: Recorded<{ message: string; default?: bool
   if (config.id !== undefined) rememberAnswer(config.id, answer);
   return answer;
 }
-
-interface InputPromptConfig {
-  message: string;
-  default?: string;
-  validate?: (value: string) => boolean | string | Promise<boolean | string>;
-}
-
-const inputPrompt = createPrompt<string, InputPromptConfig>((config, done) => {
-  const theme = makeTheme();
-  const [status, setStatus] = useState<Status>('idle');
-  const [value, setValue] = useState('');
-  const [errorMsg, setError] = useState<string>();
-  const prefix = usePrefix({ status, theme });
-
-  useKeypress(async (key, rl) => {
-    if (status !== 'idle') return;
-    if (isEnterKey(key)) {
-      const answer = value || config.default || '';
-      setStatus('loading');
-      const valid = config.validate ? await config.validate(answer) : true;
-      if (valid === true) {
-        setValue(answer);
-        setStatus('done');
-        done(answer);
-        return;
-      }
-      rl.write(value);
-      setError(typeof valid === 'string' ? valid : 'Enter a valid value.');
-      setStatus('idle');
-    } else if (isTabKey(key) && !value && config.default) {
-      rl.clearLine(0);
-      rl.write(config.default);
-      setValue(config.default);
-    } else {
-      setValue(rl.line);
-      setError(undefined);
-    }
-  });
-
-  const message = theme.style.message(config.message, status);
-  if (status === 'done') return `${prefix} ${message} ${theme.style.answer(value)}`;
-  const shownDefault = config.default && !value ? theme.style.defaultAnswer(config.default) : undefined;
-  return [[prefix, message, shownDefault, value].filter((part) => part !== undefined).join(' '), errorMsg ? theme.style.error(errorMsg) : ''];
-});
 
 /** A line of text that Esc steps back from. With an `id` the answer given earlier in the action is the default. */
 export async function input(config: Recorded<InputPromptConfig>): Promise<string> {

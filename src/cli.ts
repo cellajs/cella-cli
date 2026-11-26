@@ -2,7 +2,7 @@ import process from 'node:process';
 import { Command as CommanderCommand, Option } from 'commander';
 import type { Command, CommandGroup, MenuContext } from './command';
 import { commands } from './commands';
-import { version } from './utils/display';
+import { header, version } from './utils/display';
 import { pickFromMenu } from './utils/menu';
 
 /** A command with the options it parsed; `machineOutput` when one of them keeps stdout for the payload. */
@@ -28,10 +28,11 @@ function wordsAfterDash(argv: string[], commandName: string): string[] {
 
 function addCommand(program: CommanderCommand, declared: Command, argv: string[], pick: (selection: Selection) => void) {
   const jobs = declared.jobs.map(([name]) => name);
-  const command = program.command(declared.name).description(declared.description).helpGroup(groupHeadings[declared.group]);
+  const command = program.command(declared.name).description(declared.description).helpGroup(groupHeadings[declared.group]).showHelpAfterError();
   if (declared.handsOver) {
     const [words, description] = declared.passthrough ?? ['words', 'what the command parses itself'];
     command.helpOption(false).allowUnknownOption().allowExcessArguments().argument(`[${words}...]`, description);
+    if (declared.help) command.configureHelp({ formatHelp: declared.help });
     // The words as typed, in order: the command parses them itself, `--help` included
     command.action(() => {
       const passthrough = argv.slice(argv.indexOf(declared.name, 2) + 1);
@@ -96,7 +97,7 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
     .version(version, '-v, --version', 'output the current version')
     .usage('[command] [options]')
     .helpOption('-h, --help', 'display help for a command')
-    .showHelpAfterError()
+    .showHelpAfterError('pnpm cella --help lists the commands')
     .addHelpText(
       'after',
       [
@@ -135,35 +136,37 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
   return selection;
 }
 
-/** Ends the run once a menu is left. */
-function quitMenu(): never {
-  console.info();
-  process.exit(0);
-}
-
-/** The command picked from the menu, with a job when it has several the menu can run. */
+/** The command picked from the menu, with a job when it has several the menu can run. Esc or `← Back` at the job returns to the commands. */
 export async function promptForCommand(context: MenuContext): Promise<Selection> {
   const entries = commands.filter((command) => command.group !== 'gate' && (command.inMenu?.(context) ?? true));
-  const picked = await pickFromMenu(entries.map(({ name, description }) => ({ value: name, label: name, description })));
-  const command = entries.find((entry) => entry.name === picked);
-  if (!command) quitMenu();
+  // The help's groups in its order: commander lists a group where its first command is
+  const groups = [...new Set(entries.map(({ group }) => group))].map((group) =>
+    entries
+      .filter((command) => command.group === group)
+      .map(({ name, summary, handsOver }) => ({ value: name, label: handsOver ? `${name} ›` : name, description: summary })),
+  );
+  // A step back from a job pick returns the pointer to the command it left
+  let start: string | undefined;
+  while (true) {
+    const picked = await pickFromMenu(groups, { header: header(), start });
+    start = picked;
+    const command = entries.find((entry) => entry.name === picked);
+    // Quit and Esc leave without a line, as the engine's menu does
+    if (!command) process.exit(0);
 
-  const parse = (job: string | undefined) => command.parse({ job, operands: [], opts: {}, passthrough: [] });
-  // The menu passes no words: a job that needs them, such as `align show <id>`, runs from the command line only
-  const runnable = command.jobs.filter(([job]) => {
-    try {
-      parse(job);
-      return true;
-    } catch {
-      return false;
-    }
-  });
-  const job =
-    runnable.length > 1
-      ? ((await pickFromMenu(
-          runnable.map(([name, description]) => ({ value: name, label: name, description })),
-          command.name,
-        )) ?? quitMenu())
-      : runnable[0]?.[0];
-  return { command, options: parse(job), machineOutput: false };
+    const parse = (job: string | undefined) => command.parse({ job, operands: [], opts: {}, passthrough: [] });
+    // The menu passes no words: a job that needs them, such as `align show <id>`, runs from the command line only
+    const runnable = command.jobs.filter(([job]) => {
+      try {
+        parse(job);
+        return true;
+      } catch {
+        return false;
+      }
+    });
+    if (runnable.length < 2) return { command, options: parse(runnable[0]?.[0]), machineOutput: false };
+    const jobs = runnable.map(([name, description]) => ({ value: name, label: name, description }));
+    const job = await pickFromMenu([jobs], { title: command.name, header: header(), back: true });
+    if (job) return { command, options: parse(job), machineOutput: false };
+  }
 }

@@ -15,6 +15,7 @@ vi.mock('../shared', () => ({
   endAction: (code: number) => {
     throw Object.assign(new Error('ended'), { name: 'ActionEnded', exitCode: code });
   },
+  pointTo: (id: string) => id,
   stackNameFor: () => 'cella/production',
 }));
 vi.mock('./plan', () => ({ reviewPlan: (...args: unknown[]) => reviewPlan(...args), askToApply: (...args: unknown[]) => askToApply(...args) }));

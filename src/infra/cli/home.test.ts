@@ -91,9 +91,10 @@ describe('formatHome', () => {
     };
     expect(plain(formatHome(facts, { now: Date.parse('2026-11-08T10:00:00Z') }))).toEqual([
       '✗ Live         0.34.0 since Nov 2 · 1 of 2 services unhealthy',
-      '✗ Last deploy  0.35.0 failed at "Switch machines" an hour ago · 0.34.0 keeps serving',
-      '               2 failed runs today',
-      '⚠ Security     4 outside applications can act on production · 2 operator keys outlive a day',
+      '✗ Last deploy  0.35.0 failed at "Switch machines" an hour ago',
+      '               0.34.0 keeps serving · 2 failed runs today',
+      '⚠ Security     4 outside applications can act on production',
+      '               2 operator keys outlive a day',
       '⚠ Lease        held by job:a6696b654e',
     ]);
   });
@@ -101,7 +102,7 @@ describe('formatHome', () => {
   it('says when nothing was read for lack of a key, and renders nothing before the setup is done', () => {
     expect(plain(formatHome({ ...healthy, keyConfigured: false }))).toEqual([
       '? Live         not read',
-      '⚠ Not read     this machine has no observer key: "More → Update identities" puts one here',
+      '⚠ Not read     this machine has no observer key: "More → Update identities" puts\n               one here',
     ]);
     expect(formatHome({ ...healthy, report: { ...healthy.report, stackState: 'partial' } })).toEqual([]);
   });

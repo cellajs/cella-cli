@@ -10,9 +10,8 @@ const securityPass = vi.hoisted(() => vi.fn());
 vi.mock('./security-pass', () => ({ runSecurityPass: securityPass }));
 
 // The update prompt ticks every row.
-vi.mock('@inquirer/prompts', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('@inquirer/prompts')>()),
-  checkbox: async ({ choices }: { choices: Array<{ value?: string }> }) => choices.flatMap((c) => c.value ?? []),
+vi.mock('@inquirer/checkbox', () => ({
+  default: async ({ choices }: { choices: Array<{ value?: string }> }) => choices.flatMap((c) => c.value ?? []),
 }));
 
 // The machine's own tools stay out of these runs: no binaries asked, no feeds fetched.

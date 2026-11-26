@@ -19,6 +19,7 @@ export const shootCommand: Command<ShootOptions> = {
   name: 'shoot',
   group: 'develop',
   description: 'shoot the marketing screenshots on a testbed',
+  summary: 'shoot the marketing screenshots',
   jobs: [],
   operands: ['[ids...]', 'the shots to take (default: all)'],
   options: [

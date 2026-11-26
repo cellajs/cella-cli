@@ -111,7 +111,7 @@ export async function runRotateSecrets(context: InfraContext): Promise<boolean> 
     console.info(
       `\n${checkMark} Database role passwords and ${rotated.length} generated secret(s) rotated; rotation ${rotations.counter} recorded. Keys that protect stored data were left as they are.`,
     );
-    console.info(`  Third-party keys are pasted anew in "${actionLabel('env')}".`);
+    console.info(`  Third-party keys are pasted anew in ${pointTo('env')}.`);
   } finally {
     await lock.release();
   }

@@ -1,3 +1,7 @@
+import { type CliArgs, parseCliArgs } from './cli/args';
+import { infraHelp } from './cli/help';
+import { isEnvironment } from './lib/stack/environment';
+import { crossMark, pc } from './lib/utils/cli-output';
 import { ExitCodeError, errorMessage } from './lib/utils/errors';
 
 /**
@@ -21,18 +25,38 @@ export const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
   'repair-certs': async (words) => (await import('./tasks/repair-certs')).main(words),
 };
 
+/** Why the CLI cannot start on `args`, then where the help lists what it takes; undefined when it can. */
+function usageError(args: CliArgs): string | undefined {
+  const listed = (line: string, lists: 'actions' | 'options') => `${crossMark} ${line}\n  ${pc.dim(`pnpm cella infra help lists the ${lists}`)}`;
+  if (args.refusal) return listed(args.refusal, 'options');
+  if (args.unknownAction) return listed(`'${args.unknownAction}' is no action of the infra CLI.`, 'actions');
+  if (args.mode !== undefined && !isEnvironment(args.mode)) return `${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`;
+  if (!args.action && !process.stdin.isTTY) return listed('The menu needs a terminal. Name an action to run one without it.', 'actions');
+  return undefined;
+}
+
 /**
  * Runs a task, or the infra CLI with every other first word: the CLI ends the process itself, after a prompt aborted at its
- * top level too.
- * @returns a task's exit code
+ * top level too. The help and a command line the CLI refuses are answered before the CLI's import loads the app's config.
+ * @returns a task's exit code, 0 after the help, 2 for a command line the CLI refuses
  */
 export async function runInfra(words: string[]): Promise<number> {
   const [first = '', ...rest] = words;
   const task = Object.hasOwn(tasks, first) ? tasks[first] : undefined;
   if (task) return runTask(task, rest);
+  const args = parseCliArgs(words);
+  if (args.help) {
+    process.stdout.write(infraHelp());
+    return 0;
+  }
+  const refusal = usageError(args);
+  if (refusal) {
+    console.error(refusal);
+    return 2;
+  }
   const { runInfraCli } = await import('./cli/infra-cli');
   try {
-    await runInfraCli(words);
+    await runInfraCli(args);
   } catch (error) {
     // A rejection at the CLI's top level ends here, and the CLI's uncaught-exception handler never sees it
     const { endIfPromptAbort } = await import('./cli/prompts/abort');

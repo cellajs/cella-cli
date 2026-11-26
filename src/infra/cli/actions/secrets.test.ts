@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { escaped } from '../prompts/menu-select';
+import { escaped } from '../../../utils/menu';
 import type { InfraContext } from '../shared';
 import { importEnvFile } from './env-import';
 import { offerDeploy, secretsMenu } from './secrets';

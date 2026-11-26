@@ -3,7 +3,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
 import { defaultRule, environmentsFile, parseEnvironmentsFile } from '../../lib/deploy/target';
-import { actionLabel } from '../../lib/operator-actions';
 import { runtimeSecrets } from '../../lib/runtime-secrets';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
@@ -13,7 +12,7 @@ import { checkMark, pc } from '../../lib/utils/cli-output';
 import { repoRoot } from '../../lib/utils/paths';
 import { installedPulumiVersion } from '../../lib/utils/pulumi-version';
 import { rememberedOperatorKey } from '../session';
-import type { InfraContext } from '../shared';
+import { type InfraContext, pointTo } from '../shared';
 
 const releaseTag = /^\d+\.\d+\.\d+$/;
 
@@ -72,7 +71,7 @@ function firstReleaseRow(facts: ChecklistFacts): ChecklistRow {
 
 function firstAdminDetail(done: boolean | undefined): string {
   if (done) return 'admin email set: request a magic link with it';
-  if (done === false) return `set the admin email in "${actionLabel('env')}"`;
+  if (done === false) return `set the admin email in ${pointTo('env')}`;
   return 'the email the first account signs in with';
 }
 

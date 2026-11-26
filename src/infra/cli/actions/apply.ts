@@ -1,4 +1,4 @@
-import { actionLabel, menuPath } from '../../lib/operator-actions';
+import { actionLabel } from '../../lib/operator-actions';
 import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { discardEngine, type PublishedEngine, publishEngine } from '../../tasks/publish-engine';
@@ -19,7 +19,7 @@ export async function endOnOpenDbEndpoint(context: InfraContext, secretKey: stri
   const open = await openDbEndpoints(context, secretKey);
   if (open.length === 0) return;
   console.error(
-    `${crossMark} Public DB endpoint ${open.join(', ')} is open, and a pulumi up would remove its ACL. Close it with "${menuPath('db-close')}", then run it again.`,
+    `${crossMark} Public DB endpoint ${open.join(', ')} is open, and a pulumi up would remove its ACL. Close it with ${pointTo('db-close')}, then run it again.`,
   );
   endAction(1, { fix: 'db-close' });
 }

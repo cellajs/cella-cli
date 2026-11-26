@@ -1,18 +1,8 @@
 import { stripVTControlCharacters } from 'node:util';
-import { Separator } from '@inquirer/prompts';
+import { Separator } from '@inquirer/core';
 import { describe, expect, it } from 'vitest';
-import {
-  backChoice,
-  disabledReason,
-  type MenuItem,
-  type MenuState,
-  mainMenuItems,
-  pickItems,
-  quitChoice,
-  rowDisabledReason,
-  upNext,
-  visibleRows,
-} from './menu';
+import type { MenuItem } from '../../utils/menu';
+import { backChoice, disabledReason, type MenuState, mainMenuItems, pickItems, quitChoice, rowDisabledReason, upNext, visibleRows } from './menu';
 
 const bootstrapped: MenuState = { stackState: 'bootstrapped', environment: 'staging', dbExposed: false };
 const partial: MenuState = { ...bootstrapped, stackState: 'partial' };
@@ -37,9 +27,9 @@ describe('mainMenuItems', () => {
 
   it('keeps every row on a stack whose setup is unfinished and says why a row cannot run', () => {
     expect(render(mainMenuItems(partial)).filter((line) => line.startsWith('-'))).toEqual([
-      '- Review & apply changes (needs a set-up environment: run "Resume setup")',
-      '- Releases & roll back (needs a set-up environment: run "Resume setup")',
-      '- Open DB access (needs a set-up environment: run "Resume setup")',
+      '- Review & apply changes (needs a set-up environment: run "More → Resume setup")',
+      '- Releases & roll back (needs a set-up environment: run "More → Resume setup")',
+      '- Open DB access (needs a set-up environment: run "More → Resume setup")',
     ]);
   });
 
@@ -133,7 +123,7 @@ describe('disabledReason', () => {
 
 describe('rowDisabledReason', () => {
   it('disables a row only when every action behind it is blocked', () => {
-    expect(rowDisabledReason('apply', partial)).toBe('needs a set-up environment: run "Resume setup"');
+    expect(rowDisabledReason('apply', partial)).toBe('needs a set-up environment: run "More → Resume setup"');
     expect(rowDisabledReason('more', partial)).toBeUndefined();
   });
 });

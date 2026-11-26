@@ -29,17 +29,14 @@ async function readMenuContext(repoRoot: string): Promise<MenuContext> {
 async function main(): Promise<number> {
   const repoRoot = process.cwd();
   const named = parseCommandLine(process.argv);
-  // The menu opens under the logo and the header; a command named on the command line prints the header alone
-  if (!named) {
-    printLogo();
-    printHeader();
-  }
+  // The menu opens under the logo and draws the header with its own lines, which a pick erases
+  if (!named) printLogo();
   const { command, options, machineOutput } = named ?? (await promptForCommand(await readMenuContext(repoRoot)));
 
   if (machineOutput) setJsonMode(true);
   // A gate prints its verdict alone: CI logs and agents read it. A command that hands over prints all its output itself
   const quiet = command.group === 'gate' || command.handsOver === true;
-  if (named && !quiet) printHeader();
+  if (!quiet) printHeader();
 
   if (!command.outsideGit && !existsSync(join(repoRoot, '.git'))) {
     throw new Error(`not a git repository: ${repoRoot}`);
@@ -59,6 +56,13 @@ main().then(
     // Commander printed its own message: help and the version exit 0, a usage error 2
     if (error instanceof CommanderError) {
       process.exitCode = error.exitCode === 0 ? 0 : 2;
+      return;
+    }
+    // Inquirer rejects a question a person left with ctrl-c, and one it could not ask without a terminal, with the same error
+    if (error instanceof Error && error.name === 'ExitPromptError') {
+      if (process.stdin.isTTY) console.info(pc.dim('Cancelled.'));
+      else console.error(`${pc.red('✗')} A question needed an answer and this run has no terminal to ask on.`);
+      process.exitCode = process.stdin.isTTY ? 0 : 1;
       return;
     }
     console.error();

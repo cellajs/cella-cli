@@ -44,12 +44,16 @@ without a checkout. The upstream commands, `style` and `i18n unused` read
 | Gate | `style` | The style check: terminology, docs, comments and frontend code |
 
 The menu leaves out `testbed`, which `pnpm testbed` runs, and `style`, which scripts and CI run. It shows `adopt` only
-when `cella.config.ts` lists `forks`, and `infra` only when the app has an `infra` workspace.
+when `cella.config.ts` lists `forks`, and `infra` only when the app has an `infra` workspace. Esc or `Quit` leaves it,
+and a command with several jobs asks which one, with `← Back` to the commands.
 
-`pnpm cella infra` hands every word after `infra` to the deploy engine as typed, `--help` included, and prints nothing
-of its own. A first word that names a task (`main-job`, `deploy`, `description-hash` and the others the app's `infra`
-scripts list) runs that task; any other runs the infra CLI. Ctrl-C reaches the engine, which ends its own work and
-then the process.
+`pnpm cella infra` hands every word after `infra` to the deploy engine. A first word that names a task (`main-job`,
+`deploy`, `description-hash` and the others the app's `infra` scripts list) runs that task. Any other runs the infra
+CLI: an action, or its menu when none is named, which needs a terminal.
+
+`pnpm cella infra help` lists the actions and the flags. A flag or a word the infra CLI does not know ends the run
+with exit 2 before anything is read, and `--mode=staging` reads as `--mode staging`. Ctrl-C reaches the engine, which
+ends its own work and then the process.
 
 ## Compatibility
 
@@ -65,10 +69,14 @@ Across 1.x releases these stay as they are, and a change to one waits for 2.0:
   `refs/cella/last-upgrade`
 
 Every command exits 0 when its run is done or a plain rerun advances it, 1 when a check failed or a person must act
-before it can go on, and 2 on a usage or runtime error. A run stopped by ctrl-c exits 130, and one stopped by SIGTERM
-143, after its cleanup ran. One exception: in `cella infra`, the deploy's `main-job` task exits 2 when the deploy is
-blocked and waits for a person, on a missing runtime value or an apply it owes. The engine reads that code back from
-the job's run history as blocked.
+before it can go on, and 2 on a usage or runtime error.
+
+A run stopped by ctrl-c exits 130, and one stopped by SIGTERM 143, after its cleanup ran. A question or a menu left
+with ctrl-c says `Cancelled.` and exits 0.
+
+One exception: in `cella infra`, the deploy's `main-job` task exits 2 when the deploy is blocked and waits for a
+person, on a missing runtime value or an apply it owes. The engine reads that code back from the job's run history as
+blocked.
 
 Until 1.0 two older shapes still load, each with a warning that says what to move: a `cella.config.ts` in the 0.7 shape,
 with `settings` and `overrides` blocks, and the style exceptions in `shared/config/vocabulary-allowlist.ts`.

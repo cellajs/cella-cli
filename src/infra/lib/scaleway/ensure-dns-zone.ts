@@ -1,4 +1,4 @@
-import { confirm } from '@inquirer/prompts';
+import { confirm } from '../../../utils/prompts';
 import { checkMark, pc, tildeMark, warningMark } from '../utils/cli-output';
 
 const base = 'https://api.scaleway.com/domain/v2beta1';

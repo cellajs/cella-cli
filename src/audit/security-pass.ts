@@ -2,11 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, relative } from 'node:path';
-import { confirm, select } from '@inquirer/prompts';
+import select from '@inquirer/select';
 import semver from 'semver';
 import pc from '../utils/colors';
 import { checkMark, createSpinner, divider, plural, spinnerText, warningMark } from '../utils/display';
 import { fetchPublishTimes, runPnpm, runPnpmAudit, runPnpmJson } from '../utils/pnpm';
+import { confirm } from '../utils/prompts';
 import { type AuditSettings, readAuditSettings, readPatchFiles, writeAuditSettings } from '../utils/workspace-yaml';
 import { formatDependents, installedVerdict, middleTruncate, printAdvisoryRows } from './format';
 import {
@@ -162,6 +163,7 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
           { name: 'wait and re-run later', value: 'open' },
           { name: 'install now, with an exclude that a later audit removes', value: 'override' },
         ],
+        theme: { style: { keysHelpTip: () => '' } },
       });
       decisions.push({ item, action, exclude: action === 'override' ? `${item.module}@${remedy.target}` : undefined });
     } else {
@@ -175,6 +177,7 @@ async function decide(items: SecurityItem[], releaseAgeHours: number): Promise<D
           { name: 'apply the override', value: 'override' },
           { name: 'ignore the advisory', value: 'ignore' },
         ],
+        theme: { style: { keysHelpTip: () => '' } },
       });
       decisions.push({ item, action });
     }

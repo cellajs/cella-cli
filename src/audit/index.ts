@@ -5,6 +5,7 @@ export const auditCommand: Command<'report' | 'fix', 'report' | 'fix'> = {
   name: 'audit',
   group: 'security',
   description: 'outdated packages and runtime pins, and the security overrides a fresh audit asks for; fix updates them',
+  summary: 'outdated packages, runtime pins and security overrides',
   // Outside a repository `git ls-files` finds no Dockerfile, and only the image pins go unread
   outsideGit: true,
   jobs: [

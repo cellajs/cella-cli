@@ -28,7 +28,8 @@ const world = vi.hoisted(() => ({
 }));
 
 const prompts = vi.hoisted(() => ({ confirm: vi.fn(), select: vi.fn() }));
-vi.mock('@inquirer/prompts', () => prompts);
+vi.mock('../utils/prompts', () => ({ confirm: prompts.confirm }));
+vi.mock('@inquirer/select', () => ({ default: prompts.select }));
 
 vi.mock('node:child_process', async (importOriginal) => ({
   ...(await importOriginal<typeof import('node:child_process')>()),

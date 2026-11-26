@@ -13,7 +13,7 @@ import { errorMessage } from '../lib/utils/errors';
 import { infraDir } from '../lib/utils/paths';
 import { isPromptAbort } from './prompts/abort';
 import { confirm, input, PromptBack } from './prompts/back';
-import { inMenuSession } from './session';
+import { inMenuSession, runEnvironment } from './session';
 
 /** Stack information and state, passed to every CLI action handler. */
 export interface InfraContext extends StackContext {
@@ -210,9 +210,7 @@ export async function acquireStackLockOrEnd(opts: {
     console.error(
       `${crossMark} ${pc.cyan(owner)} still holds the lease of ${opts.stack} (${operation}, since ${utcTime(acquiredAt)}). ${opts.refusal ?? 'Nothing was changed.'}`,
     );
-    console.error(
-      pc.dim(`  A run that died lets go within minutes. "${menuPath('unlock')}" clears one that did not, or remove s3://${bucket}/${key}.`),
-    );
+    console.error(pc.dim(`  A run that died lets go within minutes. ${pointTo('unlock')} clears one that did not, or remove s3://${bucket}/${key}.`));
     endAction(1, { fix: 'unlock', retry: 'Wait 5 more minutes' });
   }
   const uninstall = installSignalRelease(result.lease, { log: (msg) => console.warn(`${warningMark} ${msg}`) });
@@ -230,7 +228,12 @@ export async function acquireStackLockOrEnd(opts: {
   return handle;
 }
 
-/** Where a message sends the operator for an action: its menu name in a menu session, the command a single-action run types. */
-export function pointTo(id: OperatorActionId): string {
-  return inMenuSession() ? `"${menuPath(id)}"` : `\`${actionCommand(id)}\``;
+/**
+ * Where a message sends the operator for an action: its menu name when the menu shows (a menu session), the command a single-action run
+ * types. The command names this run's environment: typed without `--mode`, it would run on the one stack file an app may have.
+ */
+export function pointTo(id: OperatorActionId, menu = inMenuSession()): string {
+  if (menu) return `"${menuPath(id)}"`;
+  const environment = runEnvironment();
+  return `\`${actionCommand(id)}${environment ? ` --mode ${environment}` : ''}\``;
 }

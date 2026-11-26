@@ -8,7 +8,7 @@ import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
 import { commitName } from '../../lib/deploy/target';
 import { machineRoles } from '../../lib/machine-roles';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel, menuPath, type OperatorActionId } from '../../lib/operator-actions';
+import type { OperatorActionId } from '../../lib/operator-actions';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { type JobRun, readJobRun, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
@@ -26,7 +26,7 @@ import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-outpu
 import { sleep } from '../../lib/utils/sleep';
 import { Interrupted, untilInterrupt } from '../prompts/abort';
 import { confirm } from '../prompts/back';
-import { asksPerson, type InfraContext, stackNameFor } from '../shared';
+import { asksPerson, type InfraContext, pointTo, stackNameFor } from '../shared';
 
 const pollMs = 5_000;
 const maxTries = 3;
@@ -116,7 +116,7 @@ async function followRun(
 /** Follow a deploy until it ends, or until a Ctrl-C stops the following: the deploy goes on, and the action ends as a Ctrl-C does. */
 async function stoppable<T>(follow: (signal: AbortSignal) => Promise<T>): Promise<T> {
   return untilInterrupt(follow).catch((error: unknown) => {
-    if (error instanceof Interrupted) console.info(`\n${pc.dim(`Stopped following. The deploy goes on: ${actionLabel('logs')} shows it.`)}`);
+    if (error instanceof Interrupted) console.info(`\n${pc.dim(`Stopped following. The deploy goes on: ${pointTo('logs')} shows it.`)}`);
     throw error;
   });
 }
@@ -149,15 +149,15 @@ async function reportEnd(
   if (outcome === 'blocked') {
     if (!verdict) {
       console.warn(
-        `${warningMark} Blocked: "${menuPath('logs')}" names what is owed. A runtime value: "${menuPath('env')}" stores it, or "${menuPath('apply')}" for one it makes. "apply needed": "${menuPath('apply')}" from a checkout at this commit. Either deploys this commit again.`,
+        `${warningMark} Blocked: ${pointTo('logs')} names what is owed. A runtime value: ${pointTo('env')} stores it, or ${pointTo('apply')} for one it makes. "apply needed": ${pointTo('apply')} from a checkout at this commit. Either deploys this commit again.`,
       );
       return undefined;
     }
     console.warn(`${warningMark} ${verdict.sentence}`);
     console.warn(
       record?.outcome === 'apply needed'
-        ? `  "${menuPath('apply')}" from a checkout at this commit applies it and deploys the commit again.`
-        : `  "${menuPath('env')}" stores it and deploys the commit again.`,
+        ? `  ${pointTo('apply')} from a checkout at this commit applies it and deploys the commit again.`
+        : `  ${pointTo('env')} stores it and deploys the commit again.`,
     );
     return undefined;
   }
