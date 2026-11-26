@@ -24,7 +24,7 @@ const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
 /**
  * Runs a task, or the infra CLI with every other first word: the CLI reads its words from `process.argv` and ends the
  * process itself.
- * @returns a task's exit code: 0, or the code an `ExitCodeError` names, else 1
+ * @returns a task's exit code
  */
 export async function runInfra(words: string[]): Promise<number> {
   const [first = '', ...rest] = words;
@@ -35,9 +35,18 @@ export async function runInfra(words: string[]): Promise<number> {
     return 0;
   }
   process.argv = [process.argv[0] ?? 'node', first, ...rest, ...(first === 'compose-check' ? ['--check'] : [])];
+  return runTask(task, rest);
+}
+
+/**
+ * Runs one task to its end. A check that fails without throwing, such as the release check when an apply is owed, sets
+ * the process's exit code: the CLI ends with it.
+ * @returns the exit code the task set, else 0; the code an `ExitCodeError` names, or 1 for another error
+ */
+export async function runTask(task: (words: string[]) => Promise<unknown>, words: string[]): Promise<number> {
   try {
-    await task(rest);
-    return 0;
+    await task(words);
+    return Number(process.exitCode ?? 0);
   } catch (error) {
     console.error(errorMessage(error));
     return error instanceof ExitCodeError ? error.exitCode : 1;
