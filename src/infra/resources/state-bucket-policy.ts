@@ -1,7 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { naming, region } from '../pulumi-context';
-import { observerApplicationId, operatorApplicationId, operatorMemberUserIds } from './identities';
+import { observerApplicationId, operatorPrincipals } from './identities';
 
 /**
  * Deny-by-default policy on the Pulumi state bucket, which tasks/ensure-state-bucket.ts creates with versioning and SSE-ONE encryption.
@@ -16,9 +16,8 @@ export const stateBucketPolicy = new scaleway.object.BucketPolicy(
   {
     bucket: naming.pulumiStateBucket,
     region,
-    policy: pulumi.all([operatorApplicationId, operatorMemberUserIds, observerApplicationId]).apply(([operatorId, userIds, observerId]) => {
-      const operators = [...(operatorId ? [`application_id:${operatorId}`] : []), ...userIds.map((id) => `user_id:${id}`)];
-      return JSON.stringify({
+    policy: pulumi.all([operatorPrincipals, observerApplicationId]).apply(([operators, observerId]) =>
+      JSON.stringify({
         Version: '2023-04-17',
         Statement: [
           ...(operators.length > 0
@@ -44,8 +43,8 @@ export const stateBucketPolicy = new scaleway.object.BucketPolicy(
               ]
             : []),
         ],
-      });
-    }),
+      }),
+    ),
   },
   { retainOnDelete: true },
 );

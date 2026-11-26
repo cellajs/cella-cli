@@ -5,8 +5,9 @@ import { defaultRule, ENVIRONMENTS_FILE, parseEnvironmentsFile } from '../../lib
 import { actionLabel } from '../../lib/operator-actions';
 import { changeMark, checkMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
+import { repoRoot } from '../../lib/utils/paths';
 import { ActionEnded, confirmOrDefault, type InfraContext } from '../shared';
-import { defaultBranch, environmentsTarget, gitFileState, gitOutput, newestReleaseTag, printLaunchChecklist, repoRoot } from './setup-checklist';
+import { defaultBranch, environmentsTarget, gitFileState, gitOutput, newestReleaseTag, printLaunchChecklist } from './setup-checklist';
 import { runStartDeploy } from './start-deploy';
 
 /** Run one git command in the repository, printed dim first; git's output goes to the terminal. */

@@ -1,6 +1,6 @@
-import { lastScheduledRun } from '../../deploy/job-runs';
 import { scheduleEveryMinutes } from '../../deploy/main-job';
 import { actionCommand } from '../../operator-actions';
+import { lastScheduledRun } from '../../scaleway/serverless-jobs';
 import { check, probed } from '../check';
 import type { StatusProvider } from '../types';
 

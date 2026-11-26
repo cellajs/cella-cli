@@ -96,7 +96,13 @@ export function toolDir(repoRoot: string, tool: string, scope: 'checkout' | 'rep
   return join(resolve(repoRoot, gitDir), `cella-${tool}`);
 }
 
-/** The name and version in the app's root `package.json`. */
-export function rootPackage(repoRoot: string): { name: string; version: string } {
+/** The app's root `package.json`: its name and version, and the toolchain and repository the deploy engine builds and fetches with. */
+export function rootPackage(repoRoot: string): {
+  name: string;
+  version: string;
+  packageManager?: string;
+  repository?: string;
+  engines?: { node?: string };
+} {
   return JSON.parse(readFileSync(join(repoRoot, 'package.json'), 'utf8'));
 }

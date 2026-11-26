@@ -22,8 +22,10 @@ import type { InfraDerivations } from '../lib/naming';
 import type { Foundation } from '../lib/scaleway/foundation';
 import { createMachine, deleteMachine, getUserData, listMachines, readMachine, setUserData } from '../lib/scaleway/machines';
 import type { Presigner } from '../lib/scaleway/presign';
-import type { Environment } from '../lib/stack/bootstrap-stack-state';
+import { scwRegistryHost } from '../lib/scaleway/scw-fetch';
+import type { Environment } from '../lib/stack/environment';
 import { errorMessage } from '../lib/utils/errors';
+import { sleep } from '../lib/utils/sleep';
 import type { MachineEnv } from './compose-env';
 import { lbServerStats, waitForPools } from './wait-for-version';
 
@@ -113,7 +115,7 @@ export async function switchRole(plan: { role: MachineRole; live?: LiveRole; tar
     await retire(role, { id: live.machine, slot: live.slot }, fx);
     await fx.record(name, undefined);
   }
-  fx.log(`[switch ${name}] booting ${target.commit.slice(0, 10)} on slot ${slot}`);
+  fx.log(`[switch ${name}] booting ${target.sha.slice(0, 10)} on slot ${slot}`);
   const machine = await fx.boot(role, slot);
   const outcome = await fx.serving(role, slot);
   if (outcome !== 'serving') {
@@ -128,8 +130,8 @@ export async function switchRole(plan: { role: MachineRole; live?: LiveRole; tar
     await fx.remove(machine).catch((error: unknown) => fx.log(`[switch ${name}] ${machine} could not be deleted: ${errorMessage(error)}`));
     throw new Error(`${name}: ${how} on slot ${slot}; the new machine is deleted${live ? ` and slot ${live.slot} keeps serving` : ''}`);
   }
-  await fx.record(name, { slot, machine, commit: target.commit, retry: target.retry, rotation: target.rotation });
-  fx.log(`[switch ${name}] slot ${slot} serves ${target.commit.slice(0, 10)}`);
+  await fx.record(name, { slot, machine, commit: target.sha, retry: target.retry, rotation: target.rotation });
+  fx.log(`[switch ${name}] slot ${slot} serves ${target.sha.slice(0, 10)}`);
   if (live && !stopFirst) await retire(role, { id: live.machine, slot: live.slot }, fx);
   return { role: name, slot, machine };
 }
@@ -241,7 +243,7 @@ export async function listRoleMachines(
 export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
   const auth = { secretKey: ctx.secretKey };
   const stats = lbServerStats(auth, ctx.zone, ctx.foundation.lbId);
-  const registry = `rg.${ctx.supplierContext.region}.scw.cloud/${ctx.naming.registryNamespace}`;
+  const registry = `${scwRegistryHost(ctx.supplierContext.region)}/${ctx.naming.registryNamespace}`;
   const envOf = (role: string) => {
     const env = ctx.envs.find((entry) => entry.service === role);
     if (!env) throw new Error(`switch: the compose step wrote no env file for ${role}`);
@@ -328,7 +330,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
       while (Date.now() < deadline) {
         const body = await ctx.readAccount(envOf(role.role).bootAccount).catch(() => undefined);
         if (body !== undefined) return accountFailed(body) ? 'failed' : 'serving';
-        await new Promise((done) => setTimeout(done, 5_000));
+        await sleep(5_000);
       }
       return 'timeout';
     },
@@ -357,7 +359,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
     },
     remove: (machine) => deleteMachine(auth, ctx.zone, machine),
     record: ctx.record,
-    sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+    sleep,
     log: ctx.log,
   };
 }

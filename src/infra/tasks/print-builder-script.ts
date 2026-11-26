@@ -1,7 +1,6 @@
-import { readFile } from 'node:fs/promises';
-import { join } from 'node:path';
+import { rootPackage } from '../../utils/app';
 import { agentBundleScript, frontendScript } from '../lib/builder/builder-machine';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 
 /**
  * Print one of the builder's scripts as a deploy would hand it to the builder machine, for a run outside a deploy: CI's frontend-build job
@@ -16,8 +15,7 @@ export async function main(words: string[]): Promise<number> {
     console.error('Usage: builder-script <frontend|agent>');
     return 1;
   }
-  const rootPackage = JSON.parse(await readFile(join(infraDir, '..', 'package.json'), 'utf8')) as { packageManager?: string };
-  const pnpmVersion = rootPackage.packageManager?.match(/^pnpm@(.+)$/)?.[1];
+  const pnpmVersion = rootPackage(repoRoot).packageManager?.match(/^pnpm@(.+)$/)?.[1];
   if (!pnpmVersion) throw new Error("the builder installs the pnpm the root package.json's 'packageManager' names");
   process.stdout.write(script(pnpmVersion));
   return 0;

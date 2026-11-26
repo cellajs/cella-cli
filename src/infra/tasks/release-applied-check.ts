@@ -1,7 +1,8 @@
 import { spawnSync } from 'node:child_process';
 import { appendFileSync, existsSync } from 'node:fs';
 import { appliedDescriptionVariable, followsReleases } from '../lib/deploy/release-gate';
-import { environments, stackFilePath } from '../lib/stack/project-per-mode';
+import { environments } from '../lib/stack/environment';
+import { stackFilePath } from '../lib/stack/project-per-mode';
 import { isRecord } from '../lib/utils/guards';
 import { infraDir } from '../lib/utils/paths';
 

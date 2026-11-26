@@ -2,7 +2,7 @@ import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { ENVIRONMENTS_FILE, parseEnvironmentsFile } from '../../deploy/target';
 import { errorMessage } from '../../utils/errors';
-import { infraDir } from '../../utils/paths';
+import { infraDir, repoRoot } from '../../utils/paths';
 import { check } from '../check';
 import type { StatusProvider } from '../types';
 
@@ -16,7 +16,7 @@ export type EnvironmentsFacts = { text: string; stacks: string[] };
 export const environmentsProvider: StatusProvider<EnvironmentsFacts> = {
   domain: 'environments',
   async gather() {
-    const file = join(infraDir, '..', ENVIRONMENTS_FILE);
+    const file = join(repoRoot, ENVIRONMENTS_FILE);
     const stacks = readdirSync(infraDir).flatMap((name) => /^Pulumi\.([a-z][a-z0-9-]*)\.yaml$/.exec(name)?.[1] ?? []);
     return { text: existsSync(file) ? readFileSync(file, 'utf8') : '', stacks };
   },

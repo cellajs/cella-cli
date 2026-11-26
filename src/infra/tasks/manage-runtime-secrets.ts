@@ -2,7 +2,7 @@ import type { RuntimeSecretDefinition } from '../lib/runtime-secrets';
 import type { createSecretManagerClient, SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { crossMark, pc } from '../lib/utils/cli-output';
-import { isEnvFileDeliverable } from '../lib/utils/env-file';
+import { isEnvFileDeliverable } from '../lib/utils/compose-env-value';
 
 export type SecretManagerClient = ReturnType<typeof createSecretManagerClient>;
 

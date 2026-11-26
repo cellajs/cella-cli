@@ -1,7 +1,8 @@
 import { createHash } from 'node:crypto';
-import { mkdir, mkdtemp, readFile, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { rootPackage } from '../../utils/app';
 import {
   agentBundleScript,
   BUILDER_ARCHIVE_DIR,
@@ -28,10 +29,10 @@ import { createMachine, removeMachines } from '../lib/scaleway/machines';
 import { bucketPresigner } from '../lib/scaleway/presign';
 import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { scwErrorStatus, scwFetch } from '../lib/scaleway/scw-fetch';
+import { scwErrorStatus, scwFetch, scwRegistryHost } from '../lib/scaleway/scw-fetch';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
 import { type BuildImageRow, bakeDefinition } from './build-images';
 import { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
@@ -360,14 +361,11 @@ export async function main(step: BuildReleaseStep): Promise<void> {
   process.env.APP_MODE = mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   const { naming, region, zones } = deriveInfra(appConfig);
-  const rootPackage = JSON.parse(await readFile(join(infraDir, '..', 'package.json'), 'utf8')) as {
-    packageManager?: string;
-    engines?: { node?: string };
-  };
+  const pkg = rootPackage(repoRoot);
   const repository = repositoryUrl();
-  const pnpmVersion = rootPackage.packageManager?.match(/^pnpm@(.+)$/)?.[1];
+  const pnpmVersion = pkg.packageManager?.match(/^pnpm@(.+)$/)?.[1];
   if (!pnpmVersion) throw new Error("the builder installs the pnpm the root package.json's 'packageManager' names");
-  const nodeVersion = rootPackage.engines?.node;
+  const nodeVersion = pkg.engines?.node;
   if (!nodeVersion) throw new Error("the builder builds on the Node the root package.json's 'engines.node' names");
 
   const rows = step.buildImages;
@@ -397,7 +395,7 @@ export async function main(step: BuildReleaseStep): Promise<void> {
           links,
           frontendEnv: frontendBucket ? frontendBuildEnv(mode, step.services, sha) : {},
           bake: bakeDefinition(rows, {
-            registry: `rg.${region}.scw.cloud`,
+            registry: scwRegistryHost(region),
             namespace: naming.registryNamespace,
             releaseSha: sha,
             nodeVersion,

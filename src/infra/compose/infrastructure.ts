@@ -221,15 +221,21 @@ export function assembleCompose(appServices: AppServices, options: { processIden
   return { services };
 }
 
+/** The singleVM host: the `primaryRollout` service and its block; undefined when no service has both. */
+function singleVmHost(appServices: AppServices, blocks: Record<string, ComposeService>): { hostSlug: string; hostBlock: ComposeService } | undefined {
+  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
+  const hostBlock = hostSlug === undefined ? undefined : blocks[hostSlug];
+  return hostSlug && hostBlock ? { hostSlug, hostBlock } : undefined;
+}
+
 /**
  * Fold co-hosted service environments into the singleVM host block, which supplies their placeholders because worker blocks do not start.
  * Equal collisions are accepted, conflicting values fail synthesis, and process-identity keys are skipped (folded workers boot under the host's identity).
  */
 function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, ComposeService>, processIdentityEnv: ReadonlySet<string>): void {
-  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
-  if (!hostSlug) return;
-  const hostBlock = blocks[hostSlug];
-  if (!hostBlock) return;
+  const host = singleVmHost(appServices, blocks);
+  if (!host) return;
+  const { hostSlug, hostBlock } = host;
   const merged: Record<string, string> = { ...(hostBlock.environment ?? {}) };
   for (const [slug, cfg] of Object.entries(appServices)) {
     if (!cfg.coHosted || !cfg.env) continue;
@@ -252,9 +258,7 @@ function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, Com
  * Split mode keeps them in the shared Compose output, where nothing binds them and network policy keeps them unreachable.
  */
 function publishCoHostedPorts(appServices: AppServices, blocks: Record<string, ComposeService>): void {
-  const hostSlug = Object.entries(appServices).find(([, cfg]) => cfg.primaryRollout)?.[0];
-  if (!hostSlug) return;
-  const hostBlock = blocks[hostSlug];
+  const hostBlock = singleVmHost(appServices, blocks)?.hostBlock;
   if (!hostBlock) return;
   const coHostedPorts = Object.values(appServices)
     .filter((cfg) => cfg.coHosted)

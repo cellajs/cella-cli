@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isEnvFileDeliverable } from './env-file';
+import { isEnvFileDeliverable } from './compose-env-value';
 
 describe('isEnvFileDeliverable', () => {
   it('accepts a single-line value', () => {

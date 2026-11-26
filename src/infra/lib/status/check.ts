@@ -3,19 +3,19 @@ import { actionCommand, menuPath } from '../operator-actions';
 import type { Check, CheckStatus, KeyTier, NextAction } from './types';
 
 /** The local setup/manage entrypoint. */
-export const runSetup: NextAction = {
+export const setupAction: NextAction = {
   description: 'Run the infra CLI (setup on a fresh stack, operator menu otherwise)',
   command: 'pnpm cella infra',
 };
-export const manageSecrets: NextAction = {
+export const secretsAction: NextAction = {
   description: `Set the missing runtime secret(s) via "${menuPath('env')}"`,
   command: actionCommand('env'),
 };
-export const unlock: NextAction = {
+export const unlockAction: NextAction = {
   description: `Clear the stale lease via "${menuPath('unlock')}" (only when no run is in progress)`,
   command: actionCommand('unlock'),
 };
-export const manageDbEndpoint: NextAction = {
+export const dbCloseAction: NextAction = {
   description: `Close the public DB endpoint via "${menuPath('db-close')}"`,
   command: actionCommand('db-close'),
 };

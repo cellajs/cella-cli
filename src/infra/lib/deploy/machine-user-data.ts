@@ -1,4 +1,4 @@
-import type { Manifest } from '../../agent/src/manifest';
+import { type Manifest, METADATA_HOST } from '../../agent/src/manifest';
 import { type AgentPort, type BootPlan, type ReleaseArchive, supportedImageContract, supportedSchemaVersion } from '../../agent/src/plan';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
 
@@ -56,9 +56,6 @@ const machinePaths = (slug: string) => {
  * mounted read-only at the same path, into every boot account.
  */
 const bootLogPath = '/var/log/infra-boot.log';
-
-/** The metadata service, which hands a root process on the machine its user data: the links, until the deploy strips them, and the manifest. */
-const metadataAddress = '169.254.42.42';
 
 // -E (ERE) so `|` alternates: in a BRE the unescaped `|` is literal and the scrub matches nothing.
 const scrubPattern = 'SECRET|PASSWORD|API_KEY|DATABASE_URL|X-Amz-Signature';
@@ -122,12 +119,13 @@ const agentEnvContent = (p: MachineUserDataParams): string =>
  * Load the agent from its archive when the daemon lacks it, refusing an archive whose sha256 differs, then start it as the `infra-agent`
  * Compose service, attached so its output reaches the boot log and the serial console. Compose runs from the agent's own image, which
  * carries the CLI the machine's image may lack. The unit runs it at every boot, so the rule that keeps app containers off the metadata
- * service is set here, before any container starts, in DOCKER-USER, the one chain Docker consults before its own rules; the agent is on
- * the host network, which the rule leaves alone. A rule that cannot be set ends the boot.
+ * service, which hands a root process the user data (the links, until the deploy strips them, and the manifest), is set here, before any
+ * container starts, in DOCKER-USER, the one chain Docker consults before its own rules; the agent is on the host network, which the rule
+ * leaves alone. A rule that cannot be set ends the boot.
  */
 const launcher = `#!/bin/bash
 set -uo pipefail
-iptables -C DOCKER-USER -d ${metadataAddress} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${metadataAddress} -j DROP || exit 1
+iptables -C DOCKER-USER -d ${METADATA_HOST} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${METADATA_HOST} -j DROP || exit 1
 if ! docker image inspect "$AGENT_IMAGE" >/dev/null 2>&1; then
   mkdir -p /opt/app/images
   curl -fsS --max-time 240 --retry 5 --retry-all-errors -o /opt/app/images/agent.tar "$AGENT_ARCHIVE_URL" || { echo "the agent archive could not be fetched"; exit 1; }

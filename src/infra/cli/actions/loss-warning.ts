@@ -1,5 +1,5 @@
 import { actionLabel, type OperatorActionId } from '../../lib/operator-actions';
-import type { Environment } from '../../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../../lib/stack/environment';
 import { crossMark, pc } from '../../lib/utils/cli-output';
 import { environmentName } from '../header';
 

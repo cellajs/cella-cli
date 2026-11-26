@@ -1,10 +1,9 @@
 import { existsSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import type { EngineConfig } from '../engine-config';
 import { loadModeEnvFile, loadObserverKey, ownProjectId, sharedFileProjectId } from '../utils/env-files';
-import { infraDir } from '../utils/paths';
-import { detectStackState, type Environment, type StackState } from './bootstrap-stack-state';
-import { environments, type ProjectIdSource, resolveModeProject, stackFileProjectId } from './project-per-mode';
+import { detectStackState, type StackState } from './bootstrap-stack-state';
+import { type Environment, environments } from './environment';
+import { type ProjectIdSource, resolveModeProject, stackFilePath, stackFileProjectId } from './project-per-mode';
 
 /** What an operator entry (the CLI menu, the standalone status task) knows about the target stack once its env file and config are loaded. */
 export interface StackContext {
@@ -28,9 +27,9 @@ export interface StackContext {
  */
 export async function loadStackContext(environment: Environment, log?: (message: string) => void): Promise<StackContext> {
   const envWarnings = loadModeEnvFile(environment, log);
-  const stackPath = resolve(infraDir, `Pulumi.${environment}.yaml`);
+  const stackPath = stackFilePath(environment);
   const stackYaml = existsSync(stackPath) ? readFileSync(stackPath, 'utf8') : undefined;
-  const state = detectStackState({ yamlText: stackYaml });
+  const state = detectStackState(stackYaml);
   process.env.APP_MODE = environment;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   if (appConfig.mode !== environment) throw new Error(`Mode mismatch: requested "${environment}" but loaded config is "${appConfig.mode}"`);

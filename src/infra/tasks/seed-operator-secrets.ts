@@ -1,7 +1,7 @@
 import { operatorManagedRuntimeSecrets } from '../lib/runtime-secrets';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
-import { isEnvFileDeliverable } from '../lib/utils/env-file';
+import { isEnvFileDeliverable } from '../lib/utils/compose-env-value';
 
 export interface SeedOperatorSecretsOptions {
   secretKey: string;

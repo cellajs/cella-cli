@@ -4,7 +4,7 @@ import type { ReplacementStrategy } from '../compose/types';
 import type { EngineConfig } from './engine-config';
 import type { PerMode } from './general-config';
 import { carriedServices, deployedServices, type ServiceDefinition, services } from './services';
-import type { Environment } from './stack/bootstrap-stack-state';
+import type { Environment } from './stack/environment';
 
 /** One of a role's two reserved addresses. A deploy boots the new machine on the slot that does not serve. */
 export type Slot = 'a' | 'b';

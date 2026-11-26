@@ -1,9 +1,9 @@
 import { commitRefs } from '../lib/deploy/git-remote';
-import type { JobRun } from '../lib/deploy/job-runs';
 import type { LiveRecord } from '../lib/deploy/live-record';
 import { commitName, type RemoteRef } from '../lib/deploy/target';
 import { isOperatorActionId, menuPath } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
+import type { JobRun } from '../lib/scaleway/serverless-jobs';
 import { rowText } from '../lib/status/check';
 import type { Check, CheckStatus, StatusReport } from '../lib/status/types';
 import { pc, warningMark } from '../lib/utils/cli-output';

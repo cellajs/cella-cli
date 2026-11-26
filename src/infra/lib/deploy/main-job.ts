@@ -1,9 +1,9 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
 import { generalConfig } from 'infra/config/general.config';
+import { rootPackage } from '../../../utils/app';
 import { resolvePerMode } from '../general-config';
 import { ENGINE_FOLDER } from '../scaleway/secret-paths';
-import { infraDir } from '../utils/paths';
+import { isEnvironment } from '../stack/environment';
+import { repoRoot } from '../utils/paths';
 
 /** The deploy key's copy the main job's definition references: `{ accessKey, secretKey }`, written when the key is made or replaced. */
 const DEPLOY_KEY_SECRET_NAME = 'deploy-key';
@@ -35,8 +35,8 @@ export function mainJobOutcome(run: { state: string; exit_code?: number | null }
 }
 
 /** The root `package.json`'s `engines.node`: the Node every run of the engine starts on. */
-export function rootNodeVersion(root = join(infraDir, '..')): string {
-  return (JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { engines: { node: string } }).engines.node;
+export function rootNodeVersion(root = repoRoot): string {
+  return (rootPackage(root) as { engines: { node: string } }).engines.node;
 }
 
 /**
@@ -69,7 +69,7 @@ export interface MainJobSchedule {
  * @throws for a mode that is no environment, which has no main job
  */
 export function scheduleEveryMinutes(mode: string): number {
-  if (mode !== 'production' && mode !== 'staging') throw new Error(`'${mode}' is no environment with a main job`);
+  if (!isEnvironment(mode)) throw new Error(`'${mode}' is no environment with a main job`);
   return resolvePerMode(generalConfig.schedule.everyMinutes, mode);
 }
 

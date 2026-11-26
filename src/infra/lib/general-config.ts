@@ -1,4 +1,4 @@
-import type { Environment } from './stack/bootstrap-stack-state';
+import type { Environment } from './stack/environment';
 
 /** A value fixed for all deploy modes, or varying per mode (e.g. a larger DB in prod only). */
 export type PerMode<T> = T | Partial<Record<Environment, T>>;

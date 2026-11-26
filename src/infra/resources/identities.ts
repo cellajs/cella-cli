@@ -18,7 +18,7 @@ const names = allPrincipalNames(appConfig, mode);
  * must not demote a required principal or drop the people's statements. The provider says "no element found with the name <name>"
  * (measured on staging).
  */
-export function isAbsentApplication(error: unknown): boolean {
+export function isAbsentPrincipal(error: unknown): boolean {
   const message = errorMessage(error);
   return /not.?found|no element found|404|does not exist/i.test(message);
 }
@@ -30,7 +30,7 @@ function findApplicationId(name: string): pulumi.Output<string | undefined> {
       .getApplication({ name, organizationId })
       .then((app) => app.applicationId || undefined)
       .catch((error: unknown) => {
-        if (isAbsentApplication(error)) return undefined;
+        if (isAbsentPrincipal(error)) return undefined;
         throw error;
       }),
   );
@@ -63,7 +63,7 @@ function requirePrincipalId(
  * Operator application id: the app's privileged human principal, one per app. Optional: until `operators` creates it, its bucket-policy
  * statements are dropped with a warning.
  */
-export const operatorApplicationId: pulumi.Output<string | undefined> = findApplicationId(names.operator).apply((id) => {
+const operatorApplicationId: pulumi.Output<string | undefined> = findApplicationId(names.operator).apply((id) => {
   if (id) return id;
   pulumi.log.warn(
     `Operator IAM application '${names.operator}' not found: its bucket-policy statements are dropped this update. \`${actionCommand('operators')}\` creates it.`,
@@ -75,18 +75,23 @@ export const operatorApplicationId: pulumi.Output<string | undefined> = findAppl
  * The operators group's members, by user id, as IAM lists them at apply time: the people whose own one-day keys the bucket policies admit
  * beside the operator application. Empty, with a warning, until `operators` makes the group.
  */
-export const operatorMemberUserIds: pulumi.Output<string[]> = pulumi.output(
+const operatorMemberUserIds: pulumi.Output<string[]> = pulumi.output(
   scaleway.iam
     .getGroup({ name: names.operators, organizationId })
     .then((group) => group.userIds)
     .catch((error: unknown) => {
-      if (!isAbsentApplication(error)) throw error;
+      if (!isAbsentPrincipal(error)) throw error;
       pulumi.log.warn(
         `Operators IAM group '${names.operators}' not found: only '${names.operator}' is admitted to the buckets this update. \`${actionCommand('operators')}\` creates it.`,
       );
       return [];
     }),
 );
+
+/** The people who apply, as a bucket policy names them: the operator application and each member of the operators group; empty when neither exists. */
+export const operatorPrincipals: pulumi.Output<string[]> = pulumi
+  .all([operatorApplicationId, operatorMemberUserIds])
+  .apply(([operatorId, userIds]) => [...(operatorId ? [`application_id:${operatorId}`] : []), ...userIds.map((id) => `user_id:${id}`)]);
 
 /** CI deploy application id: the principal CI authenticates as. Required. */
 export const ciDeployApplicationId = requirePrincipalId(findApplicationId(names.ciDeploy), `CI deploy ('${names.ciDeploy}')`);

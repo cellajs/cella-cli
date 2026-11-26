@@ -1,9 +1,9 @@
 import type { Slot } from '../machine-roles';
+import { isPreconditionFailed } from '../scaleway/s3-client';
 import {
   type ConditionalWrite,
   conditionOn,
   controlPrefix,
-  isPreconditionFailed,
   putJsonObject,
   type Rotations,
   readObjectText,
@@ -11,7 +11,7 @@ import {
   storedBeforeKeyRotation,
 } from '../stack/control-store';
 import { errorMessage } from '../utils/errors';
-import { isRecord } from '../utils/guards';
+import { isRecord, parseJson } from '../utils/guards';
 import { sleep as defaultSleep } from '../utils/sleep';
 
 /**
@@ -54,12 +54,7 @@ function parseRole(role: string, value: unknown): LiveRole {
 
 /** Parse the live record. A malformed one fails the deploy loudly: it decides which slot a new machine takes. */
 export function parseLiveRecord(text: string): LiveRecord {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`live record: not valid JSON (${errorMessage(err)})`);
-  }
+  const raw = parseJson(text, 'live record');
   if (!isRecord(raw) || raw.schemaVersion !== 1) throw new Error('live record: unsupported schemaVersion (expected 1)');
   if (!isRecord(raw.roles)) throw new Error('live record: roles must be an object');
   const record: LiveRecord = {
@@ -160,14 +155,14 @@ export async function recordRole(
 
 /** What a deploy of a commit is: the target, the retry counter of its environments line, and the rotation counter of the environment. */
 export interface DeployTarget {
-  commit: string;
+  sha: string;
   retry: number;
   rotation: number;
 }
 
 /** Whether a role already serves the target: the same commit, booted under the same retry counter and rotation. */
 function servesTarget(entry: LiveRole | undefined, target: DeployTarget): boolean {
-  return entry !== undefined && entry.commit === target.commit && entry.retry === target.retry && entry.rotation === target.rotation;
+  return entry !== undefined && entry.commit === target.sha && entry.retry === target.retry && entry.rotation === target.rotation;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { type ScwAuth, scwFetch } from '../scaleway/scw-fetch';
+import { type ScwAuth, scwFetch } from './scw-fetch';
 
 /** How a definition or a run names what it executes: the startup command and its arguments, and the single command Scaleway deprecates. */
 interface CommandFields {
@@ -106,8 +106,8 @@ export async function readJobDefinitionSecrets(auth: ScwAuth, opts: { region: st
 
 /**
  * The newest runs of a definition, newest first: one page of 100, as a schedule fills the 60 days Scaleway keeps. Each run's
- * `environment_variables` holds the definition's values and its start call's, so a run started by hand names its target, and a scheduled
- * run sets none.
+ * `environment_variables` holds the definition's values and its start call's: a run started by hand names its target there, and a
+ * scheduled run sets none.
  */
 export async function listJobRuns(auth: ScwAuth, opts: { region: string; projectId: string; definitionId: string }): Promise<JobRun[]> {
   const { job_runs = [] } = await scwFetch<{ job_runs?: JobRun[] }>(

@@ -9,14 +9,7 @@ import { appStorageNeeds, services } from '../lib/services';
 import { CONTROL_PREFIX, lockKey, rotationsKey } from '../lib/stack/control-store';
 import { deployMode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';
 import { DUMPS_PREFIX } from '../tasks/final-dump';
-import {
-  ciDeployApplicationId,
-  observerApplicationId,
-  operatorApplicationId,
-  operatorMemberUserIds,
-  transloaditApplicationId,
-  uploadsApplicationId,
-} from './identities';
+import { ciDeployApplicationId, observerApplicationId, operatorPrincipals, transloaditApplicationId, uploadsApplicationId } from './identities';
 
 // The app's buckets follow the service registry: the SPA bucket needs a default-route service, the upload buckets need an s3Access service, and browser CORS exists only when both do. The boot-diag bucket below is unconditional.
 const needs = appStorageNeeds(services);
@@ -32,9 +25,8 @@ const uploadCorsRules = browserOrigin
  * same policy: a member joins the policies at the next apply, and an application that does not exist drops the statement.
  */
 const humanAccess = (bucketName: pulumi.Input<string>) =>
-  pulumi.all([operatorApplicationId, operatorMemberUserIds]).apply(([operatorId, userIds]) => {
-    const principals = [...(operatorId ? [`application_id:${operatorId}`] : []), ...userIds.map((id) => `user_id:${id}`)];
-    return principals.length > 0
+  operatorPrincipals.apply((principals) =>
+    principals.length > 0
       ? [
           {
             Sid: 'OperatorAccess',
@@ -44,8 +36,8 @@ const humanAccess = (bucketName: pulumi.Input<string>) =>
             Resource: [bucketName, pulumi.interpolate`${bucketName}/*`],
           },
         ]
-      : [];
-  });
+      : [],
+  );
 
 /**
  * The deploy key's access on a bucket policy: objects only, under the prefixes and at the keys given, the whole bucket by default (the frontend's).

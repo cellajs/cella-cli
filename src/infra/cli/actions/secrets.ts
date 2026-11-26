@@ -8,7 +8,7 @@ import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
 import { controlActor, makeControlClient, recordRotation } from '../../lib/stack/control-store';
 import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
-import { isEnvFileDeliverable } from '../../lib/utils/env-file';
+import { isEnvFileDeliverable } from '../../lib/utils/compose-env-value';
 import { errorMessage } from '../../lib/utils/errors';
 import {
   formatSecretsTable,

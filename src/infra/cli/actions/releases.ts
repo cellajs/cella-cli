@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { join } from 'node:path';
 import { appDescription } from '../../lib/deploy/app-description';
 import { APPLY_NEEDED, type AppliedEngine, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
 import { describeChanges } from '../../lib/deploy/description-diff';
@@ -10,10 +9,10 @@ import type { RunStore } from '../../lib/deploy/run-store';
 import { commitName, ENVIRONMENTS_FILE, type RemoteRef, sortedReleases } from '../../lib/deploy/target';
 import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
+import { isAccessDenied } from '../../lib/scaleway/s3-client';
 import { readObjectText, readRotations, storedBeforeKeyRotation } from '../../lib/stack/control-store';
-import { accessDenied } from '../../lib/status/providers/runs';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
-import { infraDir } from '../../lib/utils/paths';
+import { repoRoot } from '../../lib/utils/paths';
 import { BACK, RULE } from '../menu';
 import { PromptBack } from '../prompts/back';
 import { ESCAPED, menuSelect } from '../prompts/menu-select';
@@ -40,7 +39,7 @@ function mergedDays(shas: readonly string[]): Map<string, string> {
   const days = new Map<string, string>();
   if (shas.length === 0) return days;
   const log = spawnSync('git', ['log', '--no-walk=unsorted', '--ignore-missing', '--format=%H %cI', ...shas], {
-    cwd: join(infraDir, '..'),
+    cwd: repoRoot,
     encoding: 'utf8',
   });
   for (const line of (log.stdout ?? '').split('\n')) {
@@ -167,7 +166,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
   let operator: OperatorKey | undefined;
   const stored = await readManifest(diag, picked.sha).catch(async (error: unknown) => {
     // A bucket policy that refuses the observer the manifest leaves it to the operator key.
-    if (!accessDenied(error)) throw error;
+    if (!isAccessDenied(error)) throw error;
     operator = await acquireOperatorKey(context);
     return readManifest(await bootDiagOn(context, operator), picked.sha);
   });

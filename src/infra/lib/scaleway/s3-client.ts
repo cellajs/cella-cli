@@ -35,6 +35,30 @@ export function deployS3Key(env: NodeJS.ProcessEnv = process.env): { accessKey: 
   return { accessKey: env.SCW_ACCESS_KEY ?? env.AWS_ACCESS_KEY_ID ?? '', secretKey: env.SCW_SECRET_KEY ?? env.AWS_SECRET_ACCESS_KEY ?? '' };
 }
 
+/** Name + HTTP status of an S3-style error, however the SDK shaped it. */
+function s3ErrorInfo(err: unknown): { name?: string; status?: number } {
+  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
+  return { name: e?.name, status: e?.$metadata?.httpStatusCode };
+}
+
+/** True for an answer that the object, its version or its bucket does not exist. */
+export function isNotFound(err: unknown): boolean {
+  const { name, status } = s3ErrorInfo(err);
+  return name === 'NoSuchKey' || name === 'NotFound' || status === 404;
+}
+
+/** True for the bucket refusing the key. */
+export function isAccessDenied(err: unknown): boolean {
+  const { name, status } = s3ErrorInfo(err);
+  return name === 'AccessDenied' || status === 403;
+}
+
+/** True for a conditional write whose `If-Match` or `If-None-Match` the object did not meet. */
+export function isPreconditionFailed(err: unknown): boolean {
+  const { name, status } = s3ErrorInfo(err);
+  return name === 'PreconditionFailed' || status === 412;
+}
+
 /** Every key of the bucket under `prefix` with its ETag, in one paginated listing. */
 export async function listObjectEtags(s3: Pick<S3Client, 'send'>, bucket: string, prefix?: string): Promise<Map<string, string>> {
   const { ListObjectsV2Command } = await import('@aws-sdk/client-s3');

@@ -10,13 +10,10 @@ import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-ma
 import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
 import { detectComputeDeferred, detectStackState, type StackState } from '../../lib/stack/bootstrap-stack-state';
 import { checkMark, pc } from '../../lib/utils/cli-output';
-import { infraDir } from '../../lib/utils/paths';
+import { repoRoot } from '../../lib/utils/paths';
 import { installedPulumiVersion } from '../../lib/utils/pulumi-version';
 import { rememberedOperatorKey } from '../session';
 import type { InfraContext } from '../shared';
-
-/** The repository root, where git and the root `package.json` are read. */
-export const repoRoot = join(infraDir, '..');
 
 const RELEASE_TAG = /^\d+\.\d+\.\d+$/;
 
@@ -179,7 +176,7 @@ async function readAdminEmailSet(context: InfraContext, stackState: StackState):
 async function collectChecklistFacts(context: InfraContext): Promise<ChecklistFacts> {
   const mode = context.environment;
   const stackYaml = existsSync(context.stackPath) ? readFileSync(context.stackPath, 'utf8') : undefined;
-  const stackState = detectStackState({ yamlText: stackYaml });
+  const stackState = detectStackState(stackYaml);
   let repository: string | undefined;
   try {
     repository = repositoryUrl(repoRoot);

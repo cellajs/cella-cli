@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
+import { declaredMainJob } from '../deploy/main-job';
 import { mainJobDifferences } from '../status/providers/inventory';
 import { runOverrides } from '../status/providers/runs';
-import { findJobDefinition, listJobRuns, readJobDefinition, runEnded, startJobRun } from './job-runs';
-import { declaredMainJob } from './main-job';
+import { findJobDefinition, listJobRuns, readJobDefinition, runEnded, startJobRun } from './serverless-jobs';
 
 function fakeJobs(definitions: Array<{ id: string; name: string }>) {
   const requests: Array<{ method: string; url: string; body?: unknown }> = [];

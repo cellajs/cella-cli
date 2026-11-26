@@ -1,6 +1,5 @@
 import { printable } from '../../../../utils/terminal-text';
 import { type AppliedEngine, engineImageRef, engineImageRepository } from '../../deploy/applied-engine';
-import { commandOf, readJobDefinitionSecrets } from '../../deploy/job-runs';
 import { declaredMainJob, MAIN_JOB_TIME_LIMIT_HOURS, type MainJobDeclaration, scheduleEveryMinutes } from '../../deploy/main-job';
 import { machineRoles } from '../../machine-roles';
 import { deriveInfra } from '../../naming';
@@ -10,6 +9,7 @@ import { IAM_BASE, type LiveRule, listOrganizationPolicies, policyRules } from '
 import { durableKeyLife, organizationIdOfKey } from '../../scaleway/operator-identity';
 import { appPrincipalNames } from '../../scaleway/principals';
 import { scwFetch, scwListAll } from '../../scaleway/scw-fetch';
+import { commandOf, type JobDefinitionFacts, readJobDefinitionSecrets } from '../../scaleway/serverless-jobs';
 import { type CheckBuilder, check, probed } from '../check';
 import type { Check, StatusProvider } from '../types';
 
@@ -37,11 +37,7 @@ export interface InventoryFacts {
   /** The environment's machine roles: a machine named for one of their slots is the engine's. */
   roles: readonly string[];
   /** What the main job's definition runs; undefined when the environment has no main job. */
-  mainJob?: {
-    imageUri?: string;
-    command?: string;
-    env: Record<string, string>;
-    cron?: { schedule: string; timezone: string };
+  mainJob?: Omit<JobDefinitionFacts, 'updatedAt'> & {
     /** Each secret it references, with the name and folder Secret Manager gives it; undefined when they could not be read. */
     secretReferences?: Array<{ env?: string; file?: string; secretId: string; name?: string; path?: string }>;
   };

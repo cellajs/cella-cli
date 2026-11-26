@@ -1,8 +1,8 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
-import type { Environment, StackState } from '../lib/stack/bootstrap-stack-state';
+import { rootPackage } from '../../utils/app';
+import type { StackState } from '../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../lib/stack/environment';
 import { DIVIDER, pc } from '../lib/utils/cli-output';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 
 /** The header's width, the same as the divider under it and the headers of cella-cli and create-cella. */
 const HEADER_WIDTH = 60;
@@ -25,7 +25,7 @@ export interface HeaderFacts {
 /** The version in the repository's root package.json: the release this checkout is at. */
 export function checkoutVersion(): string | undefined {
   try {
-    const { version } = JSON.parse(readFileSync(resolve(infraDir, '..', 'package.json'), 'utf8')) as { version?: unknown };
+    const { version } = rootPackage(repoRoot);
     return typeof version === 'string' ? version : undefined;
   } catch {
     return undefined;

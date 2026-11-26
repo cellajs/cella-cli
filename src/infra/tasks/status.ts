@@ -1,13 +1,13 @@
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
 import { readAppliedEngine } from '../lib/deploy/applied-engine';
 import { commitRefs } from '../lib/deploy/git-remote';
-import { findJobDefinition, listJobRuns, readJobDefinition } from '../lib/deploy/job-runs';
 import { readLiveRecord } from '../lib/deploy/live-record';
 import { commitName, type RemoteRef } from '../lib/deploy/target';
 import type { EngineConfig } from '../lib/engine-config';
 import { deriveInfra, hasDomain as hasDeployDomain } from '../lib/naming';
 import { type KeyPair, resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
+import { findJobDefinition, listJobRuns, readJobDefinition } from '../lib/scaleway/serverless-jobs';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import { leaseLive, lockKey, makeControlClient, peekLock, stateBucket } from '../lib/stack/control-store';
 import { nameSubject, rowText } from '../lib/status/check';

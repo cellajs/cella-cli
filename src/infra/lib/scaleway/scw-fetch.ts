@@ -49,6 +49,11 @@ export function scwS3Endpoint(region: string): string {
   return `https://s3.${region}.scw.cloud`;
 }
 
+/** Container Registry host for a Scaleway region, as docker logs in to it and an image reference begins. */
+export function scwRegistryHost(region: string): string {
+  return `rg.${region}.scw.cloud`;
+}
+
 /** How long one call may take before it fails as a network error, so a stalled endpoint never holds a screen or a deploy step for good. */
 const REQUEST_TIMEOUT_MS = 60_000;
 

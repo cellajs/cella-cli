@@ -1,16 +1,15 @@
 import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { select } from '@inquirer/prompts';
 import { writeCompose } from '../compose/synth';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
 import { actionLabel, type MenuRowId, menuRow, OPERATOR_ACTIONS, type OperatorActionId, PULUMI_ACTIONS } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
-import { detectComputeDeferred, type Environment, pickStackShort } from '../lib/stack/bootstrap-stack-state';
-import { environments, writeStackFileProjectId } from '../lib/stack/project-per-mode';
+import { detectComputeDeferred, pickStackShort } from '../lib/stack/bootstrap-stack-state';
+import { type Environment, environments, isEnvironment } from '../lib/stack/environment';
+import { stackFilePath, writeStackFileProjectId } from '../lib/stack/project-per-mode';
 import { loadStackContext } from '../lib/stack/stack-context';
 import { crossMark, hasPerson, pc, printFailureHint, warningMark, withSpinner } from '../lib/utils/cli-output';
 import { dropPromptOnlyEnv, loadRootEnvFile, removeModeProjectId } from '../lib/utils/env-files';
-import { infraDir } from '../lib/utils/paths';
 import { installedPulumiVersion, pulumiCliLagWarning, sdkPulumiVersion } from '../lib/utils/pulumi-version';
 import { type ActionOutcome, runAction } from './actions';
 import { printLaunchChecklist } from './actions/setup-checklist';
@@ -46,10 +45,10 @@ function printHelp(): void {
 async function resolveMode(flag: string | undefined): Promise<Environment> {
   const raw = flag ?? process.env.INFRA_MODE;
   if (raw) {
-    if (raw !== 'production' && raw !== 'staging') throw new Error(`INFRA_MODE must be 'production' or 'staging' (got '${raw}')`);
+    if (!isEnvironment(raw)) throw new Error(`INFRA_MODE must be 'production' or 'staging' (got '${raw}')`);
     return raw;
   }
-  const anyStackExists = environments.some((name) => existsSync(resolve(infraDir, `Pulumi.${name}.yaml`)));
+  const anyStackExists = environments.some((name) => existsSync(stackFilePath(name)));
   if (!anyStackExists && !autoAcceptDefaults()) {
     return select<Environment>({
       message: 'New app. Which environment do you want to set up?',
@@ -68,14 +67,14 @@ async function resolveMode(flag: string | undefined): Promise<Environment> {
       ],
     });
   }
-  const existing = environments.filter((name) => existsSync(resolve(infraDir, `Pulumi.${name}.yaml`)));
+  const existing = environments.filter((name) => existsSync(stackFilePath(name)));
   if (existing.length === 2) {
     if (autoAcceptDefaults()) {
       throw new Error('Both Pulumi.production.yaml and Pulumi.staging.yaml exist: pass --mode (or set INFRA_MODE).');
     }
     return select<Environment>({ message: 'Which environment?', choices: existing.map((name) => ({ name, value: name })) });
   }
-  return pickStackShort((name) => existsSync(resolve(infraDir, `Pulumi.${name}.yaml`)));
+  return pickStackShort((name) => existsSync(stackFilePath(name)));
 }
 
 /**
@@ -253,7 +252,7 @@ export async function runInfraCli(words: string[]): Promise<void> {
     printHelp();
     process.exit(2);
   }
-  if (args.mode !== undefined && args.mode !== 'production' && args.mode !== 'staging') {
+  if (args.mode !== undefined && !isEnvironment(args.mode)) {
     console.error(`${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`);
     process.exit(2);
   }

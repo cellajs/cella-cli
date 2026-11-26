@@ -2,7 +2,6 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { printable } from '../../../utils/terminal-text';
 import { commitRefs, listRemoteRefs } from '../../lib/deploy/git-remote';
-import { findJobDefinition, listJobRuns, runEnded, startJobRun } from '../../lib/deploy/job-runs';
 import { readLiveRecord } from '../../lib/deploy/live-record';
 import { mainJobOutcome } from '../../lib/deploy/main-job';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
@@ -12,10 +11,11 @@ import { commitName, ENVIRONMENTS_FILE, parseEnvironmentsFile, resolveTarget, ty
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
+import { findJobDefinition, listJobRuns, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
 import { leaseDeploys, leaseLive, lockKey, peekLock } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { infraDir } from '../../lib/utils/paths';
+import { repoRoot } from '../../lib/utils/paths';
 import { confirmOrDefault, endAction, type InfraContext, stackNameFor } from '../shared';
 import { bootDiagOn, deployAndFollow, deployFixes, type FollowOutcome, followLiveDeploy, liveCommit, liveDeploy } from './deploy-follow';
 import { acquireOperatorKey } from './operator-unlock';
@@ -80,7 +80,7 @@ const TARGET_REFS_TIMEOUT_MS = 20_000;
  * production without a line.
  */
 export async function environmentTarget(context: InfraContext): Promise<Target | undefined> {
-  const file = join(infraDir, '..', ENVIRONMENTS_FILE);
+  const file = join(repoRoot, ENVIRONMENTS_FILE);
   const line = existsSync(file) ? parseEnvironmentsFile(readFileSync(file, 'utf8')).get(context.environment) : undefined;
   return resolveTarget({
     environment: context.environment,

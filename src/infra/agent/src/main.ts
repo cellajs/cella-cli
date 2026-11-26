@@ -1,7 +1,8 @@
 import { readFile } from 'node:fs/promises';
 import { getFlag } from '../../lib/utils/args';
+import { sleep } from '../../lib/utils/sleep';
 import { runAgent } from './agent';
-import { boot } from './boot';
+import { appDir, boot, profileArgs } from './boot';
 import { execCommand, mustExec } from './exec';
 import { serveHealth } from './health';
 import { createJsonLogger } from './logger';
@@ -19,18 +20,17 @@ function usage(): never {
 async function startAgent(planPath: string): Promise<never> {
   const plan = parseBootPlanJson(await readFile(planPath, 'utf-8'), planPath);
   const logger = createJsonLogger({ service: plan.service, release: plan.releaseSha });
-  const profiles = plan.services.flatMap((service) => ['--profile', service]);
   await runAgent(
     {
       boot: () => boot({ planPath }),
       readManifest: () => readManifest(),
       stopServices: async () => {
-        await mustExec(execCommand, 'docker', ['compose', ...profiles, 'stop', ...plan.services], { cwd: '/opt/app', timeoutMs: stopTimeoutMs });
+        await mustExec(execCommand, 'docker', ['compose', ...profileArgs(plan), 'stop', ...plan.services], { cwd: appDir, timeoutMs: stopTimeoutMs });
       },
       serve: (state) => {
         serveHealth({ ports: plan.agent.ports, release: plan.releaseSha, state, log: (message) => logger.log('warn', 'health', { message }) });
       },
-      sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      sleep,
       log: (step, fields) => logger.log('info', step, fields),
     },
     { drainSeconds: plan.agent.drainSeconds },

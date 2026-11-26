@@ -1,9 +1,8 @@
 import { randomUUID } from 'node:crypto';
 import { actionCommand } from '../operator-actions';
-import { makeS3Client } from '../scaleway/s3-client';
+import { isNotFound, isPreconditionFailed, makeS3Client } from '../scaleway/s3-client';
 import { warningMark } from '../utils/cli-output';
-import { errorMessage } from '../utils/errors';
-import { isRecord } from '../utils/guards';
+import { isRecord, parseJson } from '../utils/guards';
 
 /** One rotation: when, and who ran it. */
 export interface RotationRecord {
@@ -128,22 +127,6 @@ export async function putJsonObject(s3: S3Like, bucket: string, key: string, bod
 /** The write condition that keeps a read-modify-write safe: the etag read, or create-only when there was no object. */
 export const conditionOn = (etag: string | undefined): ConditionalWrite => (etag ? { ifMatch: etag } : { ifNoneMatch: '*' });
 
-/** Name + HTTP status of an S3-style error, however the SDK shaped it. */
-function s3ErrorInfo(err: unknown): { name?: string; status?: number } {
-  const e = err as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return { name: e?.name, status: e?.$metadata?.httpStatusCode };
-}
-
-function isNotFound(err: unknown): boolean {
-  const { name, status } = s3ErrorInfo(err);
-  return name === 'NoSuchKey' || name === 'NotFound' || status === 404;
-}
-
-export function isPreconditionFailed(err: unknown): boolean {
-  const { name, status } = s3ErrorInfo(err);
-  return name === 'PreconditionFailed' || status === 412;
-}
-
 /** Bucket holding the Pulumi state. Must live in the app project: Scaleway Object Storage pins API keys to their preferred project. */
 export function stateBucket(slug: string): string {
   return `${slug}-pulumi-state`;
@@ -182,12 +165,7 @@ function parseRotationRecord(kind: string, value: unknown): RotationRecord {
 
 /** Parse the rotations object. A malformed one fails loudly: the deploy reads its counter. */
 export function parseRotations(text: string): Rotations {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (err) {
-    throw new Error(`rotations: not valid JSON (${errorMessage(err)}); ${replaceRotations}`);
-  }
+  const raw = parseJson(text, 'rotations', replaceRotations);
   const counter = isRecord(raw) ? raw.counter : undefined;
   if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter >= maxRotationCounter) {
     throw new Error(`rotations: counter must be a whole number from 0 and below ${maxRotationCounter}; ${replaceRotations}`);

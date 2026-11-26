@@ -1,7 +1,6 @@
-import { accountExcerpt } from '../../lib/deploy/boot-accounts';
+import { accountExcerpt, BOOT_ACCOUNTS_PREFIX } from '../../lib/deploy/boot-accounts';
 import { classifyRun } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
-import { type JobRun, readJobRun, runEnded, startJobRun } from '../../lib/deploy/job-runs';
 import { readLiveRecord } from '../../lib/deploy/live-record';
 import { mainJobOutcome } from '../../lib/deploy/main-job';
 import { type RunOutcome, type RunRecord, stepLine, wroteRecord } from '../../lib/deploy/run-record';
@@ -12,6 +11,7 @@ import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath, type OperatorActionId } from '../../lib/operator-actions';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
+import { type JobRun, readJobRun, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
 import {
   type LockInfo,
   leaseDeploys,
@@ -166,7 +166,7 @@ async function reportEnd(
   const crashed = verdict?.side === 'release' ? record?.boot?.find((entry) => entry.failed && entry.key) : undefined;
   if (crashed?.key) {
     const body = await diag.store.readBootAccount(crashed.key).catch(() => undefined);
-    console.info(pc.dim(`  ${crashed.service}: boot failed (boot-diag/${crashed.key})`));
+    console.info(pc.dim(`  ${crashed.service}: boot failed (${BOOT_ACCOUNTS_PREFIX}${crashed.key})`));
     for (const line of body ? accountExcerpt(body, BOOT_EXCERPT_LINES) : ['(the account has expired or cannot be read)']) console.info(`  ${line}`);
   }
   const live = await liveCommit(context, diag).catch(() => undefined);

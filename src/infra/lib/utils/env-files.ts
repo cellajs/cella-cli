@@ -1,6 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { infraDir, machineDir } from './paths';
+import { infraDir, machineDir, repoRoot } from './paths';
 
 /**
  * The `KEY=VALUE` lines of a dotenv text in order, a repeated key included. A blank line, a `#` comment and any other line are skipped, an
@@ -23,7 +23,7 @@ export function parseEnvFile(path: string): Record<string, string> {
 }
 
 /** The env file every mode reads. */
-export const rootEnvFile = (): string => resolve(infraDir, '..', '.env');
+export const rootEnvFile = (): string => resolve(repoRoot, '.env');
 
 /** Load the repo-root `.env` so infra tasks share the app's local config. Existing environment variables keep precedence over the file. */
 export function loadRootEnvFile(): void {

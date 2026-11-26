@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pc, warningMark } from '../utils/cli-output';
 import { errorMessage } from '../utils/errors';
 import { isRecord } from '../utils/guards';
-import { infraDir } from '../utils/paths';
+import { repoRoot } from '../utils/paths';
 import { sleep } from '../utils/sleep';
 import { repositoryUrl } from './repository-key';
 import { defaultRule, ENVIRONMENTS_FILE, parseEnvironmentsFile } from './target';
@@ -28,7 +28,7 @@ export function appliedDescriptionVariable(environment: string): string {
  * Whether merging the release PR deploys to the environment: its line in the environments file, or its default, follows
  * the releases. An app without the file reads every environment's default, as `readEnvironmentsFile` does.
  */
-export function followsReleases(environment: string, root = join(infraDir, '..')): boolean {
+export function followsReleases(environment: string, root = repoRoot): boolean {
   const file = join(root, ENVIRONMENTS_FILE);
   const line = parseEnvironmentsFile(existsSync(file) ? readFileSync(file, 'utf8') : '').get(environment);
   return (line?.rule ?? defaultRule(environment))?.kind === 'releases';
@@ -53,8 +53,8 @@ function printed(stdout: string | undefined): unknown {
   }
 }
 
-/** The records `gh --json` printed: a list, or a run's `jobs`. */
-function records(stdout: string | undefined): Record<string, unknown>[] {
+/** The rows `gh --json` printed: a list, or a run's `jobs`. */
+function ghRows(stdout: string | undefined): Record<string, unknown>[] {
   const value = printed(stdout);
   const list = isRecord(value) && Array.isArray(value.jobs) ? value.jobs : value;
   return Array.isArray(list) ? list.filter(isRecord) : [];
@@ -97,17 +97,17 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
   } catch {
     return;
   }
-  const heads = records(gh(repo, 'pr', 'list', '--state', 'open', '--json', 'headRefName,headRefOid').stdout).filter(
+  const heads = ghRows(gh(repo, 'pr', 'list', '--state', 'open', '--json', 'headRefName,headRefOid').stdout).filter(
     (pr) => typeof pr.headRefName === 'string' && pr.headRefName.startsWith(RELEASE_BRANCH_PREFIX),
   );
   for (const { headRefOid } of heads) {
     if (typeof headRefOid !== 'string') continue;
-    const [run] = records(
+    const [run] = ghRows(
       gh(repo, 'run', 'list', '--workflow', 'ci.yml', '--commit', headRefOid, '--limit', '1', '--json', 'databaseId,status').stdout,
     );
     if (typeof run?.databaseId !== 'number') continue;
     const runId = String(run.databaseId);
-    const job = records(gh(repo, 'run', 'view', runId, '--json', 'jobs').stdout).find(
+    const job = ghRows(gh(repo, 'run', 'view', runId, '--json', 'jobs').stdout).find(
       (found) => found.name === GATE_JOB && found.conclusion === 'failure',
     );
     if (typeof job?.databaseId !== 'number') continue;
@@ -118,7 +118,7 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
           `  The release PR's CI run is still in progress: its ${GATE_JOB} check runs again once the run ends. Ctrl-C skips the wait; ${byHand}.`,
         ),
       );
-      if (!(await runEnded(repo, runId))) {
+      if (!(await waitForRunEnd(repo, runId))) {
         console.warn(`${warningMark} The release PR's CI run is still in progress after ${RUN_WAIT_MS / 60_000} minutes; once it ends, ${byHand}.`);
         continue;
       }
@@ -134,7 +134,7 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
 }
 
 /** Whether the run ended within the wait, polling its status. */
-async function runEnded(repo: string, runId: string): Promise<boolean> {
+async function waitForRunEnd(repo: string, runId: string): Promise<boolean> {
   const until = Date.now() + RUN_WAIT_MS;
   while (Date.now() < until) {
     await sleep(RUN_POLL_MS);

@@ -6,7 +6,7 @@ import { allPrincipalNames, appPrincipalNames } from '../../lib/scaleway/princip
 import { createProject, listProjects } from '../../lib/scaleway/scaleway-account';
 import { ensureApplication } from '../../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import type { Environment } from '../../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../../lib/stack/environment';
 import { projectChoices, projectsOfOtherModes } from '../../lib/stack/project-per-mode';
 import { changeMark, checkMark, pc, warningMark, withSpinner } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';

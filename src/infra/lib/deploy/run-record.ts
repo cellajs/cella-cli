@@ -1,6 +1,6 @@
 import { scrubSecretLines } from '../../agent/src/diagnostics';
+import type { JobRun } from '../scaleway/serverless-jobs';
 import { checkMark, crossMark } from '../utils/cli-output';
-import type { JobRun } from './job-runs';
 import { commitName, type RemoteRef } from './target';
 
 /** Where runs are kept in the environment's diagnostics bucket: one folder per run, `runs/<run>/`. */

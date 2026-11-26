@@ -190,7 +190,7 @@ describe('runDeploy sequencing', () => {
     const { fx, switches } = makeFake({ live, rotation: 3 });
     await runDeploy(baseOpts, fx, fakeDeployEnv);
     expect(switches[0]?.pending).toEqual(['cdc', 'frontend']);
-    expect(switches[0]?.target).toEqual({ commit: SHA, retry: 0, rotation: 3 });
+    expect(switches[0]?.target).toEqual({ sha: SHA, retry: 0, rotation: 3 });
     expect(switches[0]?.stack).toBe('production');
   });
 

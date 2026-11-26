@@ -1,8 +1,9 @@
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
+import { scwRegistryHost } from '../scaleway/scw-fetch';
 import { conditionOn, controlPrefix, putJsonObject, readObjectText, type S3Like } from '../stack/control-store';
-import { ExitCodeError, errorMessage } from '../utils/errors';
-import { isRecord } from '../utils/guards';
+import { ExitCodeError } from '../utils/errors';
+import { isRecord, parseJson } from '../utils/guards';
 import { MAIN_JOB_EXIT } from './main-job';
 import { COMMIT } from './target';
 
@@ -65,7 +66,7 @@ export function descriptionHash(description: unknown): string {
 
 /** The engine image's repository in an environment's registry namespace, as the job pulls it. */
 export function engineImageRepository(region: string, namespace: string): string {
-  return `rg.${region}.scw.cloud/${namespace}/${ENGINE_IMAGE_NAME}`;
+  return `${scwRegistryHost(region)}/${namespace}/${ENGINE_IMAGE_NAME}`;
 }
 
 /**
@@ -94,12 +95,7 @@ const appliedEngineKey = (stack: string): string => `${controlPrefix(stack)}appl
 
 /** Parse the applied engine, refusing one whose hash, digest or commit has another form, or whose description is no object. */
 function parseAppliedEngine(text: string): AppliedEngine {
-  let raw: unknown;
-  try {
-    raw = JSON.parse(text);
-  } catch (error) {
-    throw new Error(`applied engine: not valid JSON (${errorMessage(error)})`);
-  }
+  const raw = parseJson(text, 'applied engine');
   if (!isRecord(raw)) throw new Error('applied engine: not an object');
   const { descriptionHash: hash, imageDigest, commit, appliedAt, describes } = raw;
   if (typeof hash !== 'string' || !HASH.test(hash)) throw new Error('applied engine: descriptionHash is no sha256');

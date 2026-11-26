@@ -14,15 +14,16 @@ import {
 import { rootNodeVersion } from '../lib/deploy/main-job';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import { publishAppliedDescription } from '../lib/deploy/release-gate';
+import { runStamp } from '../lib/deploy/run-record';
 import { COMMIT } from '../lib/deploy/target';
 import type { EngineConfig } from '../lib/engine-config';
 import { deriveInfra } from '../lib/naming';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
-import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
+import { type ScwAuth, scwFetch, scwRegistryHost, scwSend } from '../lib/scaleway/scw-fetch';
 import { makeControlClient } from '../lib/stack/control-store';
 import { exitCodeOf } from '../lib/utils/child-exit';
 import { errorMessage } from '../lib/utils/errors';
-import { engineAssetsDir, infraDir } from '../lib/utils/paths';
+import { engineAssetsDir, repoRoot } from '../lib/utils/paths';
 
 /** What the image copies of the checkout (the package's Dockerfile), relative to its root. */
 const CONTEXT_PATHS = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches', 'shared', 'infra'];
@@ -138,7 +139,7 @@ export async function publishEngine(opts: {
   root?: string;
   log?: (message: string) => void;
 }): Promise<PublishedEngine | undefined> {
-  const root = opts.root ?? join(infraDir, '..');
+  const root = opts.root ?? repoRoot;
   const log = opts.log ?? ((message: string) => console.info(message));
   const auth = { secretKey: opts.secretKey };
   const { naming, region } = deriveInfra(opts.appConfig);
@@ -155,12 +156,9 @@ export async function publishEngine(opts: {
   const describes: Record<string, unknown> = JSON.parse(canonicalJson(await appDescription(root)));
   const repository = engineImageRepository(region, naming.registryNamespace);
   // A tag per push: one pushed again would move off the image the main job may still run, which no other tag then keeps.
-  const tag = `${commit}-${new Date()
-    .toISOString()
-    .replace(/[-:]/g, '')
-    .replace(/\.\d+Z$/, 'Z')}`;
+  const tag = `${commit}-${runStamp(new Date())}`;
   const context = stageContext(root);
-  const docker = pushConfig(`rg.${region}.scw.cloud`, opts.secretKey);
+  const docker = pushConfig(scwRegistryHost(region), opts.secretKey);
   // Ctrl-C reaches the build too, whose exit then runs the finally; any other exit before it still deletes the key's folder.
   const ignoreInterrupt = () => {};
   const removeKey = () => rmSync(docker.dir, { recursive: true, force: true });

@@ -1,35 +1,27 @@
-export type Environment = 'production' | 'staging';
-export type StackState = 'fresh' | 'partial' | 'bootstrapped';
+import { type Environment, environments } from './environment';
 
-export interface StackProbe {
-  /** Raw YAML text, or undefined if the file does not exist. */
-  yamlText?: string;
-}
+export type StackState = 'fresh' | 'partial' | 'bootstrapped';
 
 /** The key a setup writes to the stack yaml once the deploy key is made: with it the stack counts as bootstrapped. */
 const bootstrapMarker = 'infra:bootstrapComplete';
 
-export function detectStackState(probe: StackProbe): StackState {
-  const yamlText = probe.yamlText;
+/** A stack's state from its stack file's raw YAML text, which is undefined when the file does not exist. */
+export function detectStackState(yamlText?: string): StackState {
   if (yamlText == null) return 'fresh';
   return yamlText.includes(bootstrapMarker) ? 'bootstrapped' : 'partial';
 }
-
-const environments: readonly Environment[] = ['production', 'staging'];
 
 /** Pick the first stack short-name whose Pulumi file is present, falling back to production for a fresh checkout. Pure: the caller supplies the existence check. */
 export function pickStackShort(exists: (shortName: string) => boolean): Environment {
   return environments.find(exists) ?? 'production';
 }
 
-/** Extract the plaintext `bootstrap:computeDeferred: <iso-timestamp>` marker, set before a fresh provision's first `pulumi up` and cleared once the foundation is up. */
-export function extractComputeDeferredMarker(yamlText: string): string | undefined {
-  return yamlText.match(/^\s*bootstrap:computeDeferred:\s*(.+)$/m)?.[1]?.trim();
-}
-
-/** Detect a leftover `bootstrap:computeDeferred` marker from a fresh provision whose first `pulumi up` did not complete. */
+/**
+ * The plaintext `bootstrap:computeDeferred: <iso-timestamp>` marker, set before a fresh provision's first `pulumi up` and cleared once the
+ * foundation is up: a leftover one is from a fresh provision whose first `pulumi up` did not complete.
+ */
 export function detectComputeDeferred(yamlText?: string): string | undefined {
-  return yamlText ? extractComputeDeferredMarker(yamlText) : undefined;
+  return yamlText?.match(/^\s*bootstrap:computeDeferred:\s*(.+)$/m)?.[1]?.trim();
 }
 
 /**

@@ -2,7 +2,7 @@ import { GetBucketPolicyCommand } from '@aws-sdk/client-s3';
 import type { EngineConfig } from '../engine-config';
 import { deriveInfra } from '../naming';
 import type { KeyPair } from './operator-identity';
-import { makeS3Client, stateKeyOf } from './s3-client';
+import { isAccessDenied, makeS3Client, stateKeyOf } from './s3-client';
 
 /** True when a bucket policy document admits the principal (`application_id:<id>` or `user_id:<id>`). */
 export function policyAdmits(policyText: string | undefined, principal: string): boolean {
@@ -27,10 +27,9 @@ export async function shutOutOfBuckets(opts: { appConfig: EngineConfig; projectI
   const key = stateKeyOf(opts.key, opts.projectId);
   const s3 = await makeS3Client(opts.appConfig.s3.region, key.accessKey, key.secretKey);
   for (const bucket of policedBuckets(opts.appConfig)) {
-    const shutOut = await s3.send(new GetBucketPolicyCommand({ Bucket: bucket })).then(
-      (res) => !!res.Policy && !policyAdmits(res.Policy, opts.principal),
-      (error: { name?: string; $metadata?: { httpStatusCode?: number } }) => error.$metadata?.httpStatusCode === 403 || error.name === 'AccessDenied',
-    );
+    const shutOut = await s3
+      .send(new GetBucketPolicyCommand({ Bucket: bucket }))
+      .then((res) => !!res.Policy && !policyAdmits(res.Policy, opts.principal), isAccessDenied);
     if (shutOut) return true;
   }
   return false;

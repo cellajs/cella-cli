@@ -2,6 +2,7 @@ import { printable } from '../../../utils/terminal-text';
 import {
   accountExcerpt,
   accountFailed,
+  BOOT_ACCOUNTS_PREFIX,
   type BootAccountReader,
   bucketBootAccountReader,
   releaseAccounts,
@@ -9,6 +10,13 @@ import {
 } from '../../lib/deploy/boot-accounts';
 import { classifyRun, scalewayStatus } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
+import { type Growth, type RunRecord, rewriteNote, runSummaryLine, stepLine, wroteRecord } from '../../lib/deploy/run-record';
+import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
+import { commitName, type RemoteRef } from '../../lib/deploy/target';
+import { deriveInfra } from '../../lib/naming';
+import { actionLabel } from '../../lib/operator-actions';
+import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
+import { makeS3Client, projectAccessKey } from '../../lib/scaleway/s3-client';
 import {
   isScheduledRun,
   type JobDefinitionFacts,
@@ -17,14 +25,7 @@ import {
   listJobRuns,
   readJobDefinition,
   runEnded,
-} from '../../lib/deploy/job-runs';
-import { type Growth, type RunRecord, rewriteNote, runSummaryLine, stepLine, wroteRecord } from '../../lib/deploy/run-record';
-import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
-import { commitName, type RemoteRef } from '../../lib/deploy/target';
-import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
-import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { makeS3Client, projectAccessKey } from '../../lib/scaleway/s3-client';
+} from '../../lib/scaleway/serverless-jobs';
 import { deployedServices } from '../../lib/services';
 import { type LockInfo, leaseHeldByRun, lockKey, makeControlClient, peekLock } from '../../lib/stack/control-store';
 import { runOverrides } from '../../lib/status/providers/runs';
@@ -55,7 +56,7 @@ async function bootLines(record: RunRecord, store: RunStore): Promise<string[]> 
     }
     if (!entry.failed) continue;
     const body = await store.readBootAccount(entry.key).catch(() => undefined);
-    lines.push('', pc.dim(`  ${entry.service}: boot failed (boot-diag/${entry.key})`));
+    lines.push('', pc.dim(`  ${entry.service}: boot failed (${BOOT_ACCOUNTS_PREFIX}${entry.key})`));
     lines.push(...(body ? accountExcerpt(body).map((line) => `  ${line}`) : ['  (the account has expired or cannot be read)']));
   }
   return lines;
@@ -219,7 +220,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
       }
       print(
         '',
-        pc.bold(`${found.service} (boot-diag/${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
+        pc.bold(`${found.service} (${BOOT_ACCOUNTS_PREFIX}${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
         printable(found.account.body),
       );
     }
@@ -227,7 +228,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
     const builder = (name: string) => keys.find((key) => key.startsWith('builder/') && key.endsWith(`/${name}`) && key.includes(opts.sha ?? ''));
     for (const name of ['result', 'log']) {
       const key = builder(name);
-      if (key) print('', pc.bold(`builder (boot-diag/${key})`), printable(await reader.read(key)));
+      if (key) print('', pc.bold(`builder (${BOOT_ACCOUNTS_PREFIX}${key})`), printable(await reader.read(key)));
     }
     return;
   }
@@ -239,7 +240,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
       continue;
     }
     const body = await reader.read(newest);
-    print('', pc.bold(`${service} (boot-diag/${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
+    print('', pc.bold(`${service} (${BOOT_ACCOUNTS_PREFIX}${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
   }
 }
 

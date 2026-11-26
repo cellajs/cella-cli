@@ -1,14 +1,13 @@
-import { readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { rootPackage } from '../../../utils/app';
 import { RUNTIME_FOLDER } from '../scaleway/secret-paths';
-import { infraDir } from '../utils/paths';
+import { repoRoot } from '../utils/paths';
 
 /** The repository read key's name in the runtime folder: a read-only key a private repository is fetched with. */
 export const REPOSITORY_KEY_NAME = 'repository-read-key';
 
 /** The repository the root `package.json` names, as git reads it: the one a release's commit is fetched from. */
-export function repositoryUrl(root = join(infraDir, '..')): string {
-  const { repository } = JSON.parse(readFileSync(join(root, 'package.json'), 'utf8')) as { repository?: string };
+export function repositoryUrl(root = repoRoot): string {
+  const { repository } = rootPackage(root);
   if (!repository?.startsWith('https://'))
     throw new Error("set the root package.json's 'repository' to the https URL a release's commit is fetched from");
   return `${repository.replace(/\.git$/, '')}.git`;

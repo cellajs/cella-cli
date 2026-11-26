@@ -11,6 +11,7 @@ import { type RunBootAccount, type RunRecord, RunRecorder, runId, runLogKey, run
 import type { MachineRole } from '../lib/machine-roles';
 import { actionCommand } from '../lib/operator-actions';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
+import { isEnvironment } from '../lib/stack/environment';
 import { getFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
 import { infraDir } from '../lib/utils/paths';
@@ -212,7 +213,7 @@ export async function runDeploy(
     // The live record decides what this run does: every role that serves the target, under the same retry counter and rotation, is left
     // as it is, so running the same deploy twice changes nothing.
     let live: Awaited<ReturnType<DeployEffects['readLive']>> | undefined;
-    let target: DeployTarget = { commit: opts.sha, retry: opts.retry, rotation: 0 };
+    let target: DeployTarget = { sha: opts.sha, retry: opts.retry, rotation: 0 };
     let pending: string[] = [];
     await step('Read the live record', async () => {
       live = await fx.readLive(stack);
@@ -405,7 +406,7 @@ async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string
       import('./frontend-assets'),
     ]);
   const { mode } = engineConfig;
-  if (mode !== 'production' && mode !== 'staging') throw new Error(`a deploy goes to production or staging, not '${mode}'`);
+  if (!isEnvironment(mode)) throw new Error(`a deploy goes to production or staging, not '${mode}'`);
   const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
   for (const name of ENTRY_FILE_NAMES) {
@@ -576,7 +577,7 @@ function createRealEffects(): DeployEffects {
       const projectId = process.env.SCW_DEFAULT_PROJECT_ID ?? '';
       const { accessKey, secretKey } = deployS3Key();
       const mode = appConfig.mode;
-      if (mode !== 'production' && mode !== 'staging') throw new Error(`a deploy goes to production or staging, not '${mode}'`);
+      if (!isEnvironment(mode)) throw new Error(`a deploy goes to production or staging, not '${mode}'`);
       const s3 = await diagnosticsClient(region);
       const control = await controlClient(region);
       const foundation = await readFoundation({ secretKey }, { region, zone, projectId, naming, mode, roles: request.roles });
@@ -588,7 +589,7 @@ function createRealEffects(): DeployEffects {
         mode,
         naming,
         foundation,
-        sha: request.target.commit,
+        sha: request.target.sha,
         manifest: request.manifest,
         envs: request.envs,
         presigner: await bucketPresigner({ region, bucket: naming.bootDiagBucket, accessKey: projectAccessKey(accessKey, projectId), secretKey }),

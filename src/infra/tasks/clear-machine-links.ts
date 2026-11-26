@@ -2,8 +2,9 @@ import { readFile } from 'node:fs/promises';
 import { deriveInfra } from '../lib/naming';
 import { getUserData, setUserData } from '../lib/scaleway/machines';
 import { withoutLinks } from '../lib/scaleway/presign';
-import { deployS3Key, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
+import { deployS3Key, isNotFound, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { errorMessage } from '../lib/utils/errors';
+import { sleep } from '../lib/utils/sleep';
 import type { MachineEnv } from './compose-env';
 
 /** A machine a deploy made, by its role; `kept` when a failed stop-first switch left it, as a late boot may still serve. */
@@ -99,10 +100,10 @@ export async function main({ envsFile, machinesFile, wait }: ClearMachineLinksSt
       deleteEnv: async (env) => {
         const version = env.envVersion ? { VersionId: env.envVersion } : {};
         await s3.send(new DeleteObjectCommand({ Bucket: naming.bootDiagBucket, Key: env.env, ...version })).catch((error: unknown) => {
-          if ((error as { $metadata?: { httpStatusCode?: number } }).$metadata?.httpStatusCode !== 404) throw error;
+          if (!isNotFound(error)) throw error;
         });
       },
-      sleep: (ms) => new Promise((done) => setTimeout(done, ms)),
+      sleep,
       log: (message) => console.info(message),
     },
     { waitMs: wait ? 3 * 60_000 : 0 },

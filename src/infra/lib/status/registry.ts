@@ -3,12 +3,13 @@ import { componentsProvider } from './providers/components';
 import { databaseProvider } from './providers/database';
 import { dnsProvider } from './providers/dns';
 import { environmentsProvider } from './providers/environments';
+import { identityProvider } from './providers/identity';
 import { inventoryProvider } from './providers/inventory';
 import { liveProvider } from './providers/live';
 import { runsProvider } from './providers/runs';
 import { scheduleProvider } from './providers/schedule';
 import { secretsProvider } from './providers/secrets';
-import { identityProvider, stackProvider } from './providers/stack';
+import { stackProvider } from './providers/stack';
 import { stateProvider } from './providers/state';
 import type { Check, CheckStatus, NextAction, ProbeSession, StatusProvider, StatusReport } from './types';
 

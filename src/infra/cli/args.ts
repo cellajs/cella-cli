@@ -15,7 +15,7 @@ export interface CliArgs {
 }
 
 /** Flags that take the next word as their value, so that word is never read as the action. */
-const VALUE_FLAGS = new Set(['--mode']);
+const VALUE_FLAGS = new Set(['--mode', '--sha']);
 
 /**
  * Read the command line (everything after the script). The first word that is no flag and no flag value names the action. Flags the

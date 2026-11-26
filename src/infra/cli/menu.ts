@@ -1,6 +1,7 @@
 import { Separator } from '@inquirer/prompts';
 import { actionLabel, MENU_ROWS, type MenuRowId, MORE_SECTIONS, menuRow, OPERATOR_ACTIONS, type OperatorActionId } from '../lib/operator-actions';
-import type { Environment, StackState } from '../lib/stack/bootstrap-stack-state';
+import type { StackState } from '../lib/stack/bootstrap-stack-state';
+import type { Environment } from '../lib/stack/environment';
 import { pc } from '../lib/utils/cli-output';
 
 /** The step the home screen recommends, when one action of the CLI does it: the menu leads with it. */

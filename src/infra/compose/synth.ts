@@ -89,10 +89,8 @@ export const OUTPUT_PATH = join(infraDir, 'compose.gen.yml');
 export function main(words: string[]): void {
   const yaml = renderCompose(composeConfig);
   if (words.includes('--check')) {
-    let current = '';
-    try {
-      current = readFileSync(OUTPUT_PATH, 'utf-8');
-    } catch {
+    const current = readCompose();
+    if (current === undefined) {
       console.error(`::error::${OUTPUT_PATH} is missing: run \`pnpm --filter infra compose:generate\`.`);
       process.exit(1);
     }
@@ -107,16 +105,20 @@ export function main(words: string[]): void {
   console.info(`Wrote ${OUTPUT_PATH}`);
 }
 
+/** The Compose file on disk; undefined when it is missing. */
+function readCompose(): string | undefined {
+  try {
+    return readFileSync(OUTPUT_PATH, 'utf-8');
+  } catch {
+    return undefined;
+  }
+}
+
 /** Write the Compose file from the service registry; `unchanged` when the file already holds it, so a caller can stay quiet. */
 export function writeCompose(): 'written' | 'unchanged' {
   const yaml = renderCompose(composeConfig);
-  let current = '';
-  try {
-    current = readFileSync(OUTPUT_PATH, 'utf-8');
-  } catch {
-    // Missing: written below.
-  }
-  if (withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
+  const current = readCompose();
+  if (current !== undefined && withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
   writeFileSync(OUTPUT_PATH, yaml);
   return 'written';
 }

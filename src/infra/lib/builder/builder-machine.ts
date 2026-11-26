@@ -1,3 +1,4 @@
+import { METADATA_HOST } from '../../agent/src/manifest';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
 
 /**
@@ -77,7 +78,7 @@ set -eE -o pipefail
 
 docker pull -q "$NODE_IMAGE"
 # No container reaches the metadata service: the machine's user data holds the repository read key and the links.
-iptables -I DOCKER-USER -d 169.254.42.42 -j DROP || iptables -I FORWARD -d 169.254.42.42 -j DROP
+iptables -I DOCKER-USER -d ${METADATA_HOST} -j DROP || iptables -I FORWARD -d ${METADATA_HOST} -j DROP
 
 step clone
 git init -q /build

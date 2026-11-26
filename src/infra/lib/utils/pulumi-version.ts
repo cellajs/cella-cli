@@ -1,5 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createRequire } from 'node:module';
+import semver from 'semver';
 
 /** The `@pulumi/pulumi` SDK version the program is written against. The main job installs the CLI at exactly this version. */
 export function sdkPulumiVersion(): string {
@@ -17,19 +18,8 @@ export function installedPulumiVersion(): string | undefined {
   return res.status === 0 ? parsePulumiVersion(res.stdout) : undefined;
 }
 
-/** Negative when `a` is older than `b`, positive when newer, zero when equal; compares the numeric segments. */
-export function comparePulumiVersions(a: string, b: string): number {
-  const as = a.split('.').map(Number);
-  const bs = b.split('.').map(Number);
-  for (let i = 0; i < Math.max(as.length, bs.length); i++) {
-    const diff = (as[i] ?? 0) - (bs[i] ?? 0);
-    if (diff !== 0) return diff;
-  }
-  return 0;
-}
-
 /** The warning for a local CLI that trails the SDK, or undefined when it is current or absent (absence is reported elsewhere). */
 export function pulumiCliLagWarning(installed: string | undefined, sdk: string): string | undefined {
-  if (!installed || comparePulumiVersions(installed, sdk) >= 0) return undefined;
+  if (!installed || !semver.lt(installed, sdk)) return undefined;
   return `pulumi ${installed} is older than the @pulumi/pulumi SDK ${sdk} this program uses, and CI runs ${sdk}: upgrade with brew upgrade pulumi.`;
 }

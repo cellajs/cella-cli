@@ -2,11 +2,11 @@ import { describe, expect, it } from 'vitest';
 import type { ComponentsFact } from './providers/components';
 import type { DbEndpointFacts } from './providers/database';
 import type { EnvironmentsFacts } from './providers/environments';
+import type { IdentityFacts } from './providers/identity';
 import type { InventoryFacts } from './providers/inventory';
 import { expectedRelease, type LiveServiceFact } from './providers/live';
 import type { RunsFacts } from './providers/runs';
 import type { ScheduleFacts } from './providers/schedule';
-import type { IdentityFacts } from './providers/stack';
 import { assembleReport, groupOf, statusProviders } from './registry';
 import type { Check, ProbeSession, ScalewayFacts } from './types';
 

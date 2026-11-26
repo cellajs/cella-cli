@@ -1,11 +1,11 @@
 import { classifyRun } from '../../deploy/failure-class';
-import { commandOf, isScheduledRun, type JobDefinitionFacts, type JobRun, runEnded } from '../../deploy/job-runs';
 import { mainJobOutcome } from '../../deploy/main-job';
 import { type Growth, type RunRecord, rewriteNote } from '../../deploy/run-record';
 import { bucketRunStore } from '../../deploy/run-store';
 import { deriveInfra } from '../../naming';
 import { actionCommand } from '../../operator-actions';
-import { makeS3Client, projectAccessKey } from '../../scaleway/s3-client';
+import { isAccessDenied, makeS3Client, projectAccessKey } from '../../scaleway/s3-client';
+import { commandOf, isScheduledRun, type JobDefinitionFacts, type JobRun, runEnded } from '../../scaleway/serverless-jobs';
 import { leaseHeldByRun } from '../../stack/control-store';
 import { errorMessage } from '../../utils/errors';
 import { type CheckBuilder, check, probed } from '../check';
@@ -22,12 +22,6 @@ export type RunsFacts = {
   lock?: LockFacts;
 };
 
-/** True for the bucket refusing the key: the policy an apply writes admits the observer's version reads. */
-export function accessDenied(error: unknown): boolean {
-  const { name, $metadata } = error as { name?: string; $metadata?: { httpStatusCode?: number } };
-  return name === 'AccessDenied' || $metadata?.httpStatusCode === 403;
-}
-
 /** The newest record read on the session's key, or why it was not; undefined without a key or before the first record. */
 async function newestRecord(session: ProbeSession): Promise<RunsFacts['record']> {
   if (!session.accessKey || !session.secretKey || !session.projectId) return undefined;
@@ -38,7 +32,8 @@ async function newestRecord(session: ProbeSession): Promise<RunsFacts['record']>
     const [run] = await store.listRuns(1);
     return run ? await store.readRecord(run) : undefined;
   } catch (error) {
-    return accessDenied(error) ? { denied: true } : { error: errorMessage(error) };
+    // The policy an apply writes admits the observer's version reads.
+    return isAccessDenied(error) ? { denied: true } : { error: errorMessage(error) };
   }
 }
 

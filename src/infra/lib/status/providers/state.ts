@@ -1,4 +1,4 @@
-import { check, probed, runSetup, unlock } from '../check';
+import { check, probed, setupAction, unlockAction } from '../check';
 import type { ScalewayFacts, StatusProvider } from '../types';
 
 /** The state bucket's presence and the lease, from the shared read. */
@@ -13,13 +13,13 @@ export const stateProvider: StatusProvider<ScalewayFacts> = {
     const lock = check('state.lock', 'Lease', 'scaleway');
     return [
       probed(bucket, creds, facts?.stateBucketExists, 'could not read the state bucket', (exists) =>
-        exists ? { ...bucket.ok('present'), headline: 'state bucket' } : bucket.missing('absent; run setup to create it', runSetup),
+        exists ? { ...bucket.ok('present'), headline: 'state bucket' } : bucket.missing('absent; run setup to create it', setupAction),
       ),
       probed(lock, creds, facts?.lock, 'could not read the lease', (held) => {
         if (!held.held) return { ...lock.ok('free'), headline: 'no run in progress' };
         const who = `${held.owner ?? 'unknown'} (${held.operation ?? 'unknown op'})`;
         return held.stale
-          ? lock.warn(`stale lease held by ${who}, expired ${held.expiresAt ?? '?'}`, unlock)
+          ? lock.warn(`stale lease held by ${who}, expired ${held.expiresAt ?? '?'}`, unlockAction)
           : lock.warn(`held by ${who} since ${held.acquiredAt ?? '?'} (a run may be in progress)`);
       }),
     ];
