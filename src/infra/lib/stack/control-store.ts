@@ -170,7 +170,7 @@ export const lockKey = (stack: string): string => `${controlPrefix(stack)}lock.j
 /** The rotations an operator records. */
 export const rotationsKey = (stack: string): string => `${controlPrefix(stack)}rotations.json`;
 
-/** The largest counter a rotations record may hold: far above any count of rotations, and a stored one that rises by 1 still rises. */
+/** A rotations record holds a counter below this: far above any count of rotations, and the next rotation's counter still parses. */
 const maxRotationCounter = 1_000_000;
 
 /** What the operator does about a rotations record that does not parse. */
@@ -192,8 +192,8 @@ export function parseRotations(text: string): Rotations {
     throw new Error(`rotations: not valid JSON (${errorMessage(err)}); ${replaceRotations}`);
   }
   const counter = isRecord(raw) ? raw.counter : undefined;
-  if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter > maxRotationCounter) {
-    throw new Error(`rotations: counter must be a whole number from 0 to ${maxRotationCounter}; ${replaceRotations}`);
+  if (!isRecord(raw) || typeof counter !== 'number' || !Number.isInteger(counter) || counter < 0 || counter >= maxRotationCounter) {
+    throw new Error(`rotations: counter must be a whole number from 0 and below ${maxRotationCounter}; ${replaceRotations}`);
   }
   const rotations: Rotations = { counter };
   if (raw.keys !== undefined) rotations.keys = parseRotationRecord('keys', raw.keys);
