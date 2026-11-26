@@ -1,5 +1,29 @@
 # Changelog
 
+## [0.10.0](https://github.com/cellajs/cella-cli/compare/cli-0.9.1...cli-0.10.0) (2026-11-26)
+
+
+### ⚠ BREAKING CHANGES
+
+* `cella infra` refuses a flag it does not know, and the menu, the help and the prompts read as one CLI ([#120](https://github.com/cellajs/cella-cli/issues/120))
+* the deploy engine follows the package's conventions and loses its dead code, and Deploy now is deploy-now ([#119](https://github.com/cellajs/cella-cli/issues/119))
+* a key rotation ends what a lost deploy key stored, env files quote every value, a clean upgrade stops for review ([#118](https://github.com/cellajs/cella-cli/issues/118))
+
+### 🎉 New features
+
+* `cella infra` refuses a flag it does not know, and the menu, the help and the prompts read as one CLI ([#120](https://github.com/cellajs/cella-cli/issues/120)) ([efe5a0d](https://github.com/cellajs/cella-cli/commit/efe5a0d7a0648296eda2904c5a5991ca158afe20))
+
+
+### 🐞 Bug fixes
+
+* a key rotation ends what a lost deploy key stored, env files quote every value, a clean upgrade stops for review ([#118](https://github.com/cellajs/cella-cli/issues/118)) ([d9a98c9](https://github.com/cellajs/cella-cli/commit/d9a98c9c2a9a77f38be1f0b9061f14fede5cfa41))
+* the upgrade guard skips other repositories' pull requests, and nine smaller security fixes ([#115](https://github.com/cellajs/cella-cli/issues/115)) ([aa540aa](https://github.com/cellajs/cella-cli/commit/aa540aad91c17d56612fcb7c7d83eed5e93bf26e))
+
+
+### 🔧 Small improvements
+
+* the deploy engine follows the package's conventions and loses its dead code, and Deploy now is deploy-now ([#119](https://github.com/cellajs/cella-cli/issues/119)) ([84ba9a6](https://github.com/cellajs/cella-cli/commit/84ba9a6be27507ddbe2a51240884e1cf161a9927))
+
 ## [0.9.1](https://github.com/cellajs/cella-cli/compare/cli-0.9.0...cli-0.9.1) (2026-11-26)
 
 
