@@ -69,10 +69,10 @@ export function parseOrphanedDeletes(output: string): string[] {
 }
 
 /** `pulumi state delete --yes` each URN. A refusal (a dependent still references the entry) is reported and the entry left in place. */
-export function pruneOrphanedDeletes(urns: string[], stack: string, cwd: string, env: NodeJS.ProcessEnv): boolean {
+export function pruneOrphanedDeletes(urns: string[], stack: string, env: NodeJS.ProcessEnv): boolean {
   let ok = true;
   for (const urn of urns) {
-    const res = spawnSync('pulumi', ['state', 'delete', urn, '--stack', stack, '--yes'], { cwd, env, encoding: 'utf8' });
+    const res = spawnSync('pulumi', ['state', 'delete', urn, '--stack', stack, '--yes'], { cwd: infraDir, env, encoding: 'utf8' });
     if (res.status === 0) {
       console.info(`  pruned ${urn}`);
     } else {
@@ -115,12 +115,12 @@ export function pulumiUpArgs(stack: string, opts: PulumiUpOptions = {}): string[
   ];
 }
 
-/** Run `pulumi up --yes --non-interactive` in `cwd`. `configFile` swaps the stack config for the DB-exposure overlay; a non-zero exit prints a permission hint when stderr indicates one. */
-export async function runPulumiUpWithHint(stack: string, cwd: string, env: NodeJS.ProcessEnv, opts: PulumiUpOptions = {}): Promise<PulumiUpResult> {
+/** Run `pulumi up --yes --non-interactive` in the infra folder. `configFile` swaps the stack config for the DB-exposure overlay; a non-zero exit prints a permission hint when stderr indicates one. */
+export async function runPulumiUpWithHint(stack: string, env: NodeJS.ProcessEnv, opts: PulumiUpOptions = {}): Promise<PulumiUpResult> {
   const args = pulumiUpArgs(stack, opts);
   console.info(`\n→ pulumi up (base infra)\n  $ pulumi ${args.join(' ')}`);
   // stdout is teed, not inherited, so the Diagnostics section reaches parseOrphanedDeletes; --non-interactive already forces the plain display, so piping changes nothing for the operator.
-  const child = spawn('pulumi', args, { cwd, env, stdio: ['inherit', 'pipe', 'pipe'] });
+  const child = spawn('pulumi', args, { cwd: infraDir, env, stdio: ['inherit', 'pipe', 'pipe'] });
   let stdoutBuf = '';
   child.stdout?.on('data', (chunk: Buffer) => {
     stdoutBuf += chunk.toString();

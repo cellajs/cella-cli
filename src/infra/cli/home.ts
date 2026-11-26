@@ -134,7 +134,7 @@ export function upNextOf(report: StatusReport, refs?: readonly RemoteRef[]): UpN
   }
   if (next) return undefined;
   if (last?.subject && / is deploying$/.test(last.detail)) {
-    return { action: 'deploy', description: `Follow the deploy of ${commitName(refs, last.subject)}` };
+    return { action: 'deploy-now', description: `Follow the deploy of ${commitName(refs, last.subject)}` };
   }
   const findings = securityFindings(report);
   if (findings.length === 0) return undefined;

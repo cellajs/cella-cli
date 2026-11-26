@@ -24,7 +24,7 @@ export interface StackContext {
 /**
  * Load the stack context for a mode in the one order every entry point must follow: the mode env file (it overrides the ambient env), then
  * APP_MODE, which the config reads during module evaluation, then the config itself, which names the app whose observer key this machine
- * holds. `log` receives the env-file notices; silent by default so machine output (`status --json`) stays parseable.
+ * holds. `log` receives the env-file notices; without one they are not printed.
  */
 export async function loadStackContext(environment: Environment, log?: (message: string) => void): Promise<StackContext> {
   const envWarnings = loadModeEnvFile(environment, log);

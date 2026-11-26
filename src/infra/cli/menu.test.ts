@@ -19,7 +19,7 @@ function render(items: Array<MenuItem<string>>): string[] {
 
 describe('mainMenuItems', () => {
   it('leads with the recommended step when the home screen has one', () => {
-    const items = mainMenuItems({ ...bootstrapped, upNext: { action: 'deploy', description: 'Deploy 0.35.0 again' } });
+    const items = mainMenuItems({ ...bootstrapped, upNext: { action: 'deploy-now', description: 'Deploy 0.35.0 again' } });
     expect(render(items).slice(0, 2)).toEqual(['  ▶  Deploy 0.35.0 again', '']);
     expect(items[0]).toMatchObject({ value: UP_NEXT });
   });

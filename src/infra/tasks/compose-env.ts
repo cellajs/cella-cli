@@ -10,7 +10,6 @@ import { deployS3Key, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 import { carriedServices, deployedServices } from '../lib/services';
-import { getFlag } from '../lib/utils/args';
 import { isEnvFileDeliverable } from '../lib/utils/env-file';
 import { ExitCodeError } from '../lib/utils/errors';
 
@@ -101,32 +100,32 @@ function bootAccountKey(service: string, now: Date): string {
   return `${BOOT_ACCOUNTS_PREFIX}${service}-${stamp}-boot.log`;
 }
 
+/** What the deploy hands its env steps: the check before the build, then the release and the file the env objects go to. */
+export type ComposeEnvStep = { projectId: string } & ({ check: true } | { check?: false; sha: string; out: string });
+
 /**
- * The deploy's two steps around the build. With `--check`, before it: refuse a required value the runtime folder holds no version of,
+ * The deploy's two steps around the build. With `check`, before it: refuse a required value the runtime folder holds no version of,
  * reading none. Without, once the release is built and its description checked: read the runtime values with the deploy key, compose each
  * machine's env file and write it to the boot-diag bucket under `env/`, where only the deploy key reads it, and the env objects and boot
- * account keys to `--out`, from which the deploy hands each new machine its links.
+ * account keys to `out`, from which the deploy hands each new machine its links.
  */
-export async function main(argv: string[]): Promise<void> {
-  const check = argv.includes('--check');
-  const sha = getFlag(argv, '--sha');
-  const projectId = getFlag(argv, '--project-id');
-  const out = getFlag(argv, '--out');
+export async function main(step: ComposeEnvStep): Promise<void> {
+  const { projectId } = step;
   const { accessKey, secretKey } = deployS3Key();
-  if (!projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY, --project-id, and --check or --sha with --out');
+  if (!projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY and the project id');
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   const { naming, region } = deriveInfra(appConfig);
   const machines = machineEnvEntries(appConfig);
 
   const secrets = createSecretManagerClient({ secretKey, region, projectId });
   const listed = await secrets.listSecretsUnder(RUNTIME_FOLDER);
-  if (check) {
+  if (step.check) {
     const missing = requiredWithoutValue(machines, listed);
     if (missing.length > 0) throw blocked([`required runtime values are not set: ${missing.join(', ')}`]);
     console.info('[compose-env] every required runtime value is stored');
     return;
   }
-  if (!sha || !out) throw new Error('Required: --sha and --out, or --check');
+  const { sha, out } = step;
   const needed = new Set(machines.flatMap((machine) => machine.entries.map((entry) => entry.secretName)));
   const values = new Map<string, string>();
   for (const container of listed.filter((secret) => needed.has(secret.name) && (secret.version_count ?? 0) > 0)) {

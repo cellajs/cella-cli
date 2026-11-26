@@ -189,7 +189,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
 
   // The Scaleway provider authenticates from SCW_* env (childEnv), which carries the operator key.
   while (true) {
-    const { code } = await runPulumiUpWithHint(ctx.stackName, infraDir, ctx.childEnv);
+    const { code } = await runPulumiUpWithHint(ctx.stackName, ctx.childEnv);
     if (code === 0) break;
     if (!(await confirm({ message: 'Retry?', default: false }))) {
       await stackLock.release();
@@ -211,7 +211,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
     engine = await publishEngineOrWarn(ctx);
     if (engine) {
       ctx.childEnv.INFRA_ENGINE_IMAGE = engine.image;
-      const { code } = await runPulumiUpWithHint(ctx.stackName, infraDir, ctx.childEnv);
+      const { code } = await runPulumiUpWithHint(ctx.stackName, ctx.childEnv);
       if (code !== 0) {
         console.warn(`${warningMark} The main job's definition waits for ${pointTo('apply')} (pulumi up exited ${code}).`);
         engine = undefined;

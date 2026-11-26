@@ -49,7 +49,7 @@ const NEEDS_BOOTSTRAPPED_STACK: readonly OperatorActionId[] = [
   'db-seed',
   'db-open',
   'db-close',
-  'deploy',
+  'deploy-now',
   'releases',
 ];
 

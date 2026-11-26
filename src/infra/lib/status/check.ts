@@ -22,7 +22,7 @@ export const manageDbEndpoint: NextAction = {
 
 /** Deploy the environment's target: a scheduled run does once its target moves, this starts a run now. */
 export function deployAction(mode: string): NextAction {
-  return { description: `Start a run of ${mode}'s main job for its target`, command: `${actionCommand('deploy')} --mode ${mode}` };
+  return { description: `Start a run of ${mode}'s main job for its target`, command: `${actionCommand('deploy-now')} --mode ${mode}` };
 }
 
 /** Read the last runs and the machines' boot accounts when a live service is wrong, then deploy again. */

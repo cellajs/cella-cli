@@ -14,8 +14,12 @@ import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { getFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
 import { infraDir } from '../lib/utils/paths';
-import type { MachineEnv } from './compose-env';
-import { type AllowedKey, buildDeployEnv } from './deploy-env';
+import type { BuildReleaseStep } from './build-release';
+import type { ClearMachineLinksStep } from './clear-machine-links';
+import type { ComposeEnvStep, MachineEnv } from './compose-env';
+import { buildDeployEnv, type DeployEnv } from './deploy-env';
+import type { GeoipRefreshStep } from './geoip-refresh';
+import type { SmokeStep } from './smoke';
 import type { SwitchResult } from './switch-machines';
 
 /** One run's environment, target, retry counter and run id. */
@@ -28,8 +32,16 @@ export interface DeployOptions {
   run?: string;
 }
 
-/** The deploy's steps that run in-process: each is a task's `main(argv)`, which throws on failure. */
-export type TaskName = 'build-release' | 'compose-env' | 'clear-machine-links' | 'geoip-refresh' | 'smoke';
+/** The deploy's steps that run in-process, with what each is handed: each is a step module's `main`, which throws on failure. */
+export interface StepOptions {
+  'build-release': BuildReleaseStep;
+  'compose-env': ComposeEnvStep;
+  'clear-machine-links': ClearMachineLinksStep;
+  'geoip-refresh': GeoipRefreshStep;
+  smoke: SmokeStep;
+}
+
+export type TaskName = keyof StepOptions;
 
 /** What the switch step is handed: the roles to switch, the record they switch from, the target, and the release the build checked. */
 export interface SwitchRequest {
@@ -48,8 +60,8 @@ export interface SwitchRequest {
 
 /** One executed step. Steps run in-process via `task`. */
 export interface DeployEffects {
-  /** Run a task module's main(argv) in-process; throws on failure. */
-  task(name: TaskName, argv?: string[]): Promise<void>;
+  /** Run a step module's main in-process; throws on failure. */
+  task<N extends TaskName>(name: N, options: StepOptions[N]): Promise<void>;
   /** A file a task wrote for the steps after it. */
   readFile(path: string): Promise<string>;
   /**
@@ -116,7 +128,7 @@ export function parseDeployArgs(argv: string[]): DeployOptions {
 }
 
 /** Derive the deploy env table from the app config for the requested mode. */
-async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<Record<AllowedKey, string>> {
+async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<DeployEnv> {
   process.env.APP_MODE = opts.mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   if (appConfig.mode !== opts.mode) throw new Error(`Mode mismatch: requested "${opts.mode}" but loaded config is "${appConfig.mode}"`);
@@ -132,7 +144,7 @@ async function loadDeployEnvFromConfig(opts: DeployOptions): Promise<Record<Allo
 export async function runDeploy(
   opts: DeployOptions,
   fx: DeployEffects,
-  loadDeployEnv: (opts: DeployOptions) => Promise<Record<AllowedKey, string>> = loadDeployEnvFromConfig,
+  loadDeployEnv: (opts: DeployOptions) => Promise<DeployEnv> = loadDeployEnvFromConfig,
 ): Promise<void> {
   const env = await loadDeployEnv(opts);
   const stack = env.stack;
@@ -233,33 +245,27 @@ export async function runDeploy(
         const owed = engineMismatch(stamp, opts.mode);
         if (owed) throw owed;
       });
-      await step('Check runtime secrets', () => fx.task('compose-env', ['--check', '--project-id', process.env.SCW_DEFAULT_PROJECT_ID ?? '']));
+      const projectId = process.env.SCW_DEFAULT_PROJECT_ID ?? '';
+      await step('Check runtime secrets', () => fx.task('compose-env', { check: true, projectId }));
 
       // The release's archives and frontend files: a builder machine makes the missing ones and writes them through links, then the release's
       // entry files wait in a folder of their own for the publish below. No app code runs beside the deploy key.
       // A manifest or a GeoIP file stored before the last key rotation is made again: a lost deploy key could have written it.
-      const keysRotated = live.keysRotatedAt ? ['--keys-rotated-at', live.keysRotatedAt] : [];
+      const { keysRotatedAt } = live;
       const distDir = env.frontend_bucket ? await mkdtemp(join(tmpdir(), 'release-')) : '';
       const manifestFile = join(work, 'manifest.json');
       let manifest: ReleaseManifest | undefined;
       await step('Build the release', async () => {
-        await fx.task('build-release', [
-          '--sha',
-          opts.sha,
-          '--mode',
-          opts.mode,
-          '--project-id',
-          process.env.SCW_DEFAULT_PROJECT_ID ?? '',
-          '--build-images-json',
-          env.build_images_matrix,
-          '--services-json',
-          env.enabled_services_json,
-          '--dist',
+        await fx.task('build-release', {
+          sha: opts.sha,
+          mode: opts.mode,
+          projectId,
+          buildImages: env.build_images,
+          services: env.enabled_services,
           distDir,
-          '--manifest-out',
-          manifestFile,
-          ...keysRotated,
-        ]);
+          manifestOut: manifestFile,
+          keysRotatedAt,
+        });
         manifest = parseReleaseManifest(await fx.readFile(manifestFile), opts.sha);
       });
 
@@ -285,7 +291,7 @@ export async function runDeploy(
       // runtime folder and writes each role's env file, which only it reads; a value that is empty, not one line or holds `'` ends the run blocked
       // before any machine of the release boots, and storing it starts the target again.
       await step('Compose runtime env', async () => {
-        await fx.task('compose-env', ['--sha', opts.sha, '--project-id', process.env.SCW_DEFAULT_PROJECT_ID ?? '', '--out', envsFile]);
+        await fx.task('compose-env', { sha: opts.sha, projectId, out: envsFile });
         envsWritten = true;
       });
 
@@ -294,7 +300,7 @@ export async function runDeploy(
       if (env.public_bucket) {
         await step('Ensure GeoIP data', async () => {
           try {
-            await fx.task('geoip-refresh', ['--bucket', env.public_bucket, '--region', env.region, '--max-age-days', '35', ...keysRotated]);
+            await fx.task('geoip-refresh', { bucket: env.public_bucket, region: env.region, maxAgeDays: 35, keysRotatedAt });
           } catch (err) {
             say(`[deploy] GeoIP data refresh skipped: ${errorMessage(err)}`);
           }
@@ -333,7 +339,7 @@ export async function runDeploy(
       }
       // Each new machine fetched its env file and archives: once its boot account arrived, its user data keeps no link and its env file goes.
       await step('Take the links off the new machines', async () => {
-        await fx.task('clear-machine-links', ['--envs', envsFile, '--machines', machinesFile]);
+        await fx.task('clear-machine-links', { envsFile, machinesFile, wait: true });
         linksCleared = true;
       });
 
@@ -344,17 +350,15 @@ export async function runDeploy(
         );
       }
       await step('Smoke tests', () =>
-        fx.task('smoke', [
-          '--sha',
-          opts.sha,
-          '--services-json',
-          env.enabled_services_json,
+        fx.task('smoke', {
+          sha: opts.sha,
+          services: env.enabled_services,
           // The primary role owns smoke's aggregate-health and OpenAPI checks, with no service-name literal.
-          ...(env.primary_role ? ['--primary', env.primary_role] : []),
-          // A provided-but-unreadable --dist is a hard failure in smoke, so a frontend-less registry omits the flag.
-          ...(env.frontend_bucket ? ['--dist', resolve(distDir, 'index.html')] : []),
-          ...(env.apex_url ? ['--apex', env.apex_url] : []),
-        ]),
+          ...(env.primary_role ? { primary: env.primary_role } : {}),
+          // A provided-but-unreadable dist is a hard failure in smoke, so a frontend-less registry omits it.
+          ...(env.frontend_bucket ? { dist: resolve(distDir, 'index.html') } : {}),
+          ...(env.apex_url ? { apex: env.apex_url } : {}),
+        }),
       );
     }
   } catch (err) {
@@ -365,7 +369,7 @@ export async function runDeploy(
     // Whatever stopped the run before its step did, no env file outlives it and no machine of it keeps a link.
     if (envsWritten && !linksCleared) {
       await fx
-        .task('clear-machine-links', ['--envs', envsFile, '--machines', machinesFile, '--no-wait'])
+        .task('clear-machine-links', { envsFile, machinesFile, wait: false })
         .catch((err) => say(`[deploy] the links stay until they end, the env files until the bucket's rule: ${errorMessage(err)}`));
     }
     await lease?.release().catch((err) => say(`[deploy] lease release failed: ${errorMessage(err)}`));
@@ -425,12 +429,12 @@ async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string
 }
 
 // The deploy runs each step's main in-process: config is read once and a failing step keeps its stack trace.
-const taskRunners: Record<TaskName, (argv: string[]) => Promise<void>> = {
-  'build-release': async (argv) => (await import('./build-release')).main(argv),
-  'compose-env': async (argv) => (await import('./compose-env')).main(argv),
-  'clear-machine-links': async (argv) => (await import('./clear-machine-links')).main(argv),
-  'geoip-refresh': async (argv) => (await import('./geoip-refresh')).main(argv),
-  smoke: async (argv) => (await import('./smoke')).main(argv),
+const taskRunners: { [N in TaskName]: (options: StepOptions[N]) => Promise<void> } = {
+  'build-release': async (options) => (await import('./build-release')).main(options),
+  'compose-env': async (options) => (await import('./compose-env')).main(options),
+  'clear-machine-links': async (options) => (await import('./clear-machine-links')).main(options),
+  'geoip-refresh': async (options) => (await import('./geoip-refresh')).main(options),
+  smoke: async (options) => (await import('./smoke')).main(options),
 };
 
 /** The deploy key's S3 client on the environment's diagnostics bucket, which holds the run records, the control records and the release. */
@@ -452,7 +456,7 @@ async function controlClient(region: string) {
 
 function createRealEffects(): DeployEffects {
   return {
-    task: (name, argv = []) => taskRunners[name](argv),
+    task: (name, options) => taskRunners[name](options),
     readFile: (path) => readFile(path, 'utf8'),
     async lease(stack, operation, run) {
       const [{ leaseOwnerOfRun, lockKey }, { acquireLease, installSignalRelease }, { engineConfig }, { deriveInfra }] = await Promise.all([

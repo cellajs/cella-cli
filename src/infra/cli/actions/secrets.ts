@@ -361,7 +361,7 @@ async function recordValuesChange(context: InfraContext, operator: OperatorKey):
 /** Run a deploy that ended blocked, on a missing secret among others, once more: true when it started. */
 async function restartBlocked(context: InfraContext, operator: OperatorKey): Promise<boolean> {
   return startBlockedTarget(context, operator).catch((error) => {
-    console.warn(`${warningMark} Could not start the blocked deploy again (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the blocked deploy again (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
     return false;
   });
 }
@@ -383,7 +383,7 @@ export async function offerDeploy(context: InfraContext, operator: OperatorKey |
   if (!(await confirmOrDefault({ message: 'Deploy the live release again, so the machines get the new values?', default: false }))) return;
   await redeployAfterRotation(context, key).catch((error) => {
     if (endsAction(error)) throw error;
-    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
   });
 }
 

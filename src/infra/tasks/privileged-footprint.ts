@@ -12,9 +12,9 @@ const ORGANIZATION = 'organization';
  * program holds the foundation only, as a deploy makes the machines. The stack file is not read: the committed one holds markers only, and a database's exposure lives
  * in the operator's own overlay. Writes JSON to `--out`; the pull request check compares a base's with a head's (tasks/privileged-check.ts).
  */
-export async function main(argv: string[]): Promise<void> {
-  const mode = getFlag(argv, '--mode');
-  const out = getFlag(argv, '--out');
+export async function main(words: string[]): Promise<void> {
+  const mode = getFlag(words, '--mode');
+  const out = getFlag(words, '--out');
   if (!mode || !out) throw new Error('Usage: privileged-footprint --mode <environment> --out <file>');
 
   // Before anything imports @pulumi/pulumi or the app's config, which read these at evaluation.

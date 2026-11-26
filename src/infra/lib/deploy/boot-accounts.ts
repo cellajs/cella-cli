@@ -27,11 +27,9 @@ export function bucketBootAccountReader(s3: Pick<S3Client, 'send'>, bucket: stri
   };
 }
 
-const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-
 /** A service's boot accounts, newest first. Keys sort by their time stamp. */
 export function serviceAccountKeys(keys: readonly string[], service: string): string[] {
-  const pattern = new RegExp(`^${escapeRe(service)}-[0-9]{8}T[0-9]{6}Z?-boot\\.log$`);
+  const pattern = new RegExp(`^${RegExp.escape(service)}-[0-9]{8}T[0-9]{6}Z?-boot\\.log$`);
   return keys
     .filter((key) => pattern.test(key))
     .sort()

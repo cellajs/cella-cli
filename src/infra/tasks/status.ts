@@ -123,7 +123,6 @@ export function buildSession(ctx: StatusContext): ProbeSession {
     mode: ctx.mode,
     appConfig: ctx.appConfig,
     stackState: ctx.stackState,
-    stackYaml: ctx.stackYaml,
     projectId,
     scalewayKeyAvailable,
     accessKey,

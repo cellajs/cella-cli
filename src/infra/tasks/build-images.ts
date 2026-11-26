@@ -2,19 +2,14 @@ import { basename, dirname } from 'node:path';
 import { ENGINE_ASSETS } from '../lib/builder/builder-machine';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import { AGENT_IMAGE_NAME } from '../lib/deploy/release-archives';
-import { parseServiceRows } from '../lib/utils/service-rows';
 
 // The bake definition the builder machine runs: targets derive from the deploy's build matrix, and each image is written as an archive.
 
 export interface BuildImageRow {
   service: string;
   dockerfile: string;
+  /** The stage of a multi-stage Dockerfile: without it every image of that file would be its last stage. */
   target?: string;
-}
-
-export function parseBuildRows(raw: string): BuildImageRow[] {
-  // The stage of a multi-stage Dockerfile: without it every image of that file would be its last stage.
-  return parseServiceRows(raw, '--build-images-json', { required: ['service', 'dockerfile'], optional: ['target'] });
 }
 
 export interface BakeOptions {

@@ -142,7 +142,7 @@ export async function assertBucketProject(s3: S3Client, bucketName: string, expe
 }
 
 /** The setup's step: make the bucket in the environment's project and harden it, on the operator key. */
-export async function main(_words: string[]): Promise<void> {
+export async function main(): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
   if (!accessKey || !secretKey) throw new Error('SCW_ACCESS_KEY and SCW_SECRET_KEY must be set');

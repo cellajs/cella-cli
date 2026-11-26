@@ -2,7 +2,7 @@ import { resolve } from 'node:path';
 import { projectAccessKey } from './s3-client';
 
 /** `SCW_CONFIG_PATH` that neutralises the local Scaleway CLI profile: the file is never created, so the SDK finds nothing to load. */
-export const scwConfigPathNone = (infraDir: string): string => resolve(infraDir, '.scw-config-none');
+const scwConfigPathNone = (infraDir: string): string => resolve(infraDir, '.scw-config-none');
 
 /** Inputs for {@link buildProviderEnv}. */
 export interface ProviderEnvInput {

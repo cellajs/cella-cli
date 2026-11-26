@@ -133,7 +133,7 @@ describe('upNextOf', () => {
 
   it('names the deploy by its release: one under way to follow, a failed one to read the boot log of', () => {
     const deploying = report([ok('runs.last', 'Last deploy', 'a6696b654e is deploying', 'a6696b654eaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa')]);
-    expect(upNextOf(deploying, refs)).toEqual({ action: 'deploy', description: 'Follow the deploy of 0.35.0' });
+    expect(upNextOf(deploying, refs)).toEqual({ action: 'deploy-now', description: 'Follow the deploy of 0.35.0' });
     const failed = report([{ ...deploying.checks[0]!, status: 'error', detail: 'a6696b654e failed' }], {
       description: 'Read how it ended',
       command: 'pnpm cella infra logs',

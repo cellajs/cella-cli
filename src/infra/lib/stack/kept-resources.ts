@@ -78,18 +78,14 @@ export function destroyableState(exported: unknown, kept: readonly KeptResource[
 }
 
 /** The folders a teardown empties. A container outside them is none of the engine's. */
-export const engineFolders: readonly string[] = [RUNTIME_FOLDER, ENGINE_FOLDER];
+const engineFolders: readonly string[] = [RUNTIME_FOLDER, ENGINE_FOLDER];
 
 /** The secret containers a teardown deletes: every one in the engine's folders, or below them, but the kept values' containers. */
-export function sweptSecrets<Secret extends ListedSecret>(
-  listed: readonly Secret[],
-  kept: readonly KeptResource[],
-  folders: readonly string[],
-): Secret[] {
+export function sweptSecrets<Secret extends ListedSecret>(listed: readonly Secret[], kept: readonly KeptResource[]): Secret[] {
   const keep = new Set(
     kept.flatMap(({ adopt }) => (adopt && 'secret' in adopt ? [keptContainer(listed, adopt.secret)?.id ?? ''] : [])).filter(Boolean),
   );
-  const roots = folders.map(trimSlashes);
+  const roots = engineFolders.map(trimSlashes);
   const inFolders = (path: string) => roots.some((root) => trimSlashes(path) === root || trimSlashes(path).startsWith(`${root}/`));
   return listed.filter((secret) => !keep.has(secret.id) && inFolders(secret.path));
 }

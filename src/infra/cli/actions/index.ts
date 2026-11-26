@@ -40,7 +40,7 @@ export const ACTION_RUNNERS: ActionRunners = {
   'rotate-secrets': runRotateSecrets,
   operators: runOperatorKey,
   identities: runIdentity,
-  deploy: runStartDeploy,
+  'deploy-now': runStartDeploy,
   releases: runReleases,
   'repository-key': runRepositoryKey,
   env: runSecrets,

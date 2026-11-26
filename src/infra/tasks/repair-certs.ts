@@ -78,8 +78,8 @@ async function liveStatus(auth: ScwAuth, id: string): Promise<LiveCertStatus> {
   }
 }
 
-export async function main(argv: string[]): Promise<void> {
-  const stack = getFlag(argv, '--stack');
+export async function main(words: string[]): Promise<void> {
+  const stack = getFlag(words, '--stack');
   if (!stack) throw new Error('Usage: repair-certs --stack <stack>');
   const secretKey = process.env.SCW_SECRET_KEY;
   if (!secretKey) throw new Error('SCW_SECRET_KEY must be set');
@@ -108,7 +108,7 @@ export async function main(argv: string[]): Promise<void> {
     }
     if (repair.deleteLive) {
       await scwSend(auth, 'DELETE', `https://api.scaleway.com/lb/v1/zones/${repair.zone}/certificates/${repair.certId}`);
-      console.info(`repair-certs: deleted errored certificate ${repair.certId}; the next pulumi up recreates it behind the DNS gate.`);
+      console.info(`repair-certs: deleted errored certificate ${repair.certId}; the apply recreates it behind the DNS gate.`);
     }
   }
 }

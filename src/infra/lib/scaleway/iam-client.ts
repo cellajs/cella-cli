@@ -35,7 +35,7 @@ export async function getApiKey(auth: IamAuth, accessKey: string): Promise<ScwAp
 export async function resolveOrganizationIdViaProject(auth: IamAuth, projectId: string): Promise<string> {
   const project = await scwFetch<{ organization_id?: string }>(auth, 'GET', `${ACCOUNT_BASE}/projects/${projectId}`);
   if (!project?.organization_id) {
-    throw new Error(`Could not resolve organization_id from project ${projectId}: set SCW_DEFAULT_ORGANIZATION_ID (or pass --organization-id).`);
+    throw new Error(`Could not resolve organization_id from project ${projectId}: set SCW_DEFAULT_ORGANIZATION_ID in .env and run again.`);
   }
   return project.organization_id;
 }

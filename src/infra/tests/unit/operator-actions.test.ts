@@ -105,7 +105,7 @@ describe('menu rows', () => {
     expect(menuPath('apply')).toBe('Review & apply changes');
     expect(menuPath('preview')).toBe('More → Preview changes');
     expect(menuPath('unlock')).toBe('More → Unlock');
-    expect(menuPath('deploy')).toBe('More → Deploy now');
+    expect(menuPath('deploy-now')).toBe('More → Deploy now');
     expect(menuPath('rotate-keys')).toBe('More → Rotate keys');
   });
 });

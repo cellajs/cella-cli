@@ -30,11 +30,10 @@ import { makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import { scwErrorStatus, scwFetch } from '../lib/scaleway/scw-fetch';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
-import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
 import { infraDir } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
-import { bakeDefinition, parseBuildRows } from './build-images';
+import { type BuildImageRow, bakeDefinition } from './build-images';
 import { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
 import { frontendBuildEnv } from './frontend-build-env';
 
@@ -334,24 +333,30 @@ function liveEffects(opts: {
   };
 }
 
+/** What the deploy hands its build step. */
+export interface BuildReleaseStep {
+  sha: string;
+  mode: string;
+  projectId: string;
+  buildImages: BuildImageRow[];
+  services: { service: string; public_url: string }[];
+  /** The folder the release's entry files wait in for the publish; '' for an app without a frontend. */
+  distDir: string;
+  manifestOut: string;
+  /** The time of the last key rotation, absent before the first. */
+  keysRotatedAt?: string;
+}
+
 /**
  * The deploy's step: the deploy key in `SCW_ACCESS_KEY` / `SCW_SECRET_KEY`; names, the repository and the pnpm version from the config. The
- * checked manifest goes to `--manifest-out`, from which the deploy hands each new machine the digests of the archives it loads.
+ * checked manifest goes to `manifestOut`, from which the deploy hands each new machine the digests of the archives it loads.
  */
-export async function main(argv: string[]): Promise<void> {
+export async function main(step: BuildReleaseStep): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;
-  const sha = getFlag(argv, '--sha');
-  const mode = getFlag(argv, '--mode');
-  const projectId = getFlag(argv, '--project-id');
-  const buildImagesJson = getFlag(argv, '--build-images-json');
-  const servicesJson = getFlag(argv, '--services-json');
-  const manifestOut = getFlag(argv, '--manifest-out');
-  const distDir = getFlag(argv, '--dist') || undefined;
-  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
-  if (!accessKey || !secretKey || !sha || !mode || !projectId || !buildImagesJson || !servicesJson || !manifestOut) {
-    throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY, --sha, --mode, --project-id, --build-images-json, --services-json, --manifest-out');
-  }
+  const { sha, mode, projectId, manifestOut, keysRotatedAt } = step;
+  const distDir = step.distDir || undefined;
+  if (!accessKey || !secretKey || !projectId) throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY and the project id');
   process.env.APP_MODE = mode;
   const { engineConfig: appConfig } = await import('infra/config/engine-config');
   const { naming, region, zones } = deriveInfra(appConfig);
@@ -365,7 +370,7 @@ export async function main(argv: string[]): Promise<void> {
   const nodeVersion = rootPackage.engines?.node;
   if (!nodeVersion) throw new Error("the builder builds on the Node the root package.json's 'engines.node' names");
 
-  const rows = parseBuildRows(buildImagesJson);
+  const rows = step.buildImages;
   const frontendBucket = distDir ? naming.frontendBucket : '';
   const prefix = builderPrefix(naming.resource);
 
@@ -390,7 +395,7 @@ export async function main(argv: string[]): Promise<void> {
             APP_MODE: mode,
           },
           links,
-          frontendEnv: frontendBucket ? frontendBuildEnv(mode, servicesJson, sha) : {},
+          frontendEnv: frontendBucket ? frontendBuildEnv(mode, step.services, sha) : {},
           bake: bakeDefinition(rows, {
             registry: `rg.${region}.scw.cloud`,
             namespace: naming.registryNamespace,

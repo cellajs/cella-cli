@@ -5,9 +5,3 @@ export function getFlag(argv: string[], flag: string): string | undefined {
   const idx = argv.indexOf(flag);
   return idx >= 0 ? argv[idx + 1] : undefined;
 }
-
-/** Numeric value following `--flag`, or `fallback` when absent/empty. */
-export function getNumFlag(argv: string[], flag: string, fallback: number): number {
-  const raw = getFlag(argv, flag);
-  return raw === undefined ? fallback : Number(raw);
-}

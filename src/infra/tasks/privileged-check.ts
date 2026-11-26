@@ -35,8 +35,8 @@ function render(dir: string, command: string[], mode: string, out: string): Priv
  * render fails it. `--base` is a checkout of the base commit with its workspace installed. Whether the release PR deploys without an apply
  * is release-applied-check.ts.
  */
-export async function main(argv: string[]): Promise<void> {
-  const baseRoot = getFlag(argv, '--base');
+export async function main(words: string[]): Promise<void> {
+  const baseRoot = getFlag(words, '--base');
   if (!baseRoot) throw new Error('Usage: privileged-check --base <checkout of the base commit>');
   const baseInfra = join(baseRoot, 'infra');
   const work = mkdtempSync(join(tmpdir(), 'privileged-check-'));

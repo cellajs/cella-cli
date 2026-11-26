@@ -200,7 +200,7 @@ describe('live service checks', () => {
     );
     const check = find(report.checks, 'live.backend');
     expect(check?.status).toBe('warn');
-    expect(report.nextAction?.command).toContain('deploy --mode staging');
+    expect(report.nextAction?.command).toContain('deploy-now --mode staging');
   });
 
   it('a service on the singleVM host names the host its expectation comes from', () => {

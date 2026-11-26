@@ -2,10 +2,8 @@ import { existsSync, readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../lib/health-components';
 import { healthContract } from '../lib/health-contract';
-import { getFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
 import { pollUntil } from '../lib/utils/retry';
-import { parseServiceRows } from '../lib/utils/service-rows';
 import { sleep as defaultSleep } from '../lib/utils/sleep';
 import { isHealthy } from './wait-for-version';
 
@@ -51,7 +49,7 @@ export interface HttpResponse {
 /** Performs a single HTTP GET; `redirect: 'manual'` answers a redirect as the response it is. Injectable so the smoke checks can be unit-tested. */
 export type HttpGet = (url: string, init?: { redirect: 'manual' }) => Promise<HttpResponse>;
 
-/** One enabled service as deploy-env's enabled_services_json lists it. */
+/** One enabled service as deploy-env's enabled_services lists it. */
 export interface SmokeService {
   service: string;
   health_url: string;
@@ -247,56 +245,32 @@ export async function runSmoke(opts: SmokeOptions): Promise<SmokeResult[]> {
   return results;
 }
 
-interface CliArgs {
-  defaultRouteUrl?: string;
-  apexUrl?: string;
-  primaryUrl: string;
+/** What the deploy hands its smoke step. */
+export interface SmokeStep {
   sha: string;
-  services?: SmokeService[];
+  services: Array<SmokeService & { public_url: string; lb_route: string }>;
+  /** The service that owns the aggregate health and OpenAPI checks; without one the first non-default-route service with a health URL stands in. */
+  primary?: string;
   /** Path to the freshly built local index.html for deriving the expected bundle hash. */
   dist?: string;
-  timeoutMs: number;
+  /** The zone apex the load balancer redirects to the app host. */
+  apex?: string;
 }
 
-export function parseServicesJson(raw: string): Array<SmokeService & { public_url?: string; lb_route?: string }> {
-  return parseServiceRows(raw, '--services-json', { required: ['service', 'health_url'], optional: ['public_url', 'lb_route'] });
-}
-
-/** Parse `--key value` flags. Exported for testing. */
-export function parseArgs(argv: string[]): CliArgs {
-  const servicesRaw = getFlag(argv, '--services-json');
-  const services = servicesRaw ? parseServicesJson(servicesRaw) : undefined;
-  // Roles, not names: the default-route service owns the browser checks, the --primary service owns the aggregate health and OpenAPI checks.
-  // Without --primary, the first non-default-route service with a health URL stands in.
-  const defaultRouteRow = services?.find((service) => service.lb_route === 'default');
-  const primarySlug = getFlag(argv, '--primary');
-  const primaryRow = primarySlug
-    ? services?.find((service) => service.service === primarySlug)
-    : services?.find((service) => service.health_url && service.lb_route !== 'default');
-  const defaultRouteUrl = getFlag(argv, '--frontend') ?? defaultRouteRow?.public_url;
-  const apexUrl = getFlag(argv, '--apex');
-  const primaryUrl = getFlag(argv, '--backend') ?? primaryRow?.public_url;
-  const sha = getFlag(argv, '--sha');
-  if (!primaryUrl || !sha) {
-    throw new Error(
-      'Usage: smoke [--frontend <url>] [--apex <url>] --backend <url> | --primary <slug> --sha <git-sha> [--services-json <json>] [--timeout ms]',
-    );
-  }
-  const timeoutRaw = getFlag(argv, '--timeout');
-  return {
-    ...(defaultRouteUrl ? { defaultRouteUrl } : {}),
-    ...(apexUrl ? { apexUrl } : {}),
-    primaryUrl,
-    sha,
-    services,
-    dist: getFlag(argv, '--dist'),
-    timeoutMs: timeoutRaw === undefined ? 10000 : Number(timeoutRaw),
-  };
+/** The URLs the checks probe, by role and not by name: the default-route service owns the browser checks, the primary one the rest. */
+export function smokeTargets({ services, primary }: Pick<SmokeStep, 'services' | 'primary'>): { defaultRouteUrl?: string; primaryUrl: string } {
+  const defaultRouteUrl = services.find((service) => service.lb_route === 'default')?.public_url;
+  const primaryRow = primary
+    ? services.find((service) => service.service === primary)
+    : services.find((service) => service.health_url && service.lb_route !== 'default');
+  const primaryUrl = primaryRow?.public_url;
+  if (!primaryUrl) throw new Error(`smoke: no public URL for the primary service${primary ? ` '${primary}'` : ''}`);
+  return { ...(defaultRouteUrl ? { defaultRouteUrl } : {}), primaryUrl };
 }
 
 /**
  * Resolve the expected hashed entry asset from the freshly built local bundle.
- * A provided-but-unreadable --dist is a hard failure, so a wrong path or cwd cannot degrade the bundle check into a no-op.
+ * A provided-but-unreadable `dist` is a hard failure: a wrong path or cwd must not turn the bundle check into a no-op.
  */
 export function resolveExpectedAsset(dist: string | undefined): string | undefined {
   if (!dist) return undefined;
@@ -305,7 +279,7 @@ export function resolveExpectedAsset(dist: string | undefined): string | undefin
     html = readFileSync(dist, 'utf-8');
   } catch (err) {
     throw new Error(
-      `Could not read ${dist}: ${errorMessage(err)}. The local bundle is required to verify the served bundle; check the --dist path and the working directory.`,
+      `Could not read ${dist}: ${errorMessage(err)}. The local bundle is required to verify the served bundle; check the path and the working directory.`,
     );
   }
   const expectedAsset = extractEntryAsset(html);
@@ -319,18 +293,18 @@ export function resolveWorkerScriptPath(dist: string | undefined): string | unde
   return dist && existsSync(join(dirname(dist), 'sw.js')) ? '/sw.js' : undefined;
 }
 
-export async function main(argv: string[]): Promise<void> {
-  const args = parseArgs(argv);
-  const expectedAsset = resolveExpectedAsset(args.dist);
+export async function main(step: SmokeStep): Promise<void> {
+  const { defaultRouteUrl, primaryUrl } = smokeTargets(step);
+  const expectedAsset = resolveExpectedAsset(step.dist);
   const results = await runSmoke({
-    defaultRouteUrl: args.defaultRouteUrl,
-    apexUrl: args.apexUrl,
-    workerScriptPath: resolveWorkerScriptPath(args.dist),
-    primaryUrl: args.primaryUrl,
-    expectedSha: args.sha,
-    services: args.services,
+    defaultRouteUrl,
+    apexUrl: step.apex || undefined,
+    workerScriptPath: resolveWorkerScriptPath(step.dist),
+    primaryUrl,
+    expectedSha: step.sha,
+    services: step.services,
     expectedAsset,
-    get: createFetchGet(args.timeoutMs),
+    get: createFetchGet(10_000),
   });
 
   for (const r of results) {

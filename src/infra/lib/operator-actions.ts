@@ -52,7 +52,7 @@ export const OPERATOR_ACTIONS = {
     summary: 'write what differs from the declared identities',
     description: 'Write what differs from the declared identities. Asks for a key only when something must change.',
   },
-  deploy: {
+  'deploy-now': {
     label: 'Deploy now',
     summary: 'without waiting for the scheduled run',
     description: 'Deploy the target now, without waiting for the scheduled run, and follow it step by step.',
@@ -132,7 +132,7 @@ export interface MenuRow {
 
 /** The actions a person runs rarely, in the sections of the More pick, in pick order. A rule divides the sections; their names are for the reader. */
 export const MORE_SECTIONS = {
-  'Deploys & changes': ['deploy', 'preview'],
+  'Deploys & changes': ['deploy-now', 'preview'],
   'Keys & access': ['rotate-keys', 'rotate-secrets', 'operators', 'identities', 'repository-key'],
   Repair: ['unlock', 'resume', 'state-remove'],
   Database: ['db-seed', 'db-reset'],

@@ -25,17 +25,6 @@ import { startMenuSession } from './session';
 import type { InfraContext } from './shared';
 import { autoAcceptDefaults } from './shared';
 
-// Load the repo-root .env so infra child tasks share the app's local config; ambient env keeps precedence over the file.
-loadRootEnvFile();
-
-// A privileged key in the environment would let the CLI run with nobody at the prompt: it is dropped here and asked for.
-const droppedFromEnv = dropPromptOnlyEnv();
-
-// A Ctrl-C at any prompt below ends the run with one line and releases a held lease.
-installPromptAbortHandler();
-
-const args = parseCliArgs(process.argv.slice(2));
-
 /** The commands of the CLI, one line per action. */
 function printHelp(): void {
   const ids = Object.keys(OPERATOR_ACTIONS) as OperatorActionId[];
@@ -45,7 +34,7 @@ function printHelp(): void {
   for (const id of ids) console.info(`  ${pc.cyan(id.padEnd(width))}  ${actionLabel(id)}`);
   console.info(`\n  ${pc.dim('--once      leave after the first action chosen in the menu')}`);
   console.info(`  ${pc.dim('--defaults  take every optional default; required inputs are still asked')}`);
-  console.info(`\n  ${pc.dim('Releases deploy by themselves within minutes of a merge; deploy starts one now.')}`);
+  console.info(`\n  ${pc.dim('Releases deploy by themselves within minutes of a merge; deploy-now starts one now.')}`);
 }
 
 /**
@@ -224,66 +213,6 @@ async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof
   }
 }
 
-if (args.help) {
-  printHelp();
-  process.exit(0);
-}
-if (args.unknownAction) {
-  console.error(`${crossMark} '${args.unknownAction}' is no action of the infra CLI.\n`);
-  printHelp();
-  process.exit(2);
-}
-if (args.mode !== undefined && args.mode !== 'production' && args.mode !== 'staging') {
-  console.error(`${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`);
-  process.exit(2);
-}
-
-// The deploy reads the Compose file the service registry renders: kept current on every run, said only when it changed.
-if (writeCompose() === 'written') console.info(pc.dim('infra/compose.gen.yml follows the service registry again: commit it.'));
-
-console.info('');
-const environment = await resolveMode(args.mode);
-let context = await loadContext(environment, (message) => console.info(pc.dim(message)));
-
-// Refuse an app host the load balancer cannot serve before any prompt or provisioning step.
-{
-  const { frontendApexIssue, routedHostIssue } = await import('../lib/naming');
-  const issue = frontendApexIssue(context.appConfig) ?? routedHostIssue(context.appConfig);
-  if (issue) {
-    console.error(`${crossMark} ${issue}`);
-    process.exit(1);
-  }
-}
-
-printStackNotices(context);
-if (droppedFromEnv.length > 0) {
-  console.warn(
-    `${warningMark} ${droppedFromEnv.join(', ')} ${droppedFromEnv.length === 1 ? 'is' : 'are'} set in this shell or in .env and not read: the CLI asks for a privileged key at the prompt.\n`,
-  );
-}
-
-// `pnpm cella infra <action>`: one action, no menu. An action the stack cannot run now says why, as its menu entry does.
-if (args.action) {
-  const reason = disabledReason(args.action, menuState(context));
-  if (reason) {
-    console.error(`${crossMark} "${actionLabel(args.action)}" cannot run now: ${reason}.`);
-    process.exit(1);
-  }
-  if (!pulumiReady(args.action)) process.exit(1);
-  process.exit((await runAction(args.action, context)).code);
-}
-
-// A fresh install has nothing to manage yet and automation has nobody to ask: both go straight to the setup. A person at a terminal
-// stays in the CLI: a failure offers the step again, and a setup that succeeds opens the menu.
-if (context.state === 'fresh') {
-  if (!pulumiReady('resume')) process.exit(1);
-  const { code, quit } = await runAction('resume', context, { firstSetup: true, ...(args.once ? { close: async () => LEAVE } : {}) });
-  if (code !== 0 || quit || args.once || !hasPerson()) process.exit(code);
-  context = await loadContext(environment);
-  if (context.state === 'fresh') process.exit(0);
-  printStackNotices(context);
-}
-
 /** Actions that change nothing, so the menu comes back without reading the stack again. */
 const READ_ONLY: readonly OperatorActionId[] = ['status', 'logs', 'preview'];
 
@@ -291,7 +220,7 @@ const READ_ONLY: readonly OperatorActionId[] = ['status', 'logs', 'preview'];
 const AHEAD_FRESH_MS = 30_000;
 
 /** The next round's reads, started while an action's output waits for the way back: the stack, then the home once the stack is set up. */
-function readAhead(): { startedAt: number; context: Promise<InfraContext>; home: Promise<HomeFacts | undefined> } {
+function readAhead(environment: Environment): { startedAt: number; context: Promise<InfraContext>; home: Promise<HomeFacts | undefined> } {
   const read = loadContext(environment);
   const home = read.then((next) => (next.state === 'bootstrapped' ? collectHome(next) : undefined));
   // A failed read throws where the menu awaits it, not at the prompt the operator is on.
@@ -299,35 +228,112 @@ function readAhead(): { startedAt: number; context: Promise<InfraContext>; home:
   return { startedAt: Date.now(), context: read, home };
 }
 
-// From here an action that fails or is stopped returns to the menu, unless the run leaves after one.
-if (!args.once) startMenuSession();
-let home = await printHome(context);
-/** The action the operator chose from a failure's ways out, run before the menu shows again. */
-let next: OperatorActionId | undefined;
-while (true) {
-  const action = next ?? (await chooseAction(menuState(context, home)));
-  const reason = next ? disabledReason(next, menuState(context, home)) : undefined;
-  next = undefined;
-  if (action === QUIT) break;
-  if (reason) {
-    console.error(`${crossMark} "${actionLabel(action)}" cannot run now: ${reason}.`);
-    continue;
+/**
+ * The infra CLI on the words after `infra`: the menu, or one action with `pnpm cella infra <action>`. It ends the process itself, with
+ * the action's code or the menu's way out.
+ */
+export async function runInfraCli(words: string[]): Promise<void> {
+  // Load the repo-root .env so infra child tasks share the app's local config; ambient env keeps precedence over the file.
+  loadRootEnvFile();
+
+  // A privileged key in the environment would let the CLI run with nobody at the prompt: it is dropped here and asked for.
+  const droppedFromEnv = dropPromptOnlyEnv();
+
+  // A Ctrl-C at any prompt below ends the run with one line and releases a held lease.
+  installPromptAbortHandler();
+
+  const args = parseCliArgs(words);
+
+  if (args.help) {
+    printHelp();
+    process.exit(0);
   }
-  let ahead: ReturnType<typeof readAhead> | undefined;
-  const onEnded = () => {
-    if (!READ_ONLY.includes(action)) ahead = readAhead();
-  };
-  const outcome: ActionOutcome = pulumiReady(action) ? await runAction(action, context, { onEnded }) : { code: 1 };
-  if (args.once) process.exit(outcome.code);
-  next = outcome.next;
+  if (args.unknownAction) {
+    console.error(`${crossMark} '${args.unknownAction}' is no action of the infra CLI.\n`);
+    printHelp();
+    process.exit(2);
+  }
+  if (args.mode !== undefined && args.mode !== 'production' && args.mode !== 'staging') {
+    console.error(`${crossMark} --mode must be 'production' or 'staging' (got '${args.mode}').`);
+    process.exit(2);
+  }
+
+  // The deploy reads the Compose file the service registry renders: kept current on every run, said only when it changed.
+  if (writeCompose() === 'written') console.info(pc.dim('infra/compose.gen.yml follows the service registry again: commit it.'));
+
   console.info('');
-  if (ahead && Date.now() - ahead.startedAt > AHEAD_FRESH_MS) ahead = undefined;
-  // An action may have changed the stack file, the env file or the live stack: all three are read again for the next round.
-  const changed = !READ_ONLY.includes(action) && !outcome.back;
-  if (changed) context = await (ahead?.context ?? loadContext(environment));
-  if (next) continue;
-  // The menu comes back under its header and home: a short terminal shows the action is over.
+  const environment = await resolveMode(args.mode);
+  let context = await loadContext(environment, (message) => console.info(pc.dim(message)));
+
+  // Refuse an app host the load balancer cannot serve before any prompt or provisioning step.
+  {
+    const { frontendApexIssue, routedHostIssue } = await import('../lib/naming');
+    const issue = frontendApexIssue(context.appConfig) ?? routedHostIssue(context.appConfig);
+    if (issue) {
+      console.error(`${crossMark} ${issue}`);
+      process.exit(1);
+    }
+  }
+
   printStackNotices(context);
-  home = await printHome(context, ahead?.home ?? (changed ? undefined : home));
+  if (droppedFromEnv.length > 0) {
+    console.warn(
+      `${warningMark} ${droppedFromEnv.join(', ')} ${droppedFromEnv.length === 1 ? 'is' : 'are'} set in this shell or in .env and not read: the CLI asks for a privileged key at the prompt.\n`,
+    );
+  }
+
+  // `pnpm cella infra <action>`: one action, no menu. An action the stack cannot run now says why, as its menu entry does.
+  if (args.action) {
+    const reason = disabledReason(args.action, menuState(context));
+    if (reason) {
+      console.error(`${crossMark} "${actionLabel(args.action)}" cannot run now: ${reason}.`);
+      process.exit(1);
+    }
+    if (!pulumiReady(args.action)) process.exit(1);
+    process.exit((await runAction(args.action, context)).code);
+  }
+
+  // A fresh install has nothing to manage yet and automation has nobody to ask: both go straight to the setup. A person at a terminal
+  // stays in the CLI: a failure offers the step again, and a setup that succeeds opens the menu.
+  if (context.state === 'fresh') {
+    if (!pulumiReady('resume')) process.exit(1);
+    const { code, quit } = await runAction('resume', context, { firstSetup: true, ...(args.once ? { close: async () => LEAVE } : {}) });
+    if (code !== 0 || quit || args.once || !hasPerson()) process.exit(code);
+    context = await loadContext(environment);
+    if (context.state === 'fresh') process.exit(0);
+    printStackNotices(context);
+  }
+
+  // From here an action that fails or is stopped returns to the menu, unless the run leaves after one.
+  if (!args.once) startMenuSession();
+  let home = await printHome(context);
+  /** The action the operator chose from a failure's ways out, run before the menu shows again. */
+  let next: OperatorActionId | undefined;
+  while (true) {
+    const action = next ?? (await chooseAction(menuState(context, home)));
+    const reason = next ? disabledReason(next, menuState(context, home)) : undefined;
+    next = undefined;
+    if (action === QUIT) break;
+    if (reason) {
+      console.error(`${crossMark} "${actionLabel(action)}" cannot run now: ${reason}.`);
+      continue;
+    }
+    let ahead: ReturnType<typeof readAhead> | undefined;
+    const onEnded = () => {
+      if (!READ_ONLY.includes(action)) ahead = readAhead(environment);
+    };
+    const outcome: ActionOutcome = pulumiReady(action) ? await runAction(action, context, { onEnded }) : { code: 1 };
+    if (args.once) process.exit(outcome.code);
+    next = outcome.next;
+    console.info('');
+    if (ahead && Date.now() - ahead.startedAt > AHEAD_FRESH_MS) ahead = undefined;
+    // An action may have changed the stack file, the env file or the live stack: all three are read again for the next round.
+    const changed = !READ_ONLY.includes(action) && !outcome.back;
+    if (changed) context = await (ahead?.context ?? loadContext(environment));
+    if (next) continue;
+    // The menu comes back under its header and home: a short terminal shows the action is over.
+    printStackNotices(context);
+    home = await printHome(context, ahead?.home ?? (changed ? undefined : home));
+  }
+  process.exit(0);
 }
-process.exit(0);

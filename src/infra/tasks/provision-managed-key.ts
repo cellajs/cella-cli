@@ -22,7 +22,7 @@ export interface ProvisionManagedKeyOptions {
 }
 
 export interface ProvisionManagedKeyResult {
-  /** The `<slug>-<suffix>` IAM application the key belongs to. */
+  /** The `<slug>-<mode>-<suffix>` IAM application the key belongs to. */
   applicationId: string;
   /** secretName → written revision, one per assigned half. */
   seeded: Record<string, number>;

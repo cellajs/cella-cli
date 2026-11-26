@@ -35,7 +35,7 @@ describe('buildDeployEnv', () => {
       frontend_bucket: 'cella-frontend',
       public_bucket: 'cella-public',
       diag_bucket: 'cella-boot-diag',
-      enabled_services_json: JSON.stringify([
+      enabled_services: [
         {
           service: 'backend',
           public_url: 'https://www.cella.example/api',
@@ -56,18 +56,18 @@ describe('buildDeployEnv', () => {
           reuses_image_of: '',
           primary_rollout: false,
         },
-      ]),
-      build_images_matrix: JSON.stringify([
+      ],
+      build_images: [
         { service: 'backend', dockerfile: 'Dockerfile', target: 'backend' },
         { service: 'cdc', dockerfile: 'Dockerfile', target: 'cdc' },
         { service: 'frontend', dockerfile: '/engine-assets/caddy/Dockerfile', target: '' },
-      ]),
+      ],
       primary_role: 'backend',
       apex_url: 'https://cella.example',
     });
   });
 
-  it('derives public URLs in enabled_services_json from appConfig.services', () => {
+  it('derives public URLs in enabled_services from appConfig.services', () => {
     const cfg = {
       ...fakeAppConfig,
       frontendUrl: 'https://legacy-front.example',
@@ -78,7 +78,7 @@ describe('buildDeployEnv', () => {
         backend: { enabled: true, publicUrl: 'https://app.cella.example/api' },
       },
     };
-    const services = JSON.parse(buildDeployEnv(cfg).enabled_services_json) as { service: string; public_url: string }[];
+    const services = buildDeployEnv(cfg).enabled_services;
     expect(services.find((service) => service.service === 'frontend')?.public_url).toBe('https://app.cella.example');
     expect(services.find((service) => service.service === 'backend')?.public_url).toBe('https://app.cella.example/api');
   });

@@ -79,7 +79,7 @@ export async function runApply(context: InfraContext): Promise<void> {
   // A failed `up` keeps its engine image: the definition may name it already, and the next apply's prune ages it out.
   if (!completed) endAction(1);
   await startBlockedTarget(context, operator).catch((error) =>
-    console.warn(`${warningMark} Could not start the blocked target again (${errorMessage(error)}): ${pointTo('deploy')} does.`),
+    console.warn(`${warningMark} Could not start the blocked target again (${errorMessage(error)}): ${pointTo('deploy-now')} does.`),
   );
   // A verified difference is reported, not a failure of the apply: the target still starts, and the exit code says to look.
   if (verified === false) endAction(1);

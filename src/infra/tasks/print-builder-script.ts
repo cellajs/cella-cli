@@ -8,7 +8,8 @@ import { infraDir } from '../lib/utils/paths';
  * runs the frontend one on every PR, so a change the builder cannot build fails there and not at the release deploy.
  * Usage: `pnpm --filter infra builder-script <frontend|agent>`.
  */
-async function main(which: string | undefined): Promise<number> {
+export async function main(words: string[]): Promise<number> {
+  const [which] = words;
   const scripts = { frontend: frontendScript, agent: agentBundleScript } as const;
   const script = which === 'frontend' || which === 'agent' ? scripts[which] : undefined;
   if (!script) {
@@ -21,5 +22,3 @@ async function main(which: string | undefined): Promise<number> {
   process.stdout.write(script(pnpmVersion));
   return 0;
 }
-
-process.exit(await main(process.argv[2]));

@@ -1,6 +1,6 @@
 import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
-import { type GeoipManifest, type GeoipRefreshPlan, main, monthOf, sequenceGeoipRefresh, verifyMmdbArchive } from './geoip-refresh';
+import { type GeoipManifest, type GeoipRefreshPlan, monthOf, sequenceGeoipRefresh, verifyMmdbArchive } from './geoip-refresh';
 
 const NOW = new Date('2026-09-23T10:00:00Z');
 /** The smallest payload the verifier accepts: anything ending in the MMDB metadata marker. */
@@ -129,12 +129,5 @@ describe('monthOf', () => {
   it('formats UTC months and shifts across year boundaries', () => {
     expect(monthOf(new Date('2026-09-23T10:00:00Z'))).toBe('2026-09');
     expect(monthOf(new Date('2026-01-15T00:00:00Z'), -1)).toBe('2025-12');
-  });
-});
-
-describe('main', () => {
-  it('refuses to run without a bucket and region by throwing, never exiting in-process, with no exit code of a blocked run', async () => {
-    await expect(main([])).rejects.toThrow('geoip-refresh requires --bucket and --region');
-    await expect(main(['--bucket', 'b'])).rejects.not.toHaveProperty('exitCode');
   });
 });

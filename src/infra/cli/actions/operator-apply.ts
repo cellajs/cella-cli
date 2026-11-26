@@ -170,7 +170,7 @@ export async function runOperatorApply(context: InfraContext, opts: OperatorAppl
       endAction(1);
     }
     while (true) {
-      const { code, output } = await runPulumiUpWithHint(stack, infraDir, env, {
+      const { code, output } = await runPulumiUpWithHint(stack, env, {
         configFile,
         skipPreview: opts.confirmPlan,
         refresh: opts.confirmPlan,
@@ -191,7 +191,7 @@ export async function runOperatorApply(context: InfraContext, opts: OperatorAppl
             default: true,
           })
         ) {
-          pruneOrphanedDeletes(orphans, stack, infraDir, env);
+          pruneOrphanedDeletes(orphans, stack, env);
           continue;
         }
       }

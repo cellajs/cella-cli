@@ -18,7 +18,7 @@ import { createRdbClient } from '../../lib/scaleway/scaleway-rdb';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
 import { makeControlClient, stateBucket } from '../../lib/stack/control-store';
-import { destroyableState, engineFolders, type KeptResource, keptResources, sweptSecrets } from '../../lib/stack/kept-resources';
+import { destroyableState, type KeptResource, keptResources, sweptSecrets } from '../../lib/stack/kept-resources';
 import { holdSignalExit } from '../../lib/stack/stack-lease';
 import { exitCodeOf } from '../../lib/utils/child-exit';
 import { checkMark, crossMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
@@ -220,7 +220,7 @@ async function sweepAfterDestroy(context: InfraContext, owner: OwnerKey, kept: r
 
   try {
     const secrets = createSecretManagerClient({ secretKey: owner.secretKey, region, projectId });
-    const swept = sweptSecrets(await secrets.listSecrets(), kept, engineFolders);
+    const swept = sweptSecrets(await secrets.listSecrets(), kept);
     for (const secret of swept) await secrets.deleteSecret(secret.id);
     console.info(`${checkMark} Deleted ${swept.length} secret container(s).`);
   } catch (error) {

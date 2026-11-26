@@ -2,6 +2,7 @@ import type { EngineConfig } from '../lib/engine-config';
 import { machineRoles } from '../lib/machine-roles';
 import { deriveInfra, redirectedApexOrigin } from '../lib/naming';
 import { appStorageNeeds, enabledServices, serviceEndpoints } from '../lib/services';
+import type { BuildImageRow } from './build-images';
 
 /** Exact set of keys the deploy env table holds. Tests lock this. */
 export const ALLOWED_KEYS = [
@@ -10,34 +11,53 @@ export const ALLOWED_KEYS = [
   'frontend_bucket',
   'public_bucket',
   'diag_bucket',
-  'enabled_services_json',
-  'build_images_matrix',
+  'enabled_services',
+  'build_images',
   'primary_role',
   'apex_url',
 ] as const;
 export type AllowedKey = (typeof ALLOWED_KEYS)[number];
 
+/** One enabled service as the deploy's build, frontend build and smoke tests read it; an absent value is ''. */
+export interface EnabledServiceRow {
+  service: string;
+  public_url: string;
+  health_url: string;
+  lb_route: string;
+  dockerfile: string;
+  reuses_image_of: string;
+  primary_rollout: boolean;
+}
+
+/** The deploy env table: one string per key, but the enabled services and the images to build. */
+export type DeployEnv = Record<Exclude<AllowedKey, 'enabled_services' | 'build_images'>, string> & {
+  enabled_services: EnabledServiceRow[];
+  build_images: BuildImageRow[];
+};
+
 /** Pure builder that produces the deploy env table from an appConfig. */
-export function buildDeployEnv(appConfig: EngineConfig): Record<AllowedKey, string> {
+export function buildDeployEnv(appConfig: EngineConfig): DeployEnv {
   const { naming, dnsZone } = deriveInfra(appConfig);
   const enabled = enabledServices(appConfig.services);
   const serviceUrls = appConfig.services as Record<string, { publicUrl?: string }>;
   const serviceUrl = (slug: string): string => serviceUrls[slug]?.publicUrl ?? '';
   const urls = new Map(serviceEndpoints(appConfig).map((endpoint) => [endpoint.slug, endpoint.url]));
-  const enabledServiceRows = enabled.map((service) => ({
-    service: service.slug,
-    public_url: serviceUrl(service.slug),
-    health_url: service.lbRoute ? (urls.get(service.slug) ?? '') : '',
-    lb_route: service.lbRoute ?? '',
-    dockerfile: service.dockerfile ?? '',
-    reuses_image_of: service.reusesImageOf ?? '',
-    primary_rollout: service.primaryRollout === true,
-  }));
+  const enabledServiceRows = enabled.map(
+    (service): EnabledServiceRow => ({
+      service: service.slug,
+      public_url: serviceUrl(service.slug),
+      health_url: service.lbRoute ? (urls.get(service.slug) ?? '') : '',
+      lb_route: service.lbRoute ?? '',
+      dockerfile: service.dockerfile ?? '',
+      reuses_image_of: service.reusesImageOf ?? '',
+      primary_rollout: service.primaryRollout === true,
+    }),
+  );
   const defaultRoute = enabled.find((service) => service.lbRoute === 'default');
   const defaultRouteUrl = defaultRoute ? serviceUrl(defaultRoute.slug) : '';
   const buildImages = enabled
     .filter((service) => !service.reusesImageOf)
-    .map((service) => {
+    .map((service): BuildImageRow => {
       if (!service.dockerfile) throw new Error(`Service '${service.slug}' builds its own image but has no dockerfile in services.config.ts`);
       return { service: service.slug, dockerfile: service.dockerfile, target: service.target ?? '' };
     });
@@ -49,8 +69,8 @@ export function buildDeployEnv(appConfig: EngineConfig): Record<AllowedKey, stri
     frontend_bucket: appStorageNeeds(enabled).spaBucket ? naming.frontendBucket : '',
     public_bucket: appStorageNeeds(enabled).uploadBuckets ? naming.publicBucket : '',
     diag_bucket: naming.bootDiagBucket,
-    enabled_services_json: JSON.stringify(enabledServiceRows),
-    build_images_matrix: JSON.stringify(buildImages),
+    enabled_services: enabledServiceRows,
+    build_images: buildImages,
     primary_role: machineRoles(appConfig).find((role) => role.primary)?.role ?? '',
     // The zone apex the load balancer redirects to the app host, for smoke's apex checks; empty when that host is no `www.<zone>`.
     apex_url: defaultRouteUrl ? (redirectedApexOrigin(new URL(defaultRouteUrl).hostname, dnsZone) ?? '') : '',

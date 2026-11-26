@@ -85,9 +85,10 @@ export function renderCompose(file: ComposeFile): string {
 /** The generated deploy artifact, read by the deploy and written into each machine's user data. */
 export const OUTPUT_PATH = join(infraDir, 'compose.gen.yml');
 
-export function main(): void {
+/** `compose-generate` writes the file; with `--check`, as `compose-check` runs it, it fails when the file differs. */
+export function main(words: string[]): void {
   const yaml = renderCompose(composeConfig);
-  if (process.argv.includes('--check')) {
+  if (words.includes('--check')) {
     let current = '';
     try {
       current = readFileSync(OUTPUT_PATH, 'utf-8');

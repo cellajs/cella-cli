@@ -2,7 +2,6 @@ import { gunzipSync } from 'node:zlib';
 import { printable } from '../../utils/terminal-text';
 import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { storedBeforeKeyRotation } from '../lib/stack/control-store';
-import { getFlag, getNumFlag } from '../lib/utils/args';
 import { errorMessage } from '../lib/utils/errors';
 
 export type GeoipKind = 'country' | 'asn';
@@ -179,24 +178,26 @@ export async function createLiveEffects(opts: { bucket: string; region: string; 
   };
 }
 
-/**
- * The deploy's GeoIP step: `--bucket <name> --region <region> [--prefix geoip] [--month YYYY-MM] [--force] [--max-age-days N]
- * [--keys-rotated-at <time>]`. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket.
- */
-export async function main(argv: string[]): Promise<void> {
-  const bucket = getFlag(argv, '--bucket');
-  const region = getFlag(argv, '--region');
-  if (!bucket || !region) throw new Error('geoip-refresh requires --bucket and --region');
-  const prefix = getFlag(argv, '--prefix') ?? DEFAULT_PREFIX;
-  const maxAgeRaw = getFlag(argv, '--max-age-days');
-  const keysRotatedAt = getFlag(argv, '--keys-rotated-at');
+/** What the deploy hands its GeoIP step. */
+export interface GeoipRefreshStep {
+  bucket: string;
+  region: string;
+  /** A month's data published fewer days ago than this is left as is. */
+  maxAgeDays: number;
+  /** The time of the last key rotation, absent before the first. */
+  keysRotatedAt?: string;
+}
+
+/** The deploy's GeoIP step, this month's data under the default prefix. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket. */
+export async function main({ bucket, region, maxAgeDays, keysRotatedAt }: GeoipRefreshStep): Promise<void> {
+  const prefix = DEFAULT_PREFIX;
   const effects = await createLiveEffects({ bucket, region, prefix });
   const result = await sequenceGeoipRefresh({
     bucket,
     prefix,
-    month: getFlag(argv, '--month') ?? monthOf(new Date()),
-    force: argv.includes('--force'),
-    maxAgeDays: maxAgeRaw === undefined ? undefined : getNumFlag(argv, '--max-age-days', 0),
+    month: monthOf(new Date()),
+    force: false,
+    maxAgeDays,
     keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
     kinds: GEOIP_KINDS,
     ...effects,

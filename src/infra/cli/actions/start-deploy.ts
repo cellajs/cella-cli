@@ -38,7 +38,7 @@ export async function runStartDeploy(context: InfraContext, opts: { asked?: bool
     return endAction(1);
   }
   const name = commitName(await commitRefs(), target.sha);
-  if (target.retry > 0) console.info(pc.dim(`\n${actionLabel('deploy')}: ${name} to ${environment}, retry ${target.retry}.\n`));
+  if (target.retry > 0) console.info(pc.dim(`\n${actionLabel('deploy-now')}: ${name} to ${environment}, retry ${target.retry}.\n`));
   // A deploy under way is followed, not doubled: the observer key finds it without a paste, the operator key once it is in hand.
   const observer = resolveOperatorIdentity().observer;
   if (observer && (await followIfLive(context, observer)) === 'deployed') return;
@@ -103,7 +103,7 @@ export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Pr
     return runs.length === 0 && Object.keys(live.record.roles).length === 0;
   } catch (error) {
     console.warn(
-      `${warningMark} The deploy history could not be read (${errorMessage(error)}): "${actionLabel('deploy')}" deploys ${context.environment}.`,
+      `${warningMark} The deploy history could not be read (${errorMessage(error)}): "${actionLabel('deploy-now')}" deploys ${context.environment}.`,
     );
     return false;
   }
@@ -126,7 +126,7 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
   const { naming, region } = deriveInfra(context.appConfig);
   const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
   if (!definitionId) {
-    console.warn(`${warningMark} ${context.environment} has no main job yet: deploy with "${menuPath('deploy')}" once an apply made it.`);
+    console.warn(`${warningMark} ${context.environment} has no main job yet: deploy with "${menuPath('deploy-now')}" once an apply made it.`);
     return;
   }
   const live = await liveCommit(context, key).catch((error) => {
@@ -157,7 +157,7 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
   } else if (live && target) {
     await targetHasRun(context, key, live, target);
     if (!(await confirmOrDefault({ message: `Deploy ${commitName(await commitRefs(), target.sha)} to ${context.environment}?`, default: true }))) {
-      console.warn(`${warningMark} No deploy is started: the machines hold what the rotation replaced until "${menuPath('deploy')}" runs one.`);
+      console.warn(`${warningMark} No deploy is started: the machines hold what the rotation replaced until "${menuPath('deploy-now')}" runs one.`);
       return;
     }
   }

@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealthyComponents } from '../lib/health-components';
-import { type HttpResponse, main, missingSecurityHeaders, parseArgs, runSmoke } from './smoke';
+import { type HttpResponse, main, missingSecurityHeaders, runSmoke, smokeTargets } from './smoke';
 
 const SHA = 'abc1234';
 
@@ -363,69 +363,39 @@ describe('runSmoke', () => {
   });
 });
 
-describe('parseArgs', () => {
-  it('parses the required flags with a default timeout', () => {
-    expect(parseArgs(['--frontend', 'https://app', '--backend', 'https://api', '--sha', SHA])).toEqual({
-      defaultRouteUrl: 'https://app',
-      primaryUrl: 'https://api',
-      sha: SHA,
-      services: undefined,
-      timeoutMs: 10000,
-    });
+describe('smokeTargets', () => {
+  const services = [
+    { service: 'api', public_url: 'https://api', health_url: 'https://api', lb_route: 'path' },
+    { service: 'web', public_url: 'https://app', health_url: 'https://app', lb_route: 'default' },
+  ];
+
+  it('derives the URLs from the services by ROLE (lb_route/primary), not by service name', () => {
+    expect(smokeTargets({ services, primary: 'api' })).toEqual({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api' });
+    // Without a primary: the first non-default-route service with a health URL.
+    expect(smokeTargets({ services })).toMatchObject({ primaryUrl: 'https://api' });
+    // Frontend-less services: no defaultRouteUrl, checks 1/4/5 will skip.
+    expect(smokeTargets({ services: services.slice(0, 1) }).defaultRouteUrl).toBeUndefined();
   });
 
-  it('parses the services matrix', () => {
-    const matrix = JSON.stringify([
-      { service: 'backend', health_url: 'https://api' },
-      { service: 'cdc', health_url: '' },
-    ]);
-    expect(parseArgs(['--frontend', 'https://app', '--backend', 'https://api', '--sha', SHA, '--services-json', matrix]).services).toEqual([
-      { service: 'backend', health_url: 'https://api', public_url: undefined },
-      { service: 'cdc', health_url: '', public_url: undefined },
-    ]);
-  });
-
-  it('derives the URLs from services-json by ROLE (lb_route/--primary), not by service name', () => {
-    const matrix = JSON.stringify([
-      { service: 'api', public_url: 'https://api', health_url: 'https://api', lb_route: 'path' },
-      { service: 'web', public_url: 'https://app', health_url: 'https://app', lb_route: 'default' },
-    ]);
-    expect(parseArgs(['--sha', SHA, '--services-json', matrix, '--primary', 'api'])).toMatchObject({
-      defaultRouteUrl: 'https://app',
-      primaryUrl: 'https://api',
-    });
-    // Without --primary: the first non-default-route service with a health URL.
-    expect(parseArgs(['--sha', SHA, '--services-json', matrix])).toMatchObject({ primaryUrl: 'https://api' });
-    // Frontend-less matrix: no defaultRouteUrl, checks 1/4/5 will skip.
-    const apiOnly = JSON.stringify([{ service: 'api', public_url: 'https://api', health_url: 'https://api', lb_route: 'path' }]);
-    expect(parseArgs(['--sha', SHA, '--services-json', apiOnly]).defaultRouteUrl).toBeUndefined();
-  });
-
-  it('honours an explicit --timeout', () => {
-    const args = parseArgs(['--frontend', 'https://app', '--backend', 'https://api', '--sha', SHA, '--timeout', '5000']);
-    expect(args.timeoutMs).toBe(5000);
-  });
-
-  it('parses --dist', () => {
-    const args = parseArgs(['--frontend', 'https://app', '--backend', 'https://api', '--sha', SHA, '--dist', '/x/index.html']);
-    expect(args.dist).toBe('/x/index.html');
-  });
-
-  it.each([
-    ['--frontend', 'https://app', '--sha', SHA],
-    ['--frontend', 'https://app', '--backend', 'https://api'],
-  ])('throws when the primary URL or sha is missing', (...argv) => {
-    expect(() => parseArgs(argv)).toThrow(/Usage:/);
+  it('throws when no service gives the primary URL', () => {
+    expect(() => smokeTargets({ services: services.slice(1) })).toThrow(/primary/);
   });
 });
 
 describe('main', () => {
-  it('hard-fails when --dist is set but unreadable, before any network probe', async () => {
+  it('hard-fails when dist is set but unreadable, before any network probe', async () => {
     // An explicit unreadable distribution would disable build-hash verification, so fail before probing.
     const fetchSpy = vi.spyOn(globalThis, 'fetch');
 
     await expect(
-      main(['--frontend', 'https://app', '--backend', 'https://api', '--sha', SHA, '--dist', '/nonexistent/does-not-exist.html']),
+      main({
+        sha: SHA,
+        services: [
+          { service: 'api', public_url: 'https://api', health_url: 'https://api', lb_route: 'path' },
+          { service: 'web', public_url: 'https://app', health_url: 'https://app', lb_route: 'default' },
+        ],
+        dist: '/nonexistent/does-not-exist.html',
+      }),
     ).rejects.toThrow(/Could not read/);
 
     expect(fetchSpy).not.toHaveBeenCalled();

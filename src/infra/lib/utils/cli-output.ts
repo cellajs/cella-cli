@@ -29,7 +29,7 @@ function spinnerEnabled(): boolean {
 const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
- * Show a spinner next to `label` while an async task runs. Everything goes to stderr so stdout stays clean for machine output such as `status --json`.
+ * Show a spinner next to `label` while an async task runs. Everything goes to stderr: stdout stays clean for machine output.
  * Only wrap tasks that produce no output of their own: a task that logs while running fights the spinner's redraw, so streaming subprocesses must not be wrapped.
  */
 export async function withSpinner<T>(label: string, task: () => Promise<T>): Promise<T> {

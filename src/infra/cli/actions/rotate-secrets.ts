@@ -135,7 +135,7 @@ export async function runRotateSecrets(context: InfraContext): Promise<boolean> 
   }
   await redeployAfterRotation(context, operator).catch((error) => {
     if (endsAction(error)) throw error;
-    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy')} does.`);
+    console.warn(`${warningMark} Could not start the deploy (${errorMessage(error)}): ${pointTo('deploy-now')} does.`);
   });
   return true;
 }
