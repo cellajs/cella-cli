@@ -50,10 +50,39 @@ jobs:
           config-file: .github/release-please-config.json
           manifest-file: .github/release-please-manifest.json
 
-  publish:
+  # The release test installs the packed tarball without this repository's lockfile
+  # and imports it. That code runs here, in a job that holds no publish right.
+  test:
     needs: release-please
     # always(): a manual run skips release-please, and a skipped need would skip this job too
     if: ${{ always() && (needs.release-please.outputs.release-created == 'true' || github.event_name == 'workflow_dispatch') }}
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@fc06bc1257f339d1d5d8b3a19a8cae5388b55320 # v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@a0853c24544627f65ddf259abe73b1d18a591444 # v5
+        with:
+          node-version: 26
+          cache: "pnpm"
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Release smoke
+        run: pnpm test:release
+
+  publish:
+    needs: [release-please, test]
+    # always(): release-please is skipped on a manual run. The test job carries the
+    # condition for a release, and is skipped when there is none.
+    if: ${{ always() && needs.test.result == 'success' }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -84,7 +113,8 @@ jobs:
         if: ${{ github.event_name == 'workflow_dispatch' }}
         run: npm version --no-git-tag-version "$(node -p "const [a,b,c]=require('./package.json').version.split('.');[a,b,Number(c)+1].join('.')")-next.${{ github.run_number }}"
 
-      # OIDC trusted publishing alone: npm trusts this workflow of
-      # cellajs/cella-cli, and no token exists to leak.
+      # OIDC trusted publishing: npm trusts this workflow of cellajs/cella-cli, and
+      # the job reads no token. --ignore-scripts: `prepublishOnly` is the release
+      # smoke, which ran in the test job.
       - name: Publish to npm
-        run: pnpm publish --no-git-checks --access public --provenance --tag ${{ github.event_name == 'workflow_dispatch' && 'next' || 'latest' }}
+        run: pnpm publish --ignore-scripts --no-git-checks --access public --provenance --tag ${{ github.event_name == 'workflow_dispatch' && 'next' || 'latest' }}
