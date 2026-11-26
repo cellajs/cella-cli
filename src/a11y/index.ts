@@ -46,6 +46,7 @@ export const a11yCommand: Command<A11yOptions, A11yOptions['job']> = {
   name: 'a11y',
   group: 'develop',
   description: 'audit the app against WCAG 2.2 AA on a testbed and keep the conformance ledger',
+  summary: 'audit the app against WCAG 2.2 AA',
   jobs: [
     ['audit', 'axe, browser probes and code checks on every state; writes cella/a11y-ledger.json'],
     ['report', 'render the ledger as a draft VPAT and the checklist for the manual pass'],

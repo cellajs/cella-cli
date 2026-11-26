@@ -9,14 +9,14 @@ import { commitRecords } from '../../lib/deploy/run-store';
 import { rotationTarget } from '../../lib/deploy/scheduled-run';
 import { commitName, environmentsFile, parseEnvironmentsFile, resolveTarget, type Target } from '../../lib/deploy/target';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel, menuPath } from '../../lib/operator-actions';
+import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { listJobRuns, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
 import { leaseDeploys, leaseLive, lockKey, peekLock } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { repoRoot } from '../../lib/utils/paths';
-import { confirmOrDefault, endAction, type InfraContext, stackNameFor } from '../shared';
+import { confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { bootDiagOn, deployAndFollow, deployFixes, type FollowOutcome, followLiveDeploy, liveCommit, liveDeploy } from './deploy-follow';
 import { acquireOperatorKey } from './operator-unlock';
 
@@ -45,7 +45,7 @@ export async function runStartDeploy(context: InfraContext, opts: { asked?: bool
   const definitionId = await findMainJob(context, operator);
   if (!definitionId) {
     console.error(
-      `${crossMark} ${environment} has no main job yet: "${menuPath('apply')}" makes it, once the deploy key's copy is in the engine folder ("${menuPath('rotate-keys')}").`,
+      `${crossMark} ${environment} has no main job yet: ${pointTo('apply')} makes it, once the deploy key's copy is in the engine folder (${pointTo('rotate-keys')}).`,
     );
     return endAction(1, { fix: ['apply', 'rotate-keys'] });
   }
@@ -92,7 +92,7 @@ export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Pr
     return runs.length === 0 && Object.keys(live.record.roles).length === 0;
   } catch (error) {
     console.warn(
-      `${warningMark} The deploy history could not be read (${errorMessage(error)}): "${actionLabel('deploy-now')}" deploys ${context.environment}.`,
+      `${warningMark} The deploy history could not be read (${errorMessage(error)}): ${pointTo('deploy-now')} deploys ${context.environment}.`,
     );
     return false;
   }
@@ -115,7 +115,7 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
   const { region } = deriveInfra(context.appConfig);
   const definitionId = await findMainJob(context, key);
   if (!definitionId) {
-    console.warn(`${warningMark} ${context.environment} has no main job yet: deploy with "${menuPath('deploy-now')}" once an apply made it.`);
+    console.warn(`${warningMark} ${context.environment} has no main job yet: deploy with ${pointTo('deploy-now')} once an apply made it.`);
     return;
   }
   const live = await bootDiagOn(context, key)
@@ -148,7 +148,7 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
   } else if (live && target) {
     await targetHasRun(context, key, live, target);
     if (!(await confirmOrDefault({ message: `Deploy ${commitName(await commitRefs(), target.sha)} to ${context.environment}?`, default: true }))) {
-      console.warn(`${warningMark} No deploy is started: the machines hold what the rotation replaced until "${menuPath('deploy-now')}" runs one.`);
+      console.warn(`${warningMark} No deploy is started: the machines hold what the rotation replaced until ${pointTo('deploy-now')} runs one.`);
       return;
     }
   }

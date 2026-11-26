@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { Command } from '../command';
 import { handOverSignals } from '../utils/signals';
+import { infraHelp } from './cli/help';
 
 interface InfraOptions {
   words: string[];
@@ -23,8 +24,10 @@ export const infraCommand: Command<InfraOptions> = {
   name: 'infra',
   group: 'operate',
   description: "set up, apply and deploy the app's environments; `cella infra help` lists its actions",
+  summary: 'the deploy console: set up, apply and deploy the environments',
   inMenu: ({ hasInfra }) => hasInfra,
   handsOver: true,
+  help: infraHelp,
   // The engine image and the builder run its tasks without a git checkout
   outsideGit: true,
   jobs: [],

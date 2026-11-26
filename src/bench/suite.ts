@@ -66,7 +66,7 @@ async function pickScenario(dir: string): Promise<string | undefined> {
     const { description } = await loadScenario(dir, name);
     entries.push({ value: name, label: name, description });
   }
-  return pickFromMenu(entries, 'bench');
+  return pickFromMenu([entries], { title: 'bench' });
 }
 
 async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Promise<number> {

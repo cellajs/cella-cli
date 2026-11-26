@@ -1,4 +1,5 @@
 import pc from '../../../utils/colors';
+import { spinnerFrames } from '../../../utils/layout';
 
 // Console formatting for the infra CLI and tasks.
 
@@ -25,8 +26,6 @@ export function hasPerson(): boolean {
 function spinnerEnabled(): boolean {
   return Boolean(process.stderr.isTTY) && process.env.CI !== 'true';
 }
-
-const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
  * Show a spinner next to `label` while an async task runs. Everything goes to stderr: stdout stays clean for machine output.

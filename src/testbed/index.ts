@@ -458,6 +458,7 @@ export const testbedCommand: Command<TestbedOptions, TestbedOptions['job']> = {
   // The app runs it through a root script of its own, `pnpm testbed`
   inMenu: () => false,
   description: 'a throwaway copy of the app on its own seeded database and ports, beside pnpm dev',
+  summary: 'a throwaway copy of the app beside pnpm dev',
   jobs: [
     ['start', 'start it and hold it until ctrl-c'],
     ['stop', 'stop the testbed that runs, or one left behind'],

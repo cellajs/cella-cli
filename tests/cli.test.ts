@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import process from 'node:process';
 import { CommanderError } from 'commander';
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest';
@@ -10,8 +10,8 @@ const { selectMock } = vi.hoisted(() => ({
   selectMock: vi.fn(),
 }));
 
-vi.mock('@inquirer/prompts', () => ({
-  select: selectMock,
+vi.mock('@inquirer/select', () => ({
+  default: selectMock,
 }));
 
 const { parseCommandLine, promptForCommand } = await import('../src/cli');
@@ -158,6 +158,21 @@ describe('promptForCommand', () => {
     expect(offered()).toContain('adopt');
     expect(offered()).toContain('infra');
     expect(offered()).not.toContain('analyze');
+  });
+});
+
+describe('the menu list', () => {
+  const src = resolve(__dirname, '../src');
+  const localImports = (file: string) =>
+    [...readFileSync(file, 'utf8').matchAll(/from '(\.[^']+)'/g)].map(([, path]) => resolve(dirname(file), `${path}.ts`));
+
+  // Every engine run loads what the list loads: the engine or the package header there would load with it
+  it('is the one the engine imports, and loads nothing of the engine or the package header', () => {
+    const menu = join(src, 'utils/menu.ts');
+    expect(localImports(join(src, 'infra/cli/infra-cli.ts'))).toContain(menu);
+    const loaded = new Set([menu]);
+    for (const file of loaded) for (const imported of localImports(file)) loaded.add(imported);
+    expect([...loaded].filter((file) => file.includes('/infra/') || file.endsWith('/display.ts'))).toEqual([]);
   });
 });
 

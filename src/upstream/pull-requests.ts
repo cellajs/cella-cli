@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { select } from '@inquirer/prompts';
+import select from '@inquirer/select';
 import semver from 'semver';
 import { resolveTrunk, upgradeBranchPrefix } from '../config/load';
 import type { RuntimeConfig } from '../config/types';
@@ -459,6 +459,7 @@ export async function guardAgainstOpenUpgradePr(config: RuntimeConfig): Promise<
       { value: 'cancel', name: pc.red('cancel') },
     ],
     loop: false,
+    theme: { style: { keysHelpTip: () => '' } },
   });
 
   if (choice === 'cancel') return 'cancel';

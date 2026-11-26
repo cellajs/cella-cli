@@ -2,11 +2,10 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { defaultRule, environmentsFile, parseEnvironmentsFile } from '../../lib/deploy/target';
-import { actionLabel } from '../../lib/operator-actions';
 import { changeMark, checkMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { repoRoot } from '../../lib/utils/paths';
-import { ActionEnded, confirmOrDefault, type InfraContext } from '../shared';
+import { ActionEnded, confirmOrDefault, type InfraContext, pointTo } from '../shared';
 import { defaultBranch, environmentsTarget, gitFileState, gitOutput, newestReleaseTag, printLaunchChecklist } from './setup-checklist';
 import { runStartDeploy } from './start-deploy';
 
@@ -96,7 +95,7 @@ export async function offerFirstDeploy(context: InfraContext): Promise<void> {
     } catch (error) {
       // A first deploy that ends blocked or failed is read in Deploy logs; the setup itself is done.
       if (!(error instanceof ActionEnded)) throw error;
-      console.warn(`${warningMark} The first deploy did not end deployed: "${actionLabel('logs')}" says why. The setup itself is done.`);
+      console.warn(`${warningMark} The first deploy did not end deployed: ${pointTo('logs')} says why. The setup itself is done.`);
     }
   }
   await printLaunchChecklist(context);

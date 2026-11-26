@@ -11,9 +11,21 @@ const session: {
   operatorKeyMinted?: boolean;
   /** The run shows the menu: an action that fails or is stopped returns to it. */
   menu?: boolean;
+  /** The environment this run works on, once it is resolved. */
+  environment?: string;
   /** The answers the running action gave, by prompt id: a step back or a retry offers each as its default. */
   answers: Map<string, string | boolean>;
 } = { answers: new Map() };
+
+/** Keep the environment this run works on: a command a message names then carries it. */
+export function rememberEnvironment(environment: string): void {
+  session.environment = environment;
+}
+
+/** The environment this run works on; undefined before it is resolved. */
+export function runEnvironment(): string | undefined {
+  return session.environment;
+}
 
 /** Keep an Owner API key that passed its validation. */
 export function rememberOwnerKey(pair: KeyPair): void {

@@ -2,7 +2,6 @@ import { spawnSync } from 'node:child_process';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { deriveInfra } from '../../lib/naming';
-import { menuPath } from '../../lib/operator-actions';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
 import { forceUnlock, type LockInfo, leaseLive, lockKey, makeControlClient, peekLock, type S3Like, stateBucket } from '../../lib/stack/control-store';
@@ -17,7 +16,7 @@ import {
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { infraDir } from '../../lib/utils/paths';
-import { acquireStackLockOrEnd, confirmOrDefault, endAction, type InfraContext, openStack, stackNameFor } from '../shared';
+import { acquireStackLockOrEnd, confirmOrDefault, endAction, type InfraContext, openStack, pointTo, stackNameFor } from '../shared';
 import { operatorKeys } from './operator-unlock';
 
 /** Gitignored folder for the state exports taken before a state edit: the rollback copies. */
@@ -108,7 +107,7 @@ async function reviewPendingOperations(context: InfraContext, opts: { s3: S3Like
   if (plan.others.length > 0) {
     console.info(
       '\n  An interrupted update or delete is resolved by a refresh: it reads each resource from Scaleway into the state and clears these records.\n' +
-        `  Run "${menuPath('preview')}" first to see the drift a refresh records, then: ${pc.cyan(`pulumi refresh --stack ${opts.stack}`)}\n` +
+        `  Run ${pointTo('preview')} first to see the drift a refresh records, then: ${pc.cyan(`pulumi refresh --stack ${opts.stack}`)}\n` +
         `  ${pc.dim(`(logged in to the state backend with the key of '${appPrincipalNames(context.appConfig.appSlug).operator}', PULUMI_CONFIG_PASSPHRASE set and empty, and no run in progress)`)}\n` +
         `  ${pc.dim('Nothing is cleared here: dropping the records through an import would drop the interrupted updates and deletes unread.')}`,
     );

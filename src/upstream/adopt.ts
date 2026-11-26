@@ -1,5 +1,6 @@
+import process from 'node:process';
 import { createPrompt, isDownKey, isEnterKey, isSpaceKey, isUpKey, useKeypress, usePagination, useState } from '@inquirer/core';
-import { select } from '@inquirer/prompts';
+import select from '@inquirer/select';
 import { resolveAppModuleFolders } from '../config/app-modules';
 import { printNoForksHint, resolveForkBasePath, type ValidatedFork, validateForkPath } from '../config/forks';
 import { defaultBranch, isUpstreamRepo } from '../config/load';
@@ -156,7 +157,7 @@ async function selectFork(options: AdoptOptions, validated: ValidatedFork[]): Pr
     return match;
   }
 
-  if (options.json) {
+  if (options.json || !process.stdin.isTTY) {
     const validForks = validated.filter((v) => v.valid);
     if (validForks.length === 0) throw new Error('no valid forks configured');
     if (validForks.length > 1) throw new Error('multiple forks configured; pass --fork <name> to choose one');
@@ -172,6 +173,7 @@ async function selectFork(options: AdoptOptions, validated: ValidatedFork[]): Pr
     message: 'select fork to pull contributions from:',
     choices,
     loop: false,
+    theme: { style: { keysHelpTip: () => '' } },
   });
   const selected = validated.find((v) => v.fork.name === picked);
   if (!selected) console.info(pc.dim('no fork selected.'));
@@ -303,6 +305,7 @@ export async function runAdopt(config: RuntimeConfig, options: AdoptOptions): Pr
     return 0;
   }
 
+  if (!process.stdin.isTTY) throw new Error('adopt asks which contributions to take, and this run has no terminal: --json lists them');
   console.info();
   console.info(divider);
   const selected = await contribPrompt({

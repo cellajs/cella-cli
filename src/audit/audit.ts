@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { basename, join, relative } from 'node:path';
-import { checkbox, confirm, Separator } from '@inquirer/prompts';
+import checkbox from '@inquirer/checkbox';
+import { Separator } from '@inquirer/core';
 import pc from '../utils/colors';
 import { createSpinner, hyperlink, spinnerFail, spinnerSuccess, warningMark } from '../utils/display';
 import {
@@ -12,6 +13,7 @@ import {
   type VulnerabilitySeverity,
   worstSeverity,
 } from '../utils/pnpm';
+import { confirm } from '../utils/prompts';
 import { isBreakingJump } from '../utils/versions';
 import { readTopLevel } from '../utils/workspace-yaml';
 import { fetchFeeds, missingNodeImages } from './feeds';

@@ -55,6 +55,7 @@ export const benchCommand: Command<BenchOptions> = {
   name: 'bench',
   group: 'develop',
   description: 'load-test the running app and check what the stack did with the load',
+  summary: 'load-test the running app',
   jobs: [],
   operands: ['[scenario]', 'a scenario of backend/bench/scenarios/ (default: pick one from a list)'],
   options: [

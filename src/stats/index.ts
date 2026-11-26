@@ -14,6 +14,7 @@ export const statsCommand: Command<StatsOptions> = {
   name: 'stats',
   group: 'develop',
   description: 'count files by category and workspace package',
+  summary: 'count files by category and package',
   jobs: [],
   options: [
     ['-V, --verbose', 'show detailed output during operations'],

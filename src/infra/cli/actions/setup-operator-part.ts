@@ -326,7 +326,7 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   });
   if (!runNow) {
     console.info(
-      `  ${pc.dim(`"${actionLabel('resume')}" creates it later; the stack file is connected now, so every checkout sees ${environment} set up.`)}`,
+      `  ${pc.dim(`${pointTo('resume')} creates it later; the stack file is connected now, so every checkout sees ${environment} set up.`)}`,
     );
     await connectRepository(environment);
     return;
@@ -384,7 +384,7 @@ export async function recordKeyRotation(context: InfraContext, operatorKey: Oper
     const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
     const bucket = deriveInfra(appConfig).naming.bootDiagBucket;
     const now = await readObjectModified(s3, bucket, lockKey(stack));
-    if (!now) throw new Error(`the lease of ${stack} is gone and no rotation was recorded: run "${actionLabel('rotate-keys')}" again`);
+    if (!now) throw new Error(`the lease of ${stack} is gone and no rotation was recorded: run ${pointTo('rotate-keys')} again`);
     const rotations = await recordRotation({ s3, bucket, stack, kind: 'keys', by: controlActor(), now });
     console.info(
       `${checkMark} Rotation ${rotations.counter} recorded: the deploy that follows replaces every machine, the backend's with the new uploads key.`,

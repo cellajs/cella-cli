@@ -7,7 +7,6 @@ import { deleteAppliedEngine } from '../../lib/deploy/applied-engine';
 import { deleteLiveRecord } from '../../lib/deploy/live-record';
 import { machineRoles } from '../../lib/machine-roles';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { shutOutOfBuckets } from '../../lib/scaleway/bucket-admission';
 import { removeMachines } from '../../lib/scaleway/machines';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
@@ -28,7 +27,7 @@ import { builderPrefix, removeBuilderMachines } from '../../tasks/build-release'
 import { writeFinalDump } from '../../tasks/final-dump';
 import { environmentName } from '../header';
 import { input } from '../prompts/back';
-import { acquireStackLockOrEnd, endAction, type InfraContext, openStack } from '../shared';
+import { acquireStackLockOrEnd, endAction, type InfraContext, openStack, pointTo } from '../shared';
 import { printLossWarning } from './loss-warning';
 import { acquireIdentityKey } from './operator-unlock';
 import { type OwnerKey, printRevokeReminder } from './owner-key';
@@ -92,7 +91,7 @@ async function endOnShutOut(context: InfraContext, owner: OwnerKey): Promise<voi
   if (!(await shutOutOfBuckets({ appConfig: context.appConfig, projectId: context.projectId, key: owner, principal }))) return;
   const names = appPrincipalNames(context.appConfig.appSlug);
   console.error(
-    `${crossMark} The bucket policies of ${context.environment} do not name ${name}, so this key reads no state and writes no dump. Join '${names.operators}' in the console (IAM → Groups), run "${actionLabel('apply')}" so the policies name you, then tear down again. Nothing was touched.`,
+    `${crossMark} The bucket policies of ${context.environment} do not name ${name}, so this key reads no state and writes no dump. Join '${names.operators}' in the console (IAM → Groups), run ${pointTo('apply')} so the policies name you, then tear down again. Nothing was touched.`,
   );
   endAction(1);
 }

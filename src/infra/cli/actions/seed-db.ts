@@ -5,7 +5,7 @@ import { errorMessage } from '../../lib/utils/errors';
 import { repoRoot } from '../../lib/utils/paths';
 import { Interrupted, shieldInterrupt } from '../prompts/abort';
 import { confirm } from '../prompts/back';
-import { endAction, endsAction, type InfraContext } from '../shared';
+import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
 import { detectPublicIp, prepareClose, prepareExpose, readDbCa, readPublicDsn, removeExposureOverlay } from './db-exposure';
 import { runOperatorApply } from './operator-apply';
 
@@ -21,7 +21,7 @@ export async function runSeedDatabase(context: InfraContext): Promise<void> {
 
   const detected = await detectPublicIp();
   if (!detected) {
-    console.error(`${crossMark} Could not detect your public IP; use "${actionLabel('db-open')}" + manual seeding instead.`);
+    console.error(`${crossMark} Could not detect your public IP; use ${pointTo('db-open')} + manual seeding instead.`);
     endAction(1);
   }
   console.info(pc.dim(`\n${actionLabel('db-seed')}: open the endpoint to ${detected}/32, run the backend seeds, close it.\n`));
@@ -40,7 +40,7 @@ export async function runSeedDatabase(context: InfraContext): Promise<void> {
     endAction(1);
   });
   if (!completed) {
-    console.error(`${crossMark} converge did not complete; run "${actionLabel('db-close')}" to ensure it is closed.`);
+    console.error(`${crossMark} converge did not complete; run ${pointTo('db-close')} to ensure it is closed.`);
     endAction(1);
   }
 
@@ -78,6 +78,6 @@ export async function runSeedDatabase(context: InfraContext): Promise<void> {
       },
     );
     if (closed) console.info(`${checkMark} Public endpoint closed; database is private-only again.`);
-    else console.error(`${crossMark} Run "${actionLabel('db-close')}" to close it manually.`);
+    else console.error(`${crossMark} Run ${pointTo('db-close')} to close it manually.`);
   }
 }

@@ -19,7 +19,10 @@ export interface MenuContext {
 interface CommandBase<Options, Job extends string | undefined> {
   name: string;
   group: CommandGroup;
+  /** Its line in `--help`. */
   description: string;
+  /** The phrase beside its name in the menu: lowercase, and short enough for one 80-column row. */
+  summary: string;
   /** Whether the menu shows it: always unless set, and never for a gate. */
   inMenu?: (context: MenuContext) => boolean;
   /** Runs outside a git repository too: the entry skips its git check. */
@@ -29,6 +32,8 @@ interface CommandBase<Options, Job extends string | undefined> {
    * header or closing line, and `--help` after the name is the command's own.
    */
   handsOver?: true;
+  /** The page `cella help <name>` prints in place of commander's, for a command that hands over. */
+  help?: () => string;
   /**
    * The jobs its first operand names, the default first. The entry refuses any other and hands the default to `parse`
    * when none is named; the menu asks for one that runs without words. Empty: the command has one job.

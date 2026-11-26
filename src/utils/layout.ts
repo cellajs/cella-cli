@@ -7,6 +7,9 @@ export function terminalColumns(): number {
   return Math.max(60, columns || 80);
 }
 
+/** The frames of every spinner the CLI draws, one per redraw. */
+export const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+
 /** Width of `text` as a terminal shows it: colors and OSC 8 link targets take no columns. */
 export function visibleWidth(text: string): number {
   return stripVTControlCharacters(text).length;
@@ -18,10 +21,12 @@ export function padVisible(text: string, width: number, align: 'start' | 'end' =
   return align === 'start' ? `${text}${padding}` : `${padding}${text}`;
 }
 
-/** Plain `text` cut to `width` columns, ending in `…` when cut. */
+/** Plain `text` cut to `width` columns, ending in `…` when cut: at a word where one ends in the second half of the room. */
 export function fitText(text: string, width: number): string {
   if (text.length <= width) return text;
-  return `${text.slice(0, Math.max(0, width - 1)).trimEnd()}…`;
+  const cut = text.slice(0, Math.max(0, width - 1));
+  const word = cut.lastIndexOf(' ');
+  return `${(word > width / 2 ? cut.slice(0, word) : cut).trimEnd()}…`;
 }
 
 /** Steps git's relative dates use (`--date=relative`), in seconds, with the unit each prints in. */

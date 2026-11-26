@@ -1,6 +1,6 @@
 import process from 'node:process';
-import { input } from '@inquirer/prompts';
 import type { Command } from '../command';
+import { input } from '../utils/prompts';
 import { type RenameOptions, runRename } from './rename';
 import { runStatus } from './status';
 import { runUnused } from './unused';
@@ -20,6 +20,7 @@ export const i18nCommand: Command<I18nOptions, I18nOptions['job']> = {
   name: 'i18n',
   group: 'develop',
   description: 'translation status, unused keys and renames across the locale files and the code',
+  summary: 'translation status, unused keys and renames',
   jobs: [
     ['status', 'per namespace and language: missing, orphaned and mismatched translations'],
     ['unused', 'keys no code names, here and in the local forks of the config'],

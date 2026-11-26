@@ -1,8 +1,8 @@
+import { escaped, menuSelect } from '../../../utils/menu';
 import { hasPerson, pc } from '../../lib/utils/cli-output';
 import { backToMenuLabel, quitChoice } from '../menu';
 import { inMenuSession, rememberedOperatorKey } from '../session';
 import { isPromptAbort } from './abort';
-import { escaped, menuSelect } from './menu-select';
 
 /** One way out of a failure: what it does, and the line under the list while it is highlighted. */
 export interface WayOut<T extends string> {

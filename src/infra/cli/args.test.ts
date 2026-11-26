@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseCliArgs } from './args';
+import { parseCliArgs, splitFlagValues } from './args';
 
 describe('parseCliArgs', () => {
   it('opens the menu when no action is named', () => {
@@ -31,5 +31,31 @@ describe('parseCliArgs', () => {
 
   it('lets the flags the actions read pass through', () => {
     expect(parseCliArgs(['apply', '--debug-provider', '--defaults'])).toEqual({ once: false, help: false, action: 'apply' });
+  });
+
+  it('reads --flag=value as --flag value', () => {
+    expect(parseCliArgs(['apply', '--mode=staging'])).toEqual({ once: false, help: false, action: 'apply', mode: 'staging' });
+    expect(splitFlagValues(['logs', '--sha=abc1234'])).toEqual(['logs', '--sha', 'abc1234']);
+  });
+
+  it('refuses an unknown flag', () => {
+    expect(parseCliArgs(['apply', '--mode=staging', '--yes']).refusal).toBe("unknown option '--yes' for infra apply");
+  });
+
+  it('refuses a flag without its value', () => {
+    expect(parseCliArgs(['logs', '--sha']).refusal).toBe("option '--sha' needs a value");
+  });
+
+  it('refuses a second word', () => {
+    expect(parseCliArgs(['status', 'staging']).refusal).toBe("unexpected word 'staging' after infra status");
+  });
+
+  it('refuses a mode named twice: the run would take one of the two without a word', () => {
+    expect(parseCliArgs(['apply', '--mode', 'staging', '--mode', 'production']).refusal).toBe("option '--mode' is given twice");
+  });
+
+  it('refuses a flag on an action that never reads it, and takes it with the menu', () => {
+    expect(parseCliArgs(['deploy-now', '--sha', 'abc1234']).refusal).toBe("option '--sha' belongs to infra logs, not to infra deploy-now");
+    expect(parseCliArgs(['--sha', 'abc1234']).refusal).toBeUndefined();
   });
 });

@@ -130,11 +130,11 @@ export interface MenuRow {
   description: string;
 }
 
-/** The actions a person runs rarely, in the sections of the More pick, in pick order. A rule divides the sections; their names are for the reader. */
+/** The actions a person runs rarely, in the sections of the More pick, in pick order. A rule divides the sections; their names head them in the help. */
 export const moreSections = {
-  'Deploys & changes': ['deploy-now', 'preview'],
-  'Keys & access': ['rotate-keys', 'rotate-secrets', 'operators', 'identities', 'repository-key'],
-  Repair: ['unlock', 'resume', 'state-remove'],
+  Deploy: ['deploy-now', 'preview'],
+  'Keys and identities': ['rotate-keys', 'rotate-secrets', 'operators', 'identities', 'repository-key'],
+  Repairs: ['unlock', 'resume', 'state-remove'],
   Database: ['db-seed', 'db-reset'],
   Environment: ['env-import', 'teardown'],
 } as const satisfies Record<string, readonly OperatorActionId[]>;

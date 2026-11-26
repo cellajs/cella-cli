@@ -1,3 +1,4 @@
+import { escaped, type MenuChoice, type MenuSelectOptions, menuSelect, rule } from '../../../utils/menu';
 import { blockedValues } from '../../lib/deploy/failure-class';
 import { type ManagedKeyDefinition, managedKeys } from '../../lib/managed-keys';
 import { deriveInfra } from '../../lib/naming';
@@ -11,10 +12,9 @@ import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-outpu
 import { isEnvFileDeliverable } from '../../lib/utils/compose-env-value';
 import { errorMessage } from '../../lib/utils/errors';
 import { provisionManagedKey } from '../../tasks/provision-managed-key';
-import { backChoice, type MenuChoice, rule } from '../menu';
+import { backChoice } from '../menu';
 import { confirm, PromptBack } from '../prompts/back';
 import { maskedSecret } from '../prompts/masked-secret';
-import { escaped, type MenuSelectOptions, menuSelect } from '../prompts/menu-select';
 import { leaveRow } from '../prompts/what-now';
 import { acquireStackLockOrEnd, asksPerson, confirmOrDefault, endsAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { bootDiagOn } from './deploy-follow';

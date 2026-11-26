@@ -1,3 +1,4 @@
+import { escaped, menuSelect, rule } from '../../../utils/menu';
 import { printable } from '../../../utils/terminal-text';
 import {
   accountExcerpt,
@@ -33,9 +34,8 @@ import { runOverrides } from '../../lib/status/providers/runs';
 import { getFlag } from '../../lib/utils/args';
 import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { backChoice, rule } from '../menu';
+import { backChoice } from '../menu';
 import { PromptBack } from '../prompts/back';
-import { escaped, menuSelect } from '../prompts/menu-select';
 import { asksPerson, endAction, type InfraContext, pointTo } from '../shared';
 
 const listLength = 10;
