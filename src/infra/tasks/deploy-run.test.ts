@@ -17,8 +17,8 @@ import {
   type TaskName,
 } from './deploy-run';
 
-const SHA = 'abc1230000000000000000000000000000000000';
-const DESCRIPTION = 'd'.repeat(64);
+const testSha = 'abc1230000000000000000000000000000000000';
+const description = 'd'.repeat(64);
 
 const row = { public_url: '', health_url: '', lb_route: '', dockerfile: '', reuses_image_of: '', primary_rollout: false };
 
@@ -55,10 +55,10 @@ const role = (name: ServiceName, primary = false): MachineRole => ({
   drainSeconds: 0,
   primary,
 });
-const ROLES = [role('backend', true), role('cdc'), role('frontend')];
+const roles = [role('backend', true), role('cdc'), role('frontend')];
 const serving = (commit: string, retry = 0, rotation = 0): LiveRecord => ({
   schemaVersion: 1,
-  roles: Object.fromEntries(ROLES.map((r, index) => [r.role, { slot: 'a', machine: `srv-${index}`, commit, retry, rotation }])),
+  roles: Object.fromEntries(roles.map((r, index) => [r.role, { slot: 'a', machine: `srv-${index}`, commit, retry, rotation }])),
 });
 
 function makeFake(
@@ -85,9 +85,9 @@ function makeFake(
     readFile: async (path) =>
       path.endsWith('manifest.json')
         ? JSON.stringify({
-            release: SHA,
+            release: testSha,
             images: {},
-            ...(opts.description === null ? {} : { description: opts.description ?? DESCRIPTION }),
+            ...(opts.description === null ? {} : { description: opts.description ?? description }),
             ...(opts.describes ? { describes: opts.describes } : {}),
           })
         : '[]',
@@ -102,10 +102,10 @@ function makeFake(
     },
     readLive: async () => {
       ops.push('live:read');
-      return { roles: ROLES, record: opts.live ?? { schemaVersion: 1, roles: {} }, rotation: opts.rotation ?? 0 };
+      return { roles: roles, record: opts.live ?? { schemaVersion: 1, roles: {} }, rotation: opts.rotation ?? 0 };
     },
     leftovers: async () => opts.leftovers ?? [],
-    engineStamp: () => (opts.stamp === null ? undefined : (opts.stamp ?? { mode: 'production', descriptionHash: DESCRIPTION })),
+    engineStamp: () => (opts.stamp === null ? undefined : (opts.stamp ?? { mode: 'production', descriptionHash: description })),
     engineDescription: async () => ({ services: { backend: {} } }),
     switchMachines: async (request) => {
       ops.push(`switch:${request.pending.join(',')}`);
@@ -131,7 +131,7 @@ function makeFake(
   return { fx, ops, taskArgs, switches, records };
 }
 
-const baseOpts: DeployOptions = { mode: 'production', sha: SHA, retry: 0 };
+const baseOpts: DeployOptions = { mode: 'production', sha: testSha, retry: 0 };
 
 describe('parseDeployArgs', () => {
   it('parses flags and refuses non-pinned tags', () => {
@@ -186,11 +186,11 @@ describe('runDeploy sequencing', () => {
 
   it('switches the roles the live record says do not serve the target, under the retry counter and the rotation', async () => {
     const live = serving('b'.repeat(40));
-    live.roles.backend = { slot: 'b', machine: 'srv-9', commit: SHA, retry: 0, rotation: 3 };
+    live.roles.backend = { slot: 'b', machine: 'srv-9', commit: testSha, retry: 0, rotation: 3 };
     const { fx, switches } = makeFake({ live, rotation: 3 });
     await runDeploy(baseOpts, fx, fakeDeployEnv);
     expect(switches[0]?.pending).toEqual(['cdc', 'frontend']);
-    expect(switches[0]?.target).toEqual({ sha: SHA, retry: 0, rotation: 3 });
+    expect(switches[0]?.target).toEqual({ sha: testSha, retry: 0, rotation: 3 });
     expect(switches[0]?.stack).toBe('production');
   });
 
@@ -219,7 +219,7 @@ describe('runDeploy sequencing', () => {
     await runDeploy(baseOpts, fx, fakeDeployEnv);
     const distDir = taskArgs['build-release']?.distDir ?? '';
     expect(distDir).toMatch(/release-/);
-    expect(taskArgs['build-release']).toMatchObject({ sha: SHA, mode: 'production' });
+    expect(taskArgs['build-release']).toMatchObject({ sha: testSha, mode: 'production' });
     expect(taskArgs.smoke).toMatchObject({ dist: `${distDir}/index.html`, primary: 'backend', apex: 'https://cellajs.com' });
   });
 
@@ -232,14 +232,14 @@ describe('runDeploy sequencing', () => {
 
 describe('the same deploy twice', () => {
   it('changes nothing when every role serves the target under the same retry counter and rotation: no build, no machine', async () => {
-    const { fx, ops, records } = makeFake({ live: serving(SHA) });
+    const { fx, ops, records } = makeFake({ live: serving(testSha) });
     await runDeploy(baseOpts, fx, fakeDeployEnv);
     expect(ops.filter((op) => op.startsWith('task:') || op.startsWith('switch:'))).toEqual([]);
     expect(records.at(-1)?.record.outcome).toBe('unchanged');
   });
 
   it('runs the steps after the switch again when an earlier run of the target stopped after its switch: no machine is booted', async () => {
-    const { fx, ops, switches, records } = makeFake({ live: serving(SHA), leftovers: ['the published index.html'] });
+    const { fx, ops, switches, records } = makeFake({ live: serving(testSha), leftovers: ['the published index.html'] });
     await runDeploy(baseOpts, fx, fakeDeployEnv);
     expect(switches[0]?.pending).toEqual([]);
     expect(ops).toContain('publish-entry');
@@ -249,8 +249,8 @@ describe('the same deploy twice', () => {
 
   it('replaces every machine of the live commit after a raised retry counter or a rotation', async () => {
     for (const [opts, fake] of [
-      [{ ...baseOpts, retry: 1 }, makeFake({ live: serving(SHA) })],
-      [baseOpts, makeFake({ live: serving(SHA), rotation: 1 })],
+      [{ ...baseOpts, retry: 1 }, makeFake({ live: serving(testSha) })],
+      [baseOpts, makeFake({ live: serving(testSha), rotation: 1 })],
     ] as const) {
       await runDeploy(opts, fake.fx, fakeDeployEnv);
       expect(fake.switches[0]?.pending).toEqual(['backend', 'cdc', 'frontend']);
@@ -265,7 +265,7 @@ describe('the run record', () => {
     await runDeploy({ ...baseOpts, run: 'run-1' }, fx, fakeDeployEnv);
     const written = records.at(-1);
     expect(written?.bucket).toBe('cella-boot-diag');
-    expect(written?.record).toMatchObject({ run: 'run-1', environment: 'production', target: SHA, outcome: 'deployed' });
+    expect(written?.record).toMatchObject({ run: 'run-1', environment: 'production', target: testSha, outcome: 'deployed' });
     expect(written?.record.failedStep).toBeUndefined();
     expect(written?.record.steps.map((step) => step.title)).toContain('Switch machines');
     expect(written?.log).toContain('[deploy] Smoke tests: ok');
@@ -294,7 +294,7 @@ describe('the run record', () => {
   });
 
   it('ends "apply needed", exit 2, before any build for a run outside the engine image or one built for another environment', async () => {
-    for (const fake of [makeFake({ stamp: null }), makeFake({ stamp: { mode: 'staging', descriptionHash: DESCRIPTION } })]) {
+    for (const fake of [makeFake({ stamp: null }), makeFake({ stamp: { mode: 'staging', descriptionHash: description } })]) {
       const error = await runDeploy(baseOpts, fake.fx, fakeDeployEnv).catch((err: unknown) => err);
       expect((error as ExitCodeError).exitCode).toBe(2);
       expect(fake.records.at(-1)?.record).toMatchObject({ outcome: 'apply needed', failedStep: 'Check the engine' });

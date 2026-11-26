@@ -15,16 +15,16 @@ export function scalewayStatus(error: string | undefined): string | undefined {
   return error ? /Scaleway \S+ \S+ → (5\d\d)/.exec(error)?.[1] : undefined;
 }
 
-const SHORTAGE = /out of stock|scarce/i;
+const shortage = /out of stock|scarce/i;
 
 /** The steps that fail when a new machine fetches its env file or images through a link that already expired. */
-const LINK_STEPS = new Set(['Compose runtime env', 'Switch machines']);
+const linkSteps = new Set(['Compose runtime env', 'Switch machines']);
 
 /** The words that name a shortage: the API's own message when the error carries one, else the clause around the match. */
 function shortageWords(error: string): string {
   const message = /"message"\s*:\s*"([^"]+)"/.exec(error)?.[1];
-  if (message && SHORTAGE.test(message)) return message;
-  return (error.split(/[;\n]|: /).find((clause) => SHORTAGE.test(clause)) ?? error).trim().slice(0, 80);
+  if (message && shortage.test(message)) return message;
+  return (error.split(/[;\n]|: /).find((clause) => shortage.test(clause)) ?? error).trim().slice(0, 80);
 }
 
 /** The env vars a blocked run's error says hold no value, without their secret names; none for another error. */
@@ -69,14 +69,14 @@ export function classifyRun(record: RunRecord): FailureClass {
       retryLikely: false,
     };
   }
-  if (SHORTAGE.test(error)) {
+  if (shortage.test(error)) {
     return {
       side: 'platform',
       sentence: `Scaleway had no machine of that type ("${shortageWords(error)}"): a retry in a few minutes usually passes.`,
       retryLikely: true,
     };
   }
-  if (/\b403\b/.test(error) && LINK_STEPS.has(failedStep ?? '') && /fetch-env|load-images|link/.test(error)) {
+  if (/\b403\b/.test(error) && linkSteps.has(failedStep ?? '') && /fetch-env|load-images|link/.test(error)) {
     return {
       side: 'platform',
       sentence: 'The machine took longer to boot than its download links lasted: a retry usually passes.',

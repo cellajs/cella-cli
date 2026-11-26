@@ -1,15 +1,15 @@
 import { GetObjectCommand, ListObjectsV2Command, ListObjectVersionsCommand, PutObjectCommand, type S3Client } from '@aws-sdk/client-s3';
-import { BOOT_ACCOUNTS_PREFIX } from './boot-accounts';
+import { bootAccountsPrefix } from './boot-accounts';
 import {
   type Growth,
   isRunRecord,
   logGrows,
-  RUNS_PREFIX,
   type RunRecord,
   readByGrowth,
   recordGrows,
   runLogKey,
   runRecordKey,
+  runsPrefix,
   type StoredVersion,
 } from './run-record';
 
@@ -93,8 +93,8 @@ export function bucketRunStore(s3: Pick<S3Client, 'send'>, bucket: string): RunS
       const runs: string[] = [];
       let token: string | undefined;
       do {
-        const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: RUNS_PREFIX, Delimiter: '/', ContinuationToken: token }));
-        for (const prefix of page.CommonPrefixes ?? []) if (prefix.Prefix) runs.push(prefix.Prefix.slice(RUNS_PREFIX.length).replace(/\/$/, ''));
+        const page = await s3.send(new ListObjectsV2Command({ Bucket: bucket, Prefix: runsPrefix, Delimiter: '/', ContinuationToken: token }));
+        for (const prefix of page.CommonPrefixes ?? []) if (prefix.Prefix) runs.push(prefix.Prefix.slice(runsPrefix.length).replace(/\/$/, ''));
         token = page.IsTruncated ? page.NextContinuationToken : undefined;
       } while (token);
       // Ids start with the time a run started, so the order of their names is the order of the runs.
@@ -106,7 +106,7 @@ export function bucketRunStore(s3: Pick<S3Client, 'send'>, bucket: string): RunS
       return body === undefined ? undefined : parseRecord(body);
     },
     readLog: (run) => readByGrowth(versions(runLogKey(run)), logGrows, 'the log'),
-    readBootAccount: (key) => read(`${BOOT_ACCOUNTS_PREFIX}${key}`),
+    readBootAccount: (key) => read(`${bootAccountsPrefix}${key}`),
   };
 }
 

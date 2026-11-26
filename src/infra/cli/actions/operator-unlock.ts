@@ -8,7 +8,7 @@ import { crossMark, pc, withSpinner } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { sleep } from '../../lib/utils/sleep';
 import { keyPairPrompt } from '../prompts/key-pair';
-import { keptKeyNote, LEAVE, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
+import { keptKeyNote, leaveChoice, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
 import { forgetOperatorKey, operatorKeyMintedThisRun, rememberedOperatorKey, rememberOperatorKey } from '../session';
 import { endAction, type InfraContext } from '../shared';
 import { acquireOwnerKey, type OwnerKey } from './owner-key';
@@ -83,8 +83,8 @@ async function bearerVerdict(desc: KeyDescription, pair: KeyPair, names: AppPrin
 }
 
 /** Reads of a key the setup minted after the first, and the pause before each: IAM refuses a new key until its policy holds, about a minute. */
-const MINTED_KEY_RETRIES = 6;
-const MINTED_KEY_PAUSE_MS = 10_000;
+const mintedKeyRetries = 6;
+const mintedKeyPauseMs = 10_000;
 
 /** Describe a key minted in this run, reading it again on a 401 or 403 while it is that new. */
 function describeMintedKey(pair: KeyPair): Promise<KeyDescription> {
@@ -94,8 +94,8 @@ function describeMintedKey(pair: KeyPair): Promise<KeyDescription> {
         return await describeKey(pair);
       } catch (error) {
         const status = scwErrorStatus(error);
-        if (retry === MINTED_KEY_RETRIES || (status !== 401 && status !== 403)) throw error;
-        await sleep(MINTED_KEY_PAUSE_MS);
+        if (retry === mintedKeyRetries || (status !== 401 && status !== 403)) throw error;
+        await sleep(mintedKeyPauseMs);
       }
     }
   });
@@ -127,9 +127,9 @@ async function judgeKey(pair: KeyPair, names: AppPrincipalNames): Promise<Judgem
 }
 
 /** How long the wait row of a refused key waits before the key is read again: about as long as a new policy takes to hold. */
-const SETTLE_WAIT_MS = 30_000;
+const settleWaitMs = 30_000;
 
-type KeyWayOut = 'wait' | 'another' | 'retry' | typeof LEAVE;
+type KeyWayOut = 'wait' | 'another' | 'retry' | typeof leaveChoice;
 
 /**
  * Ask what to do with a key Scaleway did not take. A refused key is dropped. A 403 may be a policy that has not held yet: waiting comes
@@ -178,8 +178,8 @@ async function unlock(stack: StackRef): Promise<Unlocked> {
     console.error(`${crossMark} ${first}`);
     for (const line of rest) console.error(`  ${pc.dim(line)}`);
     const picked = await keyWaysOut(judged);
-    if (picked === LEAVE) return endAction(1, { left: true });
-    if (picked === 'wait') await withSpinner('Waiting 30 s for the key to hold', () => sleep(SETTLE_WAIT_MS));
+    if (picked === leaveChoice) return endAction(1, { left: true });
+    if (picked === 'wait') await withSpinner('Waiting 30 s for the key to hold', () => sleep(settleWaitMs));
     if (picked === 'another') pair = undefined;
   }
 }

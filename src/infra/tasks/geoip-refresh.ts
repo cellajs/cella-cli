@@ -5,8 +5,8 @@ import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
 
 export type GeoipKind = 'country' | 'asn';
-export const GEOIP_KINDS: readonly GeoipKind[] = ['country', 'asn'];
-const DEFAULT_PREFIX = 'geoip';
+export const geoipKinds: readonly GeoipKind[] = ['country', 'asn'];
+const defaultPrefix = 'geoip';
 
 /** What the prefix holds: the backend never reads it, operators and the staleness gate do. */
 export interface GeoipManifest {
@@ -58,7 +58,7 @@ export const monthOf = (date: Date, shiftMonths = 0): string => {
   return `${shifted.getUTCFullYear()}-${String(shifted.getUTCMonth() + 1).padStart(2, '0')}`;
 };
 
-const MMDB_METADATA_MARKER = Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1');
+const mmdbMetadataMarker = Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1');
 
 /**
  * A downloaded archive is trusted only when it gunzips and the payload ends in the MMDB metadata section; anything
@@ -73,7 +73,7 @@ export const verifyMmdbArchive = (archive: Uint8Array): { ok: true } | { ok: fal
   }
   // The marker sits at most 128 KiB from the end per the MMDB spec.
   const tail = payload.subarray(Math.max(0, payload.length - 128 * 1024));
-  if (!tail.includes(MMDB_METADATA_MARKER)) return { ok: false, reason: 'no MMDB metadata section' };
+  if (!tail.includes(mmdbMetadataMarker)) return { ok: false, reason: 'no MMDB metadata section' };
   return { ok: true };
 };
 
@@ -190,7 +190,7 @@ export interface GeoipRefreshStep {
 
 /** The deploy's GeoIP step, this month's data under the default prefix. Needs SCW_ACCESS_KEY / SCW_SECRET_KEY (or AWS_*) with write access to the bucket. */
 export async function main({ bucket, region, maxAgeDays, keysRotatedAt }: GeoipRefreshStep): Promise<void> {
-  const prefix = DEFAULT_PREFIX;
+  const prefix = defaultPrefix;
   const effects = await liveEffects({ bucket, region, prefix });
   const result = await sequenceGeoipRefresh({
     bucket,
@@ -199,7 +199,7 @@ export async function main({ bucket, region, maxAgeDays, keysRotatedAt }: GeoipR
     force: false,
     maxAgeDays,
     keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
-    kinds: GEOIP_KINDS,
+    kinds: geoipKinds,
     ...effects,
     now: () => new Date(),
     log: (message) => process.stdout.write(`  ${message}\n`),

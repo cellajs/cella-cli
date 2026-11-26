@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SERVING_TIMEOUT_SECONDS } from '../../tasks/switch-machines';
+import { servingTimeoutSeconds } from '../../tasks/switch-machines';
 import { bootPlanIn, cloudConfigFile } from '../../tests/helpers/pulumi-mock';
 import { composeWaitTimeoutSeconds, type MachineUserDataParams, renderMachineUserData } from './machine-user-data';
 
@@ -100,7 +100,7 @@ describe('renderMachineUserData', () => {
     const { plan } = bootPlanIn(renderMachineUserData(params()), '/etc/cella/boot-plan.json');
     expect(plan.timeouts.composeWaitSeconds).toBe(composeWaitTimeoutSeconds);
     // The power-on, the env file and the archives take about the first three minutes; the failure and its upload must land before the wait ends.
-    expect(composeWaitTimeoutSeconds + 180).toBeLessThanOrEqual(SERVING_TIMEOUT_SECONDS);
+    expect(composeWaitTimeoutSeconds + 180).toBeLessThanOrEqual(servingTimeoutSeconds);
   });
 
   it('emits a log-scrub sed pattern that matches secret-bearing lines and links', () => {

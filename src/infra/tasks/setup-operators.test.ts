@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { resolveDnsProjectIds } from '../lib/scaleway/dns-zone-project';
 import { addApplicationToGroup, ensureApplication, ensureGroup } from '../lib/scaleway/scaleway-iam';
 import { scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
-import { OPERATOR_POLICY_DESCRIPTION as DESCRIPTION, operatorPolicyReach, operatorRules, setupOperators } from './setup-operators';
+import { operatorPolicyDescription, operatorPolicyReach, operatorRules, setupOperators } from './setup-operators';
 
 vi.mock('../lib/scaleway/scaleway-iam', () => ({ addApplicationToGroup: vi.fn(), ensureApplication: vi.fn(), ensureGroup: vi.fn() }));
 vi.mock('../lib/scaleway/dns-zone-project', () => ({ resolveDnsProjectIds: vi.fn() }));
@@ -86,7 +86,7 @@ describe('setupOperators', () => {
       description: 'conditioned on the dedicated IP address',
       rules: [{ ...rules[0], condition: "request.ip in ['203.0.113.7']" }],
     });
-    live.set('cella-operators-policy', { id: 'pol-group', group_id: 'group-1', description: DESCRIPTION, rules: [rules[0]] });
+    live.set('cella-operators-policy', { id: 'pol-group', group_id: 'group-1', description: operatorPolicyDescription, rules: [rules[0]] });
 
     const result = await setupOperators(base);
 
@@ -109,7 +109,7 @@ describe('setupOperators', () => {
     expect(scwSend).not.toHaveBeenCalled();
 
     // Nor does such a policy add a project of its own to what the operators reach.
-    live.set('cella-operators-policy', { id: 'pol-group', group_id: 'group-1', description: DESCRIPTION, rules });
+    live.set('cella-operators-policy', { id: 'pol-group', group_id: 'group-1', description: operatorPolicyDescription, rules });
     live.set('cella-operator-policy', {
       id: 'pol-app',
       application_id: 'someone-else',

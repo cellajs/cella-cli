@@ -2,7 +2,7 @@ import type { FetchLike } from '../utils/fetch-like';
 import { sleep as defaultSleep } from '../utils/sleep';
 import { type ScwAuth, scwFetch, scwSend } from './scw-fetch';
 
-const RDB_BASE = 'https://api.scaleway.com/rdb/v1';
+const rdbBase = 'https://api.scaleway.com/rdb/v1';
 
 export interface RdbInstance {
   id: string;
@@ -98,7 +98,7 @@ export interface RdbClientOptions {
 export function createRdbClient(opts: RdbClientOptions) {
   const auth: ScwAuth = { secretKey: opts.secretKey, fetchImpl: opts.fetchImpl };
   const region = encodeURIComponent(opts.region);
-  const base = `${RDB_BASE}/regions/${region}`;
+  const base = `${rdbBase}/regions/${region}`;
   const instanceBase = (instanceId: string) => `${base}/instances/${encodeURIComponent(instanceId)}`;
 
   return {

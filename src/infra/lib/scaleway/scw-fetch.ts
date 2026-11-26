@@ -3,14 +3,14 @@ import { type FetchLike, resolveFetch } from '../utils/fetch-like';
 import { retry } from '../utils/retry';
 
 // SCW_DEBUG only, never the generic DEBUG var: verbose mode prints API bodies into retained CI logs.
-const DEBUG = process.env.SCW_DEBUG === '1';
+const debug = process.env.SCW_DEBUG === '1';
 
 /** True for endpoints whose bodies carry live secret values (Secret Manager access, IAM api-key minting, a machine's user data, a database role's password). Verbose logging redacts these bodies. */
 export function carriesSecretValues(url: string): boolean {
   return url.includes('/secret-manager/') || url.includes('/api-keys') || url.includes('/user_data/') || /\/rdb\/.+\/users(?:[/?]|$)/.test(url);
 }
 
-const REDACTED = '[redacted: secret-bearing endpoint]';
+const redacted = '[redacted: secret-bearing endpoint]';
 
 // A rejected fetch is a transient network failure, and so is an answer of `transientStatuses`: one blip must not fail a deploy's read.
 const attempts = 3;
@@ -55,11 +55,11 @@ export function scwRegistryHost(region: string): string {
 }
 
 /** How long one call may take before it fails as a network error, so a stalled endpoint never holds a screen or a deploy step for good. */
-const REQUEST_TIMEOUT_MS = 60_000;
+const requestTimeoutMs = 60_000;
 
 async function request(auth: ScwAuth, method: string, url: string, body?: string, contentType = 'application/json'): Promise<string> {
-  if (DEBUG) {
-    const bodyLog = body ? ` body=${carriesSecretValues(url) ? REDACTED : body}` : '';
+  if (debug) {
+    const bodyLog = body ? ` body=${carriesSecretValues(url) ? redacted : body}` : '';
     process.stderr.write(`[scw] → ${method} ${url}${bodyLog}\n`);
   }
   const fetchImpl = resolveFetch(auth.fetchImpl);
@@ -72,10 +72,10 @@ async function request(auth: ScwAuth, method: string, url: string, body?: string
           method,
           headers: { 'X-Auth-Token': auth.secretKey, 'Content-Type': contentType },
           body,
-          signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+          signal: AbortSignal.timeout(requestTimeoutMs),
         });
         const text = await res.text();
-        if (DEBUG) process.stderr.write(`[scw] ← ${res.status} ${carriesSecretValues(url) ? REDACTED : text.slice(0, 500)}\n`);
+        if (debug) process.stderr.write(`[scw] ← ${res.status} ${carriesSecretValues(url) ? redacted : text.slice(0, 500)}\n`);
         if (res.ok) return text;
         throw Object.assign(new Error(`Scaleway ${method} ${url} → ${res.status}: ${text}`), {
           status: res.status,

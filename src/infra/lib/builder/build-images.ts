@@ -1,7 +1,7 @@
 import { basename, dirname } from 'node:path';
 import { pinnedNodeImage } from '../deploy/node-image';
-import { AGENT_IMAGE_NAME } from '../deploy/release-archives';
-import { ENGINE_ASSETS } from './builder-machine';
+import { agentImageName } from '../deploy/release-archives';
+import { engineAssets } from './builder-machine';
 
 // The bake definition the builder machine runs: targets derive from the deploy's build matrix, and each image is written as an archive.
 
@@ -36,7 +36,7 @@ export function bakeDefinition(rows: BuildImageRow[], opts: BakeOptions): { grou
   const archive = (name: string) => [`type=docker,dest=${opts.archiveDir}/${name}.tar`];
   const target: Record<string, unknown> = {};
   for (const row of rows) {
-    const fromEngine = row.dockerfile.startsWith(`${ENGINE_ASSETS}/`);
+    const fromEngine = row.dockerfile.startsWith(`${engineAssets}/`);
     target[row.service] = {
       // An engine Dockerfile copies what lies beside it
       context: fromEngine ? dirname(row.dockerfile) : context,
@@ -48,13 +48,13 @@ export function bakeDefinition(rows: BuildImageRow[], opts: BakeOptions): { grou
     };
   }
   target.agent = {
-    context: `${ENGINE_ASSETS}/agent`,
+    context: `${engineAssets}/agent`,
     dockerfile: 'Dockerfile',
-    tags: [image(AGENT_IMAGE_NAME)],
+    tags: [image(agentImageName)],
     args: { NODE_IMAGE: pinnedNodeImage(opts.nodeVersion, 'bookworm-slim') },
-    output: archive(AGENT_IMAGE_NAME),
+    output: archive(agentImageName),
   };
-  const services = rows.filter((row) => !row.dockerfile.startsWith(`${ENGINE_ASSETS}/`)).map((row) => row.service);
+  const services = rows.filter((row) => !row.dockerfile.startsWith(`${engineAssets}/`)).map((row) => row.service);
   const engine = [...rows.filter((row) => !services.includes(row.service)).map((row) => row.service), 'agent'];
   return {
     group: { default: { targets: [...services, ...engine] }, services: { targets: services }, engine: { targets: engine } },

@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { followsReleases, rerunReleaseCheck } from './release-gate';
 
 // A `gh` on PATH that logs every call and answers the lookups: the run is in progress until its status is read a second time.
-const FAKE_GH = `#!/bin/sh
+const fakeGh = `#!/bin/sh
 echo "$*" >> "$GH_LOG"
 case "$*" in
   "pr list"*) echo '[{"headRefName":"release-please--branches--main","headRefOid":"abc"}]' ;;
@@ -21,7 +21,7 @@ describe('the release check after an apply', () => {
   const path = process.env.PATH;
 
   beforeEach(() => {
-    writeFileSync(join(dir, 'gh'), FAKE_GH);
+    writeFileSync(join(dir, 'gh'), fakeGh);
     chmodSync(join(dir, 'gh'), 0o755);
     writeFileSync(join(dir, 'package.json'), JSON.stringify({ repository: 'https://github.com/acme/app' }));
     writeFileSync(log, '');

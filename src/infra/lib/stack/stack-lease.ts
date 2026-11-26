@@ -3,7 +3,7 @@ import { sleep as defaultSleep } from '../utils/sleep';
 import { acquireLock, type LockInfo, releaseLock, renewLock, type S3Like } from './control-store';
 
 /** Default lease lifetime: long enough to ride out a slow renewal, short enough that a dead run frees the stack within minutes. */
-const DEFAULT_LEASE_TTL_MS = 3 * 60_000;
+const defaultLeaseTtlMs = 3 * 60_000;
 
 export interface LeaseOptions {
   s3: S3Like;
@@ -44,7 +44,7 @@ export type LeaseResult = { acquired: true; lease: StackLease } | { acquired: fa
  * lifetime; a caller that finds the lock held may wait up to `waitMs` for that lapse.
  */
 export async function acquireLease(opts: LeaseOptions): Promise<LeaseResult> {
-  const ttlMs = opts.ttlMs ?? DEFAULT_LEASE_TTL_MS;
+  const ttlMs = opts.ttlMs ?? defaultLeaseTtlMs;
   const renewEveryMs = opts.renewEveryMs ?? Math.max(1_000, Math.floor(ttlMs / 4));
   const now = opts.now ?? Date.now;
   const sleep = opts.sleep ?? defaultSleep;

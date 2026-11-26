@@ -7,17 +7,17 @@ import { isRecord } from '../utils/guards';
 import { repoRoot } from '../utils/paths';
 import { sleep } from '../utils/sleep';
 import { repositoryUrl } from './repository-key';
-import { defaultRule, ENVIRONMENTS_FILE, parseEnvironmentsFile } from './target';
+import { defaultRule, environmentsFile, parseEnvironmentsFile } from './target';
 
 /** The release PR's head branches, as release-please names them. */
-const RELEASE_BRANCH_PREFIX = 'release-please--branches--';
+const releaseBranchPrefix = 'release-please--branches--';
 
 /** The CI job (.github/workflows/ci.yml) that holds the release PR against the applied description. */
-const GATE_JOB = 'release-applied';
+const gateJob = 'release-applied';
 
 /** How long an apply waits for the release PR's CI run to end before the check runs again: GitHub reruns no job of a run in progress. */
-const RUN_WAIT_MS = 20 * 60_000;
-const RUN_POLL_MS = 15_000;
+const runWaitMs = 20 * 60_000;
+const runPollMs = 15_000;
 
 /** The repository variable holding the description hash the environment's last apply recorded, which the release PR's check reads. */
 export function appliedDescriptionVariable(environment: string): string {
@@ -29,7 +29,7 @@ export function appliedDescriptionVariable(environment: string): string {
  * the releases. An app without the file reads every environment's default, as `readEnvironmentsFile` does.
  */
 export function followsReleases(environment: string, root = repoRoot): boolean {
-  const file = join(root, ENVIRONMENTS_FILE);
+  const file = join(root, environmentsFile);
   const line = parseEnvironmentsFile(existsSync(file) ? readFileSync(file, 'utf8') : '').get(environment);
   return (line?.rule ?? defaultRule(environment))?.kind === 'releases';
 }
@@ -87,7 +87,7 @@ export function publishAppliedDescription(environment: string, descriptionHash: 
 /**
  * Run the failed check of an open release PR again, once its CI run has ended: GitHub reruns no job of a run in progress, and the run that
  * found the description unpublished is often still on its test jobs when the apply ends. The apply calls this last, so the wait, up to
- * {@link RUN_WAIT_MS}, holds nothing else up. Never throws; when it cannot rerun, it says the command that does.
+ * {@link runWaitMs}, holds nothing else up. Never throws; when it cannot rerun, it says the command that does.
  * @param root the checkout whose `package.json` names the repository
  */
 export async function rerunReleaseCheck(root?: string): Promise<void> {
@@ -98,7 +98,7 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
     return;
   }
   const heads = ghRows(gh(repo, 'pr', 'list', '--state', 'open', '--json', 'headRefName,headRefOid').stdout).filter(
-    (pr) => typeof pr.headRefName === 'string' && pr.headRefName.startsWith(RELEASE_BRANCH_PREFIX),
+    (pr) => typeof pr.headRefName === 'string' && pr.headRefName.startsWith(releaseBranchPrefix),
   );
   for (const { headRefOid } of heads) {
     if (typeof headRefOid !== 'string') continue;
@@ -108,18 +108,18 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
     if (typeof run?.databaseId !== 'number') continue;
     const runId = String(run.databaseId);
     const job = ghRows(gh(repo, 'run', 'view', runId, '--json', 'jobs').stdout).find(
-      (found) => found.name === GATE_JOB && found.conclusion === 'failure',
+      (found) => found.name === gateJob && found.conclusion === 'failure',
     );
     if (typeof job?.databaseId !== 'number') continue;
     const byHand = `\`gh run rerun --job ${job.databaseId} --repo ${repo}\` runs the check again by hand`;
     if (run.status !== 'completed') {
       console.info(
         pc.dim(
-          `  The release PR's CI run is still in progress: its ${GATE_JOB} check runs again once the run ends. Ctrl-C skips the wait; ${byHand}.`,
+          `  The release PR's CI run is still in progress: its ${gateJob} check runs again once the run ends. Ctrl-C skips the wait; ${byHand}.`,
         ),
       );
       if (!(await waitForRunEnd(repo, runId))) {
-        console.warn(`${warningMark} The release PR's CI run is still in progress after ${RUN_WAIT_MS / 60_000} minutes; once it ends, ${byHand}.`);
+        console.warn(`${warningMark} The release PR's CI run is still in progress after ${runWaitMs / 60_000} minutes; once it ends, ${byHand}.`);
         continue;
       }
     }
@@ -127,17 +127,17 @@ export async function rerunReleaseCheck(root?: string): Promise<void> {
     const rerun = gh(repo, 'run', 'rerun', '--job', String(job.databaseId));
     console.info(
       rerun.status === 0
-        ? pc.dim(`  The release PR's ${GATE_JOB} check runs again.`)
-        : `${warningMark} The release PR's ${GATE_JOB} check did not start again (${saidFirst(rerun)}); ${byHand}.`,
+        ? pc.dim(`  The release PR's ${gateJob} check runs again.`)
+        : `${warningMark} The release PR's ${gateJob} check did not start again (${saidFirst(rerun)}); ${byHand}.`,
     );
   }
 }
 
 /** Whether the run ended within the wait, polling its status. */
 async function waitForRunEnd(repo: string, runId: string): Promise<boolean> {
-  const until = Date.now() + RUN_WAIT_MS;
+  const until = Date.now() + runWaitMs;
   while (Date.now() < until) {
-    await sleep(RUN_POLL_MS);
+    await sleep(runPollMs);
     const view = printed(gh(repo, 'run', 'view', runId, '--json', 'status').stdout);
     if (isRecord(view) && view.status === 'completed') return true;
   }

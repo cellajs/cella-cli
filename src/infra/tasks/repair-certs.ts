@@ -3,7 +3,7 @@ import { type ScwAuth, scwErrorStatus, scwFetch, scwSend } from '../lib/scaleway
 import { getFlag } from '../lib/utils/args';
 import { infraDir } from '../lib/utils/paths';
 
-const CERT_TYPE = 'scaleway:loadbalancers/certificate:Certificate';
+const certType = 'scaleway:loadbalancers/certificate:Certificate';
 
 export interface StateCert {
   urn: string;
@@ -59,7 +59,7 @@ function certsInState(stack: string): StateCert[] {
     deployment?: { resources?: Array<{ urn: string; type: string; id?: string }> };
   };
   return (deployment.deployment?.resources ?? [])
-    .filter((resource) => resource.type === CERT_TYPE && resource.id)
+    .filter((resource) => resource.type === certType && resource.id)
     .map((resource) => ({ urn: resource.urn, id: resource.id! }));
 }
 

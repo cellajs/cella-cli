@@ -2,12 +2,12 @@ import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
-import { defaultRule, ENVIRONMENTS_FILE, parseEnvironmentsFile } from '../../lib/deploy/target';
+import { defaultRule, environmentsFile, parseEnvironmentsFile } from '../../lib/deploy/target';
 import { actionLabel } from '../../lib/operator-actions';
 import { runtimeSecrets } from '../../lib/runtime-secrets';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { detectComputeDeferred, detectStackState, type StackState } from '../../lib/stack/bootstrap-stack-state';
 import { checkMark, pc } from '../../lib/utils/cli-output';
 import { repoRoot } from '../../lib/utils/paths';
@@ -15,7 +15,7 @@ import { installedPulumiVersion } from '../../lib/utils/pulumi-version';
 import { rememberedOperatorKey } from '../session';
 import type { InfraContext } from '../shared';
 
-const RELEASE_TAG = /^\d+\.\d+\.\d+$/;
+const releaseTag = /^\d+\.\d+\.\d+$/;
 
 /** What the launch checklist ticks, read from this checkout, this machine and, with an operator key, the account. */
 export interface ChecklistFacts {
@@ -66,7 +66,7 @@ function firstReleaseRow(facts: ChecklistFacts): ChecklistRow {
   return {
     title: 'First release',
     done: Boolean(target),
-    detail: target ? `deploys ${target}` : `add '${facts.mode} branch:main' to ${ENVIRONMENTS_FILE}`,
+    detail: target ? `deploys ${target}` : `add '${facts.mode} branch:main' to ${environmentsFile}`,
   };
 }
 
@@ -103,12 +103,12 @@ export function checklistRows(facts: ChecklistFacts): ChecklistRow[] {
   return rows;
 }
 
-const NOW = '← now';
+const nowMark = '← now';
 
 /** The checklist as printed lines: a heading with the app, the environment and the count, then a row per step. */
 function formatChecklist(rows: ChecklistRow[], opts: { appSlug: string; mode: string }): string[] {
   const detailWidth = Math.max(...rows.map((row) => row.detail.length));
-  const rowWidth = 20 + detailWidth + 3 + NOW.length;
+  const rowWidth = 20 + detailWidth + 3 + nowMark.length;
   const where = `${opts.appSlug} · ${opts.mode}`;
   const count = `${rows.filter((row) => row.done === true).length} of ${rows.length} done`;
   const gap = ' '.repeat(Math.max(2, rowWidth - 20 - where.length - count.length));
@@ -116,7 +116,7 @@ function formatChecklist(rows: ChecklistRow[], opts: { appSlug: string; mode: st
   for (const row of rows) {
     const mark = row.done ? checkMark : row.now ? pc.cyan('●') : pc.dim('○');
     const detail = row.done || row.now ? row.detail : pc.dim(row.detail);
-    const now = row.now ? `${' '.repeat(detailWidth - row.detail.length + 3)}${pc.cyan(NOW)}` : '';
+    const now = row.now ? `${' '.repeat(detailWidth - row.detail.length + 3)}${pc.cyan(nowMark)}` : '';
     lines.push(`  ${mark} ${row.title.padEnd(15)} ${detail}${now}`);
   }
   return lines;
@@ -140,13 +140,13 @@ export function gitFileState(file: string): ChecklistFacts['stackFile'] {
 
 /** The newest release tag in this checkout, read locally. */
 export function newestReleaseTag(): string | undefined {
-  const tags = (gitOutput(['tag', '-l']) ?? '').split('\n').filter((tag) => RELEASE_TAG.test(tag));
+  const tags = (gitOutput(['tag', '-l']) ?? '').split('\n').filter((tag) => releaseTag.test(tag));
   return tags.sort((a, b) => a.localeCompare(b, undefined, { numeric: true })).at(-1);
 }
 
 /** The target this checkout's environments file gives an environment; undefined without a line or when the file does not parse. */
 export function environmentsTarget(environment: string): string | undefined {
-  const path = join(repoRoot, ENVIRONMENTS_FILE);
+  const path = join(repoRoot, environmentsFile);
   try {
     const rule = parseEnvironmentsFile(existsSync(path) ? readFileSync(path, 'utf8') : '').get(environment)?.rule;
     if (!rule) return undefined;
@@ -166,7 +166,7 @@ async function readAdminEmailSet(context: InfraContext, stackState: StackState):
   const secretName = runtimeSecrets.find((secret) => secret.id === 'adminEmail')?.secretName;
   if (!key || !secretName || stackState === 'fresh' || !context.projectId) return undefined;
   const client = createSecretManagerClient({ secretKey: key.secretKey, region: context.appConfig.s3.region, projectId: context.projectId });
-  return client.getSecretByName(secretName, RUNTIME_FOLDER).then(
+  return client.getSecretByName(secretName, runtimeFolder).then(
     (secret) => (secret?.version_count ?? 0) > 0,
     () => undefined,
   );

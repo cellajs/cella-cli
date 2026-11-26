@@ -15,7 +15,7 @@ export interface CliArgs {
 }
 
 /** Flags that take the next word as their value, so that word is never read as the action. */
-const VALUE_FLAGS = new Set(['--mode', '--sha']);
+const valueFlags = new Set(['--mode', '--sha']);
 
 /**
  * Read the command line (everything after the script). The first word that is no flag and no flag value names the action. Flags the
@@ -26,7 +26,7 @@ export function parseCliArgs(argv: readonly string[]): CliArgs {
   let word: string | undefined;
   for (let index = 0; index < argv.length; index++) {
     const token = argv[index] ?? '';
-    if (VALUE_FLAGS.has(token)) {
+    if (valueFlags.has(token)) {
       if (token === '--mode') args.mode = argv[index + 1];
       index++;
     } else if (token === '--once') args.once = true;

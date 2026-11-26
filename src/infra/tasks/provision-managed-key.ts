@@ -4,7 +4,7 @@ import { actionCommand } from '../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
 import { provisionScopedKey } from '../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient, type SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { checkMark } from '../lib/utils/cli-output';
 
 export interface ProvisionManagedKeyOptions {
@@ -58,7 +58,7 @@ export async function provisionManagedKey(opts: ProvisionManagedKeyOptions): Pro
   // missing so a live key is never leaked.
   const containersBySecretName = new Map<string, SecretManagerSecret>();
   for (const { secret } of targets) {
-    const container = await client.getSecretByName(secret.secretName, RUNTIME_FOLDER);
+    const container = await client.getSecretByName(secret.secretName, runtimeFolder);
     if (!container) {
       throw new Error(
         `${secret.secretName} (${secret.envVar}) has no container yet: \`${actionCommand('apply')}\` creates it, then provision the ${definition.label} key.`,

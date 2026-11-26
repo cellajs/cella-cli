@@ -69,7 +69,7 @@ function printSummary(opts: { rotated: boolean; ciAccessKey: string; keptKeys: b
 }
 
 /** How long the operator key a setup mints lives: within the day the session accepts. */
-const SETUP_KEY_HOURS = 23;
+const setupKeyHours = 23;
 
 /**
  * Mint the one-day operator key the rest of the setup runs on, with the Owner key, so nobody makes one in the console. A failure is a
@@ -86,10 +86,10 @@ async function mintSetupOperatorKey(ownerSecretKey: string, opts: { organization
       applicationId,
       description: `setup ${now.toISOString().slice(0, 10)}`,
       defaultProjectId: opts.projectId,
-      expiresAt: new Date(now.getTime() + SETUP_KEY_HOURS * 3_600_000).toISOString(),
+      expiresAt: new Date(now.getTime() + setupKeyHours * 3_600_000).toISOString(),
     });
     rememberOperatorKey({ accessKey: key.access_key, secretKey: key.secret_key }, { minted: true });
-    console.info(`  ${checkMark} Operator key made for this setup; it ends in ${SETUP_KEY_HOURS} hours.`);
+    console.info(`  ${checkMark} Operator key made for this setup; it ends in ${setupKeyHours} hours.`);
   } catch (error) {
     console.warn(`${warningMark} Could not make the operator key (${errorMessage(error)}): the setup asks for one next.`);
   }
@@ -127,8 +127,8 @@ async function offerOwnerKeyRevoke(pair: KeyPair): Promise<void> {
 async function ensureProjectId(opts: { slug: string; mode: Environment; secretKey: string; organizationId: string }): Promise<string> {
   const { organizationId } = opts;
   const projects = await withSpinner('Loading Scaleway projects', () => listProjects(opts.secretKey, organizationId));
-  const CREATE = '__create__';
-  const offered = projectChoices(projects, opts.slug, projectsOfOtherModes(opts.mode), CREATE);
+  const createChoice = '__create__';
+  const offered = projectChoices(projects, opts.slug, projectsOfOtherModes(opts.mode), createChoice);
   const choice = await select<string>({
     message: `Scaleway project for ${opts.mode}`,
     default: offered.default,
@@ -136,7 +136,7 @@ async function ensureProjectId(opts: { slug: string; mode: Environment; secretKe
     choices: offered.choices,
   });
   let projectId = choice;
-  if (choice === CREATE) {
+  if (choice === createChoice) {
     const name = await inputOrDefault({ message: 'New project name', default: opts.slug });
     const project = await createProject(opts.secretKey, { organizationId, name, description: 'Created by the infra CLI setup wizard' });
     console.info(`  ${changeMark} Created project ${project.name} (${project.id})`);

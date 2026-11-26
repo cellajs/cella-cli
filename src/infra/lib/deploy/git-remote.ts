@@ -76,8 +76,8 @@ export async function defaultBranchContains(opts: { repository: string; key: str
 }
 
 /** How long a read that only names commits waits for the repository, and how long one answer serves the screens of a run. */
-const COMMIT_REFS_TIMEOUT_MS = 4_000;
-const COMMIT_REFS_FRESH_MS = 30_000;
+const commitRefsTimeoutMs = 4_000;
+const commitRefsFreshMs = 30_000;
 
 let commitRefsRead: { at: number; refs: Promise<RemoteRef[] | undefined> } | undefined;
 
@@ -87,10 +87,10 @@ let commitRefsRead: { at: number; refs: Promise<RemoteRef[] | undefined> } | und
  */
 export function commitRefs(): Promise<RemoteRef[] | undefined> {
   const now = Date.now();
-  if (!commitRefsRead || now - commitRefsRead.at > COMMIT_REFS_FRESH_MS) {
+  if (!commitRefsRead || now - commitRefsRead.at > commitRefsFreshMs) {
     const refs = Promise.resolve()
       .then(() =>
-        listRemoteRefs(repositoryUrl(), process.env.REPOSITORY_READ_KEY, { timeoutMs: COMMIT_REFS_TIMEOUT_MS })(['refs/tags/*', 'refs/heads/*']),
+        listRemoteRefs(repositoryUrl(), process.env.REPOSITORY_READ_KEY, { timeoutMs: commitRefsTimeoutMs })(['refs/tags/*', 'refs/heads/*']),
       )
       .catch(() => undefined);
     commitRefsRead = { at: now, refs };

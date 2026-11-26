@@ -2,8 +2,8 @@ import { generalConfig } from 'infra/config/general.config';
 import { composeConfig } from '../compose/compose';
 import { accountFailed } from '../lib/deploy/boot-accounts';
 import type { DeployTarget, LiveRecord, LiveRole } from '../lib/deploy/live-record';
-import { MANIFEST_KEY, renderMachineUserData, renderManifest } from '../lib/deploy/machine-user-data';
-import { AGENT_IMAGE_NAME, imageRepositoryOf, type ReleaseManifest, releaseArchiveKey } from '../lib/deploy/release-archives';
+import { manifestKey, renderMachineUserData, renderManifest } from '../lib/deploy/machine-user-data';
+import { agentImageName, imageRepositoryOf, type ReleaseManifest, releaseArchiveKey } from '../lib/deploy/release-archives';
 import { staticEnv } from '../lib/deploy/static-env';
 import type { EnvSupplier, EnvSupplierContext } from '../lib/env-suppliers';
 import { lbServerStats, waitForPools } from '../lib/health-probes';
@@ -33,13 +33,13 @@ import type { MachineEnv } from './compose-env';
  * How long a deploy waits for a new machine to serve, from its power-on: the boot, the archives and the env file, then the release
  * companion and the start, which `composeWaitTimeoutSeconds` (lib/deploy/machine-user-data.ts) bounds, inside this.
  */
-export const SERVING_TIMEOUT_SECONDS = 480;
+export const servingTimeoutSeconds = 480;
 
 /** How long a deploy waits for a drained machine's check to turn red: the agent's next manifest read plus the 1.3 s a measured pool took to stop routing to a failing server. */
-export const OUT_TIMEOUT_SECONDS = 60;
+export const outTimeoutSeconds = 60;
 
 /** Time a drained machine gets past its drain seconds to stop its containers, before the deploy powers it off. */
-const STOP_MARGIN_MS = 5_000;
+const stopMarginMs = 5_000;
 
 /** A machine of a role, by its slot. */
 export interface RoleMachine {
@@ -90,9 +90,9 @@ export class KeptMachineError extends Error {
 async function retire(role: MachineRole, machine: RoleMachine, fx: SwitchEffects): Promise<void> {
   await fx.drain(role.role, machine.id);
   if (isRouted(role) && !(await fx.out(role, machine.slot))) {
-    fx.log(`[switch ${role.role}] slot ${machine.slot} still takes traffic ${OUT_TIMEOUT_SECONDS} s after its drain; it is deleted all the same`);
+    fx.log(`[switch ${role.role}] slot ${machine.slot} still takes traffic ${outTimeoutSeconds} s after its drain; it is deleted all the same`);
   }
-  await fx.sleep(role.drainSeconds * 1000 + STOP_MARGIN_MS);
+  await fx.sleep(role.drainSeconds * 1000 + stopMarginMs);
   await fx.remove(machine.id);
 }
 
@@ -119,7 +119,7 @@ export async function switchRole(plan: { role: MachineRole; live?: LiveRole; tar
   const machine = await fx.boot(role, slot);
   const outcome = await fx.serving(role, slot);
   if (outcome !== 'serving') {
-    const how = outcome === 'failed' ? 'its boot failed' : `it did not serve within ${SERVING_TIMEOUT_SECONDS} s`;
+    const how = outcome === 'failed' ? 'its boot failed' : `it did not serve within ${servingTimeoutSeconds} s`;
     if (stopFirst) {
       throw new KeptMachineError(`${name}: ${how} on slot ${slot}; the old machine is gone, so the new one stays for its boot account`, {
         role: name,
@@ -200,10 +200,10 @@ export async function switchMachines(
 }
 
 /** How long a machine's links to its env file and archives last: it fetches them within minutes of its power-on. */
-const FETCH_LINK_SECONDS = 15 * 60;
+const fetchLinkSeconds = 15 * 60;
 
 /** How long a machine's boot account link lasts: through a boot that fails at the end of the deploy's wait. */
-const ACCOUNT_LINK_SECONDS = 30 * 60;
+const accountLinkSeconds = 30 * 60;
 
 /** What the live effects work from: the deploy key, the foundation the last apply made, and the release the build checked. */
 export interface LiveSwitchContext {
@@ -252,7 +252,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
   const archive = async (name: string) => {
     const digest = ctx.manifest.images[name];
     if (!digest) throw new Error(`switch: the release's manifest names no archive '${name}'`);
-    const url = await ctx.presigner.get(releaseArchiveKey(ctx.sha, name), FETCH_LINK_SECONDS);
+    const url = await ctx.presigner.get(releaseArchiveKey(ctx.sha, name), fetchLinkSeconds);
     return { name, image: `${registry}/${name}:${ctx.sha}`, url, sha256: digest.sha256 };
   };
   const failed = async (role: string) => {
@@ -269,7 +269,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
       const env = envOf(role.role);
       const startServices = startServicesOf(role);
       const archives = [...new Set(startServices.map((slug) => imageRepositoryOf(composeConfig.services[slug]?.image ?? '')))];
-      const agent = await archive(AGENT_IMAGE_NAME);
+      const agent = await archive(agentImageName);
       const cloudInit = renderMachineUserData({
         slug: ctx.naming.slug,
         role: role.role,
@@ -287,8 +287,8 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
         composeContent: ctx.composeContent,
         agentImage: { image: agent.image, url: agent.url, sha256: agent.sha256 },
         links: {
-          env: await ctx.presigner.get(env.env, FETCH_LINK_SECONDS),
-          bootAccount: await ctx.presigner.put(env.bootAccount, ACCOUNT_LINK_SECONDS),
+          env: await ctx.presigner.get(env.env, fetchLinkSeconds),
+          bootAccount: await ctx.presigner.put(env.bootAccount, accountLinkSeconds),
           archives: await Promise.all(archives.map(archive)),
         },
         agentPorts: checkedServicesOf(role).map((service) => ({
@@ -307,13 +307,13 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
         projectId: ctx.projectId,
         securityGroupId,
         tags: ['machine', `role=${role.role}`, `slot=${slot}`, `sha=${ctx.sha}`],
-        userData: { 'cloud-init': cloudInit, [MANIFEST_KEY]: renderManifest({ role: role.role, release: ctx.sha, drain: false }) },
+        userData: { 'cloud-init': cloudInit, [manifestKey]: renderManifest({ role: role.role, release: ctx.sha, drain: false }) },
         privateNic: { privateNetworkId: ctx.foundation.privateNetworkId, ...(isRouted(role) ? { ipamIpId: addressOf(role, slot)?.id } : {}) },
       });
       return server.id;
     },
     async serving(role, slot) {
-      const deadline = Date.now() + SERVING_TIMEOUT_SECONDS * 1000;
+      const deadline = Date.now() + servingTimeoutSeconds * 1000;
       if (isRouted(role)) {
         const address = addressOf(role, slot)?.address ?? '';
         const outcome = await waitForPools({
@@ -321,7 +321,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
           address,
           want: 'serving',
           stats,
-          timeoutMs: SERVING_TIMEOUT_SECONDS * 1000,
+          timeoutMs: servingTimeoutSeconds * 1000,
           failed: () => failed(role.role),
         });
         return outcome === 'done' ? 'serving' : outcome;
@@ -337,14 +337,14 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
     async drain(role, machine) {
       // A machine already gone is drained as asked: the next step deletes nothing.
       if (!(await readMachine(auth, ctx.zone, machine))) return;
-      const current = await getUserData(auth, ctx.zone, machine, MANIFEST_KEY).catch(() => '');
+      const current = await getUserData(auth, ctx.zone, machine, manifestKey).catch(() => '');
       let release = '';
       try {
         release = (JSON.parse(current) as { release?: string }).release ?? '';
       } catch {
         // A machine of an engine before the agent holds no manifest: the drain order is written all the same.
       }
-      await setUserData(auth, ctx.zone, machine, MANIFEST_KEY, renderManifest({ role, release, drain: true }));
+      await setUserData(auth, ctx.zone, machine, manifestKey, renderManifest({ role, release, drain: true }));
     },
     async out(role, slot) {
       const outcome = await waitForPools({
@@ -352,7 +352,7 @@ export function liveSwitchEffects(ctx: LiveSwitchContext): SwitchEffects {
         address: addressOf(role, slot)?.address ?? '',
         want: 'out',
         stats,
-        timeoutMs: OUT_TIMEOUT_SECONDS * 1000,
+        timeoutMs: outTimeoutSeconds * 1000,
         intervalMs: 1_000,
       });
       return outcome === 'done';

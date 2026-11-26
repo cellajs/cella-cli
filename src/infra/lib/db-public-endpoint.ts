@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { DB_INSTANCE_RESOURCE } from '../resources/stores/postgres-managed';
+import { dbInstanceResource } from '../resources/stores/postgres-managed';
 import type { RdbEndpoint, RdbInstance } from './scaleway/scaleway-rdb';
 import { detectDbPublicEndpoint } from './stack/bootstrap-stack-state';
 import { infraDir } from './utils/paths';
@@ -8,7 +8,7 @@ import { pollUntil } from './utils/retry';
 
 /** URN of the managed PostgreSQL instance, for a refresh targeted at it alone. Accepts `organization/infra/<stack>` or a bare stack name. */
 export function dbInstanceUrn(stack: string): string {
-  return `urn:pulumi:${stack.split('/').pop()}::infra::scaleway:databases/instance:Instance::${DB_INSTANCE_RESOURCE}`;
+  return `urn:pulumi:${stack.split('/').pop()}::infra::scaleway:databases/instance:Instance::${dbInstanceResource}`;
 }
 
 /**

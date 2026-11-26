@@ -3,7 +3,7 @@ import { createApiKey, deleteApiKey, listApiKeys, resolveApplicationIdByName } f
 import { principalNames } from '../lib/scaleway/principals';
 import type { SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
 import type { ScwAuth } from '../lib/scaleway/scw-fetch';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 
 /** The Secret Manager calls the uploads key needs. */
 export type UploadsKeySecrets = Pick<SecretManagerClient, 'getSecretByName' | 'ensureSecret' | 'deleteSecret' | 'putSecretValue'>;
@@ -40,7 +40,7 @@ export async function planUploadsKey(opts: {
   mode: string;
 }): Promise<UploadsKeyStep> {
   const application = principalNames(opts.slug, opts.mode).uploads;
-  const container = await opts.secrets.getSecretByName(accessHalf.secretName, RUNTIME_FOLDER);
+  const container = await opts.secrets.getSecretByName(accessHalf.secretName, runtimeFolder);
   const stored = (container?.version_count ?? 0) > 0 ? storedAccessKey(container?.description) : undefined;
   const applicationId = await resolveApplicationIdByName(opts.auth, opts.organizationId, application);
   const live = applicationId ? (await listApiKeys(opts.auth, opts.organizationId, applicationId)).map((key) => key.access_key) : [];
@@ -72,7 +72,7 @@ export async function writeUploadsKey(opts: {
     const key = await createApiKey(opts.auth, { applicationId, description: 'Uploads key', defaultProjectId: opts.projectId });
     // The access half's container names the stored key: it is made anew and written last. Until then a rerun finds no key stored and
     // makes one, where an access half written first would name a key whose secret half failed to follow.
-    const old = await opts.secrets.getSecretByName(accessHalf.secretName, RUNTIME_FOLDER);
+    const old = await opts.secrets.getSecretByName(accessHalf.secretName, runtimeFolder);
     if (old) await opts.secrets.deleteSecret(old.id);
     const halves = [
       { half: secretHalf, value: key.secret_key, description: 'Secret half of the uploads key' },
@@ -80,8 +80,8 @@ export async function writeUploadsKey(opts: {
     ];
     for (const { half, value, description } of halves) {
       const container =
-        (await opts.secrets.getSecretByName(half.secretName, RUNTIME_FOLDER)) ??
-        (await opts.secrets.ensureSecret({ name: half.secretName, path: RUNTIME_FOLDER, description }));
+        (await opts.secrets.getSecretByName(half.secretName, runtimeFolder)) ??
+        (await opts.secrets.ensureSecret({ name: half.secretName, path: runtimeFolder, description }));
       await opts.secrets.putSecretValue({ secretId: container.id, value, description: 'Made at an Owner moment', disablePrevious: true });
     }
     keep = key.access_key;

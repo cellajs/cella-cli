@@ -1,19 +1,19 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vitest';
-import { declaredMainJob, MAIN_JOB_ENV_NAMES, MAIN_JOB_EXIT, MAIN_JOB_SCRIPT, mainJobOutcome, storeDeployKeyCopy } from './main-job';
+import { declaredMainJob, mainJobEnvNames, mainJobExit, mainJobOutcome, mainJobScript, storeDeployKeyCopy } from './main-job';
 
-const DIGEST = `sha256:${'1'.repeat(64)}`;
+const digest = `sha256:${'1'.repeat(64)}`;
 
 describe('the main job', () => {
   it('runs a script sh accepts', () => {
-    const check = spawnSync('sh', ['-n'], { input: MAIN_JOB_SCRIPT, encoding: 'utf8' });
+    const check = spawnSync('sh', ['-n'], { input: mainJobScript, encoding: 'utf8' });
     expect(check.stderr).toBe('');
     expect(check.status).toBe(0);
   });
 
   it("hands the engine the names it lists alone: a start call's NODE_OPTIONS, GIT_CONFIG_* or RELEASES_ONLY never reach it", () => {
     // The script as it runs, with env printing what the engine would start with: no /engine here, and env takes pnpm's place.
-    const script = MAIN_JOB_SCRIPT.replace('cd /engine || exit 1', 'true').replace(' pnpm --silent --filter infra main-job', ' /usr/bin/env');
+    const script = mainJobScript.replace('cd /engine || exit 1', 'true').replace(' pnpm --silent --filter infra main-job', ' /usr/bin/env');
     const started = spawnSync('sh', ['-c', script], {
       encoding: 'utf8',
       env: {
@@ -36,17 +36,17 @@ describe('the main job', () => {
       .trim()
       .split('\n')
       .map((line) => line.slice(0, line.indexOf('=')));
-    expect(names.sort()).toEqual(['HOME', 'PATH', ...MAIN_JOB_ENV_NAMES].sort());
+    expect(names.sort()).toEqual(['HOME', 'PATH', ...mainJobEnvNames].sort());
   });
 
   it('names the engine image by its digest, never by a tag, which can move to another image', () => {
-    const image = `rg.nl-ams.scw.cloud/app/infra-engine@${DIGEST}`;
+    const image = `rg.nl-ams.scw.cloud/app/infra-engine@${digest}`;
     expect(declaredMainJob({ projectId: 'p', organizationId: 'o', everyMinutes: 1, image }).imageUri).toBe(image);
     expect(() =>
       declaredMainJob({ projectId: 'p', organizationId: 'o', everyMinutes: 1, image: 'rg.nl-ams.scw.cloud/app/infra-engine:0.34.0' }),
     ).toThrow(/digest/);
     expect(() =>
-      declaredMainJob({ projectId: 'p', organizationId: 'o', everyMinutes: 1, image: `rg.nl-ams.scw.cloud/app/infra-engine:${DIGEST}` }),
+      declaredMainJob({ projectId: 'p', organizationId: 'o', everyMinutes: 1, image: `rg.nl-ams.scw.cloud/app/infra-engine:${digest}` }),
     ).toThrow(/digest/);
   });
 
@@ -55,8 +55,8 @@ describe('the main job', () => {
   });
 
   it('tells blocked from failed by the exit code of a failed run, and reads every other end as failed', () => {
-    expect(mainJobOutcome({ state: 'failed', exit_code: MAIN_JOB_EXIT.blocked })).toBe('blocked');
-    expect(mainJobOutcome({ state: 'failed', exit_code: MAIN_JOB_EXIT.failed })).toBe('failed');
+    expect(mainJobOutcome({ state: 'failed', exit_code: mainJobExit.blocked })).toBe('blocked');
+    expect(mainJobOutcome({ state: 'failed', exit_code: mainJobExit.failed })).toBe('failed');
     expect(mainJobOutcome({ state: 'failed', exit_code: 137 })).toBe('failed');
     expect(mainJobOutcome({ state: 'interrupted', exit_code: null })).toBe('failed');
   });

@@ -5,24 +5,24 @@ import {
   actionCommand,
   actionLabel,
   isOperatorActionId,
-  MENU_ROWS,
   type MenuRowId,
   menuPath,
   menuRow,
-  OPERATOR_ACTIONS,
+  menuRows,
   type OperatorActionId,
+  operatorActions,
 } from '../../lib/operator-actions';
 
 const infraRoot = path.resolve(import.meta.dirname, '../..');
 const repoRoot = path.resolve(infraRoot, '..');
 
-const ids = Object.keys(OPERATOR_ACTIONS) as OperatorActionId[];
-const rowIds = Object.keys(MENU_ROWS) as MenuRowId[];
+const ids = Object.keys(operatorActions) as OperatorActionId[];
+const rowIds = Object.keys(menuRows) as MenuRowId[];
 const labels = ids.map(actionLabel);
 const rowLabels = rowIds.map((id) => menuRow(id).label);
 
 /** Names an action or a submenu carried before the flat menu. None may come back in a message, a comment or the docs. */
-const RETIRED_LABELS = [
+const retiredLabels = [
   'Open temporary public DB access',
   'Expose database publicly',
   'Stop public DB exposure',
@@ -54,7 +54,7 @@ const RETIRED_LABELS = [
 ];
 
 /** The engine's own docs; the template checks its docs against the same table. */
-const DOCS = ['infra/README.md', 'infra/tasks/README.md'];
+const docs = ['infra/README.md', 'infra/tasks/README.md'];
 
 /** Every TypeScript source file of the infra package, relative to the repo root. */
 function infraSources(dir = infraRoot): string[] {
@@ -113,9 +113,9 @@ describe('menu rows', () => {
 describe('one name per action', () => {
   it('keeps retired labels out of the source and the docs', () => {
     const self = path.relative(repoRoot, import.meta.filename);
-    const hits = [...DOCS, ...infraSources().filter((file) => file !== self)].flatMap((file) => {
+    const hits = [...docs, ...infraSources().filter((file) => file !== self)].flatMap((file) => {
       const text = readFileSync(path.join(repoRoot, file), 'utf8');
-      return RETIRED_LABELS.filter((label) => text.includes(label)).map((label) => `${file}: ${label}`);
+      return retiredLabels.filter((label) => text.includes(label)).map((label) => `${file}: ${label}`);
     });
     expect(hits).toEqual([]);
   });
@@ -123,7 +123,7 @@ describe('one name per action', () => {
   it('points the docs at menu entries and commands that exist', () => {
     const known = new Set<string>([...labels, ...rowLabels]);
     const unknown: string[] = [];
-    for (const file of DOCS) {
+    for (const file of docs) {
       const text = readFileSync(path.join(repoRoot, file), 'utf8');
       // `pnpm cella infra` → **Row** (→ **Action**), and the command form `pnpm cella infra <action>`.
       for (const match of text.matchAll(/`pnpm cella infra` → \*\*([^*]+)\*\*(?: → \*\*([^*]+)\*\*)?/g)) {

@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, RETIRED_KEY_NAMES, writeEnvValues } from './env-files';
+import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, retiredKeyNames, writeEnvValues } from './env-files';
 
 describe('parseEnvText', () => {
   it.each([
@@ -104,7 +104,7 @@ describe('writeEnvValues', () => {
   it('removes superseded names on request and reports which ones it found', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'envw-')), '.env.production');
     writeFileSync(path, 'SCW_ADMIN_ACCESS_KEY=old\nSCW_ADMIN_SECRET_KEY=o\nSCW_STATE_ACCESS_KEY=st\nINFRA_MODE=production\n');
-    const removed = writeEnvValues(path, { SCW_OBSERVER_ACCESS_KEY: 'SCWO', SCW_OBSERVER_SECRET_KEY: 's' }, { remove: RETIRED_KEY_NAMES });
+    const removed = writeEnvValues(path, { SCW_OBSERVER_ACCESS_KEY: 'SCWO', SCW_OBSERVER_SECRET_KEY: 's' }, { remove: retiredKeyNames });
     expect(removed).toEqual(['SCW_ADMIN_ACCESS_KEY', 'SCW_ADMIN_SECRET_KEY', 'SCW_STATE_ACCESS_KEY']);
     expect(readFileSync(path, 'utf8')).toBe('INFRA_MODE=production\nSCW_OBSERVER_ACCESS_KEY=SCWO\nSCW_OBSERVER_SECRET_KEY=s\n');
   });

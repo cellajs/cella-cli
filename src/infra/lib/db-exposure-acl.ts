@@ -7,13 +7,13 @@ const minPrefix = 24;
  * `::ffff:a.b.c.d[/96-128]`, an IPv4-mapped IPv6 entry, as dual-stack servers log IPv4 clients. It names an IPv4
  * range, and the provider's Go net package would hand it to Scaleway as one, so it reads as `a.b.c.d/N-96`.
  */
-const MAPPED = /^::ffff:(\d+(?:\.\d+){3})(?:\/(9[6-9]|1[01]\d|12[0-8]))?$/i;
+const mappedIpv4Pattern = /^::ffff:(\d+(?:\.\d+){3})(?:\/(9[6-9]|1[01]\d|12[0-8]))?$/i;
 
 type EntryCheck = { ok: true; cidr: string; size: number } | { ok: false; reason: string };
 
 /** The canonical CIDR one entry names and the number of addresses it opens, after the single-entry rules. */
 function checkEntry(entry: string, allowWide: boolean): EntryCheck {
-  const mapped = MAPPED.exec(entry);
+  const mapped = mappedIpv4Pattern.exec(entry);
   const text = mapped ? `${mapped[1]}/${Number(mapped[2] ?? 128) - 96}` : entry;
   const [ip = '', prefixText, ...extra] = text.split('/');
   const kind = isIP(ip);

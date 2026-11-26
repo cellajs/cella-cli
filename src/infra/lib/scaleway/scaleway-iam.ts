@@ -4,8 +4,8 @@ import {
   createApiKey,
   deleteApiKey,
   findPolicy,
-  IAM_BASE,
   type IamPolicy,
+  iamBase,
   listApiKeys,
   listOrganizationPolicies,
   resolveApplicationIdByName,
@@ -83,7 +83,7 @@ export async function ensureApplication(
   const existingId = await resolveApplicationIdByName({ secretKey: callerSecretKey }, organizationId, name);
   const app: ScwApp = existingId
     ? { id: existingId, name }
-    : await scwFetch<ScwApp>({ secretKey: callerSecretKey }, 'POST', `${IAM_BASE}/applications`, {
+    : await scwFetch<ScwApp>({ secretKey: callerSecretKey }, 'POST', `${iamBase}/applications`, {
         name,
         organization_id: organizationId,
         description: application.description,
@@ -113,7 +113,7 @@ async function writeApplicationPolicy(
   try {
     const existingId = (await findPolicy({ secretKey: callerSecretKey }, organizationId, policyName))?.id;
     if (existingId) {
-      await scwSend({ secretKey: callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${existingId}`);
+      await scwSend({ secretKey: callerSecretKey }, 'DELETE', `${iamBase}/policies/${existingId}`);
       log(`  ${tildeMark} Removed existing policy: ${policyName} (recreating with current rules)`);
     }
   } catch (error) {
@@ -121,7 +121,7 @@ async function writeApplicationPolicy(
     log(`  ${tildeMark} Cannot list policies (IAMManager without IAMReadOnly): creating '${policyName}' directly`);
   }
   try {
-    await scwFetch<IamPolicy>({ secretKey: callerSecretKey }, 'POST', `${IAM_BASE}/policies`, {
+    await scwFetch<IamPolicy>({ secretKey: callerSecretKey }, 'POST', `${iamBase}/policies`, {
       name: policyName,
       organization_id: organizationId,
       application_id: app.id,
@@ -191,7 +191,7 @@ export async function findGroup(callerSecretKey: string, organizationId: string,
   const { groups = [] } = await scwFetch<{ groups?: ScwGroup[] }>(
     { secretKey: callerSecretKey },
     'GET',
-    `${IAM_BASE}/groups?organization_id=${organizationId}&name=${encodeURIComponent(name)}&page_size=20`,
+    `${iamBase}/groups?organization_id=${organizationId}&name=${encodeURIComponent(name)}&page_size=20`,
   );
   return groups.find((group) => group.name === name);
 }
@@ -217,7 +217,7 @@ export async function ensureGroup(opts: {
   }
   if (group) return group;
   try {
-    group = await scwFetch<ScwGroup>({ secretKey: opts.callerSecretKey }, 'POST', `${IAM_BASE}/groups`, {
+    group = await scwFetch<ScwGroup>({ secretKey: opts.callerSecretKey }, 'POST', `${iamBase}/groups`, {
       name: opts.name,
       organization_id: opts.organizationId,
       description: opts.description,
@@ -238,7 +238,7 @@ export async function ensureGroup(opts: {
 export async function addApplicationToGroup(callerSecretKey: string, group: ScwGroup, applicationId: string): Promise<boolean> {
   if ((group.application_ids ?? []).includes(applicationId)) return false;
   try {
-    await scwFetch<ScwGroup>({ secretKey: callerSecretKey }, 'POST', `${IAM_BASE}/groups/${group.id}/add-member`, {
+    await scwFetch<ScwGroup>({ secretKey: callerSecretKey }, 'POST', `${iamBase}/groups/${group.id}/add-member`, {
       application_id: applicationId,
     });
   } catch (error) {
@@ -284,7 +284,7 @@ export async function listManagedPrincipals(opts: {
   for (const id of group?.application_ids ?? []) {
     if (seen.has(id)) continue;
     seen.add(id);
-    const app = await scwFetch<ScwApp>({ secretKey: opts.callerSecretKey }, 'GET', `${IAM_BASE}/applications/${id}`);
+    const app = await scwFetch<ScwApp>({ secretKey: opts.callerSecretKey }, 'GET', `${iamBase}/applications/${id}`);
     applications.push(app);
   }
   return { group, applications };
@@ -303,16 +303,16 @@ export async function deleteApplicationCascade(opts: {
   for (const key of apiKeys) await deleteApiKey(auth, key.access_key);
   const policies = await listOrganizationPolicies(auth, opts.organizationId);
   for (const policy of policies.filter((p) => p.application_id === opts.applicationId)) {
-    await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${policy.id}`);
+    await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${iamBase}/policies/${policy.id}`);
   }
-  await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/applications/${opts.applicationId}`);
+  await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${iamBase}/applications/${opts.applicationId}`);
   log(`  ${tildeMark} Deleted IAM application ${opts.applicationId} (${apiKeys.length} key(s))`);
 }
 
 /** Delete the per-mode IAM group (after its members are gone). */
 export async function deleteGroup(opts: { callerSecretKey: string; organizationId: string; slug: string; mode: string }): Promise<void> {
   const group = await findGroup(opts.callerSecretKey, opts.organizationId, principalNames(opts.slug, opts.mode).group);
-  if (group) await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/groups/${group.id}`);
+  if (group) await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${iamBase}/groups/${group.id}`);
 }
 
 /** Remove the org-wide `<slug>-bootstrap-dns` policy: the widest grant the engine creates, and it must not outlive the setup that needed it. */
@@ -326,7 +326,7 @@ export async function removeBootstrapDnsGrant(opts: {
   const policyName = `${opts.slug}-bootstrap-dns`;
   const id = (await findPolicy({ secretKey: opts.callerSecretKey }, opts.organizationId, policyName))?.id;
   if (!id) return false;
-  await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${id}`);
+  await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${iamBase}/policies/${id}`);
   log(`  ${tildeMark} Removed org-wide bootstrap DNS grant '${policyName}'`);
   return true;
 }

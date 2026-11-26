@@ -4,24 +4,24 @@ import { scwRegistryHost } from '../scaleway/scw-fetch';
 import { conditionOn, controlPrefix, putJsonObject, readObjectText, type S3Like } from '../stack/control-store';
 import { ExitCodeError } from '../utils/errors';
 import { isRecord, parseJson } from '../utils/guards';
-import { MAIN_JOB_EXIT } from './main-job';
-import { COMMIT } from './target';
+import { mainJobExit } from './main-job';
+import { fullCommitPattern } from './target';
 
 /**
  * How a run ends when its target describes the app otherwise than the applied engine: the image an apply built from the operator's checkout,
  * with the description it applied. The run stops before anything is composed or switched, and the apply starts it again at its end.
  */
-export const APPLY_NEEDED = 'apply needed';
+export const applyNeeded = 'apply needed';
 
 /** The engine image's repository name in the environment's registry namespace. */
-export const ENGINE_IMAGE_NAME = 'infra-engine';
+export const engineImageName = 'infra-engine';
 
 /** Where the engine image keeps its stamp, written by its build (src/infra/Dockerfile): outside any checkout, so only an engine image has one. */
-const ENGINE_STAMP_PATH = '/engine/stamp.json';
+const engineStampPath = '/engine/stamp.json';
 
 /** A sha256 in hex: a description's hash, an archive's digest. */
-export const HASH = /^[0-9a-f]{64}$/;
-const DIGEST = /^sha256:[0-9a-f]{64}$/;
+export const sha256HexPattern = /^[0-9a-f]{64}$/;
+const sha256DigestPattern = /^sha256:[0-9a-f]{64}$/;
 
 /**
  * A value as one canonical JSON text: object keys sorted, no whitespace, members that are undefined left out as `JSON.stringify` does, and a
@@ -66,7 +66,7 @@ export function descriptionHash(description: unknown): string {
 
 /** The engine image's repository in an environment's registry namespace, as the job pulls it. */
 export function engineImageRepository(region: string, namespace: string): string {
-  return `${scwRegistryHost(region)}/${namespace}/${ENGINE_IMAGE_NAME}`;
+  return `${scwRegistryHost(region)}/${namespace}/${engineImageName}`;
 }
 
 /**
@@ -74,7 +74,7 @@ export function engineImageRepository(region: string, namespace: string): string
  * @throws for a digest that is not `sha256:<hex>`
  */
 export function engineImageRef(repository: string, digest: string): string {
-  if (!DIGEST.test(digest)) throw new Error(`the engine image is named by its digest (sha256:<hex>), got '${digest}'`);
+  if (!sha256DigestPattern.test(digest)) throw new Error(`the engine image is named by its digest (sha256:<hex>), got '${digest}'`);
   return `${repository}@${digest}`;
 }
 
@@ -98,9 +98,9 @@ function parseAppliedEngine(text: string): AppliedEngine {
   const raw = parseJson(text, 'applied engine');
   if (!isRecord(raw)) throw new Error('applied engine: not an object');
   const { descriptionHash: hash, imageDigest, commit, appliedAt, describes } = raw;
-  if (typeof hash !== 'string' || !HASH.test(hash)) throw new Error('applied engine: descriptionHash is no sha256');
-  if (typeof imageDigest !== 'string' || !DIGEST.test(imageDigest)) throw new Error('applied engine: imageDigest is no sha256 digest');
-  if (typeof commit !== 'string' || !COMMIT.test(commit)) throw new Error('applied engine: commit is no commit id');
+  if (typeof hash !== 'string' || !sha256HexPattern.test(hash)) throw new Error('applied engine: descriptionHash is no sha256');
+  if (typeof imageDigest !== 'string' || !sha256DigestPattern.test(imageDigest)) throw new Error('applied engine: imageDigest is no sha256 digest');
+  if (typeof commit !== 'string' || !fullCommitPattern.test(commit)) throw new Error('applied engine: commit is no commit id');
   if (typeof appliedAt !== 'string') throw new Error('applied engine: appliedAt is missing');
   if (describes !== undefined && !isRecord(describes)) throw new Error('applied engine: describes is no object');
   return { descriptionHash: hash, imageDigest, commit, appliedAt, ...(describes === undefined ? {} : { describes }) };
@@ -135,10 +135,10 @@ export interface EngineStamp {
  * holds for every run of the image.
  * @throws for a stamp that does not parse: the image is broken, and no run of it may guess
  */
-export function readEngineStamp(path = ENGINE_STAMP_PATH): EngineStamp | undefined {
+export function readEngineStamp(path = engineStampPath): EngineStamp | undefined {
   if (!existsSync(path)) return undefined;
   const raw: unknown = JSON.parse(readFileSync(path, 'utf8'));
-  if (!isRecord(raw) || typeof raw.mode !== 'string' || typeof raw.descriptionHash !== 'string' || !HASH.test(raw.descriptionHash)) {
+  if (!isRecord(raw) || typeof raw.mode !== 'string' || typeof raw.descriptionHash !== 'string' || !sha256HexPattern.test(raw.descriptionHash)) {
     throw new Error(`the engine stamp ${path} is no { mode, descriptionHash }`);
   }
   return { mode: raw.mode, descriptionHash: raw.descriptionHash };
@@ -152,7 +152,7 @@ export class ApplyNeededError extends ExitCodeError {
   readonly remedy: 'apply' | 'newer-target';
 
   constructor(detail: string, remedy: 'apply' | 'newer-target') {
-    super(`${APPLY_NEEDED}: ${detail}`, MAIN_JOB_EXIT.blocked);
+    super(`${applyNeeded}: ${detail}`, mainJobExit.blocked);
     this.name = 'ApplyNeededError';
     this.remedy = remedy;
   }

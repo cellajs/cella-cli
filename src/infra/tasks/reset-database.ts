@@ -1,4 +1,4 @@
-import { POSTGRES_ROLE_NAMES } from '../lib/scaleway/db-privileges';
+import { postgresRoleNames } from '../lib/scaleway/db-privileges';
 import type { RdbBackup, RdbDatabase, RdbInstance, RdbPermission } from '../lib/scaleway/scaleway-rdb';
 import { checkMark, crossMark, pc, warningMark } from '../lib/utils/cli-output';
 import { errorMessage } from '../lib/utils/errors';
@@ -168,8 +168,8 @@ export function restoreHint(error: ResetIrrecoverableError, region: string): str
     '',
     `  ${pc.dim('Then re-grant both roles, a restore does not bring privileges back:')}`,
     `  scw rdb privilege set instance-id=${error.instanceId} region=${region} \\`,
-    `    database-name=${error.databaseName} user-name=${POSTGRES_ROLE_NAMES.admin} permission=all`,
+    `    database-name=${error.databaseName} user-name=${postgresRoleNames.admin} permission=all`,
     `  scw rdb privilege set instance-id=${error.instanceId} region=${region} \\`,
-    `    database-name=${error.databaseName} user-name=${POSTGRES_ROLE_NAMES.runtime} permission=all`,
+    `    database-name=${error.databaseName} user-name=${postgresRoleNames.runtime} permission=all`,
   ].join('\n');
 }

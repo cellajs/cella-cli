@@ -3,12 +3,12 @@ import { type ComponentIssue, componentSeverity, formatComponentIssues, unhealth
 import type { HttpResponse } from '../lib/health-probes';
 import { main, missingSecurityHeaders, runSmoke, smokeTargets } from './smoke';
 
-const SHA = 'abc1234';
+const testSha = 'abc1234';
 
-const HASHED_HTML = '<!doctype html><html><head><script type="module" src="/assets/index-abc123.js"></script></head><body></body></html>';
+const hashedHtml = '<!doctype html><html><head><script type="module" src="/assets/index-abc123.js"></script></head><body></body></html>';
 
 /** A /health?depth=full body where every component is healthy. */
-const HEALTHY_COMPONENTS = JSON.stringify({
+const healthyComponents = JSON.stringify({
   status: 'healthy',
   components: {
     api: { status: 'healthy' },
@@ -19,8 +19,8 @@ const HEALTHY_COMPONENTS = JSON.stringify({
   },
 });
 
-/** The headers the smoke check must require, spelled out here so a shrunken SECURITY_HEADERS list cannot pass its own fixture. */
-const BASELINE = [
+/** The headers the smoke check must require, spelled out here so a shrunken `securityHeaders` list cannot pass its own fixture. */
+const baseline = [
   'Content-Security-Policy',
   'Strict-Transport-Security',
   'X-Frame-Options',
@@ -33,7 +33,7 @@ const BASELINE = [
 /** Build a Headers object with the full security baseline, minus any omitted names. */
 function secureHeaders(extra: Record<string, string> = {}, omit: string[] = []): Headers {
   const h = new Headers();
-  for (const name of BASELINE) {
+  for (const name of baseline) {
     if (!omit.includes(name)) h.set(name, 'set');
   }
   for (const [k, v] of Object.entries(extra)) h.set(k, v);
@@ -46,7 +46,7 @@ function res(partial: Partial<HttpResponse>): HttpResponse {
 
 describe('missingSecurityHeaders', () => {
   it('requires the whole baseline: every header of a bare response is missing, none of a complete one', () => {
-    expect(missingSecurityHeaders(new Headers())).toEqual(BASELINE);
+    expect(missingSecurityHeaders(new Headers())).toEqual(baseline);
     expect(missingSecurityHeaders(secureHeaders())).toEqual([]);
   });
   it('lists the absent headers', () => {
@@ -55,7 +55,7 @@ describe('missingSecurityHeaders', () => {
   });
   it('matches header names case-insensitively (Headers normalises)', () => {
     const h = new Headers();
-    for (const name of BASELINE) h.set(name.toLowerCase(), 'x');
+    for (const name of baseline) h.set(name.toLowerCase(), 'x');
     expect(missingSecurityHeaders(h)).toEqual([]);
   });
 });
@@ -119,23 +119,23 @@ describe('runSmoke', () => {
   /** A get() that returns healthy responses for every endpoint. */
   function healthyGet(url: string): Promise<HttpResponse> {
     if (url.endsWith('/openapi.json')) return Promise.resolve(res({ body: '{}' }));
-    if (url.includes('/health?depth=full')) return Promise.resolve(res({ body: HEALTHY_COMPONENTS }));
-    if (url.endsWith('/health')) return Promise.resolve(res({ status: 204, ok: true, headers: new Headers({ 'x-app-version': SHA }) }));
+    if (url.includes('/health?depth=full')) return Promise.resolve(res({ body: healthyComponents }));
+    if (url.endsWith('/health')) return Promise.resolve(res({ status: 204, ok: true, headers: new Headers({ 'x-app-version': testSha }) }));
     if (url.includes('/__smoke_')) return Promise.resolve(res({ body: '<html><body>app</body></html>' }));
     if (url.includes('/assets/')) return Promise.resolve(res({ body: 'export {};' }));
     // frontend root, which the index, entry script and header checks read
-    return Promise.resolve(res({ body: HASHED_HTML, headers: secureHeaders() }));
+    return Promise.resolve(res({ body: hashedHtml, headers: secureHeaders() }));
   }
 
   it('passes every check against a healthy deployment', async () => {
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get: healthyGet });
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get: healthyGet });
     expect(results).toHaveLength(7);
     expect(results.every((r) => r.status === 'ok')).toBe(true);
   });
 
   it('fails when the entry script index.html names is gone from the bucket, as the SPA fallback answers it', async () => {
     const lost = (url: string) => (url.includes('/assets/') ? Promise.resolve(res({ body: '<html>fallback</html>' })) : healthyGet(url));
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get: lost });
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get: lost });
     expect(results.find((r) => r.name === 'entry script loads')?.status).toBe('fail');
   });
 
@@ -143,7 +143,7 @@ describe('runSmoke', () => {
     const pass = await runSmoke({
       defaultRouteUrl: 'https://app',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       expectedAsset: '/assets/index-abc123.js',
       get: healthyGet,
     });
@@ -152,7 +152,7 @@ describe('runSmoke', () => {
     const stale = await runSmoke({
       defaultRouteUrl: 'https://app',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       expectedAsset: '/assets/index-OLD.js',
       get: healthyGet,
     });
@@ -165,7 +165,7 @@ describe('runSmoke', () => {
     const results = await runSmoke({
       defaultRouteUrl: 'https://app',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       services: [
         { service: 'backend', health_url: 'https://api' },
         { service: 'cdc', health_url: '' },
@@ -181,7 +181,7 @@ describe('runSmoke', () => {
   it('flags a stale service SHA without short-circuiting other checks', async () => {
     const get = (url: string) =>
       url === 'https://api/health' ? Promise.resolve(res({ status: 204, headers: new Headers({ 'x-app-version': 'old9999' }) })) : healthyGet(url);
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get });
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get });
 
     const sha = results.find((r) => r.name === 'primary reports deployed SHA');
     expect(sha?.status).toBe('fail');
@@ -191,8 +191,8 @@ describe('runSmoke', () => {
 
   it('reports missing security headers', async () => {
     const get = (url: string) =>
-      url === 'https://app/' ? Promise.resolve(res({ body: HASHED_HTML, headers: secureHeaders({}, ['X-Frame-Options']) })) : healthyGet(url);
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get });
+      url === 'https://app/' ? Promise.resolve(res({ body: hashedHtml, headers: secureHeaders({}, ['X-Frame-Options']) })) : healthyGet(url);
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get });
 
     const sec = results.find((r) => r.name === 'security headers present');
     expect(sec?.status).toBe('fail');
@@ -213,7 +213,7 @@ describe('runSmoke', () => {
       apexUrl: 'https://apex',
       workerScriptPath: '/sw.js',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
     };
     const pass = await runSmoke({ ...apexOptions, get: apexGet });
     expect(pass).toHaveLength(9);
@@ -236,7 +236,7 @@ describe('runSmoke', () => {
 
   it('captures a thrown fetch error as a failed check', async () => {
     const get = (url: string) => (url.endsWith('/openapi.json') ? Promise.reject(new Error('ECONNREFUSED')) : healthyGet(url));
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get });
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get });
 
     const api = results.find((r) => r.name === 'primary /openapi.json reachable');
     expect(api?.status).toBe('fail');
@@ -245,7 +245,7 @@ describe('runSmoke', () => {
 
   it('flags a non-ok openapi response', async () => {
     const get = (url: string) => (url.endsWith('/openapi.json') ? Promise.resolve(res({ status: 404, ok: false })) : healthyGet(url));
-    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: SHA, get });
+    const results = await runSmoke({ defaultRouteUrl: 'https://app', primaryUrl: 'https://api', expectedSha: testSha, get });
     expect(results.find((r) => r.name === 'primary /openapi.json reachable')?.status).toBe('fail');
   });
 
@@ -258,7 +258,7 @@ describe('runSmoke', () => {
     const get = (url: string) => {
       if (url.includes('/health?depth=full')) {
         depthFullCalls++;
-        return Promise.resolve(res({ body: depthFullCalls < 3 ? reconnecting : HEALTHY_COMPONENTS }));
+        return Promise.resolve(res({ body: depthFullCalls < 3 ? reconnecting : healthyComponents }));
       }
       return healthyGet(url);
     };
@@ -266,7 +266,7 @@ describe('runSmoke', () => {
     const results = await runSmoke({
       defaultRouteUrl: 'https://app',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       get,
       sleep,
       componentsRetryDelayMs: 1,
@@ -294,7 +294,7 @@ describe('runSmoke', () => {
     const results = await runSmoke({
       defaultRouteUrl: 'https://app',
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       get,
       sleep,
       componentsRetryAttempts: 3,
@@ -320,7 +320,7 @@ describe('runSmoke', () => {
   it('warns instead of failing when only degraded components remain after the retry budget', async () => {
     const results = await runSmoke({
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       get: getWith(degradedOnly),
       sleep: vi.fn().mockResolvedValue(undefined),
       componentsRetryAttempts: 2,
@@ -338,7 +338,7 @@ describe('runSmoke', () => {
     });
     const results = await runSmoke({
       primaryUrl: 'https://api',
-      expectedSha: SHA,
+      expectedSha: testSha,
       get: getWith(unhealthy, 503),
       sleep: vi.fn().mockResolvedValue(undefined),
       componentsRetryAttempts: 2,
@@ -352,8 +352,8 @@ describe('runSmoke', () => {
   it('fails, not warns, when the aggregate answers a non-ok status with no component issues', async () => {
     const results = await runSmoke({
       primaryUrl: 'https://api',
-      expectedSha: SHA,
-      get: getWith(HEALTHY_COMPONENTS, 503),
+      expectedSha: testSha,
+      get: getWith(healthyComponents, 503),
       sleep: vi.fn().mockResolvedValue(undefined),
       componentsRetryAttempts: 1,
       componentsRetryDelayMs: 1,
@@ -390,7 +390,7 @@ describe('main', () => {
 
     await expect(
       main({
-        sha: SHA,
+        sha: testSha,
         services: [
           { service: 'api', public_url: 'https://api', health_url: 'https://api', lb_route: 'path' },
           { service: 'web', public_url: 'https://app', health_url: 'https://app', lb_route: 'default' },

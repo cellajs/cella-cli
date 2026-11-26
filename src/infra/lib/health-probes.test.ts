@@ -1,24 +1,24 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { createFetchProbe, isHealthy, isServing, waitForPools } from './health-probes';
 
-const SHA = 'abc1234';
+const testSha = 'abc1234';
 
 describe('createFetchProbe', () => {
   afterEach(() => vi.unstubAllGlobals());
 
   it('normalizes ws(s):// health URLs to http(s):// so fetch can probe them', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: { 'x-app-version': SHA } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: { 'x-app-version': testSha } }));
     vi.stubGlobal('fetch', fetchMock);
 
     const result = await createFetchProbe(1000)('wss://www.example.dev/yjs/health');
 
     expect(fetchMock).toHaveBeenCalledOnce();
     expect(fetchMock.mock.calls[0]?.[0]).toBe('https://www.example.dev/yjs/health');
-    expect(result).toEqual({ status: 204, version: SHA });
+    expect(result).toEqual({ status: 204, version: testSha });
   });
 
   it('leaves http(s):// URLs untouched', async () => {
-    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: { 'x-app-version': SHA } }));
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204, headers: { 'x-app-version': testSha } }));
     vi.stubGlobal('fetch', fetchMock);
 
     await createFetchProbe(1000)('https://www.example.dev/api/health');
@@ -35,27 +35,27 @@ describe('createFetchProbe', () => {
 
 describe('isHealthy', () => {
   it('accepts 204 with matching version (API services)', () => {
-    expect(isHealthy({ status: 204, version: SHA }, SHA)).toBe(true);
+    expect(isHealthy({ status: 204, version: testSha }, testSha)).toBe(true);
   });
 
   it('accepts 200 with matching version (Caddy frontend)', () => {
-    expect(isHealthy({ status: 200, version: SHA }, SHA)).toBe(true);
+    expect(isHealthy({ status: 200, version: testSha }, testSha)).toBe(true);
   });
 
   it('rejects a matching version on an unexpected status', () => {
-    expect(isHealthy({ status: 502, version: SHA }, SHA)).toBe(false);
+    expect(isHealthy({ status: 502, version: testSha }, testSha)).toBe(false);
   });
 
   it('rejects a healthy status serving a stale version (old container still up)', () => {
-    expect(isHealthy({ status: 204, version: 'oldsha' }, SHA)).toBe(false);
+    expect(isHealthy({ status: 204, version: 'oldsha' }, testSha)).toBe(false);
   });
 
   it('rejects a missing version header', () => {
-    expect(isHealthy({ status: 200, version: undefined }, SHA)).toBe(false);
+    expect(isHealthy({ status: 200, version: undefined }, testSha)).toBe(false);
   });
 
   it('rejects a failed request (status 0)', () => {
-    expect(isHealthy({ status: 0, version: undefined }, SHA)).toBe(false);
+    expect(isHealthy({ status: 0, version: undefined }, testSha)).toBe(false);
   });
 });
 

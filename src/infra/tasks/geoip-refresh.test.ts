@@ -2,11 +2,11 @@ import { gzipSync } from 'node:zlib';
 import { describe, expect, it, vi } from 'vitest';
 import { type GeoipManifest, type GeoipRefreshPlan, monthOf, sequenceGeoipRefresh, verifyMmdbArchive } from './geoip-refresh';
 
-const NOW = new Date('2026-09-23T10:00:00Z');
+const now = new Date('2026-09-23T10:00:00Z');
 /** The smallest payload the verifier accepts: anything ending in the MMDB metadata marker. */
-const MMDB = gzipSync(Buffer.concat([Buffer.from('tree-and-data'), Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1')]));
+const mmdb = gzipSync(Buffer.concat([Buffer.from('tree-and-data'), Buffer.from('\xab\xcd\xefMaxMind.com', 'latin1')]));
 
-const MANIFEST: GeoipManifest = { month: '2026-08', publishedAt: '2026-08-02T06:00:00Z', months: { country: '2026-08', asn: '2026-08' } };
+const manifest: GeoipManifest = { month: '2026-08', publishedAt: '2026-08-02T06:00:00Z', months: { country: '2026-08', asn: '2026-08' } };
 
 /** A plan whose effects all succeed for the target month, recording call order into `calls`. */
 function makePlan(overrides: Partial<GeoipRefreshPlan> = {}) {
@@ -19,16 +19,16 @@ function makePlan(overrides: Partial<GeoipRefreshPlan> = {}) {
     kinds: ['country', 'asn'],
     fetchDatabase: vi.fn(async (url: string) => {
       calls.push(`fetch ${url}`);
-      return { status: 200, body: new Uint8Array(MMDB) };
+      return { status: 200, body: new Uint8Array(mmdb) };
     }),
     readManifest: vi.fn(async () => {
       calls.push('readManifest');
-      return { manifest: MANIFEST };
+      return { manifest: manifest };
     }),
     putObject: vi.fn(async (key: string) => {
       calls.push(`put ${key}`);
     }),
-    now: () => NOW,
+    now: () => now,
     log: () => {},
     ...overrides,
   };
@@ -50,12 +50,12 @@ describe('sequenceGeoipRefresh', () => {
       'put geoip/manifest.json',
     ]);
     expect(result.manifest.month).toBe('2026-09');
-    expect(result.manifest.publishedAt).toBe(NOW.toISOString());
+    expect(result.manifest.publishedAt).toBe(now.toISOString());
     expect(result.manifest.months).toEqual({ country: '2026-09', asn: '2026-09' });
   });
 
   it('is a no-op when the manifest already carries the target month', async () => {
-    const { plan, calls } = makePlan({ readManifest: async () => ({ manifest: { ...MANIFEST, month: '2026-09' } }) });
+    const { plan, calls } = makePlan({ readManifest: async () => ({ manifest: { ...manifest, month: '2026-09' } }) });
     const result = await sequenceGeoipRefresh(plan);
 
     expect(result).toMatchObject({ published: false, skipped: 'up-to-date' });
@@ -64,7 +64,7 @@ describe('sequenceGeoipRefresh', () => {
   });
 
   it('skips a manifest younger than maxAgeDays, the deploy pipeline gate', async () => {
-    const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ manifest: { ...MANIFEST, publishedAt: '2026-09-01T00:00:00Z' } }) });
+    const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ manifest: { ...manifest, publishedAt: '2026-09-01T00:00:00Z' } }) });
     const result = await sequenceGeoipRefresh(plan);
 
     expect(result).toMatchObject({ published: false, skipped: 'fresh' });
@@ -77,13 +77,13 @@ describe('sequenceGeoipRefresh', () => {
   });
 
   it('publishes over a manifest dated in the future, which no age gate would ever let expire', async () => {
-    const future = { ...MANIFEST, month: '2099-12', publishedAt: '2099-12-01T00:00:00Z' };
+    const future = { ...manifest, month: '2099-12', publishedAt: '2099-12-01T00:00:00Z' };
     const { plan } = makePlan({ maxAgeDays: 35, readManifest: async () => ({ manifest: future }) });
     expect((await sequenceGeoipRefresh(plan)).published).toBe(true);
   });
 
   it('force republishes an up-to-date month', async () => {
-    const { plan } = makePlan({ force: true, readManifest: async () => ({ manifest: { ...MANIFEST, month: '2026-09' } }) });
+    const { plan } = makePlan({ force: true, readManifest: async () => ({ manifest: { ...manifest, month: '2026-09' } }) });
     expect((await sequenceGeoipRefresh(plan)).published).toBe(true);
   });
 
@@ -91,7 +91,7 @@ describe('sequenceGeoipRefresh', () => {
     const { plan, calls } = makePlan({
       fetchDatabase: vi.fn(async (url: string) => {
         calls.push(`fetch ${url}`);
-        return url.includes('2026-09') ? { status: 404, body: null } : { status: 200, body: new Uint8Array(MMDB) };
+        return url.includes('2026-09') ? { status: 404, body: null } : { status: 200, body: new Uint8Array(mmdb) };
       }),
     });
     const result = await sequenceGeoipRefresh(plan);
@@ -110,7 +110,7 @@ describe('sequenceGeoipRefresh', () => {
     const html = makePlan({
       fetchDatabase: async (url) => ({
         status: 200,
-        body: url.includes('asn') ? new Uint8Array(gzipSync('<html>rate limited</html>')) : new Uint8Array(MMDB),
+        body: url.includes('asn') ? new Uint8Array(gzipSync('<html>rate limited</html>')) : new Uint8Array(mmdb),
       }),
     });
     await expect(sequenceGeoipRefresh(html.plan)).rejects.toThrow(/asn archive .* rejected: no MMDB metadata/);
@@ -120,7 +120,7 @@ describe('sequenceGeoipRefresh', () => {
 
 describe('verifyMmdbArchive', () => {
   it('accepts a gzipped MMDB and refuses plain bytes', () => {
-    expect(verifyMmdbArchive(new Uint8Array(MMDB))).toMatchObject({ ok: true });
+    expect(verifyMmdbArchive(new Uint8Array(mmdb))).toMatchObject({ ok: true });
     expect(verifyMmdbArchive(new Uint8Array([1, 2, 3]))).toMatchObject({ ok: false, reason: expect.stringMatching(/gzip/) });
   });
 });

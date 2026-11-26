@@ -1,6 +1,6 @@
 import type { RuntimeSecretDefinition } from '../../lib/runtime-secrets';
 import type { SecretManagerClient, SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { crossMark, pc } from '../../lib/utils/cli-output';
 import { isEnvFileDeliverable } from '../../lib/utils/compose-env-value';
 
@@ -82,7 +82,7 @@ export function formatSecretsTable(rows: readonly SecretRow[], infra?: { label: 
 
 /** The runtime folder's secrets by name. */
 export async function readContainers(client: SecretManagerClient): Promise<Map<string, RuntimeContainer>> {
-  const secrets = await client.listSecretsUnder(RUNTIME_FOLDER);
+  const secrets = await client.listSecretsUnder(runtimeFolder);
   // The date a value was set is its newest version's: the secret's own `updated_at` moves with its container (a move, a description).
   const setAt = await Promise.all(
     secrets.map(async (secret) => {

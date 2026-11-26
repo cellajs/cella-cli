@@ -6,7 +6,7 @@ import { appDescription, appDescriptionHash } from '../lib/deploy/app-descriptio
 import {
   type AppliedEngine,
   canonicalJson,
-  ENGINE_IMAGE_NAME,
+  engineImageName,
   engineImageRef,
   engineImageRepository,
   writeAppliedEngine,
@@ -15,7 +15,7 @@ import { rootNodeVersion } from '../lib/deploy/main-job';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import { publishAppliedDescription } from '../lib/deploy/release-gate';
 import { runStamp } from '../lib/deploy/run-record';
-import { COMMIT } from '../lib/deploy/target';
+import { fullCommitPattern } from '../lib/deploy/target';
 import type { EngineConfig } from '../lib/engine-config';
 import { deriveInfra } from '../lib/naming';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
@@ -26,7 +26,7 @@ import { errorMessage } from '../lib/utils/errors';
 import { engineAssetsDir, repoRoot } from '../lib/utils/paths';
 
 /** What the image copies of the checkout (the package's Dockerfile), relative to its root. */
-const CONTEXT_PATHS = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches', 'shared', 'infra'];
+const contextPaths = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches', 'shared', 'infra'];
 
 /** An engine image an apply built and pushed, with what `applied.json` records of it once the apply's `up` completed. */
 export interface PublishedEngine {
@@ -42,7 +42,7 @@ export interface PublishedEngine {
 }
 
 /** How many engine images beside the applied one the registry keeps, newest first: a run started before the apply may still pull one. */
-const KEPT_EARLIER_ENGINES = 2;
+const keptEarlierEngines = 2;
 
 /** One tag of the engine image as the registry lists it. */
 interface EngineTag {
@@ -69,9 +69,9 @@ async function engineTags(auth: ScwAuth, region: string, namespaceId: string, na
   const { images = [] } = await scwFetch<{ images?: Array<{ id: string; name: string }> }>(
     auth,
     'GET',
-    `${registryBase(region)}/images?namespace_id=${namespaceId}&name=${ENGINE_IMAGE_NAME}`,
+    `${registryBase(region)}/images?namespace_id=${namespaceId}&name=${engineImageName}`,
   );
-  const image = images.find((candidate) => candidate.name === ENGINE_IMAGE_NAME);
+  const image = images.find((candidate) => candidate.name === engineImageName);
   if (!image) return [];
   const tags: EngineTag[] = [];
   for (let page = 1; page <= 20; page++) {
@@ -90,11 +90,11 @@ async function engineTags(auth: ScwAuth, region: string, namespaceId: string, na
 const deleteTag = (auth: ScwAuth, region: string, tagId: string) => scwSend(auth, 'DELETE', `${registryBase(region)}/tags/${tagId}`);
 
 /**
- * The build context: the checkout's tracked files under {@link CONTEXT_PATHS}, as they stand in the working tree. An untracked file stays
+ * The build context: the checkout's tracked files under {@link contextPaths}, as they stand in the working tree. An untracked file stays
  * out, so a key, a debug capture or a state backup a person left beside the code never reaches the image.
  */
 function stageContext(root: string): string {
-  const listed = spawnSync('git', ['ls-files', '-z', '--cached', '--', ...CONTEXT_PATHS], { cwd: root, encoding: 'utf8' });
+  const listed = spawnSync('git', ['ls-files', '-z', '--cached', '--', ...contextPaths], { cwd: root, encoding: 'utf8' });
   if (listed.status !== 0) throw new Error(`git ls-files failed: ${listed.stderr.trim()}`);
   const dir = mkdtempSync(join(tmpdir(), 'engine-context-'));
   for (const file of listed.stdout.split('\0').filter(Boolean)) {
@@ -147,9 +147,9 @@ export async function publishEngine(opts: {
   if (!namespace) return undefined;
   const git = (args: string[]) => (spawnSync('git', args, { cwd: root, encoding: 'utf8' }).stdout ?? '').trim();
   const commit = git(['rev-parse', 'HEAD']);
-  if (!COMMIT.test(commit)) throw new Error('the engine image names the commit it is built from: run the apply from a git checkout');
+  if (!fullCommitPattern.test(commit)) throw new Error('the engine image names the commit it is built from: run the apply from a git checkout');
   // Tracked files only, as the image holds no untracked one.
-  if (git(['status', '--porcelain', '--untracked-files=no', '--', ...CONTEXT_PATHS])) {
+  if (git(['status', '--porcelain', '--untracked-files=no', '--', ...contextPaths])) {
     log(`  The engine image carries changes ${commit.slice(0, 10)} does not hold; applied.json names that commit all the same.`);
   }
   const descriptionHash = await appDescriptionHash(root);
@@ -190,7 +190,7 @@ export async function publishEngine(opts: {
     const status = await exitCodeOf(spawn('docker', args, { cwd: context, env: docker.env, stdio: ['ignore', 'inherit', 'inherit'] }));
     if (status !== 0) throw new Error(`docker buildx build exited ${status}: the apply builds the engine image with Docker and buildx`);
     const pushed = (await engineTags(auth, region, namespace.id, tag)).find((candidate) => candidate.name === tag);
-    if (!pushed?.digest) throw new Error(`the registry has no digest for ${ENGINE_IMAGE_NAME}:${tag} after the push`);
+    if (!pushed?.digest) throw new Error(`the registry has no digest for ${engineImageName}:${tag} after the push`);
     return { image: engineImageRef(repository, pushed.digest), imageDigest: pushed.digest, descriptionHash, describes, commit, tagId: pushed.id };
   } finally {
     process.off('SIGINT', ignoreInterrupt);
@@ -233,7 +233,7 @@ export async function discardEngine(opts: { appConfig: EngineConfig; secretKey: 
 
 /**
  * Delete the engine images an apply no longer returns to, once it recorded its own: every tag but the ones of the applied image and the
- * {@link KEPT_EARLIER_ENGINES} newest others. Returns the tags deleted; one the registry refuses stays.
+ * {@link keptEarlierEngines} newest others. Returns the tags deleted; one the registry refuses stays.
  */
 export async function pruneEngines(opts: {
   appConfig: EngineConfig;
@@ -247,10 +247,10 @@ export async function pruneEngines(opts: {
   if (!namespace) return [];
   const earlier = (await engineTags(auth, region, namespace.id)).filter((tag) => tag.digest !== opts.applied.imageDigest);
   const deleted: string[] = [];
-  for (const tag of earlier.slice(KEPT_EARLIER_ENGINES)) {
+  for (const tag of earlier.slice(keptEarlierEngines)) {
     await deleteTag(auth, region, tag.id).then(
       () => deleted.push(tag.name),
-      (error: unknown) => console.info(`  ${ENGINE_IMAGE_NAME}:${tag.name} stays (${errorMessage(error)}).`),
+      (error: unknown) => console.info(`  ${engineImageName}:${tag.name} stays (${errorMessage(error)}).`),
     );
   }
   return deleted;

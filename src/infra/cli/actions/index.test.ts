@@ -1,6 +1,6 @@
 import { stripVTControlCharacters } from 'node:util';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPERATOR_ACTIONS, type OperatorActionId } from '../../lib/operator-actions';
+import { type OperatorActionId, operatorActions } from '../../lib/operator-actions';
 import { PromptBack } from '../prompts/back';
 import { forgetSession, startMenuSession } from '../session';
 import { endAction, type InfraContext } from '../shared';
@@ -12,7 +12,7 @@ type Runner = (context: InfraContext) => Promise<void>;
 
 /** A dispatch table where every action is `runner`, so a test exercises the dispatch without a real action. */
 function runnersOf(runner: Runner): Record<OperatorActionId, Runner> {
-  return Object.fromEntries(Object.keys(OPERATOR_ACTIONS).map((id) => [id, runner])) as Record<OperatorActionId, Runner>;
+  return Object.fromEntries(Object.keys(operatorActions).map((id) => [id, runner])) as Record<OperatorActionId, Runner>;
 }
 
 afterEach(() => {

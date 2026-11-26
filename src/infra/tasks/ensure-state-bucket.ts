@@ -52,7 +52,7 @@ export async function ensureStateBucket(s3: S3Client, bucketName: string): Promi
 }
 
 /** Days a noncurrent state-file version is kept before lifecycle expiry. */
-export const NONCURRENT_VERSION_RETENTION_DAYS = 90;
+export const noncurrentVersionRetentionDays = 90;
 
 /**
  * Converge the state bucket onto its hardened configuration: versioning so every checkpoint write is recoverable, SSE-ONE default encryption (AES-256,
@@ -100,7 +100,7 @@ export async function hardenStateBucket(
               ID: 'expire-noncurrent-state-versions',
               Status: 'Enabled',
               Filter: { Prefix: '' },
-              NoncurrentVersionExpiration: { NoncurrentDays: NONCURRENT_VERSION_RETENTION_DAYS },
+              NoncurrentVersionExpiration: { NoncurrentDays: noncurrentVersionRetentionDays },
             },
             {
               ID: 'purge-expired-delete-markers',

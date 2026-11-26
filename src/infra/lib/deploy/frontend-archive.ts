@@ -7,7 +7,7 @@ export interface ArchiveFile {
   body: Buffer;
 }
 
-const BLOCK = 512;
+const block = 512;
 
 const text = (header: Buffer, start: number, length: number) =>
   header
@@ -33,8 +33,8 @@ function placeOf(name: string): string {
  */
 export function readUstar(archive: Buffer): ArchiveFile[] {
   const files: ArchiveFile[] = [];
-  for (let offset = 0; offset + BLOCK <= archive.length; ) {
-    const header = archive.subarray(offset, offset + BLOCK);
+  for (let offset = 0; offset + block <= archive.length; ) {
+    const header = archive.subarray(offset, offset + block);
     if (header.every((byte) => byte === 0)) break;
     if (!text(header, 257, 6).startsWith('ustar')) throw new Error('frontend archive: not a ustar archive');
     const prefix = text(header, 345, 155);
@@ -43,7 +43,7 @@ export function readUstar(archive: Buffer): ArchiveFile[] {
     // A negative size would move the next header back over this one, and a file would read bytes before its own.
     if (!(size >= 0)) throw new Error(`frontend archive: '${name}' names no valid size`);
     const type = String.fromCharCode(header[156] ?? 0);
-    const body = offset + BLOCK;
+    const body = offset + block;
     if (type === '0' || type === '\0') {
       if (body + size > archive.length) throw new Error(`frontend archive: '${name}' runs past its end`);
       files.push({ path: placeOf(name), body: Buffer.from(archive.subarray(body, body + size)) });
@@ -52,7 +52,7 @@ export function readUstar(archive: Buffer): ArchiveFile[] {
     } else {
       throw new Error(`frontend archive: refused '${name}', an entry of type '${type}': only files and folders`);
     }
-    offset = body + Math.ceil(size / BLOCK) * BLOCK;
+    offset = body + Math.ceil(size / block) * block;
   }
   return files;
 }

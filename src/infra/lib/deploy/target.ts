@@ -5,7 +5,7 @@ import { errorMessage } from '../utils/errors';
  * release, any other environment only what its line names. A line also pins a release or a commit, or raises the retry counter; an
  * environment that follows the releases takes `releases` or a release tag only. Every scheduled run of the main job reads it, as data.
  */
-export const ENVIRONMENTS_FILE = 'infra/environments';
+export const environmentsFile = 'infra/environments';
 
 /** How an environment's target is found. */
 export type TargetRule = { kind: 'branch'; branch: string } | { kind: 'releases' } | { kind: 'pin'; ref: string };
@@ -32,13 +32,13 @@ export interface Target {
 }
 
 /** A full commit id. */
-export const COMMIT = /^[0-9a-f]{40}$/;
-const RELEASE_TAG = /^\d+\.\d+\.\d+$/;
+export const fullCommitPattern = /^[0-9a-f]{40}$/;
+const releaseTag = /^\d+\.\d+\.\d+$/;
 
 function parseRule(word: string): TargetRule {
   if (word === 'releases') return { kind: 'releases' };
   if (word.startsWith('branch:') && word.length > 'branch:'.length) return { kind: 'branch', branch: word.slice('branch:'.length) };
-  if (COMMIT.test(word) || RELEASE_TAG.test(word)) return { kind: 'pin', ref: word };
+  if (fullCommitPattern.test(word) || releaseTag.test(word)) return { kind: 'pin', ref: word };
   throw new Error(`'${word}' is no target: write branch:<name>, releases, a release tag such as 0.18.1, or a full commit id`);
 }
 
@@ -51,7 +51,7 @@ export function parseEnvironmentsFile(text: string): Map<string, EnvironmentLine
   text.split('\n').forEach((raw, index) => {
     const words = (raw.split('#')[0] ?? '').trim().split(/\s+/).filter(Boolean);
     if (words.length === 0) return;
-    const where = `${ENVIRONMENTS_FILE}:${index + 1}`;
+    const where = `${environmentsFile}:${index + 1}`;
     const [environment, target, keyword, count, ...rest] = words;
     if (!environment || !target || rest.length > 0 || (keyword !== undefined && (keyword !== 'retry' || count === undefined))) {
       throw new Error(`${where}: expected '<environment> <target> [retry <n>]', got '${raw.trim()}'`);
@@ -67,7 +67,7 @@ export function parseEnvironmentsFile(text: string): Map<string, EnvironmentLine
       throw new Error(`${where}: ${errorMessage(error)}`);
     }
     // Merging a line is not publishing a release: an environment that follows the releases takes no commit and no branch from a line.
-    if (defaultRule(environment)?.kind === 'releases' && (rule.kind === 'branch' || (rule.kind === 'pin' && !RELEASE_TAG.test(rule.ref)))) {
+    if (defaultRule(environment)?.kind === 'releases' && (rule.kind === 'branch' || (rule.kind === 'pin' && !releaseTag.test(rule.ref)))) {
       throw new Error(`${where}: ${environment} deploys releases only: write releases or a release tag such as 0.18.1, got '${target}'`);
     }
     lines.set(environment, { environment, rule, retry });
@@ -102,7 +102,7 @@ export function isReleaseCommit(refs: readonly RemoteRef[], sha: string): boolea
 
 /** The release tags `X.Y.Z` the refs name, once each: an annotated tag is listed by its tag object and its peeled line. */
 function releaseTags(refs: readonly RemoteRef[]): string[] {
-  return [...new Set(refs.map((ref) => ref.ref.replace(/^refs\/tags\//, '').replace(/\^\{\}$/, '')).filter((tag) => RELEASE_TAG.test(tag)))];
+  return [...new Set(refs.map((ref) => ref.ref.replace(/^refs\/tags\//, '').replace(/\^\{\}$/, '')).filter((tag) => releaseTag.test(tag)))];
 }
 
 /** The release tags the refs name with the commit each points to, newest version first. */
@@ -160,7 +160,7 @@ export async function resolveTarget(opts: TargetQuery): Promise<Target | undefin
     if (!newest) throw new NoReleaseError(`${opts.environment} follows the releases, and the repository has none`);
     return of(newest.sha, `release ${newest.tag}`);
   }
-  if (COMMIT.test(rule.ref)) return of(rule.ref, `pinned commit ${rule.ref.slice(0, 10)}`);
+  if (fullCommitPattern.test(rule.ref)) return of(rule.ref, `pinned commit ${rule.ref.slice(0, 10)}`);
   const sha = tagCommit(await opts.listRemote([`refs/tags/${rule.ref}`, `refs/tags/${rule.ref}^{}`]), rule.ref);
   if (!sha) throw new Error(`${opts.environment} is pinned to release ${rule.ref}, which the repository does not have`);
   return of(sha, `pinned release ${rule.ref}`);
@@ -171,6 +171,6 @@ export function parseLsRemote(output: string): RemoteRef[] {
   return output
     .split('\n')
     .map((line) => line.trim().split(/\s+/))
-    .filter((parts): parts is [string, string] => parts.length === 2 && COMMIT.test(parts[0] ?? ''))
+    .filter((parts): parts is [string, string] => parts.length === 2 && fullCommitPattern.test(parts[0] ?? ''))
     .map(([sha, ref]) => ({ sha, ref }));
 }

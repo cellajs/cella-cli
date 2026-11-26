@@ -1,9 +1,9 @@
-import { type Manifest, METADATA_HOST } from '../../agent/src/manifest';
+import { type Manifest, metadataHost } from '../../agent/src/manifest';
 import { type AgentPort, type BootPlan, type ReleaseArchive, supportedImageContract, supportedSchemaVersion } from '../../agent/src/plan';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
 
 /** The user data key the machine's agent polls for its manifest; `cloud-init` holds the rest. */
-export const MANIFEST_KEY = 'manifest';
+export const manifestKey = 'manifest';
 
 /** What the deploy tells a machine's agent while it runs, in the shape the agent reads it. */
 export const renderManifest = (manifest: Manifest): string => JSON.stringify(manifest);
@@ -32,7 +32,7 @@ export interface MachineUserDataParams {
 
 /**
  * Ceiling on one `compose up --wait`: the release companion (migrations, job store install, admin seed) and the start of the app together.
- * It must fail and upload its account while the deploy still waits for the machine to serve (`SERVING_TIMEOUT_SECONDS` in
+ * It must fail and upload its account while the deploy still waits for the machine to serve (`servingTimeoutSeconds` in
  * tasks/switch-machines.ts, counted from the power-on, by which the env file and the archives are still loading), or the deploy reports a
  * failure with no account to show. The backend's own lock and statement timeouts (SERVICE=migrate) sit below it.
  */
@@ -125,7 +125,7 @@ const agentEnvContent = (p: MachineUserDataParams): string =>
  */
 const launcher = `#!/bin/bash
 set -uo pipefail
-iptables -C DOCKER-USER -d ${METADATA_HOST} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${METADATA_HOST} -j DROP || exit 1
+iptables -C DOCKER-USER -d ${metadataHost} -j DROP 2>/dev/null || iptables -I DOCKER-USER -d ${metadataHost} -j DROP || exit 1
 if ! docker image inspect "$AGENT_IMAGE" >/dev/null 2>&1; then
   mkdir -p /opt/app/images
   curl -fsS --max-time 240 --retry 5 --retry-all-errors -o /opt/app/images/agent.tar "$AGENT_ARCHIVE_URL" || { echo "the agent archive could not be fetched"; exit 1; }

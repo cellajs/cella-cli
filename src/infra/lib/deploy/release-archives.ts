@@ -1,19 +1,19 @@
 import { isRecord } from '../utils/guards';
-import { HASH } from './applied-engine';
+import { sha256HexPattern } from './applied-engine';
 
 /** Where a release's image archives, frontend archive and manifest live in the boot-diag bucket: `releases/<sha>/`, kept 60 days. */
-export const RELEASES_PREFIX = 'releases/';
+export const releasesPrefix = 'releases/';
 
 /** Where the deploy writes each machine's composed env file, deleted once the machine booted and within a day by the bucket's rule. */
-export const ENV_PREFIX = 'env/';
+export const envPrefix = 'env/';
 
 /** Name of the agent's image repository, and of its archive. */
-export const AGENT_IMAGE_NAME = 'infra-agent';
+export const agentImageName = 'infra-agent';
 
-export const releaseArchiveKey = (sha: string, name: string) => `${RELEASES_PREFIX}${sha}/images/${name}.tar`;
-export const releaseManifestKey = (sha: string) => `${RELEASES_PREFIX}${sha}/manifest.json`;
-export const frontendArchiveKey = (sha: string) => `${RELEASES_PREFIX}${sha}/frontend.tar`;
-export const envObjectKey = (machine: string) => `${ENV_PREFIX}${machine}.env`;
+export const releaseArchiveKey = (sha: string, name: string) => `${releasesPrefix}${sha}/images/${name}.tar`;
+export const releaseManifestKey = (sha: string) => `${releasesPrefix}${sha}/manifest.json`;
+export const frontendArchiveKey = (sha: string) => `${releasesPrefix}${sha}/frontend.tar`;
+export const envObjectKey = (machine: string) => `${envPrefix}${machine}.env`;
 
 /** The name a deploy gives the machine of one service it boots for a release, which names that machine's env file. */
 export function releaseMachine(service: string, sha: string): string {
@@ -46,7 +46,7 @@ export interface ReleaseManifest {
 function digestOf(value: unknown, where: string): ArchiveDigest {
   if (!isRecord(value)) throw new Error(`release manifest: ${where} is not an object`);
   const { sha256, md5, bytes } = value;
-  if (typeof sha256 !== 'string' || !HASH.test(sha256)) throw new Error(`release manifest: ${where} has no sha256`);
+  if (typeof sha256 !== 'string' || !sha256HexPattern.test(sha256)) throw new Error(`release manifest: ${where} has no sha256`);
   if (typeof md5 !== 'string' || !/^[0-9a-f]{32}$/.test(md5)) throw new Error(`release manifest: ${where} has no md5`);
   if (typeof bytes !== 'number' || !Number.isInteger(bytes) || bytes <= 0) throw new Error(`release manifest: ${where} has no size`);
   return { sha256, md5, bytes };
@@ -66,7 +66,7 @@ export function parseReleaseManifest(text: string, sha: string): ReleaseManifest
     images[name] = digestOf(digest, name);
   }
   const { description, describes } = parsed;
-  if (description !== undefined && (typeof description !== 'string' || !HASH.test(description))) {
+  if (description !== undefined && (typeof description !== 'string' || !sha256HexPattern.test(description))) {
     throw new Error('release manifest: description is no sha256');
   }
   if (describes !== undefined && !isRecord(describes)) throw new Error('release manifest: describes is no object');

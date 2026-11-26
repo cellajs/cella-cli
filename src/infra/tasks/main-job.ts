@@ -3,10 +3,10 @@ import { mkdtemp } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { type EngineStamp, readEngineStamp } from '../lib/deploy/applied-engine';
-import { MAIN_JOB_EXIT } from '../lib/deploy/main-job';
+import { mainJobExit } from '../lib/deploy/main-job';
 import { RunRecorder } from '../lib/deploy/run-record';
 import { type ScheduledEffects, scheduledVerdict } from '../lib/deploy/scheduled-run';
-import { COMMIT, commitName, defaultRule, isReleaseCommit, type RemoteRef } from '../lib/deploy/target';
+import { commitName, defaultRule, fullCommitPattern, isReleaseCommit, type RemoteRef } from '../lib/deploy/target';
 import { leaseOwnerOfRun } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
 import { isRecord } from '../lib/utils/guards';
@@ -66,14 +66,14 @@ export async function mainJob(env: NodeJS.ProcessEnv, fx: MainJobEffects): Promi
     stamp = fx.stamp();
   } catch (error) {
     console.error(`[main-job] ${errorMessage(error)}`);
-    return MAIN_JOB_EXIT.failed;
+    return mainJobExit.failed;
   }
   const mode = stamp?.mode ?? env.MODE;
   const key = deployKey(env);
   const projectId = env.SCW_DEFAULT_PROJECT_ID ?? '';
   if (!mode || !key) {
     console.error('The main job needs its engine stamp (or MODE) and the deploy key.');
-    return MAIN_JOB_EXIT.failed;
+    return mainJobExit.failed;
   }
   if (env.TARGET_SHA) {
     const retry = env.RETRY && /^\d+$/.test(env.RETRY) ? env.RETRY : '0';
@@ -88,7 +88,7 @@ export async function mainJob(env: NodeJS.ProcessEnv, fx: MainJobEffects): Promi
     const verdict = await scheduledVerdict(mode, effects, started);
     if ('done' in verdict) {
       console.info(`[main-job] ${mode}: ${verdict.done}`);
-      return MAIN_JOB_EXIT.deployed;
+      return mainJobExit.deployed;
     }
     ({ run } = verdict);
     console.info(`[main-job] ${mode}: ${verdict.deploy.source} has no run under retry ${verdict.deploy.retry}: run ${run} deploys it`);
@@ -103,7 +103,7 @@ export async function mainJob(env: NodeJS.ProcessEnv, fx: MainJobEffects): Promi
     return await deployTarget(env, fx, { mode, key, projectId, sha, retry: String(retry), run, refs: verdict.refs, refused });
   } catch (error) {
     console.error(`[main-job] ${mode}: starts nothing, as ${errorMessage(error)}`);
-    return MAIN_JOB_EXIT.failed;
+    return mainJobExit.failed;
   } finally {
     // The deploy took the lease over and released it; this one is for a deploy that ended before it took it.
     if (run) await effects?.releaseLease(leaseOwnerOfRun(run)).catch(() => undefined);
@@ -141,9 +141,9 @@ async function releaseRefusal(fx: MainJobEffects, opts: DeployTargetOptions): Pr
  */
 async function deployTarget(env: NodeJS.ProcessEnv, fx: MainJobEffects, opts: DeployTargetOptions): Promise<number> {
   const { mode, key, sha, retry } = opts;
-  if (!COMMIT.test(sha)) {
+  if (!fullCommitPattern.test(sha)) {
     console.error(`The main job deploys a full commit id, and TARGET_SHA '${sha}' is none.`);
-    return MAIN_JOB_EXIT.failed;
+    return mainJobExit.failed;
   }
   console.info(`[main-job] ${mode}: ${sha} (retry ${retry})`);
   if (defaultRule(mode)?.kind === 'releases') {
@@ -153,7 +153,7 @@ async function deployTarget(env: NodeJS.ProcessEnv, fx: MainJobEffects, opts: De
     if (refusal) {
       console.error(`[main-job] ${refusal}`);
       await opts.refused?.(refusal);
-      return MAIN_JOB_EXIT.failed;
+      return mainJobExit.failed;
     }
   }
   const deployEnv = Object.fromEntries(Object.entries(env).filter(([name]) => name !== 'DEPLOY_KEY_JSON'));
@@ -164,13 +164,13 @@ async function deployTarget(env: NodeJS.ProcessEnv, fx: MainJobEffects, opts: De
     SCW_ACCESS_KEY: key.accessKey,
     SCW_SECRET_KEY: key.secretKey,
   });
-  if (deployed === MAIN_JOB_EXIT.blocked) {
+  if (deployed === mainJobExit.blocked) {
     console.info('[main-job] blocked: the record names what is owed, a runtime value or an apply; no scheduled run starts this target again');
-    return MAIN_JOB_EXIT.blocked;
+    return mainJobExit.blocked;
   }
-  if (deployed !== MAIN_JOB_EXIT.deployed) return MAIN_JOB_EXIT.failed;
+  if (deployed !== mainJobExit.deployed) return mainJobExit.failed;
   console.info('[main-job] deployed');
-  return MAIN_JOB_EXIT.deployed;
+  return mainJobExit.deployed;
 }
 
 /**
@@ -254,6 +254,6 @@ export function liveEffects(): MainJobEffects {
       };
     },
     run: (script, args, env) =>
-      spawnSync('pnpm', ['--silent', 'run', script, ...args], { cwd: infraDir, stdio: 'inherit', env }).status ?? MAIN_JOB_EXIT.failed,
+      spawnSync('pnpm', ['--silent', 'run', script, ...args], { cwd: infraDir, stdio: 'inherit', env }).status ?? mainJobExit.failed,
   };
 }

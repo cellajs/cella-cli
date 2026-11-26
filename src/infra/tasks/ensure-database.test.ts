@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { formatPostgresUrl } from '../lib/postgres-url';
 import type { RuntimeSecretDefinition } from '../lib/runtime-secrets';
-import { POSTGRES_ROLE_NAMES } from '../lib/scaleway/db-privileges';
+import { postgresRoleNames } from '../lib/scaleway/db-privileges';
 import type { RdbPrivilege } from '../lib/scaleway/scaleway-rdb';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER } from '../lib/scaleway/secret-paths';
+import { engineFolder } from '../lib/scaleway/secret-paths';
 import { type EnsureDatabaseRdb, type EnsureDatabaseSecrets, ensureDatabase, generateRolePassword } from './ensure-database';
 
 /** Where ensure-database keeps each role's password. */
-const adminKept = `${ENGINE_FOLDER}db-password-admin`;
-const runtimeKept = `${ENGINE_FOLDER}db-password-runtime`;
+const adminKept = `${engineFolder}db-password-admin`;
+const runtimeKept = `${engineFolder}db-password-runtime`;
 const endpoint = { instanceId: 'inst', privateIp: '10.0.0.9', port: '5432', databaseName: 'app' };
 const definitions = [
   { id: 'databaseUrlRuntime', secretName: 'database-url-runtime', services: ['backend'], database: { role: 'runtime' } },
@@ -17,7 +17,7 @@ const definitions = [
   { id: 'databaseUrlCdc', secretName: 'database-url-cdc', services: ['cdc'], database: { role: 'admin' } },
 ] as unknown as RuntimeSecretDefinition[];
 const dsn = (role: 'admin' | 'runtime', password: string, ip = endpoint.privateIp) =>
-  formatPostgresUrl(POSTGRES_ROLE_NAMES[role], password, ip, 5432, 'app');
+  formatPostgresUrl(postgresRoleNames[role], password, ip, 5432, 'app');
 
 /** Secret Manager as a fake: `path + name` → latest value, or undefined for an empty container; writes recorded. */
 function fakeSecrets(store: Record<string, string | undefined>) {
@@ -76,8 +76,8 @@ describe('ensureDatabase', () => {
     const { rdb, calls } = fakeRdb([]);
     await run(rdb, secrets);
     expect(calls.filter((call) => call.startsWith('create'))).toEqual([
-      `create ${POSTGRES_ROLE_NAMES.admin} admin=true`,
-      `create ${POSTGRES_ROLE_NAMES.runtime} admin=false`,
+      `create ${postgresRoleNames.admin} admin=true`,
+      `create ${postgresRoleNames.runtime} admin=false`,
     ]);
 
     expect(writes['/runtime/database-url-runtime']).toBe(dsn('runtime', 'fresh'));
@@ -87,14 +87,14 @@ describe('ensureDatabase', () => {
   it('must not grant a role that holds a privilege: on a migrated database `all` gives runtime_role every table', async () => {
     const { secrets } = fakeSecrets({ [adminKept]: 'adm-pw', [runtimeKept]: 'run-pw' });
     const { rdb, calls } = fakeRdb(
-      [POSTGRES_ROLE_NAMES.admin, POSTGRES_ROLE_NAMES.runtime],
+      [postgresRoleNames.admin, postgresRoleNames.runtime],
       [
-        { database_name: 'app', user_name: POSTGRES_ROLE_NAMES.admin, permission: 'none' },
-        { database_name: 'app', user_name: POSTGRES_ROLE_NAMES.runtime, permission: 'custom' },
+        { database_name: 'app', user_name: postgresRoleNames.admin, permission: 'none' },
+        { database_name: 'app', user_name: postgresRoleNames.runtime, permission: 'custom' },
       ],
     );
     await run(rdb, secrets);
-    expect(calls.filter((call) => call.startsWith('privilege'))).toEqual([`privilege ${POSTGRES_ROLE_NAMES.admin} app all`]);
+    expect(calls.filter((call) => call.startsWith('privilege'))).toEqual([`privilege ${postgresRoleNames.admin} app all`]);
   });
 
   it('rewrites a connection string that names another endpoint', async () => {
@@ -103,15 +103,15 @@ describe('ensureDatabase', () => {
       [runtimeKept]: 'run-pw',
       '/runtime/database-url-runtime': dsn('runtime', 'run-pw', '10.0.0.1'),
     });
-    await run(fakeRdb([POSTGRES_ROLE_NAMES.admin, POSTGRES_ROLE_NAMES.runtime]).rdb, secrets);
+    await run(fakeRdb([postgresRoleNames.admin, postgresRoleNames.runtime]).rdb, secrets);
     expect(writes).toEqual({ '/runtime/database-url-runtime': dsn('runtime', 'run-pw') });
   });
 
   it('gives a role that exists a fresh password only when the engine folder keeps none', async () => {
     const { secrets } = fakeSecrets({ [adminKept]: 'adm-pw' });
-    const { rdb, calls } = fakeRdb([POSTGRES_ROLE_NAMES.admin, POSTGRES_ROLE_NAMES.runtime]);
+    const { rdb, calls } = fakeRdb([postgresRoleNames.admin, postgresRoleNames.runtime]);
     await run(rdb, secrets);
-    expect(calls.filter((call) => call.startsWith('password'))).toEqual([`password ${POSTGRES_ROLE_NAMES.runtime}`]);
+    expect(calls.filter((call) => call.startsWith('password'))).toEqual([`password ${postgresRoleNames.runtime}`]);
   });
 
   it('rotates: a fresh password on every live role, kept and written into every connection string', async () => {
@@ -121,7 +121,7 @@ describe('ensureDatabase', () => {
       '/runtime/database-url-runtime': dsn('runtime', 'run-pw'),
       '/runtime/database-url-cdc': dsn('admin', 'adm-pw'),
     });
-    const { rdb, calls } = fakeRdb([POSTGRES_ROLE_NAMES.admin, POSTGRES_ROLE_NAMES.runtime]);
+    const { rdb, calls } = fakeRdb([postgresRoleNames.admin, postgresRoleNames.runtime]);
     await ensureDatabase({
       rdb,
       secrets,
@@ -132,8 +132,8 @@ describe('ensureDatabase', () => {
       log: () => {},
     });
     expect(calls.filter((call) => call.startsWith('password'))).toEqual([
-      `password ${POSTGRES_ROLE_NAMES.admin}`,
-      `password ${POSTGRES_ROLE_NAMES.runtime}`,
+      `password ${postgresRoleNames.admin}`,
+      `password ${postgresRoleNames.runtime}`,
     ]);
     expect(writes[adminKept]).toBe('rotated');
     expect(writes['/runtime/database-url-runtime']).toBe(dsn('runtime', 'rotated'));
@@ -142,7 +142,7 @@ describe('ensureDatabase', () => {
 
   it('must not keep a password the role never got: a failed role update leaves the engine folder as it was', async () => {
     const { secrets, writes } = fakeSecrets({ [adminKept]: 'adm-pw', [runtimeKept]: 'run-pw' });
-    const { rdb } = fakeRdb([POSTGRES_ROLE_NAMES.admin, POSTGRES_ROLE_NAMES.runtime]);
+    const { rdb } = fakeRdb([postgresRoleNames.admin, postgresRoleNames.runtime]);
     rdb.setUserPassword = async () => {
       throw new Error('400 from the database API');
     };

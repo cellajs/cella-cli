@@ -1,7 +1,7 @@
 import { errorMessage } from '../utils/errors';
 import { type ScwAuth, scwFetch } from './scw-fetch';
 
-const DOMAIN_BASE = 'https://api.scaleway.com/domain/v2beta1';
+const domainBase = 'https://api.scaleway.com/domain/v2beta1';
 
 interface DnsZoneItem {
   domain: string;
@@ -17,7 +17,7 @@ function zoneName(zone: DnsZoneItem): string {
 /** Project id of the most specific existing zone serving `dnsZone`. A stack's records can land in a parent zone owned by another project, so the CI grant must cover that zone's project. */
 export async function resolveDnsZoneProjectId(auth: ScwAuth, dnsZone: string): Promise<string | undefined> {
   if (!dnsZone) return undefined;
-  const { dns_zones: zones = [] } = await scwFetch<{ dns_zones?: DnsZoneItem[] }>(auth, 'GET', `${DOMAIN_BASE}/dns-zones?page_size=100`);
+  const { dns_zones: zones = [] } = await scwFetch<{ dns_zones?: DnsZoneItem[] }>(auth, 'GET', `${domainBase}/dns-zones?page_size=100`);
   const matches = zones.filter((zone) => {
     const name = zoneName(zone);
     return dnsZone === name || dnsZone.endsWith(`.${name}`);

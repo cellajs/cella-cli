@@ -1,5 +1,5 @@
 import type { ServiceName } from '../compose/compose';
-import { AGENT_PORT_OFFSET } from '../compose/infrastructure';
+import { agentPortOffset } from '../compose/infrastructure';
 import type { ReplacementStrategy } from '../compose/types';
 import type { EngineConfig } from './engine-config';
 import type { PerMode } from './general-config';
@@ -9,7 +9,7 @@ import type { Environment } from './stack/environment';
 /** One of a role's two reserved addresses. A deploy boots the new machine on the slot that does not serve. */
 export type Slot = 'a' | 'b';
 
-export const SLOTS: readonly Slot[] = ['a', 'b'];
+export const allSlots: readonly Slot[] = ['a', 'b'];
 
 export const otherSlot = (slot: Slot): Slot => (slot === 'a' ? 'b' : 'a');
 
@@ -17,7 +17,7 @@ export const otherSlot = (slot: Slot): Slot => (slot === 'a' ? 'b' : 'a');
 export function agentPort(slug: string): number {
   const service = services.find((candidate) => candidate.slug === slug);
   if (!service) throw new Error(`machine-roles: '${slug}' is no service of the registry`);
-  return service.healthPort + AGENT_PORT_OFFSET;
+  return service.healthPort + agentPortOffset;
 }
 
 /** The path the load balancer checks on a service's agent port. */
@@ -101,7 +101,7 @@ export function machineName(resource: (suffix: string) => string, role: string, 
 
 /** The slot a machine name holds, when it is one of a role's. */
 export function slotOfMachine(resource: (suffix: string) => string, role: string, name: string): Slot | undefined {
-  return SLOTS.find((slot) => machineName(resource, role, slot) === name);
+  return allSlots.find((slot) => machineName(resource, role, slot) === name);
 }
 
 /** A role's machine type, from its registry entry. */

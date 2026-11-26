@@ -2,7 +2,7 @@ import { isRecord } from '../utils/guards';
 import { readObjectText, type S3Like } from './control-store';
 
 /** Pulumi's project name (`name` in infra/Pulumi.yaml), the middle segment of `organization/<project>/<stack>`. */
-const PULUMI_PROJECT = 'infra';
+const pulumiProject = 'infra';
 
 /**
  * S3 key of a stack's checkpoint in the state bucket. The S3 backend stores project-scoped stacks at `.pulumi/stacks/<project>/<stack>.json`
@@ -10,7 +10,7 @@ const PULUMI_PROJECT = 'infra';
  */
 export function checkpointKey(stack: string): string {
   const parts = stack.split('/');
-  const project = parts.length === 3 ? parts[1] : PULUMI_PROJECT;
+  const project = parts.length === 3 ? parts[1] : pulumiProject;
   return `.pulumi/stacks/${project}/${parts.at(-1)}.json`;
 }
 

@@ -7,7 +7,7 @@ import { findMainJob, mainJobOutcome } from '../../lib/deploy/main-job';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
 import { commitRecords } from '../../lib/deploy/run-store';
 import { rotationTarget } from '../../lib/deploy/scheduled-run';
-import { commitName, ENVIRONMENTS_FILE, parseEnvironmentsFile, resolveTarget, type Target } from '../../lib/deploy/target';
+import { commitName, environmentsFile, parseEnvironmentsFile, resolveTarget, type Target } from '../../lib/deploy/target';
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
@@ -30,9 +30,7 @@ export async function runStartDeploy(context: InfraContext, opts: { asked?: bool
   const environment = context.environment;
   const target = await environmentTarget(context);
   if (!target) {
-    console.error(
-      `${crossMark} ${environment} has no line in ${ENVIRONMENTS_FILE}, so it deploys nothing: add \`${environment} branch:main\` there.`,
-    );
+    console.error(`${crossMark} ${environment} has no line in ${environmentsFile}, so it deploys nothing: add \`${environment} branch:main\` there.`);
     return endAction(1);
   }
   const name = commitName(await commitRefs(), target.sha);
@@ -67,19 +65,19 @@ async function followIfLive(context: InfraContext, key: KeyPair): Promise<Follow
 }
 
 /** How long a target read waits for the repository before it fails with a line, so a stalled remote never hangs an action. */
-const TARGET_REFS_TIMEOUT_MS = 20_000;
+const targetRefsTimeoutMs = 20_000;
 
 /**
  * The environment's target, as the environments file of this checkout and the repository's refs say it; none for an environment other than
  * production without a line.
  */
 export async function environmentTarget(context: InfraContext): Promise<Target | undefined> {
-  const file = join(repoRoot, ENVIRONMENTS_FILE);
+  const file = join(repoRoot, environmentsFile);
   const line = existsSync(file) ? parseEnvironmentsFile(readFileSync(file, 'utf8')).get(context.environment) : undefined;
   return resolveTarget({
     environment: context.environment,
     line,
-    listRemote: listRemoteRefs(repositoryUrl(), process.env.REPOSITORY_READ_KEY, { timeoutMs: TARGET_REFS_TIMEOUT_MS }),
+    listRemote: listRemoteRefs(repositoryUrl(), process.env.REPOSITORY_READ_KEY, { timeoutMs: targetRefsTimeoutMs }),
   });
 }
 
@@ -156,7 +154,7 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
   }
   if (!target) {
     console.warn(
-      `${warningMark} ${context.environment} has no line in ${ENVIRONMENTS_FILE}, so no deploy replaces its machines: they hold what the rotation replaced.`,
+      `${warningMark} ${context.environment} has no line in ${environmentsFile}, so no deploy replaces its machines: they hold what the rotation replaced.`,
     );
     return;
   }

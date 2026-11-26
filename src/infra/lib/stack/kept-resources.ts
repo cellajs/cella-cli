@@ -3,13 +3,13 @@ import type { EngineConfig } from '../engine-config';
 import { deriveInfra } from '../naming';
 import { protectsStoredData, runtimeSecrets } from '../runtime-secrets';
 import type { SecretManagerSecret } from '../scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER, RUNTIME_FOLDER } from '../scaleway/secret-paths';
+import { engineFolder, runtimeFolder } from '../scaleway/secret-paths';
 import { appStorageNeeds, services } from '../services';
 import { urnsOf, withoutUrns, withResources } from './stack-export';
 
-const BUCKET = 'scaleway:object/bucket:Bucket';
-const BUCKET_POLICY = 'scaleway:object/bucketPolicy:BucketPolicy';
-const SECRET = 'scaleway:secrets/secret:Secret';
+const bucketType = 'scaleway:object/bucket:Bucket';
+const bucketPolicyType = 'scaleway:object/bucketPolicy:BucketPolicy';
+const secretType = 'scaleway:secrets/secret:Secret';
 
 /** One resource a teardown leaves live, by its type and name in the program. */
 export interface KeptResource {
@@ -29,8 +29,8 @@ type ListedSecret = Pick<SecretManagerSecret, 'id' | 'name' | 'path'>;
 export function keptResources(appConfig: EngineConfig): KeptResource[] {
   const { naming } = deriveInfra(appConfig);
   const bucket = (name: string, live: string, policy: string): KeptResource[] => [
-    { type: BUCKET, name, adopt: { bucket: live } },
-    { type: BUCKET_POLICY, name: policy },
+    { type: bucketType, name, adopt: { bucket: live } },
+    { type: bucketPolicyType, name: policy },
   ];
   return [
     ...(appStorageNeeds(services).uploadBuckets
@@ -40,10 +40,10 @@ export function keptResources(appConfig: EngineConfig): KeptResource[] {
         ]
       : []),
     ...bucket('boot-diag-bucket', naming.bootDiagBucket, 'boot-diag-policy'),
-    { type: BUCKET_POLICY, name: 'state-bucket-policy' },
+    { type: bucketPolicyType, name: 'state-bucket-policy' },
     ...runtimeSecrets
       .filter(protectsStoredData)
-      .map((definition): KeptResource => ({ type: SECRET, name: `secret-${definition.secretName}`, adopt: { secret: definition.secretName } })),
+      .map((definition): KeptResource => ({ type: secretType, name: `secret-${definition.secretName}`, adopt: { secret: definition.secretName } })),
   ];
 }
 
@@ -55,7 +55,7 @@ const trimSlashes = (path: string) => `/${path.split('/').filter(Boolean).join('
 
 /** The live container of a kept value: its name, in the runtime folder; a container of that name in another folder is not it. */
 function keptContainer(listed: readonly ListedSecret[], name: string): ListedSecret | undefined {
-  return listed.find((secret) => secret.name === name && trimSlashes(secret.path) === trimSlashes(RUNTIME_FOLDER));
+  return listed.find((secret) => secret.name === name && trimSlashes(secret.path) === trimSlashes(runtimeFolder));
 }
 
 /**
@@ -70,7 +70,7 @@ export function destroyableState(exported: unknown, kept: readonly KeptResource[
   const forced = (properties: unknown) =>
     typeof properties === 'object' && properties !== null ? { ...properties, forceDestroy: true } : properties;
   const document = withResources(withoutUrns(exported, urns), (resource) => {
-    if (resource.type !== BUCKET) return resource;
+    if (resource.type !== bucketType) return resource;
     emptied.push(urnKey(String(resource.urn)).split('::')[1] ?? '');
     return { ...resource, inputs: forced(resource.inputs), outputs: forced(resource.outputs) };
   });
@@ -78,7 +78,7 @@ export function destroyableState(exported: unknown, kept: readonly KeptResource[
 }
 
 /** The folders a teardown empties. A container outside them is none of the engine's. */
-const engineFolders: readonly string[] = [RUNTIME_FOLDER, ENGINE_FOLDER];
+const engineFolders: readonly string[] = [runtimeFolder, engineFolder];
 
 /** The secret containers a teardown deletes: every one in the engine's folders, or below them, but the kept values' containers. */
 export function sweptSecrets<Secret extends ListedSecret>(listed: readonly Secret[], kept: readonly KeptResource[]): Secret[] {

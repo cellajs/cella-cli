@@ -7,33 +7,33 @@ import { nameSubject, rowText } from '../lib/status/check';
 import { checkGroups, groupOf } from '../lib/status/registry';
 import { buildReport } from '../lib/status/session';
 import type { Check, CheckStatus, StatusReport } from '../lib/status/types';
-import { checkMark, crossMark, DIVIDER, pc, warningMark, withSpinner } from '../lib/utils/cli-output';
+import { checkMark, crossMark, divider, pc, warningMark, withSpinner } from '../lib/utils/cli-output';
 
-const MARKS: Record<CheckStatus, string> = { ok: checkMark, warn: warningMark, missing: crossMark, error: crossMark, unknown: pc.dim('?') };
+const marks: Record<CheckStatus, string> = { ok: checkMark, warn: warningMark, missing: crossMark, error: crossMark, unknown: pc.dim('?') };
 
 /** The mark a status row starts with. */
 export function markOf(status: CheckStatus): string {
-  return MARKS[status];
+  return marks[status];
 }
 
 /** Where a row's detail starts: the mark, a space, the label padded to 12, a space. */
-const DETAIL_COLUMN = 15;
+const detailColumn = 15;
 /** The widest line a row prints. */
-const ROW_WIDTH = 100;
-const INDENT = ' '.repeat(DETAIL_COLUMN);
+const rowWidth = 100;
+const indent = ' '.repeat(detailColumn);
 
 /** One status row: mark, bold label padded to the detail column, detail. */
 export function statusRow(mark: string, label: string, detail: string): string {
-  return `${mark} ${pc.bold(label.padEnd(DETAIL_COLUMN - 3))} ${detail}`;
+  return `${mark} ${pc.bold(label.padEnd(detailColumn - 3))} ${detail}`;
 }
 
 /** A row whose detail runs on: its first line beside the label, the others under it at the detail column. */
 export function statusRows(mark: string, label: string, lines: readonly string[]): string[] {
-  return lines.map((line, index) => (index === 0 ? statusRow(mark, label, line) : `${INDENT}${line}`));
+  return lines.map((line, index) => (index === 0 ? statusRow(mark, label, line) : `${indent}${line}`));
 }
 
 /** Parts joined by `separator` into lines of at most `width` characters, a part never split. */
-export function fill(parts: readonly string[], separator: string, width = ROW_WIDTH - DETAIL_COLUMN): string[] {
+export function fill(parts: readonly string[], separator: string, width = rowWidth - detailColumn): string[] {
   const lines: string[] = [];
   for (const part of parts) {
     const last = lines.at(-1);
@@ -49,18 +49,18 @@ function itemLines(items: readonly string[][]): string[] {
   for (const item of items) for (const [index, cell] of item.entries()) widths[index] = Math.max(widths[index] ?? 0, cell.length);
   return items.map(([first = '', ...rest]) => {
     const cells = rest.map((cell, index) => (index < rest.length - 1 ? cell.padEnd(widths[index + 1] ?? 0) : cell));
-    return `${INDENT}${cells.length > 0 ? `${first.padEnd(widths[0] ?? 0)}  ${pc.dim(cells.join('  '))}` : first}`;
+    return `${indent}${cells.length > 0 ? `${first.padEnd(widths[0] ?? 0)}  ${pc.dim(cells.join('  '))}` : first}`;
   });
 }
 
 /** A check's row; one that needs a person adds the items it names, or the detail its headline shortens, and what fixes it. */
 export function checkLines(check: Check, refs?: readonly RemoteRef[]): string[] {
-  const lines = [statusRow(MARKS[check.status], check.title, rowText(check, refs))];
+  const lines = [statusRow(marks[check.status], check.title, rowText(check, refs))];
   if (check.status === 'ok' || check.status === 'unknown') return lines;
   if (check.items?.length) lines.push(...itemLines(check.items));
-  else if (check.headline) lines.push(...fill(nameSubject(check, refs).split(' '), ' ').map((line) => `${INDENT}${pc.dim(line)}`));
-  const fixes = [check.fix, check.nextAction?.description].flatMap((fix) => (fix ? fill(fix.split(' '), ' ', ROW_WIDTH - DETAIL_COLUMN - 5) : []));
-  lines.push(...fixes.map((line, index) => `${INDENT}${index === 0 ? pc.bold('Fix') : '   '}  ${line}`));
+  else if (check.headline) lines.push(...fill(nameSubject(check, refs).split(' '), ' ').map((line) => `${indent}${pc.dim(line)}`));
+  const fixes = [check.fix, check.nextAction?.description].flatMap((fix) => (fix ? fill(fix.split(' '), ' ', rowWidth - detailColumn - 5) : []));
+  lines.push(...fixes.map((line, index) => `${indent}${index === 0 ? pc.bold('Fix') : '   '}  ${line}`));
   return lines;
 }
 
@@ -87,7 +87,7 @@ function okLines(checks: readonly Check[], refs?: readonly RemoteRef[]): string[
  * be read, and the ok checks folded into one line per group.
  */
 export function formatReport(report: StatusReport, refs?: readonly RemoteRef[]): string {
-  const lines = [pc.bold('Full status'), DIVIDER];
+  const lines = [pc.bold('Full status'), divider];
   const toFix = report.checks.filter((check) => check.status !== 'ok' && check.status !== 'unknown');
   const unknown = report.checks.filter((check) => check.status === 'unknown');
   if (toFix.length > 0)
@@ -124,7 +124,7 @@ export async function runStatus(context: {
 }
 
 /** How long a report the home screen read serves the full table too: one key after the home does not read everything again. */
-const REPORT_FRESH_MS = 120_000;
+const reportFreshMs = 120_000;
 
 let lastReport: StatusReport | undefined;
 
@@ -135,7 +135,7 @@ export function rememberReport(report: StatusReport): void {
 
 /** The remembered report of a mode while it is fresh. */
 function recentReport(mode: string): StatusReport | undefined {
-  if (!lastReport || lastReport.mode !== mode || Date.now() - Date.parse(lastReport.generatedAt) > REPORT_FRESH_MS) return undefined;
+  if (!lastReport || lastReport.mode !== mode || Date.now() - Date.parse(lastReport.generatedAt) > reportFreshMs) return undefined;
   return lastReport;
 }
 

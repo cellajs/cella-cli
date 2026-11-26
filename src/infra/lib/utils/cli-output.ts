@@ -14,7 +14,7 @@ export const changeMark = pc.yellow('✎');
 
 export const tildeMark = pc.yellow('~');
 
-export const DIVIDER = '─'.repeat(60);
+export const divider = '─'.repeat(60);
 
 /** True when a person can answer a prompt: stdin is a terminal and the run is not automated, as a runner that gives its job a terminal is. */
 export function hasPerson(): boolean {
@@ -26,7 +26,7 @@ function spinnerEnabled(): boolean {
   return Boolean(process.stderr.isTTY) && process.env.CI !== 'true';
 }
 
-const SPINNER_FRAMES = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
+const spinnerFrames = ['⠋', '⠙', '⠹', '⠸', '⠼', '⠴', '⠦', '⠧', '⠇', '⠏'];
 
 /**
  * Show a spinner next to `label` while an async task runs. Everything goes to stderr: stdout stays clean for machine output.
@@ -38,10 +38,10 @@ export async function withSpinner<T>(label: string, task: () => Promise<T>): Pro
     return task();
   }
   let frame = 0;
-  process.stderr.write(`${pc.cyan(SPINNER_FRAMES[0])} ${label}`);
+  process.stderr.write(`${pc.cyan(spinnerFrames[0])} ${label}`);
   const timer = setInterval(() => {
-    frame = (frame + 1) % SPINNER_FRAMES.length;
-    process.stderr.write(`\r${pc.cyan(SPINNER_FRAMES[frame]!)} ${label}`);
+    frame = (frame + 1) % spinnerFrames.length;
+    process.stderr.write(`\r${pc.cyan(spinnerFrames[frame]!)} ${label}`);
   }, 80);
   try {
     return await task();

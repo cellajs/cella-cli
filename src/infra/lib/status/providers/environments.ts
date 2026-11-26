@@ -1,6 +1,6 @@
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { ENVIRONMENTS_FILE, parseEnvironmentsFile } from '../../deploy/target';
+import { environmentsFile, parseEnvironmentsFile } from '../../deploy/target';
 import { errorMessage } from '../../utils/errors';
 import { infraDir, repoRoot } from '../../utils/paths';
 import { check } from '../check';
@@ -16,13 +16,13 @@ export type EnvironmentsFacts = { text: string; stacks: string[] };
 export const environmentsProvider: StatusProvider<EnvironmentsFacts> = {
   domain: 'environments',
   async gather() {
-    const file = join(repoRoot, ENVIRONMENTS_FILE);
+    const file = join(repoRoot, environmentsFile);
     const stacks = readdirSync(infraDir).flatMap((name) => /^Pulumi\.([a-z][a-z0-9-]*)\.yaml$/.exec(name)?.[1] ?? []);
     return { text: existsSync(file) ? readFileSync(file, 'utf8') : '', stacks };
   },
   evaluate(facts) {
     const environments = check('environments.lines', 'Environments');
-    if (!facts) return [environments.unknown(`could not read ${ENVIRONMENTS_FILE} or the stack files`)];
+    if (!facts) return [environments.unknown(`could not read ${environmentsFile} or the stack files`)];
     let lines: string[];
     try {
       lines = [...parseEnvironmentsFile(facts.text).keys()];

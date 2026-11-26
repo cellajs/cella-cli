@@ -21,7 +21,7 @@ import { acquireStackLockOrEnd, confirmOrDefault, endAction, type InfraContext, 
 import { operatorKeys } from './operator-unlock';
 
 /** Gitignored folder for the state exports taken before a state edit: the rollback copies. */
-const STATE_BACKUP_DIR = resolve(infraDir, '.state-backups');
+const stateBackupDir = resolve(infraDir, '.state-backups');
 
 /**
  * What the lease is at `now`: `none` without one, `expired` once it lapsed (the run that held it is gone), `live` while the
@@ -166,8 +166,8 @@ function pendingClearEffects(env: NodeJS.ProcessEnv, stack: string, readPending:
       return result.stdout;
     },
     saveBackup(exported) {
-      mkdirSync(STATE_BACKUP_DIR, { recursive: true, mode: 0o700 });
-      const path = join(STATE_BACKUP_DIR, `${shortStack}-${stamp}.json`);
+      mkdirSync(stateBackupDir, { recursive: true, mode: 0o700 });
+      const path = join(stateBackupDir, `${shortStack}-${stamp}.json`);
       writeFileSync(path, exported, { mode: 0o600 });
       return path;
     },

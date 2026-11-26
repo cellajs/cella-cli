@@ -42,10 +42,10 @@ export interface EngineConfig {
  * marker of its first-boot script (lib/deploy/machine-user-data.ts). Pinning it to kebab-case at the config boundary
  * makes every downstream shell use of the slug safe by construction, so no call site needs its own quoting or escaping.
  */
-const SLUG_RE = /^[a-z][a-z0-9-]*$/;
+const slugRe = /^[a-z][a-z0-9-]*$/;
 
 function assertValidSlug(slug: string): void {
-  if (!SLUG_RE.test(slug)) {
+  if (!slugRe.test(slug)) {
     throw new Error(
       `engine-config: slug '${slug}' must be lowercase kebab-case (letters, digits, hyphens; leading letter). It namespaces machine paths and shell markers.`,
     );

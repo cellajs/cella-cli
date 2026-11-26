@@ -8,7 +8,7 @@ import { putJsonObject, readObjectText } from '../lib/stack/control-store';
  * Entry files that must not upload with the bundle: they go live last. The deploy owns asset semantics (the SST StaticSite pattern): the
  * hashed bundle uploads before the switches, and the deploy publishes these, from this list, only after them (`publishEntryFiles`).
  */
-export const ENTRY_FILE_NAMES = ['index.html', 'sw.js', 'sw.js.map', 'manifest.webmanifest'] as const;
+export const entryFileNames = ['index.html', 'sw.js', 'sw.js.map', 'manifest.webmanifest'] as const;
 
 /** Where a release's entry files wait in the frontend bucket until the deploy publishes them: nothing serves this prefix. */
 export function releaseEntryPrefix(sha: string): string {
@@ -63,7 +63,7 @@ export function isHashedPath(key: string): boolean {
 }
 
 export function isEntryFile(key: string): boolean {
-  return (ENTRY_FILE_NAMES as readonly string[]).includes(key);
+  return (entryFileNames as readonly string[]).includes(key);
 }
 
 /** Recursively list dist files as bucket keys (posix separators). */
@@ -152,7 +152,7 @@ export async function uploadFrontendAssets(opts: UploadAssetsOptions): Promise<{
   });
   await putJsonObject(s3, opts.bucket, `${releaseEntryPrefix(opts.sha)}${assetListName}`, JSON.stringify(keys.filter(isHashedPath).sort()), {});
   // Last, so a release whose index.html waits under its prefix has every file it references.
-  for (const name of ENTRY_FILE_NAMES) {
+  for (const name of entryFileNames) {
     if (!existsSync(join(opts.distDir, name))) continue;
     const body = readFileSync(join(opts.distDir, name));
     await s3.send(

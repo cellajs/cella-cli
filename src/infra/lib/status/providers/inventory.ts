@@ -1,11 +1,11 @@
 import { printable } from '../../../../utils/terminal-text';
 import { type AppliedEngine, engineImageRef, engineImageRepository } from '../../deploy/applied-engine';
-import { declaredMainJob, MAIN_JOB_TIME_LIMIT_HOURS, type MainJobDeclaration, scheduleEveryMinutes } from '../../deploy/main-job';
+import { declaredMainJob, type MainJobDeclaration, mainJobTimeLimitHours, scheduleEveryMinutes } from '../../deploy/main-job';
 import { machineRoles } from '../../machine-roles';
 import { deriveInfra } from '../../naming';
 import { actionCommand } from '../../operator-actions';
 import { declaredIdentities } from '../../scaleway/declared-identities';
-import { IAM_BASE, type LiveRule, listOrganizationPolicies, policyRules } from '../../scaleway/iam-client';
+import { iamBase, type LiveRule, listOrganizationPolicies, policyRules } from '../../scaleway/iam-client';
 import { durableKeyLife, organizationIdOfKey } from '../../scaleway/operator-identity';
 import { appPrincipalNames } from '../../scaleway/principals';
 import { scwFetch, scwListAll } from '../../scaleway/scw-fetch';
@@ -169,7 +169,7 @@ export function inventoryFindings(facts: InventoryFacts, expect: InventoryExpect
   const slotNames = new Set(facts.roles.flatMap((role) => ['a', 'b'].map((slot) => `${expect.machinePrefix}${role}-${slot}`)));
   // A deploy deletes the machine it switched from and its builder before it ends, and no run outlasts the job's time limit: an older one is
   // a finding. The age is Scaleway's, which no key of the engine writes.
-  const limitMs = MAIN_JOB_TIME_LIMIT_HOURS * 3_600_000;
+  const limitMs = mainJobTimeLimitHours * 3_600_000;
   for (const { id, name, createdAt } of facts.machines ?? []) {
     if (live.has(id)) continue;
     const kind = name.startsWith(`${expect.machinePrefix}builder-`)
@@ -330,7 +330,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
       const { region, zones } = deriveInfra(session.appConfig);
       const { live, applied, mainJob: job } = await session.scalewayFacts();
       if (!live || job === undefined) return undefined;
-      const org = (path: string) => (page: number) => `${IAM_BASE}/${path}?organization_id=${organizationId}&page=${page}&page_size=100`;
+      const org = (path: string) => (page: number) => `${iamBase}/${path}?organization_id=${organizationId}&page=${page}&page_size=100`;
       // A referenced secret's name and folder, which the observer reads as metadata; one it cannot read keeps neither.
       const secretPlace = (secretId: string) =>
         scwFetch<{ name: string; path: string }>(

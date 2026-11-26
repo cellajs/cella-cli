@@ -1,7 +1,18 @@
 import { stripVTControlCharacters } from 'node:util';
 import { Separator } from '@inquirer/prompts';
 import { describe, expect, it } from 'vitest';
-import { BACK, disabledReason, type MenuItem, type MenuState, mainMenuItems, pickItems, QUIT, rowDisabledReason, UP_NEXT, visibleRows } from './menu';
+import {
+  backChoice,
+  disabledReason,
+  type MenuItem,
+  type MenuState,
+  mainMenuItems,
+  pickItems,
+  quitChoice,
+  rowDisabledReason,
+  upNext,
+  visibleRows,
+} from './menu';
 
 const bootstrapped: MenuState = { stackState: 'bootstrapped', environment: 'staging', dbExposed: false };
 const partial: MenuState = { ...bootstrapped, stackState: 'partial' };
@@ -21,7 +32,7 @@ describe('mainMenuItems', () => {
   it('leads with the recommended step when the home screen has one', () => {
     const items = mainMenuItems({ ...bootstrapped, upNext: { action: 'deploy-now', description: 'Deploy 0.35.0 again' } });
     expect(render(items).slice(0, 2)).toEqual(['  ▶  Deploy 0.35.0 again', '']);
-    expect(items[0]).toMatchObject({ value: UP_NEXT });
+    expect(items[0]).toMatchObject({ value: upNext });
   });
 
   it('keeps every row on a stack whose setup is unfinished and says why a row cannot run', () => {
@@ -73,7 +84,7 @@ describe('mainMenuItems', () => {
   });
 
   it('ends with the way out', () => {
-    expect(mainMenuItems(bootstrapped).at(-1)).toMatchObject({ value: QUIT });
+    expect(mainMenuItems(bootstrapped).at(-1)).toMatchObject({ value: quitChoice });
   });
 });
 
@@ -102,7 +113,7 @@ describe('pickItems', () => {
       rule,
       '  ← Back to menu',
     ]);
-    expect(pickItems('more', bootstrapped).at(-1)).toMatchObject({ value: BACK });
+    expect(pickItems('more', bootstrapped).at(-1)).toMatchObject({ value: backChoice });
   });
 });
 

@@ -1,6 +1,6 @@
 import { writeFile } from 'node:fs/promises';
-import { BOOT_ACCOUNTS_PREFIX } from '../lib/deploy/boot-accounts';
-import { MAIN_JOB_EXIT } from '../lib/deploy/main-job';
+import { bootAccountsPrefix } from '../lib/deploy/boot-accounts';
+import { mainJobExit } from '../lib/deploy/main-job';
 import { envObjectKey, releaseMachine } from '../lib/deploy/release-archives';
 import { runStamp } from '../lib/deploy/run-record';
 import type { EngineConfig } from '../lib/engine-config';
@@ -9,7 +9,7 @@ import { actionCommand } from '../lib/operator-actions';
 import { type RuntimeEnvEntry, runtimeEnvEntries } from '../lib/runtime-secrets';
 import { deployS3Key, makeS3Client, projectAccessKey } from '../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { carriedServices, deployedServices } from '../lib/services';
 import { isEnvFileDeliverable } from '../lib/utils/compose-env-value';
 import { ExitCodeError } from '../lib/utils/errors';
@@ -73,7 +73,7 @@ export function composeMachineEnvs(
 function blocked(owed: string[]): ExitCodeError {
   return new ExitCodeError(
     `Blocked: ${owed.join('; ')}. Store an operator value with \`${actionCommand('env')}\`, which starts this target again; a generated or database value is made by \`${actionCommand('apply')}\`, the uploads key by \`${actionCommand('identities')}\`.`,
-    MAIN_JOB_EXIT.blocked,
+    mainJobExit.blocked,
   );
 }
 
@@ -94,7 +94,7 @@ export function requiredWithoutValue(
 
 /** A boot account's key, the time it is named at in the form the readers sort by (lib/deploy/boot-accounts.ts). */
 function bootAccountKey(service: string, now: Date): string {
-  return `${BOOT_ACCOUNTS_PREFIX}${service}-${runStamp(now)}-boot.log`;
+  return `${bootAccountsPrefix}${service}-${runStamp(now)}-boot.log`;
 }
 
 /** What the deploy hands its env steps: the check before the build, then the release and the file the env objects go to. */
@@ -115,7 +115,7 @@ export async function main(step: ComposeEnvStep): Promise<void> {
   const machines = machineEnvEntries(appConfig);
 
   const secrets = createSecretManagerClient({ secretKey, region, projectId });
-  const listed = await secrets.listSecretsUnder(RUNTIME_FOLDER);
+  const listed = await secrets.listSecretsUnder(runtimeFolder);
   if (step.check) {
     const missing = requiredWithoutValue(machines, listed);
     if (missing.length > 0) throw blocked([`required runtime values are not set: ${missing.join(', ')}`]);

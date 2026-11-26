@@ -38,7 +38,7 @@ async function newestRecord(session: ProbeSession): Promise<RunsFacts['record']>
 }
 
 /** The values every start by hand sets: the target and the retry counter. */
-const START_VALUES = new Set(['TARGET_SHA', 'RETRY']);
+const startValues = new Set(['TARGET_SHA', 'RETRY']);
 
 /**
  * What a run was started with beyond the target and the retry counter: a value the definition does not set, another value for one it
@@ -51,7 +51,7 @@ export function runOverrides(run: JobRun, definition: JobDefinitionFacts): strin
   if (!sameDefinition) return [];
   const own: string[] = [];
   for (const [name, value] of Object.entries(run.environment_variables ?? {})) {
-    if (START_VALUES.has(name)) continue;
+    if (startValues.has(name)) continue;
     if (!(name in definition.env)) own.push(`sets ${name}`);
     else if (definition.env[name] !== value) own.push(`sets ${name} to another value`);
   }

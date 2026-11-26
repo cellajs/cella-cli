@@ -1,5 +1,5 @@
 import { deriveInfra } from '../../lib/naming';
-import { POSTGRES_ROLE_NAMES } from '../../lib/scaleway/db-privileges';
+import { postgresRoleNames } from '../../lib/scaleway/db-privileges';
 import { createRdbClient, waitForBackupReady } from '../../lib/scaleway/scaleway-rdb';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
@@ -11,7 +11,7 @@ import { printLossWarning } from './loss-warning';
 import { acquireOperatorKey } from './operator-unlock';
 
 /** Roles the operator task ensure-database makes on the instance (`tasks/ensure-database.ts`). Both must be re-granted. */
-const ROLES = Object.values(POSTGRES_ROLE_NAMES);
+const roles = Object.values(postgresRoleNames);
 
 /** Render live instance data so an incorrectly targeted RDB instance is visible before approval. */
 function describeTarget(target: ResetTarget, region: string): string {
@@ -55,7 +55,7 @@ export async function runResetDatabase(context: InfraContext): Promise<void> {
     const result = await sequenceDatabaseReset({
       instanceName,
       databaseName,
-      roles: ROLES,
+      roles: roles,
       permission: 'all',
       backupName: backupName(databaseName, new Date()),
       backupExpiresAt: expiresAt,

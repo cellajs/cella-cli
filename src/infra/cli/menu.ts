@@ -1,5 +1,5 @@
 import { Separator } from '@inquirer/prompts';
-import { actionLabel, MENU_ROWS, type MenuRowId, MORE_SECTIONS, menuRow, OPERATOR_ACTIONS, type OperatorActionId } from '../lib/operator-actions';
+import { actionLabel, type MenuRowId, menuRow, menuRows, moreSections, type OperatorActionId, operatorActions } from '../lib/operator-actions';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import type { Environment } from '../lib/stack/environment';
 import { pc } from '../lib/utils/cli-output';
@@ -33,20 +33,20 @@ export interface MenuChoice<T extends string> {
 export type MenuItem<T extends string> = MenuChoice<T> | { group: string } | Separator;
 
 /** The rule above the way out of a menu, and between the sections of the More pick. */
-export const RULE = new Separator(pc.dim('─'.repeat(40)));
+export const rule = new Separator(pc.dim('─'.repeat(40)));
 
-export const BACK = 'back';
+export const backChoice = 'back';
 /** The value of the row that quits the CLI: the main menu's, and the frame's after a first setup. */
-export const QUIT = 'quit';
+export const quitChoice = 'quit';
 /** The label of the row that returns to the menu. */
 export const backToMenuLabel = '← Back to menu';
 /** The value of the row that runs the recommended step. */
-export const UP_NEXT = 'up-next';
+export const upNext = 'up-next';
 
 /** What the main menu resolves to: a row, the recommended step, or the way out. */
-export type MainMenuValue = MenuRowId | typeof UP_NEXT | typeof QUIT;
+export type MainMenuValue = MenuRowId | typeof upNext | typeof quitChoice;
 
-const NEEDS_BOOTSTRAPPED_STACK: readonly OperatorActionId[] = [
+const needsBootstrappedStack: readonly OperatorActionId[] = [
   'apply',
   'preview',
   'db-reset',
@@ -60,7 +60,7 @@ const NEEDS_BOOTSTRAPPED_STACK: readonly OperatorActionId[] = [
 /** Why an action cannot run now, undefined when it can. Each reason names the action that lifts it, and stays short enough for one 80-column row. */
 export function disabledReason(id: OperatorActionId, state: MenuState): string | undefined {
   if (id === 'db-seed' && state.environment === 'production') return 'seed data never goes to production';
-  if (NEEDS_BOOTSTRAPPED_STACK.includes(id) && state.stackState !== 'bootstrapped') {
+  if (needsBootstrappedStack.includes(id) && state.stackState !== 'bootstrapped') {
     return `needs a set-up environment: run "${actionLabel('resume')}"`;
   }
   return undefined;
@@ -80,7 +80,7 @@ function dbIsOpen(state: MenuState): boolean {
 /** The row ids the menu lists for a state: every row, with the one DB access row that applies. */
 export function visibleRows(state: MenuState): MenuRowId[] {
   const hidden: MenuRowId = dbIsOpen(state) ? 'db-open' : 'db-close';
-  return (Object.keys(MENU_ROWS) as MenuRowId[]).filter((id) => id !== hidden);
+  return (Object.keys(menuRows) as MenuRowId[]).filter((id) => id !== hidden);
 }
 
 /** A row's label as the menu shows it: `›` marks a row that opens a pick, and the close row says the endpoint is open. */
@@ -101,7 +101,7 @@ function entryName(id: MenuRowId): string {
  */
 export function mainMenuItems(state: MenuState): Array<MenuItem<MainMenuValue>> {
   const items: Array<MenuItem<MainMenuValue>> = [];
-  if (state.upNext) items.push({ name: `${pc.cyan('▶')}  ${state.upNext.description}`, value: UP_NEXT }, { group: '' });
+  if (state.upNext) items.push({ name: `${pc.cyan('▶')}  ${state.upNext.description}`, value: upNext }, { group: '' });
   const rows = visibleRows(state);
   const width = Math.max(...rows.map((id) => rowLabel(id).length));
   for (const id of rows) {
@@ -115,30 +115,30 @@ export function mainMenuItems(state: MenuState): Array<MenuItem<MainMenuValue>> 
       ...(reason ? { disabled: `(${reason})` } : {}),
     });
   }
-  items.push(RULE, { name: 'Quit', value: QUIT });
+  items.push(rule, { name: 'Quit', value: quitChoice });
   return items;
 }
 
 /** An action's name in a pick: the label padded to the summary column, then its summary dim. A disabled entry shows the label alone, so the reason after it fits the row. */
 function pickName(action: OperatorActionId, width: number, disabled: boolean): string {
-  return disabled ? actionLabel(action) : `${actionLabel(action).padEnd(width)}  ${pc.dim(OPERATOR_ACTIONS[action].summary)}`;
+  return disabled ? actionLabel(action) : `${actionLabel(action).padEnd(width)}  ${pc.dim(operatorActions[action].summary)}`;
 }
 
 /** The sections a row's pick lists its actions in: the More pick's, one for any other row. */
 function pickSections(id: MenuRowId): Array<readonly OperatorActionId[]> {
-  return id === 'more' ? Object.values(MORE_SECTIONS) : [menuRow(id).actions];
+  return id === 'more' ? Object.values(moreSections) : [menuRow(id).actions];
 }
 
 /** The pick a row with several actions opens: its actions with their summaries, a rule between sections, then the way back. */
-export function pickItems(id: MenuRowId, state: MenuState): Array<MenuItem<OperatorActionId | typeof BACK>> {
+export function pickItems(id: MenuRowId, state: MenuState): Array<MenuItem<OperatorActionId | typeof backChoice>> {
   const width = Math.max(...menuRow(id).actions.map((action) => actionLabel(action).length));
-  const items: Array<MenuItem<OperatorActionId | typeof BACK>> = [];
+  const items: Array<MenuItem<OperatorActionId | typeof backChoice>> = [];
   for (const actions of pickSections(id)) {
-    if (items.length) items.push(RULE);
+    if (items.length) items.push(rule);
     for (const action of actions) {
       const reason = disabledReason(action, state);
       items.push({ name: pickName(action, width, Boolean(reason)), value: action, ...(reason ? { disabled: `(${reason})` } : {}) });
     }
   }
-  return [...items, RULE, { name: backToMenuLabel, value: BACK }];
+  return [...items, rule, { name: backToMenuLabel, value: backChoice }];
 }

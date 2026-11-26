@@ -1,4 +1,4 @@
-import { isRouted, type MachineRole, SLOTS, type Slot, slotName } from '../machine-roles';
+import { allSlots, isRouted, type MachineRole, type Slot, slotName } from '../machine-roles';
 import type { InfraDerivations } from '../naming';
 import { type ScwAuth, scwFetch } from './scw-fetch';
 
@@ -61,7 +61,7 @@ export async function readSlotAddresses(
   const slots: Record<string, Partial<Record<Slot, { id: string; address: string }>>> = {};
   for (const role of opts.roles.filter(isRouted)) {
     const bySlot: Partial<Record<Slot, { id: string; address: string }>> = {};
-    for (const slot of SLOTS) {
+    for (const slot of allSlots) {
       const tag = slotName(opts.naming.slug, opts.mode, role.role, slot);
       const { ips } = await scwFetch<{ ips: Array<{ id: string; address: string }> }>(
         auth,

@@ -1,7 +1,7 @@
 import { randomBytes } from 'node:crypto';
 import { engineMadeRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
 import type { PutSecretValueInput, SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 
 /** The Secret Manager calls the task needs. An app's test fake of the write answers what it likes: the task reads nothing of the answer. */
 export type EnsureSecretsClient = Pick<SecretManagerClient, 'getSecretByName' | 'accessLatestValue'> & {
@@ -42,7 +42,7 @@ export async function ensureSecrets(opts: {
   const resolveValue = async (definition: RuntimeSecretDefinition): Promise<string | undefined> => {
     const known = values.get(definition.id);
     if (known !== undefined) return known;
-    const container = await opts.client.getSecretByName(definition.secretName, RUNTIME_FOLDER);
+    const container = await opts.client.getSecretByName(definition.secretName, runtimeFolder);
     if (opts.rotate && definition.database) return undefined;
     const rotating = Boolean(opts.rotate) && isRotatable(definition);
     const existing = !rotating && container && (container.version_count ?? 0) > 0 ? container : undefined;

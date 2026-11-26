@@ -2,10 +2,10 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { basename, join, resolve } from 'node:path';
-import { APPLY_NEEDED, ApplyNeededError, descriptionMismatch, type EngineStamp, engineMismatch, readEngineStamp } from '../lib/deploy/applied-engine';
+import { ApplyNeededError, applyNeeded, descriptionMismatch, type EngineStamp, engineMismatch, readEngineStamp } from '../lib/deploy/applied-engine';
 import { describeChanges } from '../lib/deploy/description-diff';
 import { type DeployTarget, type LiveRecord, rolesToReplace } from '../lib/deploy/live-record';
-import { MAIN_JOB_EXIT } from '../lib/deploy/main-job';
+import { mainJobExit } from '../lib/deploy/main-job';
 import { parseReleaseManifest, type ReleaseManifest } from '../lib/deploy/release-archives';
 import { type RunBootAccount, type RunRecord, RunRecorder, runId, runLogKey, runRecordKey, runStartedAt } from '../lib/deploy/run-record';
 import type { EngineConfig } from '../lib/engine-config';
@@ -97,7 +97,7 @@ export interface DeployEffects {
 }
 
 /** The steps from which a release's machines have booted: their boot accounts say why one did not come up. */
-const STEPS_WITH_MACHINES = new Set(['Switch machines', 'Take the links off the new machines', 'Smoke tests']);
+const stepsWithMachines = new Set(['Switch machines', 'Take the links off the new machines', 'Smoke tests']);
 
 /** What a failed deploy says last: the step it stopped at, and where to read the machines' boot accounts only when machines of the release booted. */
 export function deployFailureHint(err: unknown, mode: string): { description: string; command?: string } {
@@ -113,7 +113,7 @@ export function deployFailureHint(err: unknown, mode: string): { description: st
           description: `${where}No apply deploys a target older than the applied engine: pin a newer release in infra/environments, or roll forward.`,
         };
   }
-  if (step && !STEPS_WITH_MACHINES.has(step)) return { description: `${where}Re-running is safe: the live record says what serves.` };
+  if (step && !stepsWithMachines.has(step)) return { description: `${where}Re-running is safe: the live record says what serves.` };
   return {
     description: `${where}Re-running is safe: a role that switched serves the target and is left as it is. The run's record names each new machine's boot account, and Deploy logs prints a failed one:`,
     command: `${actionCommand('logs')} --mode ${mode}`,
@@ -382,8 +382,8 @@ export async function runDeploy(opts: DeployOptions, fx: DeployEffects, loadDepl
     }
     await lease?.release().catch((err) => say(`[deploy] lease release failed: ${errorMessage(err)}`));
     // A required secret or an apply owed ends the run blocked, not failed: the operator stores it or applies, then the same target.
-    const blocked = failure instanceof ExitCodeError && failure.exitCode === MAIN_JOB_EXIT.blocked;
-    const ended = failure instanceof ApplyNeededError ? APPLY_NEEDED : blocked ? 'blocked' : 'failed';
+    const blocked = failure instanceof ExitCodeError && failure.exitCode === mainJobExit.blocked;
+    const ended = failure instanceof ApplyNeededError ? applyNeeded : blocked ? 'blocked' : 'failed';
     recorder.finish(outcome === 'ok' ? (unchanged ? 'unchanged' : 'deployed') : ended, outcome === 'ok' ? undefined : errorMessage(failure));
     const run = recorder.record().run;
     await persist();
@@ -404,7 +404,7 @@ async function writeRunRecordToBucket(opts: { bucket: string; region: string; re
 }
 
 async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string; region: string; sha: string }, runMode: string): Promise<void> {
-  const [{ PutObjectCommand }, { generalConfig }, { resolvePerMode }, { contentTypeFor, ENTRY_FILE_NAMES, pruneFrontendAssets }] = await Promise.all([
+  const [{ PutObjectCommand }, { generalConfig }, { resolvePerMode }, { contentTypeFor, entryFileNames, pruneFrontendAssets }] = await Promise.all([
     import('@aws-sdk/client-s3'),
     import('infra/config/general.config'),
     import('../lib/general-config'),
@@ -413,7 +413,7 @@ async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string
   const mode = environmentOf(runMode);
   const { accessKey, secretKey } = deployS3Key();
   const s3 = await makeS3Client(opts.region, accessKey, secretKey);
-  for (const name of ENTRY_FILE_NAMES) {
+  for (const name of entryFileNames) {
     const path = resolve(opts.distDir, name);
     if (!existsSync(path)) continue;
     const body = await readFile(path);
@@ -521,7 +521,7 @@ function liveEffects(config: RunConfig): DeployEffects {
       return { roles, record, rotation: rotations.counter, keysRotatedAt: rotations.keys?.at };
     },
     async leftovers({ roles, record, sha, frontendBucket }) {
-      const [{ listRoleMachines }, { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix }] = await Promise.all([
+      const [{ listRoleMachines }, { entryFileNames, publicFrontendFile, releaseEntryPrefix }] = await Promise.all([
         import('./switch-machines'),
         import('./frontend-assets'),
       ]);
@@ -536,7 +536,7 @@ function liveEffects(config: RunConfig): DeployEffects {
         ),
       );
       const entries = await Promise.all(
-        (frontendBucket ? ENTRY_FILE_NAMES : []).map(async (name) => {
+        (frontendBucket ? entryFileNames : []).map(async (name) => {
           const [released, published] = await Promise.all([
             publicFrontendFile(frontendBucket, region, `${releaseEntryPrefix(sha)}${name}`),
             publicFrontendFile(frontendBucket, region, name),
@@ -615,7 +615,7 @@ function liveEffects(config: RunConfig): DeployEffects {
     publishEntryFiles: (opts) => publishEntryFilesToBucket(opts, config.appConfig.mode),
     writeRunRecord: writeRunRecordToBucket,
     async bootAccounts(envs) {
-      const [{ accountFailed, BOOT_ACCOUNTS_PREFIX, storedBeforeItsKey }, { GetObjectCommand }] = await Promise.all([
+      const [{ accountFailed, bootAccountsPrefix, storedBeforeItsKey }, { GetObjectCommand }] = await Promise.all([
         import('../lib/deploy/boot-accounts'),
         import('@aws-sdk/client-s3'),
       ]);
@@ -627,7 +627,7 @@ function liveEffects(config: RunConfig): DeployEffects {
             (object) => (storedBeforeItsKey(bootAccount, object.LastModified) ? undefined : object.Body?.transformToString()),
             () => undefined,
           );
-          return body === undefined ? { service } : { service, key: bootAccount.slice(BOOT_ACCOUNTS_PREFIX.length), failed: accountFailed(body) };
+          return body === undefined ? { service } : { service, key: bootAccount.slice(bootAccountsPrefix.length), failed: accountFailed(body) };
         }),
       );
     },

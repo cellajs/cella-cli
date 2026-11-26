@@ -8,11 +8,11 @@ import { closePublicEndpoints, dbInstanceUrn, endpointAddress, exposureOverlayPa
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { formatPostgresUrl } from '../../lib/postgres-url';
-import { POSTGRES_ROLE_NAMES } from '../../lib/scaleway/db-privileges';
+import { postgresRoleNames } from '../../lib/scaleway/db-privileges';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { createRdbClient, type RdbEndpoint } from '../../lib/scaleway/scaleway-rdb';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER } from '../../lib/scaleway/secret-paths';
+import { engineFolder } from '../../lib/scaleway/secret-paths';
 import { pulumiConfigRm, pulumiConfigSet } from '../../lib/stack/pulumi-up';
 import { readDatabaseOutputs } from '../../lib/stack/store-outputs';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
@@ -27,10 +27,10 @@ import { type OperatorApplyOptions, runOperatorApply } from './operator-apply';
 import { acquireOperatorKey } from './operator-unlock';
 
 // Pulumi config keys consumed by resources/stores/postgres-managed.ts and the outputs it exports.
-const DB_ENDPOINT_KEY = 'infra:dbPublicEndpoint';
-const DB_ACL_KEY = 'infra:dbPublicAcl';
+const dbEndpointKey = 'infra:dbPublicEndpoint';
+const dbAclKey = 'infra:dbPublicAcl';
 // Key within the database store's outputs.
-const DB_CA_OUTPUT = 'caCertificate';
+const dbCaOutput = 'caCertificate';
 
 /**
  * Create the exposure overlay by copying the committed stack config, whose `encryptionsalt` its secret config encrypts under.
@@ -71,14 +71,14 @@ export async function readPublicDsn(
   const { publicHost: host, publicPort: port, databaseName } = readDatabaseOutputs(env, stack);
   if (!host || !port || !databaseName) return '';
   const secrets = createSecretManagerClient({ secretKey: convergeSecretKey(env), region: context.appConfig.s3.region, projectId: context.projectId });
-  const kept = await secrets.getSecretByName(rolePasswordSecretName('admin'), ENGINE_FOLDER);
+  const kept = await secrets.getSecretByName(rolePasswordSecretName('admin'), engineFolder);
   if (!kept) return '';
-  return formatPostgresUrl(POSTGRES_ROLE_NAMES.admin, await secrets.accessLatestValue(kept.id), host, port, databaseName);
+  return formatPostgresUrl(postgresRoleNames.admin, await secrets.accessLatestValue(kept.id), host, port, databaseName);
 }
 
 /** Read the database instance CA certificate store output (PEM; empty when unavailable). */
 export function readDbCa(env: NodeJS.ProcessEnv, stack: string): string {
-  return readDatabaseOutputs(env, stack)[DB_CA_OUTPUT] ?? '';
+  return readDatabaseOutputs(env, stack)[dbCaOutput] ?? '';
 }
 
 /**
@@ -156,9 +156,9 @@ export function prepareExpose(context: InfraContext, acl: string): NonNullable<O
   return (env, stack) => {
     refreshDbInstance(env, stack);
     const overlay = writeExposureOverlay(context.stackPath, context.environment);
-    pulumiConfigSet(env, stack, DB_ENDPOINT_KEY, 'true', { configFile: overlay });
+    pulumiConfigSet(env, stack, dbEndpointKey, 'true', { configFile: overlay });
     // Encrypt the ACL: it records the operator's source IP and must not sit in plaintext in the overlay.
-    pulumiConfigSet(env, stack, DB_ACL_KEY, acl, { secret: true, configFile: overlay });
+    pulumiConfigSet(env, stack, dbAclKey, acl, { secret: true, configFile: overlay });
     return overlay;
   };
 }
@@ -170,8 +170,8 @@ export function prepareExpose(context: InfraContext, acl: string): NonNullable<O
 export function prepareClose(context: InfraContext): NonNullable<OperatorApplyOptions['prepare']> {
   return async (env, stack) => {
     // Compat: stacks predating the overlay hold the exposure keys in the committed config.
-    if (context.stackYaml?.includes(DB_ENDPOINT_KEY)) pulumiConfigRm(env, stack, DB_ENDPOINT_KEY);
-    if (context.stackYaml?.includes(DB_ACL_KEY)) pulumiConfigRm(env, stack, DB_ACL_KEY);
+    if (context.stackYaml?.includes(dbEndpointKey)) pulumiConfigRm(env, stack, dbEndpointKey);
+    if (context.stackYaml?.includes(dbAclKey)) pulumiConfigRm(env, stack, dbAclKey);
     const { client, instanceId } = await findDbInstance(context, convergeSecretKey(env));
     const { deleted } = await closePublicEndpoints({
       getInstance: () => client.getInstance(instanceId),

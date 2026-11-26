@@ -6,8 +6,8 @@ import { rootPackage } from '../../utils/app';
 import { type BuildImageRow, bakeDefinition } from '../lib/builder/build-images';
 import {
   agentBundleScript,
-  BUILDER_ARCHIVE_DIR,
   type BuilderLinks,
+  builderArchiveDir,
   builderCloudConfig,
   builderReportPrefix,
   frontendScript,
@@ -16,8 +16,8 @@ import { frontendBuildEnv } from '../lib/builder/frontend-build-env';
 import { readUstar, writeArchiveFiles } from '../lib/deploy/frontend-archive';
 import { pinnedNodeImage } from '../lib/deploy/node-image';
 import {
-  AGENT_IMAGE_NAME,
   type ArchiveDigest,
+  agentImageName,
   frontendArchiveKey,
   parseReleaseManifest,
   type ReleaseManifest,
@@ -36,16 +36,16 @@ import { storedBeforeKeyRotation } from '../lib/stack/control-store';
 import { errorMessage } from '../lib/utils/errors';
 import { repoRoot } from '../lib/utils/paths';
 import { sleep } from '../lib/utils/sleep';
-import { ENTRY_FILE_NAMES, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
+import { entryFileNames, publicFrontendFile, releaseEntryPrefix, uploadFrontendAssets } from './frontend-assets';
 
 // 8 vCPUs: the bake and the frontend build run side by side; about two cents a build.
-const BUILDER_TYPE = 'POP2-HC-8C-16G';
-const BUILDER_IMAGE = 'docker';
-const BUILDER_DISK_BYTES = 40_000_000_000;
+const builderType = 'POP2-HC-8C-16G';
+const builderImage = 'docker';
+const builderDiskBytes = 40_000_000_000;
 
 /** How long the builder waits for its report, and how long each of its links lasts beyond it. */
-const BUILD_TIMEOUT_MS = 30 * 60_000;
-const BUILDER_LINK_SECONDS = 60 * 60;
+const buildTimeoutMs = 30 * 60_000;
+const builderLinkSeconds = 60 * 60;
 
 /** What building a release does outside this module, so a test passes its own. */
 export interface BuildEffects {
@@ -146,7 +146,7 @@ export async function buildRelease(
           if (!next || !isOutOfStock(error)) throw error;
           // Scaleway makes the machine, then refuses to power it on.
           await fx.removeBuilders();
-          log(`  ~ ${zone} has no ${BUILDER_TYPE} in stock: trying ${next}`);
+          log(`  ~ ${zone} has no ${builderType} in stock: trying ${next}`);
         }
       }
       await waitForBuilder(opts, fx, log, startedAt);
@@ -169,7 +169,7 @@ export async function buildRelease(
   }
   if (opts.withFrontend && opts.distDir) {
     await mkdir(opts.distDir, { recursive: true });
-    for (const name of ENTRY_FILE_NAMES) {
+    for (const name of entryFileNames) {
       const body = await fx.entryFile(name);
       if (body) await writeFile(join(opts.distDir, name), body);
       else if (name === 'index.html') throw new Error(`the release's index.html is not in the frontend bucket after the build`);
@@ -184,17 +184,17 @@ function isOutOfStock(error: unknown): boolean {
 }
 
 // A report stored up to this long before the start still counts: Last-Modified holds whole seconds, on Object Storage's own clock.
-const REPORT_CLOCK_MARGIN_MS = 5_000;
+const reportClockMarginMs = 5_000;
 
 /**
  * Wait for the builder's `result`. Its reports go under the commit's prefix, where every earlier build of the commit left its own: a report
  * stored before `startedAt`, taken before the machine was made, belongs to one of those builds and is not read as this one's.
  */
 async function waitForBuilder(opts: BuildReleaseOptions, fx: BuildEffects, log: (message: string) => void, startedAt: number): Promise<void> {
-  const deadline = Date.now() + (opts.timeoutMs ?? BUILD_TIMEOUT_MS);
+  const deadline = Date.now() + (opts.timeoutMs ?? buildTimeoutMs);
   const report = async (name: 'step' | 'log' | 'result') => {
     const found = await fx.report(name);
-    return found && found.modified.getTime() >= startedAt - REPORT_CLOCK_MARGIN_MS ? found.body : undefined;
+    return found && found.modified.getTime() >= startedAt - reportClockMarginMs ? found.body : undefined;
   };
   let lastStep: string | undefined;
   while (Date.now() < deadline) {
@@ -217,7 +217,7 @@ async function waitForBuilder(opts: BuildReleaseOptions, fx: BuildEffects, log: 
     }
   }
   throw new Error(
-    `the builder did not finish within ${Math.round((opts.timeoutMs ?? BUILD_TIMEOUT_MS) / 60_000)} minutes (last step: ${lastStep ?? 'none'})`,
+    `the builder did not finish within ${Math.round((opts.timeoutMs ?? buildTimeoutMs) / 60_000)} minutes (last step: ${lastStep ?? 'none'})`,
   );
 }
 
@@ -275,7 +275,7 @@ function liveEffects(opts: {
     },
     links: async (archives) => {
       const sign = await presigner;
-      const put = (key: string) => sign.put(key, BUILDER_LINK_SECONDS);
+      const put = (key: string) => sign.put(key, builderLinkSeconds);
       const report = builderReportPrefix(opts.sha);
       const links: BuilderLinks = {
         step: await put(`${report}step`),
@@ -312,12 +312,12 @@ function liveEffects(opts: {
       // An address for egress only: the closed security group drops every inbound packet.
       await createMachine(auth, zone, {
         name,
-        type: BUILDER_TYPE,
-        image: BUILDER_IMAGE,
+        type: builderType,
+        image: builderImage,
         projectId: opts.projectId,
         securityGroupId: securityGroup.id,
         tags: ['builder', `sha=${opts.sha}`],
-        volumeBytes: BUILDER_DISK_BYTES,
+        volumeBytes: builderDiskBytes,
         userData: { 'cloud-init': cloudConfig },
       });
     },
@@ -377,7 +377,7 @@ export async function main(step: BuildReleaseStep): Promise<void> {
       sha,
       builderName: `${prefix}${sha.slice(0, 10)}`,
       zones,
-      archives: [...rows.map((row) => row.service), AGENT_IMAGE_NAME],
+      archives: [...rows.map((row) => row.service), agentImageName],
       withFrontend: Boolean(frontendBucket),
       distDir,
       keysRotatedAt: keysRotatedAt ? new Date(keysRotatedAt) : undefined,
@@ -400,7 +400,7 @@ export async function main(step: BuildReleaseStep): Promise<void> {
             releaseSha: sha,
             nodeVersion,
             context: '/build',
-            archiveDir: BUILDER_ARCHIVE_DIR,
+            archiveDir: builderArchiveDir,
           }),
           agent: agentBundleScript(pnpmVersion),
           frontend: frontendBucket ? frontendScript(pnpmVersion) : '',

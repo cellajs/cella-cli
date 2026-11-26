@@ -1,7 +1,7 @@
-import { OBSERVER_KEY_NAMES } from '../utils/env-files';
+import { observerKeyNames } from '../utils/env-files';
 import { errorMessage } from '../utils/errors';
 import type { FetchLike } from '../utils/fetch-like';
-import { getApiKey, IAM_BASE, listOrganizationPolicies, policyRules, resolveOrganizationIdViaProject } from './iam-client';
+import { getApiKey, iamBase, listOrganizationPolicies, policyRules, resolveOrganizationIdViaProject } from './iam-client';
 import type { AppPrincipalNames, PrincipalNames } from './principals';
 import { type ScwAuth, scwFetch } from './scw-fetch';
 
@@ -43,7 +43,7 @@ function optionalKeyPair(env: NodeJS.ProcessEnv, accessVar: string, secretVar: s
 
 export function resolveOperatorIdentity(env: NodeJS.ProcessEnv = process.env): OperatorIdentity {
   const warnings: string[] = [];
-  const observer = optionalKeyPair(env, OBSERVER_KEY_NAMES.accessKey, OBSERVER_KEY_NAMES.secretKey, warnings);
+  const observer = optionalKeyPair(env, observerKeyNames.accessKey, observerKeyNames.secretKey, warnings);
   const ambient = optionalKeyPair(env, 'SCW_ACCESS_KEY', 'SCW_SECRET_KEY', warnings);
   return { observer, ambient, warnings };
 }
@@ -73,7 +73,7 @@ export async function describeKey(pair: KeyPair, opts: { fetchImpl?: FetchLike }
   const record = await getApiKey(auth, pair.accessKey);
   const base = { accessKey: pair.accessKey, expiresAt: record.expires_at ?? undefined, description: record.description || undefined };
   if (record.user_id) {
-    const user = await scwFetch<{ email?: string; type?: string; organization_id?: string }>(auth, 'GET', `${IAM_BASE}/users/${record.user_id}`);
+    const user = await scwFetch<{ email?: string; type?: string; organization_id?: string }>(auth, 'GET', `${iamBase}/users/${record.user_id}`);
     return {
       ...base,
       bearer: user.type === 'owner' ? 'owner' : 'member',
@@ -83,7 +83,7 @@ export async function describeKey(pair: KeyPair, opts: { fetchImpl?: FetchLike }
     };
   }
   if (record.application_id) {
-    const app = await scwFetch<{ name?: string; organization_id?: string }>(auth, 'GET', `${IAM_BASE}/applications/${record.application_id}`);
+    const app = await scwFetch<{ name?: string; organization_id?: string }>(auth, 'GET', `${iamBase}/applications/${record.application_id}`);
     return {
       ...base,
       bearer: 'application',
@@ -125,7 +125,7 @@ export function classifyPrincipal(desc: KeyDescription, names: PrincipalNames & 
   return 'application';
 }
 
-const ROLE_LABELS: Record<PrincipalRole, string> = {
+const roleLabels: Record<PrincipalRole, string> = {
   'ci-deploy': 'CI deploy application',
   operator: 'operator application',
   observer: 'observer application',
@@ -142,7 +142,7 @@ export function formatKeyLine(desc: KeyDescription, role: PrincipalRole): string
 /** Who bears a key: name, role and expiry, for the line that confirms a key was taken. */
 export function formatBearer(desc: KeyDescription, role: PrincipalRole): string {
   const expiry = desc.expiresAt ? `, expires ${desc.expiresAt.slice(0, 16).replace('T', ' ')} UTC` : '';
-  return `${desc.name} (${ROLE_LABELS[role]}${expiry})`;
+  return `${desc.name} (${roleLabels[role]}${expiry})`;
 }
 
 /** Hours until a key expires, negative when already expired, undefined for a key without expiry. */
@@ -152,26 +152,26 @@ export function hoursUntilExpiry(desc: Pick<KeyDescription, 'expiresAt'>, now = 
 }
 
 /** A key with more life than this is durable: it works from every address until it ends, so no prompt of the CLI takes it. */
-const DURABLE_KEY_HOURS = 24;
+const durableKeyHours = 24;
 
 /** How long a durable key would go on working, for the refusal or the finding that names it; undefined for a key that ends within a day. */
 export function durableKeyLife(desc: Pick<KeyDescription, 'expiresAt'>, now = Date.now()): string | undefined {
   const hours = hoursUntilExpiry(desc, now);
   if (hours === undefined) return 'until it is revoked';
-  return hours > DURABLE_KEY_HOURS ? `for ${Math.round(hours / 24)} more day(s)` : undefined;
+  return hours > durableKeyHours ? `for ${Math.round(hours / 24)} more day(s)` : undefined;
 }
 
 /** The life a key needs to be taken: an apply or a teardown may run that long, and a key that ends halfway leaves pending operations and a held lease. */
-const KEY_MIN_MINUTES = 30;
+const keyMinMinutes = 30;
 
 /** Minutes left of a key that ends too soon to start an action on, for the refusal that names them; undefined for a key with life enough. */
 export function endingKeyMinutes(desc: Pick<KeyDescription, 'expiresAt'>, now = Date.now()): number | undefined {
   const hours = hoursUntilExpiry(desc, now);
-  return hours !== undefined && hours * 60 < KEY_MIN_MINUTES ? Math.max(0, Math.floor(hours * 60)) : undefined;
+  return hours !== undefined && hours * 60 < keyMinMinutes ? Math.max(0, Math.floor(hours * 60)) : undefined;
 }
 
 /** Where an Owner API key comes from, for every message that tells the operator how to get one. */
-const OWNER_KEY_HOWTO = 'your own key as an organization Owner (console → your user → API keys)';
+const ownerKeyHowto = 'your own key as an organization Owner (console → your user → API keys)';
 
 /**
  * A privileged run must be able to write IAM policies and privileged resources: an organization Owner, or a principal granted IAMManager.
@@ -189,13 +189,13 @@ export async function assertIamManager(opts: {
     desc = await describeKey(opts.pair, { fetchImpl: opts.fetchImpl });
   } catch (error) {
     throw new Error(
-      `The supplied key cannot describe itself in IAM (${errorMessage(error)}). An Owner API key is ${OWNER_KEY_HOWTO}, or the key of an application holding ProjectManager + IAMManager.`,
+      `The supplied key cannot describe itself in IAM (${errorMessage(error)}). An Owner API key is ${ownerKeyHowto}, or the key of an application holding ProjectManager + IAMManager.`,
     );
   }
   const role = classifyPrincipal(desc, opts.names);
   if (role === 'ci-deploy' || role === 'observer') {
     throw new Error(
-      `${formatKeyLine(desc, role)} is an application the engine created, not an Owner API key: it cannot write IAM policies or database privileges. Use ${OWNER_KEY_HOWTO}.`,
+      `${formatKeyLine(desc, role)} is an application the engine created, not an Owner API key: it cannot write IAM policies or database privileges. Use ${ownerKeyHowto}.`,
     );
   }
   if (role === 'owner') return { desc, role };
@@ -209,6 +209,6 @@ export async function assertIamManager(opts: {
     if (rules.some((rule) => (rule.permission_set_names ?? []).includes('IAMManager'))) return { desc, role };
   }
   throw new Error(
-    `${formatKeyLine(desc, role)} holds no IAMManager grant, so it cannot write the environment's applications, policies and keys. Use ${OWNER_KEY_HOWTO}, or grant the application ProjectManager + IAMManager.`,
+    `${formatKeyLine(desc, role)} holds no IAMManager grant, so it cannot write the environment's applications, policies and keys. Use ${ownerKeyHowto}, or grant the application ProjectManager + IAMManager.`,
   );
 }

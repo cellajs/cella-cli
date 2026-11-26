@@ -1,30 +1,30 @@
 import { spawnSync } from 'node:child_process';
 import { appDescription } from '../../lib/deploy/app-description';
-import { APPLY_NEEDED, type AppliedEngine, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
+import { type AppliedEngine, applyNeeded, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
 import { describeChanges } from '../../lib/deploy/description-diff';
 import { commitRefs } from '../../lib/deploy/git-remote';
 import { findMainJob } from '../../lib/deploy/main-job';
 import { parseReleaseManifest, type ReleaseManifest, releaseManifestKey } from '../../lib/deploy/release-archives';
 import { type RunRecord, runOutcomeText } from '../../lib/deploy/run-record';
 import type { RunStore } from '../../lib/deploy/run-store';
-import { commitName, ENVIRONMENTS_FILE, type RemoteRef, sortedReleases } from '../../lib/deploy/target';
+import { commitName, environmentsFile, type RemoteRef, sortedReleases } from '../../lib/deploy/target';
 import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { isAccessDenied } from '../../lib/scaleway/s3-client';
 import { readObjectText, readRotations, storedBeforeKeyRotation } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { repoRoot } from '../../lib/utils/paths';
-import { BACK, RULE } from '../menu';
+import { backChoice, rule } from '../menu';
 import { PromptBack } from '../prompts/back';
-import { ESCAPED, menuSelect } from '../prompts/menu-select';
+import { escaped, menuSelect } from '../prompts/menu-select';
 import { asksPerson, confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
 import { type BootDiag, bootDiagOn, deployAndFollow, deployFixes, liveCommit } from './deploy-follow';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { environmentTarget } from './start-deploy';
 
-const LISTED_RELEASES = 10;
+const listedReleases = 10;
 /** How many of the newest runs are searched for a release's deploys. */
-const RUNS_SEARCHED = 60;
+const runsSearched = 60;
 
 /** One release of the table: its tag and commit, the newest run that deployed it and how many runs did. */
 interface ReleaseRow {
@@ -50,10 +50,10 @@ function mergedDays(shas: readonly string[]): Map<string, string> {
   return days;
 }
 
-/** The newest releases with the newest run of each among the environment's last {@link RUNS_SEARCHED} runs, which run ids name by commit. */
+/** The newest releases with the newest run of each among the environment's last {@link runsSearched} runs, which run ids name by commit. */
 async function releaseRows(store: RunStore, refs: readonly RemoteRef[]): Promise<ReleaseRow[]> {
-  const releases = sortedReleases(refs).slice(0, LISTED_RELEASES);
-  const runs = await store.listRuns(RUNS_SEARCHED);
+  const releases = sortedReleases(refs).slice(0, listedReleases);
+  const runs = await store.listRuns(runsSearched);
   const days = mergedDays(releases.map((release) => release.sha));
   return Promise.all(
     releases.map(async ({ tag, sha }) => {
@@ -69,7 +69,7 @@ function deployText(row: ReleaseRow): string {
   if (!row.newest) return pc.dim('no run on record');
   const text = `${runOutcomeText(row.newest)}${row.runs > 1 ? ` · ${row.runs} runs` : ''}`;
   if (row.newest.outcome === 'failed') return pc.red(text);
-  return row.newest.outcome === 'blocked' || row.newest.outcome === APPLY_NEEDED ? pc.yellow(text) : text;
+  return row.newest.outcome === 'blocked' || row.newest.outcome === applyNeeded ? pc.yellow(text) : text;
 }
 
 /**
@@ -98,7 +98,7 @@ function deployable(tag: string, manifest: ReleaseManifest | undefined, applied:
     return false;
   }
   if (!manifest?.description || !applied) {
-    console.info(`  ${pc.dim('○')} Whether it needs an apply shows in its build: a deploy that needs one ends "${APPLY_NEEDED}" before any change.`);
+    console.info(`  ${pc.dim('○')} Whether it needs an apply shows in its build: a deploy that needs one ends "${applyNeeded}" before any change.`);
     return true;
   }
   if (manifest.description === applied.descriptionHash) {
@@ -155,12 +155,12 @@ export async function runReleases(context: InfraContext): Promise<void> {
     message: 'Deploy which release again?',
     items: [
       ...earlier.map((row) => ({ name: row.tag, value: row.tag, description: deployText(row) })),
-      RULE,
-      { name: '← Back', value: BACK, description: 'Return to the menu.' },
+      rule,
+      { name: '← Back', value: backChoice, description: 'Return to the menu.' },
     ],
   });
   // Esc or Back at the pick leaves the action: the table was read, and the menu comes back at once.
-  if (tag === ESCAPED || tag === BACK) throw new PromptBack();
+  if (tag === escaped || tag === backChoice) throw new PromptBack();
   const picked = earlier.find((row) => row.tag === tag);
   if (!picked) return;
 
@@ -178,7 +178,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
   const name = environment.charAt(0).toUpperCase() + environment.slice(1);
   const until = environment === 'production' ? 'the next release' : 'its target moves';
   console.info(
-    `  ${name} stays on ${picked.tag} until ${until}, or 60 days; for longer, a line "${environment} ${picked.tag}" in ${ENVIRONMENTS_FILE}.\n`,
+    `  ${name} stays on ${picked.tag} until ${until}, or 60 days; for longer, a line "${environment} ${picked.tag}" in ${environmentsFile}.\n`,
   );
   if (!(await confirmOrDefault({ message: `Deploy ${picked.tag} to ${environment} now?`, default: false }))) return;
 
@@ -200,7 +200,7 @@ async function waitingRelease(
   const diag = await bootDiagOn(context, key);
   const [run] = await diag.store.listRuns(1);
   const record = run ? await diag.store.currentRecord(run) : undefined;
-  if (record?.outcome !== APPLY_NEEDED) return undefined;
+  if (record?.outcome !== applyNeeded) return undefined;
   const [stored, { rotations }] = await Promise.all([
     readManifest(diag, record.target),
     readRotations(diag.control, diag.bucket, stackNameFor(context)),

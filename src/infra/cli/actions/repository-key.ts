@@ -1,9 +1,9 @@
 import { spawnSync } from 'node:child_process';
 import { gitKeyEnv } from '../../lib/deploy/git-remote';
-import { REPOSITORY_KEY_NAME, repositoryUrl } from '../../lib/deploy/repository-key';
+import { repositoryKeyName, repositoryUrl } from '../../lib/deploy/repository-key';
 import { actionLabel } from '../../lib/operator-actions';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
 import { maskedSecret } from '../prompts/masked-secret';
 import { confirmOrDefault, endAction, type InfraContext } from '../shared';
@@ -26,7 +26,7 @@ export async function runRepositoryKey(context: InfraContext): Promise<void> {
   );
   const operator = await acquireOperatorKey(context);
   const secrets = createSecretManagerClient({ secretKey: operator.secretKey, region: appConfig.s3.region, projectId });
-  const stored = await secrets.getSecretByName(REPOSITORY_KEY_NAME, RUNTIME_FOLDER);
+  const stored = await secrets.getSecretByName(repositoryKeyName, runtimeFolder);
 
   const key = (await maskedSecret({ message: `Repository read key${stored ? pc.dim(' (empty removes the stored key)') : ''}` })).trim();
   if (!key) {
@@ -48,8 +48,8 @@ export async function runRepositoryKey(context: InfraContext): Promise<void> {
   const container =
     stored ??
     (await secrets.ensureSecret({
-      name: REPOSITORY_KEY_NAME,
-      path: RUNTIME_FOLDER,
+      name: repositoryKeyName,
+      path: runtimeFolder,
       description: "Read-only key of the app's repository, for the builder",
     }));
   await secrets.putSecretValue({ secretId: container.id, value: key, description: 'Set by the operator', disablePrevious: true });

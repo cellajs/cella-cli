@@ -3,10 +3,10 @@ import { makeLockS3 } from '../../tests/helpers/fake-lock-s3';
 import type { LockInfo } from './control-store';
 import { acquireLease, installSignalRelease } from './stack-lease';
 
-const T0 = 1_000_000;
+const t0 = 1_000_000;
 
 describe('acquireLease', () => {
-  beforeEach(() => vi.useFakeTimers({ now: T0 }));
+  beforeEach(() => vi.useFakeTimers({ now: t0 }));
   afterEach(() => vi.useRealTimers());
 
   it('acquires a free lock and renews it on the cadence', async () => {
@@ -23,9 +23,9 @@ describe('acquireLease', () => {
     });
     expect(res.acquired).toBe(true);
     if (!res.acquired) return;
-    expect(currentInfo()?.expiresAt).toBe(new Date(T0 + 60_000).toISOString());
+    expect(currentInfo()?.expiresAt).toBe(new Date(t0 + 60_000).toISOString());
     await vi.advanceTimersByTimeAsync(10_000);
-    expect(currentInfo()?.expiresAt).toBe(new Date(T0 + 10_000 + 60_000).toISOString());
+    expect(currentInfo()?.expiresAt).toBe(new Date(t0 + 10_000 + 60_000).toISOString());
     expect(res.lease.lost).toBe(false);
     await res.lease.release();
     expect(currentInfo()).toBeUndefined();
@@ -34,7 +34,7 @@ describe('acquireLease', () => {
   });
 
   it('waits for a live lock to lapse, then takes it', async () => {
-    const held: LockInfo = { owner: 'operator:b', operation: 'deploy', acquiredAt: '', expiresAt: new Date(T0 + 15_000).toISOString() };
+    const held: LockInfo = { owner: 'operator:b', operation: 'deploy', acquiredAt: '', expiresAt: new Date(t0 + 15_000).toISOString() };
     const { s3, currentInfo } = makeLockS3(held);
     const waits: number[] = [];
     const sleep = async (ms: number) => {
@@ -60,7 +60,7 @@ describe('acquireLease', () => {
   });
 
   it('gives up after waitMs when the holder keeps its lease', async () => {
-    const held: LockInfo = { owner: 'ci:run-9', operation: 'deploy', acquiredAt: '', expiresAt: new Date(T0 + 3_600_000).toISOString() };
+    const held: LockInfo = { owner: 'ci:run-9', operation: 'deploy', acquiredAt: '', expiresAt: new Date(t0 + 3_600_000).toISOString() };
     const { s3 } = makeLockS3(held);
     const sleep = async (ms: number) => {
       await vi.advanceTimersByTimeAsync(ms);
@@ -82,7 +82,7 @@ describe('acquireLease', () => {
 
   it('reads as lost once its own end has passed, until a renewal finds the lock still its own', async () => {
     const { s3 } = makeLockS3();
-    let clock = T0;
+    let clock = t0;
     const res = await acquireLease({
       s3,
       bucket: 'b',
@@ -95,7 +95,7 @@ describe('acquireLease', () => {
     });
     if (!res.acquired) throw new Error('expected acquire');
     // The machine slept through the lifetime: the clock moved and no renewal ran.
-    clock = T0 + 60_000;
+    clock = t0 + 60_000;
     expect(res.lease.lost).toBe(true);
     await vi.advanceTimersByTimeAsync(10_000);
     expect(res.lease.lost).toBe(false);
@@ -104,12 +104,12 @@ describe('acquireLease', () => {
 
   it("never renews or releases the lock of a second session under the same owner, which took it after this one's ended", async () => {
     const { s3, currentInfo } = makeLockS3();
-    let clock = T0;
+    let clock = t0;
     const session = () =>
       acquireLease({ s3, bucket: 'b', key: 'k', owner: 'operator:a', operation: 'apply', ttlMs: 60_000, renewEveryMs: 10_000, now: () => clock });
     const first = await session();
     // The first session's machine slept past its lifetime, and a second session of the same person took the lease.
-    clock = T0 + 120_000;
+    clock = t0 + 120_000;
     const second = await session();
     if (!first.acquired || !second.acquired) throw new Error('expected both to acquire');
     const held = currentInfo();

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { sameRules } from '../lib/scaleway/declared-identities';
-import { OBSERVER_PROJECT_PERMISSION_SETS, OPERATOR_PROJECT_PERMISSION_SETS } from '../lib/scaleway/permissions';
+import { observerProjectPermissionSets, operatorProjectPermissionSets } from '../lib/scaleway/permissions';
 import { policyReach } from '../lib/scaleway/policy-reach';
 import { observerPolicy, observerRules } from './setup-observer-app';
 
@@ -22,24 +22,24 @@ describe('observerRules', () => {
   it("reaches the app's projects, and its reach reads back from its rules", () => {
     expect(rules[0]?.project_ids).toEqual(['proj', 'proj-staging']);
     expect(rules[1]).toMatchObject({ permission_set_names: ['IAMReadOnly'], organization_id: 'org-1' });
-    expect(policyReach(rules, OBSERVER_PROJECT_PERMISSION_SETS)).toEqual({ projectIds: ['proj', 'proj-staging'] });
+    expect(policyReach(rules, observerProjectPermissionSets)).toEqual({ projectIds: ['proj', 'proj-staging'] });
   });
 
   it("is not read as the operator's reach: the two policies name different sets", () => {
-    expect(policyReach(rules, OPERATOR_PROJECT_PERMISSION_SETS).projectIds).toEqual([]);
+    expect(policyReach(rules, operatorProjectPermissionSets).projectIds).toEqual([]);
   });
 
   it('has the rules of an observer locked to an address with machine and image reads replaced, keeping its reach', () => {
     const lock = "request.ip in ['203.0.113.7']";
     const locked = [
       {
-        permission_set_names: [...OBSERVER_PROJECT_PERMISSION_SETS, 'InstancesReadOnly', 'ContainerRegistryReadOnly'],
+        permission_set_names: [...observerProjectPermissionSets, 'InstancesReadOnly', 'ContainerRegistryReadOnly'],
         project_ids: ['proj', 'proj-staging'],
         condition: lock,
       },
       { permission_set_names: ['IAMReadOnly'], organization_id: 'org-1', condition: lock },
     ];
-    const reach = policyReach(locked, OBSERVER_PROJECT_PERMISSION_SETS).projectIds;
+    const reach = policyReach(locked, observerProjectPermissionSets).projectIds;
     const declared = observerPolicy({ slug: 'app', organizationId: 'org-1', projectIds: [...reach, 'proj'] });
     expect(declared.name).toBe('app-observer-policy');
     expect(sameRules(locked, declared.rules)).toBe(false);

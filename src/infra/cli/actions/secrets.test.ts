@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
 import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ESCAPED } from '../prompts/menu-select';
+import { escaped } from '../prompts/menu-select';
 import type { InfraContext } from '../shared';
 import { importEnvFile } from './env-import';
 import { offerDeploy, secretsMenu } from './secrets';
@@ -100,7 +100,7 @@ describe('secretsMenu', () => {
       .mockResolvedValueOnce('GitHub sign-in')
       .mockResolvedValueOnce('githubClientSecret')
       .mockResolvedValueOnce('set')
-      .mockResolvedValueOnce(ESCAPED);
+      .mockResolvedValueOnce(escaped);
     prompts.password.mockResolvedValueOnce('  new-api-key ').mockResolvedValueOnce('gh-secret');
 
     await expect(secretsMenu(baseOptions)).resolves.toEqual({ changed: true, rotated: false });
@@ -115,7 +115,7 @@ describe('secretsMenu', () => {
 
   it('refuses to create a missing container, asks for no key and tells the operator to apply first', async () => {
     listSecretsUnder.mockResolvedValue([]);
-    prompts.select.mockResolvedValueOnce('Brevo email').mockResolvedValueOnce('set').mockResolvedValueOnce(ESCAPED);
+    prompts.select.mockResolvedValueOnce('Brevo email').mockResolvedValueOnce('set').mockResolvedValueOnce(escaped);
 
     await expect(secretsMenu(baseOptions)).resolves.toEqual({ changed: false, rotated: false });
 
@@ -141,7 +141,7 @@ describe('secretsMenu', () => {
   });
 
   it('asks each value of a group in turn, and leaves a value whose answer is empty as it is', async () => {
-    prompts.select.mockResolvedValueOnce('GitHub sign-in').mockResolvedValueOnce('set-all').mockResolvedValueOnce(ESCAPED);
+    prompts.select.mockResolvedValueOnce('GitHub sign-in').mockResolvedValueOnce('set-all').mockResolvedValueOnce(escaped);
     prompts.password.mockResolvedValueOnce('  ').mockResolvedValueOnce('gh-secret');
 
     await expect(secretsMenu(baseOptions)).resolves.toEqual({ changed: true, rotated: false });
@@ -154,7 +154,7 @@ describe('secretsMenu', () => {
       .mockResolvedValueOnce('GitHub sign-in')
       .mockResolvedValueOnce('githubClientSecret')
       .mockResolvedValueOnce('delete')
-      .mockResolvedValueOnce(ESCAPED);
+      .mockResolvedValueOnce(escaped);
     prompts.confirm.mockResolvedValueOnce(true);
 
     await secretsMenu(baseOptions);
@@ -167,8 +167,8 @@ describe('secretsMenu', () => {
       .mockResolvedValueOnce('GitHub sign-in')
       .mockResolvedValueOnce('githubClientSecret')
       .mockResolvedValueOnce('delete')
-      .mockResolvedValueOnce(ESCAPED)
-      .mockResolvedValueOnce(ESCAPED);
+      .mockResolvedValueOnce(escaped)
+      .mockResolvedValueOnce(escaped);
     prompts.confirm.mockResolvedValueOnce(false);
 
     await secretsMenu(baseOptions);
@@ -187,7 +187,7 @@ describe('secretsMenu', () => {
   });
 
   it('mints a managed key after confirmation, passing the caller identity through', async () => {
-    prompts.select.mockResolvedValueOnce('Scaleway AI').mockResolvedValueOnce('mint').mockResolvedValueOnce(ESCAPED);
+    prompts.select.mockResolvedValueOnce('Scaleway AI').mockResolvedValueOnce('mint').mockResolvedValueOnce(escaped);
     prompts.confirm.mockResolvedValueOnce(true);
     provisionManagedKey.mockResolvedValueOnce({ applicationId: 'app-ai', seeded: { 'scw-ai-api-key': 1 } });
 
@@ -200,7 +200,7 @@ describe('secretsMenu', () => {
   });
 
   it('does not mint when the confirmation is declined', async () => {
-    prompts.select.mockResolvedValueOnce('Scaleway AI').mockResolvedValueOnce('mint').mockResolvedValueOnce(ESCAPED);
+    prompts.select.mockResolvedValueOnce('Scaleway AI').mockResolvedValueOnce('mint').mockResolvedValueOnce(escaped);
     prompts.confirm.mockResolvedValueOnce(false);
 
     await secretsMenu(baseOptions);

@@ -2,7 +2,7 @@ import type { EngineConfig } from '../engine-config';
 import { appStorageNeeds, services } from '../services';
 import { deployPolicy } from './deploy-policy';
 import type { LiveRule } from './iam-client';
-import { UPLOADS_PERMISSION_SETS } from './permissions';
+import { uploadsPermissionSets } from './permissions';
 import { principalNames, principalTags } from './principals';
 import type { PolicyRule } from './scaleway-iam';
 
@@ -29,7 +29,7 @@ export function uploadsPolicy(opts: { slug: string; mode: string; projectId: str
     name: `${names.uploads}-policy`,
     applicationName: names.uploads,
     description: "Object access on the upload buckets, for the backend's uploads and presigned URLs (written at Owner moments)",
-    rules: [{ permission_set_names: [...UPLOADS_PERMISSION_SETS], project_ids: [opts.projectId] }],
+    rules: [{ permission_set_names: [...uploadsPermissionSets], project_ids: [opts.projectId] }],
     tags: principalTags(opts.slug, opts.mode),
   };
 }

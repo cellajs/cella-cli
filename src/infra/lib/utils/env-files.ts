@@ -51,7 +51,7 @@ export function removeModeProjectId(mode: string): void {
 }
 
 /** Names a mode env file held for the admin application key, which is retired: never read, and removed when the observer key leaves the file. */
-export const RETIRED_KEY_NAMES = [
+export const retiredKeyNames = [
   'SCW_ADMIN_ACCESS_KEY',
   'SCW_ADMIN_SECRET_KEY',
   'SCW_ACCESS_KEY',
@@ -61,13 +61,13 @@ export const RETIRED_KEY_NAMES = [
 ] as const;
 
 /** The names the observer key takes in its file and in the process. */
-export const OBSERVER_KEY_NAMES = { accessKey: 'SCW_OBSERVER_ACCESS_KEY', secretKey: 'SCW_OBSERVER_SECRET_KEY' } as const;
+export const observerKeyNames = { accessKey: 'SCW_OBSERVER_ACCESS_KEY', secretKey: 'SCW_OBSERVER_SECRET_KEY' } as const;
 
 /**
  * Names whose value a person supplies at the prompt, every run: a privileged key. The CLI reads none of them from a file or the environment,
  * in any form, as a value on disk would let it change infrastructure with nobody at the terminal.
  */
-const PROMPT_ONLY_NAMES = [
+const promptOnlyNames = [
   'SCW_OWNER_ACCESS_KEY',
   'SCW_OWNER_SECRET_KEY',
   'SCW_BOOTSTRAP_ACCESS_KEY',
@@ -77,7 +77,7 @@ const PROMPT_ONLY_NAMES = [
 
 /** Take the prompt-only names out of `env` and return the ones it held, for the CLI to name once. */
 export function dropPromptOnlyEnv(env: NodeJS.ProcessEnv = process.env): string[] {
-  const found = PROMPT_ONLY_NAMES.filter((name) => env[name] !== undefined);
+  const found = promptOnlyNames.filter((name) => env[name] !== undefined);
   for (const name of found) delete env[name];
   return found;
 }
@@ -89,14 +89,14 @@ export function dropPromptOnlyEnv(env: NodeJS.ProcessEnv = process.env): string[
 export function modeEnvValues(parsed: Record<string, string>, mode: string): { values: Record<string, string>; warnings: string[] } {
   const values = { ...parsed };
   const warnings: string[] = [];
-  const stored = PROMPT_ONLY_NAMES.filter((name) => name in values);
+  const stored = promptOnlyNames.filter((name) => name in values);
   for (const name of stored) delete values[name];
   if (stored.length > 0) {
     warnings.push(
       `infra/.env.${mode}: ${stored.join(', ')} ${stored.length === 1 ? 'is' : 'are'} not read. The CLI asks for a privileged key at the prompt: remove ${stored.length === 1 ? 'the line' : 'these lines'}.`,
     );
   }
-  const retired = RETIRED_KEY_NAMES.filter((name) => name in values);
+  const retired = retiredKeyNames.filter((name) => name in values);
   for (const name of retired) delete values[name];
   if (retired.length > 0) {
     warnings.push(
@@ -170,8 +170,8 @@ export function writeEnvValues(path: string, values: Record<string, string>, opt
 function observerKeyIn(path: string): { accessKey: string; secretKey: string } | undefined {
   if (!existsSync(path)) return undefined;
   const parsed = parseEnvFile(path);
-  const accessKey = parsed[OBSERVER_KEY_NAMES.accessKey]?.trim();
-  const secretKey = parsed[OBSERVER_KEY_NAMES.secretKey]?.trim();
+  const accessKey = parsed[observerKeyNames.accessKey]?.trim();
+  const secretKey = parsed[observerKeyNames.secretKey]?.trim();
   return accessKey && secretKey ? { accessKey, secretKey } : undefined;
 }
 
@@ -187,7 +187,7 @@ export function storedObserverKey(appSlug: string): { accessKey: string; secretK
 export function writeObserverKey(appSlug: string, pair: { accessKey: string; secretKey: string }): string {
   mkdirSync(machineDir(appSlug), { recursive: true, mode: 0o700 });
   const path = observerKeyFile(appSlug);
-  writeEnvValues(path, { [OBSERVER_KEY_NAMES.accessKey]: pair.accessKey, [OBSERVER_KEY_NAMES.secretKey]: pair.secretKey });
+  writeEnvValues(path, { [observerKeyNames.accessKey]: pair.accessKey, [observerKeyNames.secretKey]: pair.secretKey });
   return path;
 }
 
@@ -213,13 +213,13 @@ export function loadObserverKey(appSlug: string, modes: readonly string[]): stri
         `infra/.env.${mode} held another observer key (${held.accessKey}), which the CLI reads no more: delete it in the console (IAM → Applications → ${appSlug}-observer → API keys).`,
       );
     }
-    writeEnvValues(path, {}, { remove: [...Object.values(OBSERVER_KEY_NAMES), ...RETIRED_KEY_NAMES] });
+    writeEnvValues(path, {}, { remove: [...Object.values(observerKeyNames), ...retiredKeyNames] });
     if (readFileSync(path, 'utf8').trim() === '') rmSync(path);
   }
   const key = storedObserverKey(appSlug);
   if (key) {
-    process.env[OBSERVER_KEY_NAMES.accessKey] = key.accessKey;
-    process.env[OBSERVER_KEY_NAMES.secretKey] = key.secretKey;
+    process.env[observerKeyNames.accessKey] = key.accessKey;
+    process.env[observerKeyNames.secretKey] = key.secretKey;
   }
   return warnings;
 }

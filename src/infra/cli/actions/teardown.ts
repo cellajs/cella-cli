@@ -15,7 +15,7 @@ import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { deleteApplicationCascade, deleteGroup, listManagedPrincipals, removeBootstrapDnsGrant } from '../../lib/scaleway/scaleway-iam';
 import { createRdbClient } from '../../lib/scaleway/scaleway-rdb';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { makeControlClient, stateBucket } from '../../lib/stack/control-store';
 import { destroyableState, type KeptResource, keptResources, sweptSecrets } from '../../lib/stack/kept-resources';
 import { holdSignalExit } from '../../lib/stack/stack-lease';
@@ -46,7 +46,7 @@ export function splitOwnApplication<App extends { id: string }>(
 
 /** The names of what a teardown keeps, for the lines that tell the operator. */
 function keptNames(context: InfraContext, kept: readonly KeptResource[]): string {
-  const live = kept.flatMap(({ adopt }) => (!adopt ? [] : 'bucket' in adopt ? [adopt.bucket] : [`${RUNTIME_FOLDER}${adopt.secret}`]));
+  const live = kept.flatMap(({ adopt }) => (!adopt ? [] : 'bucket' in adopt ? [adopt.bucket] : [`${runtimeFolder}${adopt.secret}`]));
   return [...live, stateBucket(context.appConfig.slug)].join(', ');
 }
 

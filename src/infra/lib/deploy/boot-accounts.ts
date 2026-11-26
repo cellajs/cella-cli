@@ -6,7 +6,7 @@ import { listObjectEtags } from '../scaleway/s3-client';
  * A machine's own account of a boot: the agent uploads it at the end of every boot, healthy or not, to the diagnostics
  * bucket as `boot-diag/<service>-<YYYYMMDDThhmmssZ>-boot.log`, headed by `service=`, `release=` and `boot_rc=` lines.
  */
-export const BOOT_ACCOUNTS_PREFIX = 'boot-diag/';
+export const bootAccountsPrefix = 'boot-diag/';
 
 /** Reads the boot accounts of an environment's diagnostics bucket: keys under the prefix, without it. */
 export interface BootAccountReader {
@@ -18,10 +18,10 @@ export interface BootAccountReader {
 export function bucketBootAccountReader(s3: Pick<S3Client, 'send'>, bucket: string): BootAccountReader {
   return {
     async list() {
-      return [...(await listObjectEtags(s3, bucket, BOOT_ACCOUNTS_PREFIX)).keys()].map((key) => key.slice(BOOT_ACCOUNTS_PREFIX.length));
+      return [...(await listObjectEtags(s3, bucket, bootAccountsPrefix)).keys()].map((key) => key.slice(bootAccountsPrefix.length));
     },
     async read(key) {
-      const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${BOOT_ACCOUNTS_PREFIX}${key}` }));
+      const object = await s3.send(new GetObjectCommand({ Bucket: bucket, Key: `${bootAccountsPrefix}${key}` }));
       return (await object.Body?.transformToString()) ?? '';
     },
   };

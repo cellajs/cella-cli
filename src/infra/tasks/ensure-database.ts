@@ -1,10 +1,10 @@
 import { randomInt } from 'node:crypto';
 import { formatPostgresUrl } from '../lib/postgres-url';
 import { databaseRuntimeSecrets, type RuntimeSecretDefinition } from '../lib/runtime-secrets';
-import { expectedDbPrivileges, POSTGRES_ROLE_NAMES } from '../lib/scaleway/db-privileges';
+import { expectedDbPrivileges, postgresRoleNames } from '../lib/scaleway/db-privileges';
 import { createRdbClient, type RdbPrivilege, type RdbUser } from '../lib/scaleway/scaleway-rdb';
 import { createSecretManagerClient, type SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER, RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { engineFolder, runtimeFolder } from '../lib/scaleway/secret-paths';
 import { readDatabaseOutputs } from '../lib/stack/store-outputs';
 import type { DatabaseRole } from '../lib/stores';
 
@@ -28,22 +28,22 @@ export interface DatabaseEndpoint {
   databaseName: string;
 }
 
-const ROLES: readonly DatabaseRole[] = ['admin', 'runtime'];
+const roles: readonly DatabaseRole[] = ['admin', 'runtime'];
 
-const LOWER = 'abcdefghijklmnopqrstuvwxyz';
-const UPPER = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
-const DIGITS = '0123456789';
+const lower = 'abcdefghijklmnopqrstuvwxyz';
+const upper = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ';
+const digits = '0123456789';
 // URL-unreserved specials (RFC 3986): the password goes into connection strings.
-const SPECIAL = '-_.~';
+const special = '-_.~';
 
 /**
  * A fresh role password: 32 characters with at least two of each class Scaleway's database API requires (a digit, an uppercase and a
  * lowercase letter, a special character), the rest from all four, in random order.
  */
 export function generateRolePassword(): string {
-  const all = LOWER + UPPER + DIGITS + SPECIAL;
+  const all = lower + upper + digits + special;
   const pick = (from: string) => from[randomInt(from.length)] as string;
-  const chars = [LOWER, LOWER, UPPER, UPPER, DIGITS, DIGITS, SPECIAL, SPECIAL].map(pick);
+  const chars = [lower, lower, upper, upper, digits, digits, special, special].map(pick);
   while (chars.length < 32) chars.push(pick(all));
   for (let i = chars.length - 1; i > 0; i--) {
     const j = randomInt(i + 1);
@@ -87,8 +87,8 @@ export async function ensureDatabase(opts: {
 
   const passwords = {} as Record<DatabaseRole, string>;
   const sources = {} as Record<DatabaseRole, PasswordSource>;
-  for (const role of ROLES) {
-    const kept = await opts.secrets.getSecretByName(rolePasswordSecretName(role), ENGINE_FOLDER);
+  for (const role of roles) {
+    const kept = await opts.secrets.getSecretByName(rolePasswordSecretName(role), engineFolder);
     if (!opts.rotate && kept && (kept.version_count ?? 0) > 0) {
       passwords[role] = await opts.secrets.accessLatestValue(kept.id);
       sources[role] = 'stored';
@@ -103,8 +103,8 @@ export async function ensureDatabase(opts: {
     (await opts.rdb.listPrivileges(instanceId, databaseName)).filter((entry) => entry.permission !== 'none').map((entry) => entry.user_name),
   );
   const created: string[] = [];
-  for (const role of ROLES) {
-    const name = POSTGRES_ROLE_NAMES[role];
+  for (const role of roles) {
+    const name = postgresRoleNames[role];
     if (!live.has(name)) {
       await opts.rdb.createUser(instanceId, { name, password: passwords[role], isAdmin: role === 'admin' });
       created.push(name);
@@ -122,13 +122,13 @@ export async function ensureDatabase(opts: {
 
   // A password is kept only once its role has it: kept before, a failure in between would leave the engine folder naming a password no role
   // has, which the next run would trust and write into every connection string.
-  for (const role of ROLES) {
+  for (const role of roles) {
     if (sources[role] === 'stored') continue;
     const container =
-      (await opts.secrets.getSecretByName(rolePasswordSecretName(role), ENGINE_FOLDER)) ??
+      (await opts.secrets.getSecretByName(rolePasswordSecretName(role), engineFolder)) ??
       (await opts.secrets.ensureSecret({
         name: rolePasswordSecretName(role),
-        path: ENGINE_FOLDER,
+        path: engineFolder,
         description: `Password of the ${role} database role`,
       }));
     await opts.secrets.putSecretValue({
@@ -137,15 +137,15 @@ export async function ensureDatabase(opts: {
       description: `Kept by ensure-database (${sources[role]})`,
       disablePrevious: true,
     });
-    log(`[ensure-database] ${role} role password ${sources[role]} and kept in ${ENGINE_FOLDER}`);
+    log(`[ensure-database] ${role} role password ${sources[role]} and kept in ${engineFolder}`);
   }
 
   const written: string[] = [];
   for (const definition of definitions) {
     const role = definition.database?.role;
     if (!role) continue;
-    const expected = formatPostgresUrl(POSTGRES_ROLE_NAMES[role], passwords[role], opts.endpoint.privateIp, opts.endpoint.port, databaseName);
-    const container = await opts.secrets.getSecretByName(definition.secretName, RUNTIME_FOLDER);
+    const expected = formatPostgresUrl(postgresRoleNames[role], passwords[role], opts.endpoint.privateIp, opts.endpoint.port, databaseName);
+    const container = await opts.secrets.getSecretByName(definition.secretName, runtimeFolder);
     if (!container) continue;
     const current = (container.version_count ?? 0) > 0 ? await opts.secrets.accessLatestValue(container.id) : undefined;
     if (current === expected) continue;

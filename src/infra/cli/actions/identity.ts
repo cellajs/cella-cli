@@ -1,7 +1,7 @@
 import { actionLabel } from '../../lib/operator-actions';
 import type { DeclaredPolicy } from '../../lib/scaleway/declared-identities';
 import { declaredIdentities } from '../../lib/scaleway/declared-identities';
-import { IAM_BASE } from '../../lib/scaleway/iam-client';
+import { iamBase } from '../../lib/scaleway/iam-client';
 import { organizationIdOfKey, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { type AppPrincipalNames, appPrincipalNames, principalNames } from '../../lib/scaleway/principals';
 import { ensureApplication } from '../../lib/scaleway/scaleway-iam';
@@ -217,7 +217,7 @@ export async function runIdentity(context: InfraContext): Promise<void> {
     await writeUploadsKey({ auth, secrets, organizationId: ownerKey.organizationId, projectId, step: plan.uploadsKey });
   }
   for (const policy of plan.extraPolicies) {
-    await scwSend(auth, 'DELETE', `${IAM_BASE}/policies/${policy.id}`);
+    await scwSend(auth, 'DELETE', `${iamBase}/policies/${policy.id}`);
     console.info(`  ${changeMark} Deleted ${policy.name} from ${policy.application}.`);
   }
   if (plan.observer !== 'none') await ensureObserverForEnvironment(context, ownerKey, projectId);

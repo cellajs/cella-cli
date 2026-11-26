@@ -1,14 +1,14 @@
-import { METADATA_HOST } from '../../agent/src/manifest';
+import { metadataHost } from '../../agent/src/manifest';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
 
 /**
  * Where the builder puts the engine's build folders before the `engine` group bakes: the agent's and the frontend proxy's, each a
  * Dockerfile with what it copies. The release's engine package ships them; a release from before the package has them in its checkout.
  */
-export const ENGINE_ASSETS = '/engine-assets';
+export const engineAssets = '/engine-assets';
 
 /** The frontend proxy's Dockerfile, which an app's service registry names for its `frontend` entry. */
-export const frontendProxyDockerfile = `${ENGINE_ASSETS}/caddy/Dockerfile`;
+export const frontendProxyDockerfile = `${engineAssets}/caddy/Dockerfile`;
 
 /** What the script reads from `/etc/builder.env`: no key of Scaleway's. */
 export interface BuilderValues {
@@ -33,7 +33,7 @@ export type BuilderLinks = Record<string, string>;
  * Where the builder writes the release's archives before it uploads them: its disk, which holds them, and not `/run`, a tmpfs in memory.
  * The script spells the same folder out.
  */
-export const BUILDER_ARCHIVE_DIR = '/var/lib/release/images';
+export const builderArchiveDir = '/var/lib/release/images';
 
 /** Where the builder reports, in the boot-diagnostics bucket: `step`, `log` and `result` (`ok` or `failed`). */
 export function builderReportPrefix(sha: string): string {
@@ -45,7 +45,7 @@ export function builderReportPrefix(sha: string): string {
  * bash never sees. It holds no key: every write is a PUT to a link from `/etc/builder-links.tsv`, and the log it uploads is the script's
  * own output.
  */
-export const BUILDER_SCRIPT = String.raw`#!/bin/bash
+export const builderScript = String.raw`#!/bin/bash
 set -a; . /etc/builder.env; set +a
 export HOME=/root GIT_TERMINAL_PROMPT=0
 LOG=/var/log/builder.log
@@ -78,7 +78,7 @@ set -eE -o pipefail
 
 docker pull -q "$NODE_IMAGE"
 # No container reaches the metadata service: the machine's user data holds the repository read key and the links.
-iptables -I DOCKER-USER -d ${METADATA_HOST} -j DROP || iptables -I FORWARD -d ${METADATA_HOST} -j DROP
+iptables -I DOCKER-USER -d ${metadataHost} -j DROP || iptables -I FORWARD -d ${metadataHost} -j DROP
 
 step clone
 git init -q /build
@@ -109,12 +109,12 @@ docker run --rm -v /build:/build -v /etc/builder-agent.sh:/script.sh:ro -w /buil
 # The engine's build folders: the release's engine package ships them, a release from before the package keeps them in its checkout,
 # with the agent bundle the container just built. Copied with links resolved, as the package sits behind pnpm's links.
 if [ -d /build/infra/agent/src ]; then
-  mkdir -p ${ENGINE_ASSETS}/caddy/infra/caddy
-  cp -R /build/infra/agent ${ENGINE_ASSETS}/agent
-  cp /build/infra/caddy/Dockerfile ${ENGINE_ASSETS}/caddy/Dockerfile
-  cp /build/infra/caddy/Caddyfile ${ENGINE_ASSETS}/caddy/infra/caddy/Caddyfile
+  mkdir -p ${engineAssets}/caddy/infra/caddy
+  cp -R /build/infra/agent ${engineAssets}/agent
+  cp /build/infra/caddy/Dockerfile ${engineAssets}/caddy/Dockerfile
+  cp /build/infra/caddy/Caddyfile ${engineAssets}/caddy/infra/caddy/Caddyfile
 else
-  cp -RL /build/infra/node_modules/@cellajs/cli/dist/infra-assets ${ENGINE_ASSETS}
+  cp -RL /build/infra/node_modules/@cellajs/cli/dist/infra-assets ${engineAssets}
 fi
 docker buildx bake --file /etc/builder-bake.json engine &
 AGENT=$!
@@ -190,7 +190,7 @@ export function frontendScript(pnpmVersion: string): string {
   ].join('\n');
 }
 
-const UNIT = [
+const unit = [
   '[Unit]',
   'Description=builder, runs once',
   'After=network-online.target docker.service',
@@ -241,8 +241,8 @@ export function builderCloudConfig(opts: {
     { path: '/etc/builder-bake.json', permissions: '0644', content: JSON.stringify(opts.bake, null, 2) },
     { path: '/etc/builder-agent.sh', permissions: '0644', content: opts.agent.trimEnd() },
     { path: '/etc/builder-frontend.sh', permissions: '0644', content: opts.frontend.trimEnd() },
-    { path: '/usr/local/bin/builder.sh', permissions: '0755', content: BUILDER_SCRIPT.trimEnd() },
-    { path: '/etc/systemd/system/builder.service', permissions: '0644', content: UNIT },
+    { path: '/usr/local/bin/builder.sh', permissions: '0755', content: builderScript.trimEnd() },
+    { path: '/etc/systemd/system/builder.service', permissions: '0644', content: unit },
   ];
   return cloudConfigDocument(files, ['systemctl daemon-reload', 'systemctl start --no-block builder.service']);
 }

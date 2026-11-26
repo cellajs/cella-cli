@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { defaultRule, ENVIRONMENTS_FILE, parseEnvironmentsFile } from '../../lib/deploy/target';
+import { defaultRule, environmentsFile, parseEnvironmentsFile } from '../../lib/deploy/target';
 import { actionLabel } from '../../lib/operator-actions';
 import { changeMark, checkMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
@@ -19,7 +19,7 @@ function runGit(args: string[]): boolean {
 /** Give an environment that deploys a branch its line in the environments file; false when it has one, or the file does not parse. */
 function addEnvironmentsLine(environment: string, branch: string): boolean {
   if (defaultRule(environment)) return false;
-  const path = join(repoRoot, ENVIRONMENTS_FILE);
+  const path = join(repoRoot, environmentsFile);
   const text = existsSync(path) ? readFileSync(path, 'utf8') : '';
   try {
     if (parseEnvironmentsFile(text).has(environment)) return false;
@@ -29,7 +29,7 @@ function addEnvironmentsLine(environment: string, branch: string): boolean {
   }
   const line = `${environment} branch:${branch}`;
   writeFileSync(path, `${text}${text === '' || text.endsWith('\n') ? '' : '\n'}${line}\n`);
-  console.info(`  ${changeMark} ${ENVIRONMENTS_FILE}: ${line}`);
+  console.info(`  ${changeMark} ${environmentsFile}: ${line}`);
   return true;
 }
 
@@ -51,7 +51,7 @@ export async function connectRepository(environment: string): Promise<void> {
     return;
   }
   if (!(await confirmOrDefault({ message: `Commit and push ${stackFile}?`, default: true }))) return;
-  const files = addEnvironmentsLine(environment, base) ? [stackFile, ENVIRONMENTS_FILE] : [stackFile];
+  const files = addEnvironmentsLine(environment, base) ? [stackFile, environmentsFile] : [stackFile];
   // The pathspec commits these files only, whatever else is staged.
   if (!runGit(['add', ...files]) || !runGit(['commit', '-m', `chore(infra): connect ${environment}`, '--', ...files])) {
     console.warn(`${warningMark} Not committed: commit ${files.join(' and ')} yourself.`);

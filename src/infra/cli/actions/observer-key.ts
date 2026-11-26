@@ -4,7 +4,7 @@ import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { readPolicy } from '../../lib/scaleway/policy-reach';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
 import { changeMark, checkMark } from '../../lib/utils/cli-output';
-import { OBSERVER_KEY_NAMES, storedObserverKey, writeObserverKey } from '../../lib/utils/env-files';
+import { observerKeyNames, storedObserverKey, writeObserverKey } from '../../lib/utils/env-files';
 import { writeDeclaredPolicies } from '../../tasks/declared-policies';
 import { observerPolicy, observerReach, setupObserverApp } from '../../tasks/setup-observer-app';
 import { operatorPolicyReach } from '../../tasks/setup-operators';
@@ -23,8 +23,8 @@ export function observerStep(exists: boolean, appSlug: string): ObserverStep {
 /** Put the observer key on this machine, in its file and in this process. */
 function storeObserverKey(appSlug: string, pair: KeyPair): void {
   const path = writeObserverKey(appSlug, pair);
-  process.env[OBSERVER_KEY_NAMES.accessKey] = pair.accessKey;
-  process.env[OBSERVER_KEY_NAMES.secretKey] = pair.secretKey;
+  process.env[observerKeyNames.accessKey] = pair.accessKey;
+  process.env[observerKeyNames.secretKey] = pair.secretKey;
   console.info(`  ${checkMark} Observer key written to ${path}, which every checkout of the app on this machine reads.`);
 }
 

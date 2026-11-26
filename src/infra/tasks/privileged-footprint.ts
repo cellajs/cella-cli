@@ -3,8 +3,8 @@ import type { PrivilegedFootprint } from '../lib/stack/privileged-footprint';
 import { getFlag } from '../lib/utils/args';
 
 /** The project and organization a keyless render names: fixed words, so a base and a head render compare on what the code declares. */
-const PROJECT = 'project';
-const ORGANIZATION = 'organization';
+const project = 'project';
+const organization = 'organization';
 
 /**
  * Render what one environment's code declares that only an Owner moment or an apply writes, without a key and without Scaleway: the
@@ -21,8 +21,8 @@ export async function main(words: string[]): Promise<void> {
   process.env.PULUMI_NODEJS_PROJECT = 'infra';
   process.env.PULUMI_NODEJS_STACK = mode;
   process.env.APP_MODE = mode;
-  process.env.SCW_DEFAULT_PROJECT_ID = PROJECT;
-  process.env.SCW_DEFAULT_ORGANIZATION_ID = ORGANIZATION;
+  process.env.SCW_DEFAULT_PROJECT_ID = project;
+  process.env.SCW_DEFAULT_ORGANIZATION_ID = organization;
   // The program sends a key with its IPAM read; keylessFetch answers that read itself, so this word goes nowhere.
   process.env.SCW_SECRET_KEY = 'keyless';
   // One digest for every render, so the main job compares on its script and env: the image an apply builds is no code of the change.
@@ -41,7 +41,7 @@ export async function main(words: string[]): Promise<void> {
 
   const footprint: PrivilegedFootprint = {
     environment: mode,
-    identities: declaredIdentities(appConfig, { projectId: PROJECT, organizationId: ORGANIZATION }),
+    identities: declaredIdentities(appConfig, { projectId: project, organizationId: organization }),
     description: await appDescriptionHash(),
     resources: rendered
       .map(({ type, name, inputs }) => ({ type, name, inputs }))

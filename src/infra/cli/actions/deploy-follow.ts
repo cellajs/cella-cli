@@ -1,4 +1,4 @@
-import { accountExcerpt, BOOT_ACCOUNTS_PREFIX } from '../../lib/deploy/boot-accounts';
+import { accountExcerpt, bootAccountsPrefix } from '../../lib/deploy/boot-accounts';
 import { classifyRun } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
 import { readLiveRecord } from '../../lib/deploy/live-record';
@@ -28,10 +28,10 @@ import { Interrupted, untilInterrupt } from '../prompts/abort';
 import { confirm } from '../prompts/back';
 import { asksPerson, type InfraContext, stackNameFor } from '../shared';
 
-const POLL_MS = 5_000;
-const MAX_TRIES = 3;
+const pollMs = 5_000;
+const maxTries = 3;
 /** How much of a crashed machine's boot account a failed deploy prints in place: its error, then the end of its log. */
-const BOOT_EXCERPT_LINES = 20;
+const bootExcerptLines = 20;
 
 /** How a followed deploy ended, for the caller: as the main job reports it. */
 export type FollowOutcome = ReturnType<typeof mainJobOutcome>;
@@ -108,7 +108,7 @@ async function followRun(
     if (signal.aborted) return { run, record };
     shownSteps = printNewSteps(record, shownSteps);
     if (runEnded(run)) return { run, record };
-    await sleep(POLL_MS);
+    await sleep(pollMs);
     run = await readJobRun(auth, { region, runId: run.id });
   }
 }
@@ -166,8 +166,8 @@ async function reportEnd(
   const crashed = verdict?.side === 'release' ? record?.boot?.find((entry) => entry.failed && entry.key) : undefined;
   if (crashed?.key) {
     const body = await diag.store.readBootAccount(crashed.key).catch(() => undefined);
-    console.info(pc.dim(`  ${crashed.service}: boot failed (${BOOT_ACCOUNTS_PREFIX}${crashed.key})`));
-    for (const line of body ? accountExcerpt(body, BOOT_EXCERPT_LINES) : ['(the account has expired or cannot be read)']) console.info(`  ${line}`);
+    console.info(pc.dim(`  ${crashed.service}: boot failed (${bootAccountsPrefix}${crashed.key})`));
+    for (const line of body ? accountExcerpt(body, bootExcerptLines) : ['(the account has expired or cannot be read)']) console.info(`  ${line}`);
   }
   const live = await liveCommit(context, diag).catch(() => undefined);
   if (live) {
@@ -201,7 +201,7 @@ export async function deployAndFollow(
     const outcome = mainJobOutcome(run);
     const unended = `The run ended ${run.state} before ${record ? 'its record did' : 'it wrote a record'}${run.error_message ? `: ${run.error_message}` : '.'}`;
     const verdict = await reportEnd(context, diag, outcome, commit.sha, record, unended);
-    const offer = verdict?.retryLikely && tries < MAX_TRIES && asksPerson();
+    const offer = verdict?.retryLikely && tries < maxTries && asksPerson();
     if (!offer || !(await confirm({ message: 'Retry now?', default: true }))) return outcome;
   }
 }
@@ -239,7 +239,7 @@ export async function followLiveDeploy(context: InfraContext, key: KeyPair, live
   let shown = printNewSteps(record, 0);
   const died = await stoppable(async (signal) => {
     for (;;) {
-      await sleep(POLL_MS);
+      await sleep(pollMs);
       record = (await store.readRecord(record.run).catch(() => undefined))?.newest ?? record;
       if (signal.aborted) return false;
       shown = printNewSteps(record, shown);

@@ -2,8 +2,8 @@ import { printable } from '../../../utils/terminal-text';
 import {
   accountExcerpt,
   accountFailed,
-  BOOT_ACCOUNTS_PREFIX,
   type BootAccountReader,
+  bootAccountsPrefix,
   bucketBootAccountReader,
   releaseAccounts,
   serviceAccountKeys,
@@ -33,13 +33,13 @@ import { runOverrides } from '../../lib/status/providers/runs';
 import { getFlag } from '../../lib/utils/args';
 import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
-import { BACK, RULE } from '../menu';
+import { backChoice, rule } from '../menu';
 import { PromptBack } from '../prompts/back';
-import { ESCAPED, menuSelect } from '../prompts/menu-select';
+import { escaped, menuSelect } from '../prompts/menu-select';
 import { asksPerson, endAction, type InfraContext, pointTo } from '../shared';
 
-const LIST_LENGTH = 10;
-const LOG_TAIL = 40;
+const listLength = 10;
+const logTail = 40;
 
 /**
  * The machines' boot accounts a failed switch's record names: a failed one's error and the end of its log, a missing one said plainly
@@ -56,7 +56,7 @@ async function bootLines(record: RunRecord, store: RunStore): Promise<string[]> 
     }
     if (!entry.failed) continue;
     const body = await store.readBootAccount(entry.key).catch(() => undefined);
-    lines.push('', pc.dim(`  ${entry.service}: boot failed (${BOOT_ACCOUNTS_PREFIX}${entry.key})`));
+    lines.push('', pc.dim(`  ${entry.service}: boot failed (${bootAccountsPrefix}${entry.key})`));
     lines.push(...(body ? accountExcerpt(body).map((line) => `  ${line}`) : ['  (the account has expired or cannot be read)']));
   }
   return lines;
@@ -85,12 +85,12 @@ async function runDetailLines(reading: Growth<RunRecord>, store: RunStore, refs?
     ...(log
       ? [
           '',
-          pc.dim(`  The end of its log (${LOG_TAIL} lines):`),
+          pc.dim(`  The end of its log (${logTail} lines):`),
           ...rewriteLines('the log was', log),
           ...log.newest
             .trimEnd()
             .split('\n')
-            .slice(-LOG_TAIL)
+            .slice(-logTail)
             .map((line) => `  ${line}`),
         ]
       : []),
@@ -152,14 +152,14 @@ export async function showRuns(
   },
 ): Promise<void> {
   const print = opts.print ?? ((line: string) => console.info(line));
-  const readings = (await Promise.all((await store.listRuns(LIST_LENGTH)).map((run) => store.readRecord(run)))).filter(
+  const readings = (await Promise.all((await store.listRuns(listLength)).map((run) => store.readRecord(run)))).filter(
     (reading): reading is Growth<RunRecord> => Boolean(reading),
   );
   const records = readings.map((reading) => reading.newest);
   const jobRuns = opts.jobRuns ?? [];
   if (opts.definition) print(scheduleSentence(jobRuns, opts.now ?? Date.now()));
   // A full list's oldest record bounds the job runs: an older run's record is past the list, not missing.
-  const since = records.length === LIST_LENGTH ? (records.at(-1)?.startedAt ?? '') : '';
+  const since = records.length === listLength ? (records.at(-1)?.startedAt ?? '') : '';
   const unrecorded = jobRuns.filter(
     (run) =>
       (!isScheduledRun(run) &&
@@ -179,7 +179,7 @@ export async function showRuns(
     })),
   ]
     .sort((a, b) => b.at.localeCompare(a.at))
-    .slice(0, LIST_LENGTH);
+    .slice(0, listLength);
   if (rows.length === 0) return print('No run has left a record yet.');
   const [newest] = readings;
   // The picker is the list: a run without a record stays in it, not selectable, its line saying why.
@@ -194,12 +194,12 @@ export async function showRuns(
         ...rows.map((row, index) =>
           row.reading ? { name: row.line, value: row.reading.newest.run } : { name: row.line, value: `unrecorded-${index}`, disabled: ' ' },
         ),
-        RULE,
-        { name: '← Back', value: BACK, description: 'Return to the menu.' },
+        rule,
+        { name: '← Back', value: backChoice, description: 'Return to the menu.' },
       ],
       default: newest.newest.run,
     });
-    if (picked === ESCAPED || picked === BACK) throw new PromptBack();
+    if (picked === escaped || picked === backChoice) throw new PromptBack();
     chosen = readings.find((reading) => reading.newest.run === picked) ?? newest;
   }
   print('');
@@ -220,7 +220,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
       }
       print(
         '',
-        pc.bold(`${found.service} (${BOOT_ACCOUNTS_PREFIX}${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
+        pc.bold(`${found.service} (${bootAccountsPrefix}${found.account.key})${found.account.failed ? ': boot failed' : ''}`),
         printable(found.account.body),
       );
     }
@@ -228,7 +228,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
     const builder = (name: string) => keys.find((key) => key.startsWith('builder/') && key.endsWith(`/${name}`) && key.includes(opts.sha ?? ''));
     for (const name of ['result', 'log']) {
       const key = builder(name);
-      if (key) print('', pc.bold(`builder (${BOOT_ACCOUNTS_PREFIX}${key})`), printable(await reader.read(key)));
+      if (key) print('', pc.bold(`builder (${bootAccountsPrefix}${key})`), printable(await reader.read(key)));
     }
     return;
   }
@@ -240,7 +240,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
       continue;
     }
     const body = await reader.read(newest);
-    print('', pc.bold(`${service} (${BOOT_ACCOUNTS_PREFIX}${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
+    print('', pc.bold(`${service} (${bootAccountsPrefix}${newest})${accountFailed(body) ? ': boot failed' : ''}`), ...accountExcerpt(body));
   }
 }
 

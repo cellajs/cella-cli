@@ -9,7 +9,7 @@ export interface Manifest {
 }
 
 /** The metadata service, which serves user data only to a request from a source port below 1024: a higher port is answered 400. */
-export const METADATA_HOST = '169.254.42.42';
+export const metadataHost = '169.254.42.42';
 
 /** Parse the manifest; a malformed one is refused, and the agent keeps the state it had. */
 function parseManifest(text: string): Manifest {
@@ -27,7 +27,7 @@ const privilegedPort = () => 600 + Math.floor(Math.random() * 400);
 export function readManifest(timeoutMs = 1500): Promise<Manifest> {
   return new Promise((resolve, reject) => {
     const req = request(
-      { host: METADATA_HOST, port: 80, path: '/user_data/manifest', method: 'GET', localPort: privilegedPort(), timeout: timeoutMs },
+      { host: metadataHost, port: 80, path: '/user_data/manifest', method: 'GET', localPort: privilegedPort(), timeout: timeoutMs },
       (res) => {
         let body = '';
         res.setEncoding('utf-8');

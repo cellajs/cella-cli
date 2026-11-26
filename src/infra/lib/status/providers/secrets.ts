@@ -1,6 +1,6 @@
 import { runtimeEnvEntries } from '../../runtime-secrets';
 import { createSecretManagerClient } from '../../scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../scaleway/secret-paths';
+import { runtimeFolder } from '../../scaleway/secret-paths';
 import { carriedServices, deployedServices } from '../../services';
 import { check, probed, secretsAction } from '../check';
 import type { StatusProvider } from '../types';
@@ -16,7 +16,7 @@ export const secretsProvider: StatusProvider<SecretsFacts> = {
     try {
       const { services, singleVM } = session.appConfig;
       const client = createSecretManagerClient({ secretKey: session.secretKey, region: session.appConfig.s3.region, projectId: session.projectId });
-      const versioned = new Set((await client.listSecretsUnder(RUNTIME_FOLDER)).filter((s) => (s.version_count ?? 0) > 0).map((s) => s.name));
+      const versioned = new Set((await client.listSecretsUnder(runtimeFolder)).filter((s) => (s.version_count ?? 0) > 0).map((s) => s.name));
       const required = deployedServices(services, singleVM).flatMap((machine) =>
         runtimeEnvEntries(carriedServices(services, singleVM, machine)).filter((entry) => entry.required),
       );

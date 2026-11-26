@@ -1,11 +1,11 @@
 import { rootPackage } from '../../utils/app';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import type { Environment } from '../lib/stack/environment';
-import { DIVIDER, pc } from '../lib/utils/cli-output';
+import { divider, pc } from '../lib/utils/cli-output';
 import { repoRoot } from '../lib/utils/paths';
 
 /** The header's width, the same as the divider under it and the headers of cella-cli and create-cella. */
-const HEADER_WIDTH = 60;
+const headerWidth = 60;
 
 /** The environment's name as the header shows it: production bold red, staging cyan. */
 export function environmentName(environment: Environment): string {
@@ -41,7 +41,7 @@ export function formatHeader(facts: HeaderFacts): [string, string] {
   const version = facts.version ? ` · ${facts.version}` : '';
   const state = facts.state === 'bootstrapped' ? '' : facts.state === 'fresh' ? ' · new' : ' · setup not finished';
   const host = facts.host ? ` · ${facts.host}` : '';
-  const padding = ' '.repeat(Math.max(1, HEADER_WIDTH - `${left}${version}${facts.environment}${state}${host}`.length));
+  const padding = ' '.repeat(Math.max(1, headerWidth - `${left}${version}${facts.environment}${state}${host}`.length));
   const right = `${environmentName(facts.environment)}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
-  return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, DIVIDER];
+  return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, divider];
 }

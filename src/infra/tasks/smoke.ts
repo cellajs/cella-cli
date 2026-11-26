@@ -14,7 +14,7 @@ function extractEntryAsset(html: string): string | undefined {
 }
 
 /** Response headers the frontend Caddy layer must inject, compared case-insensitively. A missing one means the Caddyfile regressed or the request bypassed Caddy. */
-export const SECURITY_HEADERS = [
+export const securityHeaders = [
   'Content-Security-Policy',
   'Strict-Transport-Security',
   'X-Frame-Options',
@@ -34,9 +34,9 @@ function isHtmlDocument(body: string): boolean {
   return /<html/i.test(body);
 }
 
-/** Header names from SECURITY_HEADERS that are absent from the response. */
+/** Header names from `securityHeaders` that are absent from the response. */
 export function missingSecurityHeaders(headers: Headers): string[] {
-  return SECURITY_HEADERS.filter((h) => headers.get(h) === null);
+  return securityHeaders.filter((h) => headers.get(h) === null);
 }
 
 /** One enabled service as deploy-env's enabled_services lists it. */
@@ -66,9 +66,9 @@ export interface SmokeOptions {
   log?: (msg: string) => void;
   /** Sleep between component-health retries. Injectable so tests run instantly. */
   sleep?: (ms: number) => Promise<void>;
-  /** Number of times to poll /health?depth=full before failing (default {@link COMPONENTS_RETRY_ATTEMPTS}). */
+  /** Number of times to poll /health?depth=full before failing (default {@link defaultComponentsRetryAttempts}). */
   componentsRetryAttempts?: number;
-  /** Delay between component-health polls in ms (default {@link COMPONENTS_RETRY_DELAY_MS}). */
+  /** Delay between component-health polls in ms (default {@link defaultComponentsRetryDelayMs}). */
   componentsRetryDelayMs?: number;
 }
 
@@ -76,8 +76,8 @@ export interface SmokeOptions {
  * Component-health retry budget. The old cdc worker frees its replication slot only when its machine is deleted (and PostgreSQL notices, up to a minute
  * later), and the fresh worker's WebSocket reconnect backs off up to 30s, so a non-healthy `cdc` can persist for ~2 minutes after a switch. The 120s budget outlasts that.
  */
-export const COMPONENTS_RETRY_ATTEMPTS = 15;
-export const COMPONENTS_RETRY_DELAY_MS = 8_000;
+export const defaultComponentsRetryAttempts = 15;
+export const defaultComponentsRetryDelayMs = 8_000;
 
 /** `warn` is a line in the run's log and keeps the run deployed; only `fail` fails the deploy. */
 export type SmokeStatus = 'ok' | 'warn' | 'fail';
@@ -97,8 +97,8 @@ const verdict = (ok: boolean, detail: string): Verdict => ({ status: ok ? 'ok' :
 export async function runSmoke(opts: SmokeOptions): Promise<SmokeResult[]> {
   const { defaultRouteUrl, primaryUrl, expectedSha, get } = opts;
   const sleep = opts.sleep ?? defaultSleep;
-  const componentsRetryAttempts = opts.componentsRetryAttempts ?? COMPONENTS_RETRY_ATTEMPTS;
-  const componentsRetryDelayMs = opts.componentsRetryDelayMs ?? COMPONENTS_RETRY_DELAY_MS;
+  const componentsRetryAttempts = opts.componentsRetryAttempts ?? defaultComponentsRetryAttempts;
+  const componentsRetryDelayMs = opts.componentsRetryDelayMs ?? defaultComponentsRetryDelayMs;
   const results: SmokeResult[] = [];
 
   // The wrapper owns the try/catch and result collection, so no check can short-circuit the rest.

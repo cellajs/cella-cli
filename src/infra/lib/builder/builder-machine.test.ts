@@ -5,7 +5,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 import { canonicalJson, descriptionHash } from '../deploy/applied-engine';
 import { parseReleaseManifest } from '../deploy/release-archives';
-import { agentBundleScript, BUILDER_ARCHIVE_DIR, BUILDER_SCRIPT, type BuilderValues, builderCloudConfig, frontendScript } from './builder-machine';
+import { agentBundleScript, type BuilderValues, builderArchiveDir, builderCloudConfig, builderScript, frontendScript } from './builder-machine';
 
 const values: BuilderValues = {
   SHA: 'a'.repeat(40),
@@ -19,13 +19,13 @@ const links = { step: 'https://diag.s3.nl-ams.scw.cloud/boot-diag/builder/a/step
 
 describe('the builder machine', () => {
   it('runs a script bash accepts', () => {
-    const check = spawnSync('bash', ['-n'], { input: BUILDER_SCRIPT, encoding: 'utf8' });
+    const check = spawnSync('bash', ['-n'], { input: builderScript, encoding: 'utf8' });
     expect(check.stderr).toBe('');
     expect(check.status).toBe(0);
   });
 
   it("fetches a private repository with its read key as a header of that one fetch, and drops the key before the app's code runs", () => {
-    const lines = BUILDER_SCRIPT.split('\n');
+    const lines = builderScript.split('\n');
     const keyed = lines.find((line) => line.includes('http.extraHeader'));
     expect(keyed).toContain('fetch -q --depth 1 origin "$SHA"');
     expect(keyed).not.toContain('remote add');
@@ -43,7 +43,7 @@ describe('the builder machine', () => {
       frontend: 'true\n',
     });
     expect(document).not.toMatch(/SCW[A-Z0-9]{17}|S3_AK|S3_SK|BUILDER_SK|docker login|--push/);
-    const lines = BUILDER_SCRIPT.split('\n');
+    const lines = builderScript.split('\n');
     for (const run of lines.filter((line) => line.trim().startsWith('docker run'))) expect(run).not.toMatch(/\s-e\s|--env\s/);
     for (const script of [agentBundleScript('11.8.0'), frontendScript('11.8.0')]) expect(script).not.toMatch(/SCW_|_AK|_SK|AWS_/);
     const block = lines.findIndex((line) => line.includes('-d 169.254.42.42 -j DROP'));
@@ -70,10 +70,10 @@ describe('the builder machine', () => {
 
   it('writes a manifest the deploy parses, its archives on the disk and not in the memory of /run', () => {
     // Staging could not have shipped it: a manifest with unquoted image names is no JSON, so every deploy of the sha failed its build.
-    const lines = BUILDER_SCRIPT.split('\n');
+    const lines = builderScript.split('\n');
     const digest = lines.slice(lines.indexOf('digest() {'), lines.indexOf('digest() {') + 3);
     const manifest = lines.slice(lines.indexOf("IMAGES=''"), lines.findIndex((line) => line.startsWith('printf \'{"release"')) + 1);
-    expect(lines).toContain(`mkdir -p ${BUILDER_ARCHIVE_DIR}`);
+    expect(lines).toContain(`mkdir -p ${builderArchiveDir}`);
     const dir = mkdtempSync(join(tmpdir(), 'builder-'));
     mkdirSync(join(dir, 'images'));
     for (const name of ['backend', 'infra-boot']) writeFileSync(join(dir, 'images', `${name}.tar`), name);
@@ -87,7 +87,7 @@ describe('the builder machine', () => {
     ];
     const script = [`SHA=${'c'.repeat(40)}`, 'FRONTEND=1', ...tools, ...digest, ...manifest]
       .join('\n')
-      .replaceAll(BUILDER_ARCHIVE_DIR, join(dir, 'images'))
+      .replaceAll(builderArchiveDir, join(dir, 'images'))
       .replaceAll('/var/lib/release/', `${dir}/`)
       .replaceAll('/run/', `${dir}/`);
     const run = spawnSync('bash', ['-eo', 'pipefail'], { input: script, encoding: 'utf8' });
@@ -98,7 +98,7 @@ describe('the builder machine', () => {
   });
 
   it('puts the description in the manifest beside its hash only as the text the hash was taken of, quotes and all', () => {
-    const lines = BUILDER_SCRIPT.split('\n');
+    const lines = builderScript.split('\n');
     const block = lines.slice(lines.indexOf("DESCRIPTION_FIELD=''"), lines.indexOf('step archives'));
     const write = lines.filter((line) => line.startsWith('printf \'{"release"'));
     const description = { env: { QUOTED: 'a "b" \\ c', SHELL: "100%s $HOME `id` 'x'" }, general: { zones: ['nl-ams-1'] } };

@@ -7,7 +7,7 @@ import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { RUNTIME_FOLDER } from '../../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { inFirstProvisioning } from '../../lib/stack/bootstrap-stack-state';
 import { controlActor, lockKey, makeControlClient, readObjectModified, recordRotation } from '../../lib/stack/control-store';
 import { importPlan, keptResources } from '../../lib/stack/kept-resources';
@@ -110,7 +110,7 @@ async function adoptKept(ctx: SetupContext): Promise<void> {
       const { ListBucketsCommand } = await import('@aws-sdk/client-s3');
       return ((await s3.send(new ListBucketsCommand({}))).Buckets ?? []).flatMap((bucket) => (bucket.Name ? [bucket.Name] : []));
     }),
-    createSecretManagerClient({ secretKey: ctx.secretKey, region, projectId: ctx.projectId }).listSecrets(RUNTIME_FOLDER),
+    createSecretManagerClient({ secretKey: ctx.secretKey, region, projectId: ctx.projectId }).listSecrets(runtimeFolder),
   ]).catch((error) => {
     console.warn(`  ${warningMark} Could not list what a teardown may have kept (${errorMessage(error)}).`);
     return undefined;

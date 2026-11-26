@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { select } from '@inquirer/prompts';
 import { writeCompose } from '../compose/synth';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
-import { actionLabel, type MenuRowId, menuRow, OPERATOR_ACTIONS, type OperatorActionId, PULUMI_ACTIONS } from '../lib/operator-actions';
+import { actionLabel, type MenuRowId, menuRow, type OperatorActionId, operatorActions, pulumiActions } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { detectComputeDeferred, pickStackShort } from '../lib/stack/bootstrap-stack-state';
 import { type Environment, environments, isEnvironment } from '../lib/stack/environment';
@@ -16,17 +16,17 @@ import { printLaunchChecklist } from './actions/setup-checklist';
 import { parseCliArgs } from './args';
 import { checkoutVersion, formatHeader } from './header';
 import { collectHome, formatHome, type HomeFacts, upNextOf } from './home';
-import { BACK, disabledReason, type MenuState, mainMenuItems, pickItems, QUIT, UP_NEXT, visibleRows } from './menu';
+import { backChoice, disabledReason, type MenuState, mainMenuItems, pickItems, quitChoice, upNext, visibleRows } from './menu';
 import { installPromptAbortHandler } from './prompts/abort';
-import { ESCAPED, menuSelect } from './prompts/menu-select';
-import { LEAVE } from './prompts/what-now';
+import { escaped, menuSelect } from './prompts/menu-select';
+import { leaveChoice } from './prompts/what-now';
 import { startMenuSession } from './session';
 import type { InfraContext } from './shared';
 import { autoAcceptDefaults } from './shared';
 
 /** The commands of the CLI, one line per action. */
 function printHelp(): void {
-  const ids = Object.keys(OPERATOR_ACTIONS) as OperatorActionId[];
+  const ids = Object.keys(operatorActions) as OperatorActionId[];
   const width = Math.max(...ids.map((id) => id.length));
   console.info('Usage: pnpm cella infra [action] [--mode production|staging] [--once] [--defaults]\n');
   console.info('Without an action the menu opens on the home screen; an action runs alone and exits with its result.\n');
@@ -157,7 +157,7 @@ let pulumiLagShown = false;
  * refuses.
  */
 function pulumiReady(action: OperatorActionId): boolean {
-  if (!PULUMI_ACTIONS.includes(action)) return true;
+  if (!pulumiActions.includes(action)) return true;
   const installed = installedPulumiVersion();
   if (!installed) {
     printFailureHint(`"${actionLabel(action)}" runs Pulumi, which this machine does not have`, {
@@ -175,13 +175,13 @@ function pulumiReady(action: OperatorActionId): boolean {
 }
 
 /** The row the cursor starts on: the one last entered, so a second action in the same area is one keypress away. */
-let lastRow: MenuRowId | typeof UP_NEXT = 'status';
+let lastRow: MenuRowId | typeof upNext = 'status';
 
 /** The row the cursor starts on in this state: the recommended step, else the last row, its DB access counterpart once the endpoint changed side, else the first. */
-function startRow(state: MenuState): MenuRowId | typeof UP_NEXT {
-  if (state.upNext) return UP_NEXT;
+function startRow(state: MenuState): MenuRowId | typeof upNext {
+  if (state.upNext) return upNext;
   const rows = visibleRows(state);
-  if (lastRow === UP_NEXT) return 'status';
+  if (lastRow === upNext) return 'status';
   if (rows.includes(lastRow)) return lastRow;
   return lastRow === 'db-open' ? 'db-close' : lastRow === 'db-close' ? 'db-open' : 'status';
 }
@@ -191,12 +191,12 @@ function startRow(state: MenuState): MenuRowId | typeof UP_NEXT {
  * Back returns to the list. Esc on the list leaves the CLI. A row that cannot run now stays listed with the reason. A pick opens on its
  * first entry: a stray Enter after an action never starts one that deletes data.
  */
-async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof QUIT> {
+async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof quitChoice> {
   while (true) {
     const picked = await menuSelect({ message: '', items: mainMenuItems(state), default: startRow(state) });
-    if (picked === ESCAPED || picked === QUIT) return QUIT;
+    if (picked === escaped || picked === quitChoice) return quitChoice;
     lastRow = picked;
-    if (picked === UP_NEXT) {
+    if (picked === upNext) {
       const next = state.upNext;
       if (!next) continue;
       const reason = disabledReason(next.action, state);
@@ -208,15 +208,15 @@ async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof
     const [only] = row.actions;
     if (row.actions.length === 1 && only) return only;
     const action = await menuSelect({ message: row.label, items: pickItems(picked, state) });
-    if (action !== ESCAPED && action !== BACK) return action;
+    if (action !== escaped && action !== backChoice) return action;
   }
 }
 
 /** Actions that change nothing, so the menu comes back without reading the stack again. */
-const READ_ONLY: readonly OperatorActionId[] = ['status', 'logs', 'preview'];
+const readOnly: readonly OperatorActionId[] = ['status', 'logs', 'preview'];
 
 /** How long reads started at an action's end serve the menu: an operator who comes back later sees the stack as it is then. */
-const AHEAD_FRESH_MS = 30_000;
+const aheadFreshMs = 30_000;
 
 /** The next round's reads, started while an action's output waits for the way back: the stack, then the home once the stack is set up. */
 function readAhead(environment: Environment): { startedAt: number; context: Promise<InfraContext>; home: Promise<HomeFacts | undefined> } {
@@ -296,7 +296,7 @@ export async function runInfraCli(words: string[]): Promise<void> {
   // stays in the CLI: a failure offers the step again, and a setup that succeeds opens the menu.
   if (context.state === 'fresh') {
     if (!pulumiReady('resume')) process.exit(1);
-    const { code, quit } = await runAction('resume', context, { firstSetup: true, ...(args.once ? { close: async () => LEAVE } : {}) });
+    const { code, quit } = await runAction('resume', context, { firstSetup: true, ...(args.once ? { close: async () => leaveChoice } : {}) });
     if (code !== 0 || quit || args.once || !hasPerson()) process.exit(code);
     context = await loadContext(environment);
     if (context.state === 'fresh') process.exit(0);
@@ -312,22 +312,22 @@ export async function runInfraCli(words: string[]): Promise<void> {
     const action = next ?? (await chooseAction(menuState(context, home)));
     const reason = next ? disabledReason(next, menuState(context, home)) : undefined;
     next = undefined;
-    if (action === QUIT) break;
+    if (action === quitChoice) break;
     if (reason) {
       console.error(`${crossMark} "${actionLabel(action)}" cannot run now: ${reason}.`);
       continue;
     }
     let ahead: ReturnType<typeof readAhead> | undefined;
     const onEnded = () => {
-      if (!READ_ONLY.includes(action)) ahead = readAhead(environment);
+      if (!readOnly.includes(action)) ahead = readAhead(environment);
     };
     const outcome: ActionOutcome = pulumiReady(action) ? await runAction(action, context, { onEnded }) : { code: 1 };
     if (args.once) process.exit(outcome.code);
     next = outcome.next;
     console.info('');
-    if (ahead && Date.now() - ahead.startedAt > AHEAD_FRESH_MS) ahead = undefined;
+    if (ahead && Date.now() - ahead.startedAt > aheadFreshMs) ahead = undefined;
     // An action may have changed the stack file, the env file or the live stack: all three are read again for the next round.
-    const changed = !READ_ONLY.includes(action) && !outcome.back;
+    const changed = !readOnly.includes(action) && !outcome.back;
     if (changed) context = await (ahead?.context ?? loadContext(environment));
     if (next) continue;
     // The menu comes back under its header and home: a short terminal shows the action is over.

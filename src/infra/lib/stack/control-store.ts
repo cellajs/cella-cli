@@ -136,13 +136,13 @@ export function stateBucket(slug: string): string {
 const modeOf = (stack: string): string => stack.split('/').pop() ?? stack;
 
 /** Where every environment's control records live in its boot-diagnostics bucket. */
-export const CONTROL_PREFIX = 'control/';
+export const controlRootPrefix = 'control/';
 
 /**
  * The folder of an environment's control records: the live record (lib/deploy/live-record.ts), the lease, the rotations and the applied
  * engine an apply publishes (lib/deploy/applied-engine.ts). The observer reads them all, and the Pulumi program reads the applied engine alone.
  */
-export const controlPrefix = (stack: string): string => `${CONTROL_PREFIX}${modeOf(stack)}/`;
+export const controlPrefix = (stack: string): string => `${controlRootPrefix}${modeOf(stack)}/`;
 
 /** The lease one deploy or operator action holds at a time. */
 export const lockKey = (stack: string): string => `${controlPrefix(stack)}lock.json`;
@@ -236,11 +236,11 @@ export function leaseOwnerOfRun(run: string): string {
 }
 
 /** The lease's operation while a run deploys, the one that makes and deletes machines; a scheduled run that only looks holds another. */
-export const DEPLOY_OPERATION = 'deploy';
+export const deployOperation = 'deploy';
 
 /** True for a lease a deploy holds: a run's, under the deploy operation. */
 export function leaseDeploys(info: { owner?: string; operation?: string }): boolean {
-  return Boolean(info.owner?.startsWith('run:') && info.operation === DEPLOY_OPERATION);
+  return Boolean(info.owner?.startsWith('run:') && info.operation === deployOperation);
 }
 
 /** True while a lease runs at `now`. One at or past its `expiresAt`, or whose expiry is absent or does not parse, is broken by the next acquire. */
@@ -250,7 +250,7 @@ export function leaseLive(info: Partial<Pick<LockInfo, 'expiresAt'>>, now = Date
 
 /** True while a deploy holds a live lease under this run: its record that says running is deploying, and interrupted otherwise. */
 export function leaseHeldByRun(lock: { owner?: string; operation?: string; expiresAt?: string } | undefined, run: string, now = Date.now()): boolean {
-  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === DEPLOY_OPERATION && leaseLive(lock, now);
+  return lock?.owner === leaseOwnerOfRun(run) && lock.operation === deployOperation && leaseLive(lock, now);
 }
 
 /** Who holds a lease, as a person reads it: `run <id>` for a deploy, else the holder and its operation. */
@@ -275,7 +275,7 @@ const heldBy = (info: LockInfo, holder: LockHolder): boolean =>
   info.owner === holder.owner && (holder.token === undefined || info.token === holder.token);
 
 /** What a lock object this engine cannot parse reads as: held, with no end, until an operator's Unlock removes it. */
-const UNREADABLE_LOCK: LockInfo = {
+const unreadableLock: LockInfo = {
   owner: 'unknown',
   operation: 'a lease record this engine cannot read',
   acquiredAt: '1970-01-01T00:00:00.000Z',
@@ -289,12 +289,12 @@ function parseLockInfo(text: string): LockInfo {
   try {
     raw = JSON.parse(text);
   } catch {
-    return UNREADABLE_LOCK;
+    return unreadableLock;
   }
-  if (!isRecord(raw)) return UNREADABLE_LOCK;
+  if (!isRecord(raw)) return unreadableLock;
   const { owner, operation, acquiredAt, expiresAt, token } = raw;
   if (typeof owner !== 'string' || typeof operation !== 'string' || typeof acquiredAt !== 'string' || typeof expiresAt !== 'string') {
-    return UNREADABLE_LOCK;
+    return unreadableLock;
   }
   return { owner, operation, acquiredAt, expiresAt, ...(typeof token === 'string' ? { token } : {}) };
 }

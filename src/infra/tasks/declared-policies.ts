@@ -1,6 +1,6 @@
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
 import { sameRules } from '../lib/scaleway/declared-identities';
-import { findPolicy, IAM_BASE, policyRules, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
+import { findPolicy, iamBase, policyRules, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
 import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 
 /** What one declared policy needs: nothing, a policy made, its rules replaced, or its application made first. */
@@ -40,7 +40,7 @@ export async function writeDeclaredPolicies(
     if (!applicationId) throw new Error(`IAM application '${policy.applicationName}' does not exist, so '${policy.name}' cannot be written.`);
     const live = await findPolicy(auth, organizationId, policy.name);
     if (!live) {
-      await scwFetch(auth, 'POST', `${IAM_BASE}/policies`, {
+      await scwFetch(auth, 'POST', `${iamBase}/policies`, {
         name: policy.name,
         description: policy.description,
         organization_id: organizationId,
@@ -59,7 +59,7 @@ export async function writeDeclaredPolicies(
       steps.push({ policy: policy.name, change: 'none' });
       continue;
     }
-    await scwSend(auth, 'PUT', `${IAM_BASE}/rules`, { policy_id: live.id, rules: policy.rules });
+    await scwSend(auth, 'PUT', `${iamBase}/rules`, { policy_id: live.id, rules: policy.rules });
     log(`  updated the rules of ${policy.name}`);
     steps.push({ policy: policy.name, change: 'update' });
   }

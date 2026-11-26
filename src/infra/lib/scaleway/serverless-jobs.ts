@@ -19,11 +19,11 @@ export interface JobRun extends CommandFields {
   environment_variables?: Record<string, string>;
 }
 
-const FINAL_STATES = new Set(['succeeded', 'failed', 'interrupted']);
+const finalStates = new Set(['succeeded', 'failed', 'interrupted']);
 
 /** True once a run has ended, whatever the outcome. */
 export function runEnded(run: Pick<JobRun, 'state'>): boolean {
-  return FINAL_STATES.has(run.state);
+  return finalStates.has(run.state);
 }
 
 /**

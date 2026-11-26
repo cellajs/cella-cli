@@ -4,10 +4,10 @@
  * The folders are the security boundary: an IAM condition grants secret-value reads by `resource.name.startsWith(<path>)`, and where a
  * secret lives decides who reads it. They start at the root of the environment's own project, which each rule names.
  */
-export const RUNTIME_FOLDER = '/runtime/';
+export const runtimeFolder = '/runtime/';
 
 /** Folder for engine-internal keys: the deploy key's copy and the database passwords. Only the operator reads it. */
-export const ENGINE_FOLDER = '/engine/';
+export const engineFolder = '/engine/';
 
 /** The deploy key's condition on secret values: the runtime folder, and nothing else. The identity plan compares the live rule with this string. */
-export const runtimeFolderCondition = `resource.name.startsWith("${RUNTIME_FOLDER}")`;
+export const runtimeFolderCondition = `resource.name.startsWith("${runtimeFolder}")`;

@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { ENGINE_FOLDER } from '../../lib/scaleway/secret-paths';
+import { engineFolder } from '../../lib/scaleway/secret-paths';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
 import { acquireStackLockOrEnd, endAction, type InfraContext, openStack } from '../shared';
@@ -19,7 +19,7 @@ const keptPassphraseName = 'pulumi-passphrase';
 export async function dropKeptPassphrase(context: InfraContext, operator: OperatorKey): Promise<void> {
   const { appConfig, projectId } = context;
   const secrets = createSecretManagerClient({ secretKey: operator.secretKey, region: appConfig.s3.region, projectId });
-  const kept = await secrets.getSecretByName(keptPassphraseName, ENGINE_FOLDER);
+  const kept = await secrets.getSecretByName(keptPassphraseName, engineFolder);
   if (!kept) return;
 
   const { stack, env } = openStack(context, operator);
@@ -45,7 +45,7 @@ export async function dropKeptPassphrase(context: InfraContext, operator: Operat
   }
   if (failure !== undefined) {
     console.error(
-      `${crossMark} The passphrase ${ENGINE_FOLDER} keeps does not open ${stack} (${failure}). Put the one from your password manager in '${keptPassphraseName}' there, in the console, then apply again. Nothing applied.`,
+      `${crossMark} The passphrase ${engineFolder} keeps does not open ${stack} (${failure}). Put the one from your password manager in '${keptPassphraseName}' there, in the console, then apply again. Nothing applied.`,
     );
     endAction(1);
   }

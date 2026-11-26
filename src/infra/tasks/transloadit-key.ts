@@ -1,13 +1,13 @@
 import { runtimeSecrets } from '../lib/runtime-secrets';
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
 import { createApiKey, listApiKeys, resolveApplicationIdByName, type ScwApiKey } from '../lib/scaleway/iam-client';
-import { TRANSLOADIT_PERMISSION_SETS } from '../lib/scaleway/permissions';
+import { transloaditPermissionSets } from '../lib/scaleway/permissions';
 import { policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { appPrincipalNames } from '../lib/scaleway/principals';
 import { ensureApplication } from '../lib/scaleway/scaleway-iam';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
 import type { ScwAuth } from '../lib/scaleway/scw-fetch';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { writeDeclaredPolicies } from './declared-policies';
 
 /** The Secret Manager read the Transloadit plan needs, so a test passes its own. */
@@ -35,7 +35,7 @@ export function transloaditPolicy(opts: { slug: string; projectIds: readonly str
     name: `${application}-policy`,
     applicationName: application,
     description: 'Object writes on the upload buckets, for the files Transloadit stores (written at Owner moments)',
-    rules: [{ permission_set_names: [...TRANSLOADIT_PERMISSION_SETS], project_ids: [...new Set(opts.projectIds)] }],
+    rules: [{ permission_set_names: [...transloaditPermissionSets], project_ids: [...new Set(opts.projectIds)] }],
     tags: [],
   };
 }
@@ -43,7 +43,7 @@ export function transloaditPolicy(opts: { slug: string; projectIds: readonly str
 /** The policy as declared for an environment: the projects it reaches today and `projectId`, so another environment keeps its rule. */
 async function declaredTransloaditPolicy(auth: ScwAuth, organizationId: string, slug: string, projectId: string): Promise<DeclaredPolicy> {
   const live = await readPolicy(auth, organizationId, `${appPrincipalNames(slug).transloadit}-policy`);
-  const reached = live ? policyReach(live.rules, TRANSLOADIT_PERMISSION_SETS).projectIds : [];
+  const reached = live ? policyReach(live.rules, transloaditPermissionSets).projectIds : [];
   return transloaditPolicy({ slug, projectIds: [...reached, projectId] });
 }
 
@@ -60,7 +60,7 @@ export async function planTransloadit(opts: {
   projectId: string;
   slug: string;
 }): Promise<TransloaditPlan | undefined> {
-  const authKey = authKeySecret && (await opts.secrets.getSecretByName(authKeySecret.secretName, RUNTIME_FOLDER));
+  const authKey = authKeySecret && (await opts.secrets.getSecretByName(authKeySecret.secretName, runtimeFolder));
   if ((authKey?.version_count ?? 0) === 0) return undefined;
   const applicationId = await resolveApplicationIdByName(opts.auth, opts.organizationId, appPrincipalNames(opts.slug).transloadit);
   if (!applicationId) return { step: 'create' };

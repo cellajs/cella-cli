@@ -1,12 +1,12 @@
 import { writeFileSync } from 'node:fs';
-import { actionCommand, actionLabel, menuPath, OPERATOR_ACTIONS, type OperatorActionId } from '../../lib/operator-actions';
+import { actionCommand, actionLabel, menuPath, type OperatorActionId, operatorActions } from '../../lib/operator-actions';
 import { crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { debugFile } from '../../lib/utils/paths';
-import { QUIT } from '../menu';
+import { quitChoice } from '../menu';
 import { isPromptAbort } from '../prompts/abort';
 import { PromptBack } from '../prompts/back';
-import { afterFirstSetup, backToMenu, keptKeyNote, LEAVE, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
+import { afterFirstSetup, backToMenu, keptKeyNote, leaveChoice, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
 import { forgetAnswers, inMenuSession, rememberedOperatorKey } from '../session';
 import { ActionEnded, type InfraContext, releaseHeldLocks } from '../shared';
 import { runApply } from './apply';
@@ -31,7 +31,7 @@ import { runUnlock } from './unlock';
 type ActionRunners = Record<OperatorActionId, (context: InfraContext) => Promise<unknown>>;
 
 /** The function behind every operator action: the menu and `pnpm cella infra <action>` both run an action through this table. */
-export const ACTION_RUNNERS: ActionRunners = {
+export const actionRunners: ActionRunners = {
   // The status task reads config while its module loads, so it is imported once the context has loaded the config.
   status: async (context) => (await import('../status')).runStatus({ ...context, operatorKey: rememberedOperatorKey() }),
   logs: runRuns,
@@ -87,20 +87,20 @@ export interface RunActionOptions {
 /** The ways out of a failed action: retry it, each action that fixes it by its menu name (in a menu session), then leave. */
 function waysOut(id: OperatorActionId, ended: ActionEnded, firstSetup: boolean): Array<WayOut<string>> {
   const retry: WayOut<string> = firstSetup
-    ? { value: RETRY, label: 'Retry this step', description: 'Runs the step again. What is made stays, and only the rest is created.' }
-    : { value: RETRY, label: ended.retry ?? `Retry ${actionLabel(id)}`, description: 'Runs the action again, from its first question.' };
+    ? { value: retryChoice, label: 'Retry this step', description: 'Runs the step again. What is made stays, and only the rest is created.' }
+    : { value: retryChoice, label: ended.retry ?? `Retry ${actionLabel(id)}`, description: 'Runs the action again, from its first question.' };
   const fixes = inMenuSession()
     ? ended.fix.map((fix) => ({
         value: fix,
         label: actionLabel(fix),
         hint: menuPath(fix) === actionLabel(fix) ? undefined : menuPath(fix),
-        description: OPERATOR_ACTIONS[fix].description,
+        description: operatorActions[fix].description,
       }))
     : [];
   return [retry, ...fixes, leaveRow()];
 }
 
-const RETRY = 'retry';
+const retryChoice = 'retry';
 
 /**
  * Keep an unexpected failure's stack in a file: a half-done apply may not fail the same way on a second run.
@@ -157,7 +157,7 @@ async function tryAction(
  */
 export async function runAction(id: OperatorActionId, context: InfraContext, opts: RunActionOptions = {}): Promise<ActionOutcome> {
   const {
-    runners = ACTION_RUNNERS,
+    runners = actionRunners,
     log = (line: string) => console.error(line),
     keep = keepStack,
     firstSetup = false,
@@ -172,7 +172,7 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
         if (!inMenuSession() && !(firstSetup && hasPerson())) return { code: 0 };
         onEnded?.();
         const way = firstSetup ? await close() : await backToMenu();
-        return way === QUIT ? { code: 0, quit: true } : { code: 0 };
+        return way === quitChoice ? { code: 0, quit: true } : { code: 0 };
       }
       if (ended === 'back') {
         if (!inMenuSession()) log(pc.dim('Cancelled.'));
@@ -187,10 +187,10 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
         for (const fix of ended.fix) log(pc.dim(`  ${actionLabel(fix)}: ${actionCommand(fix)}`));
         return { code: ended.exitCode };
       }
-      const note = firstSetup && rememberedOperatorKey() ? SETUP_KEY_NOTE : keptKeyNote();
+      const note = firstSetup && rememberedOperatorKey() ? setupKeyNote : keptKeyNote();
       const picked = await choose(waysOut(id, ended, firstSetup), note);
-      if (picked === RETRY) continue;
-      if (picked === LEAVE) return { code: ended.exitCode };
+      if (picked === retryChoice) continue;
+      if (picked === leaveChoice) return { code: ended.exitCode };
       return { code: ended.exitCode, next: ended.fix.find((fix) => fix === picked) };
     }
   } finally {
@@ -199,4 +199,4 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
 }
 
 /** The line under a first setup's failure: the operator key its Owner moment made is in memory only. */
-const SETUP_KEY_NOTE = 'The operator key this setup made ends with this run: after quitting, make one in the console.';
+const setupKeyNote = 'The operator key this setup made ends with this run: after quitting, make one in the console.';

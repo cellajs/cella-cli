@@ -6,7 +6,7 @@
  * security group is written. The load balancer and the reserved addresses are only read: a deploy moves traffic by health and attaches a
  * machine to an address the apply reserved. No registry set: a release travels as archives in the boot-diag bucket.
  */
-export const DEPLOY_PROJECT_PERMISSION_SETS = [
+export const deployProjectPermissionSets = [
   'InstancesReadOnly',
   'InstancesServerCreate',
   'InstancesServerWrite',
@@ -43,13 +43,13 @@ export const DEPLOY_PROJECT_PERMISSION_SETS = [
  * Secret metadata (names, folders, version counts, no value), on the whole project: Scaleway refuses a list call under any condition, and the
  * deploy finds its containers by listing them. The names are the registry's, which the repository holds. Values are read with the value set alone.
  */
-export const DEPLOY_SECRET_METADATA_SETS = ['SecretManagerReadOnly'] as const;
+export const deploySecretMetadataSets = ['SecretManagerReadOnly'] as const;
 
 /** Secret values, in the runtime folder only: the values the deploy composes into each machine's env file. */
-export const DEPLOY_SECRET_VALUE_SETS = ['SecretManagerSecretAccess'] as const;
+export const deploySecretValueSets = ['SecretManagerSecretAccess'] as const;
 
 /** DNS permission set, "Scoped by Project" on Scaleway: the operator's, in the serving zone's project. The deploy key writes no DNS. */
-export const DNS_PERMISSION_SETS = ['DomainsDNSFullAccess'] as const;
+export const dnsPermissionSets = ['DomainsDNSFullAccess'] as const;
 
 // Observer app (`<app>-observer`): reads, from any address
 
@@ -60,7 +60,7 @@ export const DNS_PERMISSION_SETS = ['DomainsDNSFullAccess'] as const;
  * file until the deploy strips them, and no registry set. Object Storage reads need the bucket policy too: the state and boot-diagnostics
  * buckets name the observer, the others do not.
  */
-export const OBSERVER_PROJECT_PERMISSION_SETS = [
+export const observerProjectPermissionSets = [
   'LoadBalancersReadOnly',
   'ObjectStorageReadOnly',
   'RelationalDatabasesReadOnly',
@@ -69,7 +69,7 @@ export const OBSERVER_PROJECT_PERMISSION_SETS = [
 ] as const;
 
 /** Org-scoped observer set: IAM reads, so `status` and the identity plan can name what exists. */
-export const OBSERVER_ORG_PERMISSION_SETS = ['IAMReadOnly'] as const;
+export const observerOrgPermissionSets = ['IAMReadOnly'] as const;
 
 // Operators (`<app>-operator`, `<app>-operators`): the principals a person runs privileged actions as, one set per app
 
@@ -77,23 +77,23 @@ export const OBSERVER_ORG_PERMISSION_SETS = ['IAMReadOnly'] as const;
  * Project-scoped set for the operator application and the operators group: every product of the app's projects, as a privileged
  * `pulumi up` writes all of them. No rule carries a condition: a key is held to its day (tasks/setup-operators.ts).
  */
-export const OPERATOR_PROJECT_PERMISSION_SETS = ['AllProductsFullAccess'] as const;
+export const operatorProjectPermissionSets = ['AllProductsFullAccess'] as const;
 
 /**
  * Organization-scoped set for the operator application: IAM read, for the bearer check, the lookup of applications by name and the verify
  * after an `up`. It holds no IAM write: a key that writes IAM cannot be held to its own app, since an IAM set is never scoped to a project
  * and a writer of policies can grant itself anything. IAM is written with an Owner API key.
  */
-export const OPERATOR_ORG_PERMISSION_SETS = ['IAMReadOnly'] as const;
+export const operatorOrgPermissionSets = ['IAMReadOnly'] as const;
 
 /**
  * The uploads application's sets (`<slug>-<mode>-uploads`): object reads, writes and deletes for the backend's uploads and presigned URLs.
  * Granular object sets, not FullAccess; the upload buckets' policies are the ones that admit it, and no other bucket names it.
  */
-export const UPLOADS_PERMISSION_SETS = ['ObjectStorageObjectsRead', 'ObjectStorageObjectsWrite', 'ObjectStorageObjectsDelete'] as const;
+export const uploadsPermissionSets = ['ObjectStorageObjectsRead', 'ObjectStorageObjectsWrite', 'ObjectStorageObjectsDelete'] as const;
 
 /**
  * The Transloadit application's set (`<app>-transloadit`): object writes, for the files Transloadit stores. No read and no delete: a key
  * that leaks at Transloadit reads no stored file. The upload buckets' policies are the ones that admit it.
  */
-export const TRANSLOADIT_PERMISSION_SETS = ['ObjectStorageObjectsWrite'] as const;
+export const transloaditPermissionSets = ['ObjectStorageObjectsWrite'] as const;

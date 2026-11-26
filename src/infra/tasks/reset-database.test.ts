@@ -2,9 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import type { RdbBackup, RdbDatabase, RdbInstance } from '../lib/scaleway/scaleway-rdb';
 import { backupName, type ResetDatabasePlan, ResetIrrecoverableError, rebuildSteps, sequenceDatabaseReset } from './reset-database';
 
-const INSTANCE: RdbInstance = { id: 'inst-1', name: 'cella-postgres', status: 'ready' };
-const DATABASES: RdbDatabase[] = [{ name: 'cella' }, { name: 'rdb' }];
-const BACKUP: RdbBackup = { id: 'bk-1', name: 'pre-reset-cella', status: 'ready', database_name: 'cella' };
+const instance: RdbInstance = { id: 'inst-1', name: 'cella-postgres', status: 'ready' };
+const databases: RdbDatabase[] = [{ name: 'cella' }, { name: 'rdb' }];
+const backup: RdbBackup = { id: 'bk-1', name: 'pre-reset-cella', status: 'ready', database_name: 'cella' };
 
 /** A plan whose effects all succeed, recording call order into `calls`. */
 function makePlan(overrides: Partial<ResetDatabasePlan> = {}) {
@@ -18,11 +18,11 @@ function makePlan(overrides: Partial<ResetDatabasePlan> = {}) {
 
     findInstance: vi.fn(async () => {
       calls.push('findInstance');
-      return INSTANCE;
+      return instance;
     }),
     listDatabases: vi.fn(async () => {
       calls.push('listDatabases');
-      return DATABASES;
+      return databases;
     }),
     confirm: vi.fn(async () => {
       calls.push('confirm');
@@ -30,11 +30,11 @@ function makePlan(overrides: Partial<ResetDatabasePlan> = {}) {
     }),
     createBackup: vi.fn(async () => {
       calls.push('createBackup');
-      return { ...BACKUP, status: 'creating' };
+      return { ...backup, status: 'creating' };
     }),
     waitForBackup: vi.fn(async () => {
       calls.push('waitForBackup');
-      return BACKUP;
+      return backup;
     }),
     deleteDatabase: vi.fn(async () => {
       calls.push('deleteDatabase');
@@ -104,7 +104,7 @@ describe('sequenceDatabaseReset', () => {
   });
 
   it('refuses an instance that is not ready', async () => {
-    const { plan } = makePlan({ findInstance: vi.fn(async () => ({ ...INSTANCE, status: 'backuping' })) });
+    const { plan } = makePlan({ findInstance: vi.fn(async () => ({ ...instance, status: 'backuping' })) });
 
     await expect(sequenceDatabaseReset(plan)).rejects.toThrow(/is 'backuping', not 'ready'/);
     expect(plan.confirm).not.toHaveBeenCalled();
@@ -126,7 +126,7 @@ describe('sequenceDatabaseReset', () => {
 
     await sequenceDatabaseReset(plan);
 
-    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ token: 'cella@cella-postgres', instanceId: 'inst-1', databases: DATABASES }));
+    expect(confirm).toHaveBeenCalledWith(expect.objectContaining({ token: 'cella@cella-postgres', instanceId: 'inst-1', databases: databases }));
   });
 
   it('surfaces the backup id when the database is gone and cannot be rebuilt', async () => {

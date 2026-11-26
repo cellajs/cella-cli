@@ -159,7 +159,7 @@ function utcTime(iso: string): string {
 }
 
 /** How long an operator run waits for another holder's lease to lapse: longer than one lifetime, so a dead run always frees the stack in time. */
-const OPERATOR_LOCK_WAIT_MS = 5 * 60_000;
+const operatorLockWaitMs = 5 * 60_000;
 
 /**
  * Take the environment's lease (`control/<mode>/lock.json` in its boot-diag bucket) so a second operator or a deploy cannot change it concurrently. A live lock held by someone else is waited out (a dead
@@ -193,7 +193,7 @@ export async function acquireStackLockOrEnd(opts: {
     owner: controlActor(),
     operation: opts.operation,
     ttlMs: opts.ttlMs,
-    waitMs: OPERATOR_LOCK_WAIT_MS,
+    waitMs: operatorLockWaitMs,
     onWait: (held, remainingMs) => {
       if (Date.now() - lastWaitLine < 30_000) return;
       lastWaitLine = Date.now();

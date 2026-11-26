@@ -1,7 +1,7 @@
 import type * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import { protectsStoredData, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
-import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
+import { runtimeFolder } from '../lib/scaleway/secret-paths';
 import { region, tags } from '../pulumi-context';
 import { derivedRuntimeSecretData } from './stores';
 
@@ -29,7 +29,7 @@ function storeSuppliedData(definition: RuntimeSecretDefinition): pulumi.Input<st
 function secretContainer(definition: RuntimeSecretDefinition): void {
   const secret = new scaleway.secrets.Secret(
     `secret-${definition.secretName}`,
-    { name: definition.secretName, path: RUNTIME_FOLDER, description: definition.description, region, tags },
+    { name: definition.secretName, path: runtimeFolder, description: definition.description, region, tags },
     { retainOnDelete: protectsStoredData(definition) },
   );
   const supplied = storeSuppliedData(definition);
