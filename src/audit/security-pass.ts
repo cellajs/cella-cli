@@ -256,8 +256,8 @@ function writeWorkspace(repoRoot: string, files: Record<string, string>, install
 }
 
 /**
- * Run the audit's security pass on the workspace at `repoRoot`, with the update step's `edits` already in
- * place in the staging copy, so the plan judges the workspace as it will be. Audit overrides are derived
+ * Run the audit's security pass on the workspace at `repoRoot`. The update step's `edits` are already in
+ * place in the staging copy: the plan judges the workspace as it will be. Audit overrides are derived
  * data: every run drops them, resolves the workspace without them in the staging copy, and puts back only
  * what a current advisory still needs. The workspace is written once, at the end, when the staged result
  * differs from what is there; with `apply` off nothing is written.
