@@ -2,20 +2,18 @@ import { spawnSync } from 'node:child_process';
 import type { EngineConfig } from '../lib/engine-config';
 import { deriveInfra } from '../lib/naming';
 import { actionCommand, menuPath, type OperatorActionId } from '../lib/operator-actions';
+import type { KeyPair } from '../lib/scaleway/operator-identity';
 import { allPrincipalNames } from '../lib/scaleway/principals';
+import { buildProviderEnv } from '../lib/scaleway/provider-env';
 import { controlActor, lockKey, makeControlClient, pruneLockVersions, stateBackendUrl, stateBucket } from '../lib/stack/control-store';
 import type { StackContext } from '../lib/stack/stack-context';
 import { acquireLease, installSignalRelease } from '../lib/stack/stack-lease';
-import { crossMark, type Hint, pc, printFailureHint, warningMark } from '../lib/utils/cli-output';
+import { crossMark, type Hint, hasPerson, pc, printFailureHint, warningMark } from '../lib/utils/cli-output';
 import { errorMessage } from '../lib/utils/errors';
+import { infraDir } from '../lib/utils/paths';
 import { isPromptAbort } from './prompts/abort';
 import { confirm, input, PromptBack } from './prompts/back';
 import { inMenuSession } from './session';
-
-type AppConfigType = EngineConfig;
-
-/** Infra CLI operation modes: the ids of the operator action table. */
-export type CliMode = OperatorActionId;
 
 /** Stack information and state, passed to every CLI action handler. */
 export interface InfraContext extends StackContext {
@@ -74,6 +72,11 @@ export function endsAction(error: unknown): boolean {
  */
 export const autoAcceptDefaults = (): boolean => process.argv.includes('--defaults');
 
+/** True when the run asks a person for a choice that has a default: a person at a terminal, without `--defaults`. */
+export function asksPerson(): boolean {
+  return hasPerson() && !autoAcceptDefaults();
+}
+
 /** `confirm` that resolves to its default under `--defaults`; an `id` keeps the answer for a step back or a retry. */
 export async function confirmOrDefault(opts: { message: string; default: boolean; id?: string }): Promise<boolean> {
   if (autoAcceptDefaults()) {
@@ -99,12 +102,12 @@ export function stackNameFor(context: Pick<InfraContext, 'environment'>): string
 }
 
 /** S3-backend login URL for the app's Pulumi state bucket. */
-export function pulumiLoginUrl(appConfig: AppConfigType): string {
+export function pulumiLoginUrl(appConfig: EngineConfig): string {
   return stateBackendUrl(stateBucket(appConfig.slug), appConfig.s3.region);
 }
 
 /** `pulumi login` (ends the action on failure) plus a best-effort `pulumi stack select` against the S3 state backend; the caller may still be about to init the stack. */
-export function pulumiLoginAndSelect(infraDir: string, env: NodeJS.ProcessEnv, appConfig: AppConfigType, targetStack: string): void {
+function pulumiLoginAndSelect(env: NodeJS.ProcessEnv, appConfig: EngineConfig, targetStack: string): void {
   const login = spawnSync('pulumi', ['login', pulumiLoginUrl(appConfig)], { cwd: infraDir, env, stdio: 'inherit' });
   if (login.status !== 0) {
     const names = allPrincipalNames(appConfig, appConfig.mode);
@@ -114,6 +117,20 @@ export function pulumiLoginAndSelect(infraDir: string, env: NodeJS.ProcessEnv, a
     endAction(login.status ?? 1);
   }
   spawnSync('pulumi', ['stack', 'select', targetStack], { cwd: infraDir, env, stdio: 'ignore' });
+}
+
+/**
+ * Open the environment's stack on `key`: its name, and the provider env (lib/scaleway/provider-env.ts) logged in to the state backend with
+ * the stack selected. The key's organization id, when it carries one, reaches the provider. Ends the action when the login fails.
+ */
+export function openStack(
+  context: Pick<InfraContext, 'appConfig' | 'environment' | 'projectId'>,
+  key: KeyPair & { organizationId?: string },
+): { stack: string; env: Record<string, string> } {
+  const stack = stackNameFor(context);
+  const env = buildProviderEnv(infraDir, { ...key, projectId: context.projectId, stateBackendUrl: pulumiLoginUrl(context.appConfig) });
+  pulumiLoginAndSelect(env, context.appConfig, stack);
+  return { stack, env };
 }
 
 /** Handle to a held stack lease; `release` logs failures, never throws, and does nothing on a second call. */
@@ -149,8 +166,8 @@ const OPERATOR_LOCK_WAIT_MS = 5 * 60_000;
  * run's lease lapses within minutes); a holder that keeps renewing wins, and the action ends pointing at the unlock action.
  * The lease renews itself while held and is released on Ctrl-C, so an interrupted run leaves nothing behind.
  */
-export async function acquireStackLockOrExit(opts: {
-  appConfig: AppConfigType;
+export async function acquireStackLockOrEnd(opts: {
+  appConfig: EngineConfig;
   accessKey: string;
   secretKey: string;
   stack: string;

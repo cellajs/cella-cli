@@ -42,9 +42,10 @@ export async function pickFromMenu(entries: MenuEntry[], title = ''): Promise<st
       { clearPromptOnDone: true },
     );
     if (picked) return picked;
+    console.info(pc.dim('exiting...'));
   } catch (error) {
     if (!(error instanceof Error) || error.name !== 'ExitPromptError') throw error;
+    console.info(pc.dim('Cancelled.'));
   }
-  console.info(pc.dim('exiting...'));
   return undefined;
 }

@@ -1,4 +1,4 @@
-import { actionLabel } from '../../lib/operator-actions';
+import { actionLabel, type OperatorActionId } from '../../lib/operator-actions';
 import { declaresUploads, uploadsPolicy } from '../../lib/scaleway/declared-identities';
 import { createApiKey, deleteApiKey, resolveApplicationIdByName } from '../../lib/scaleway/iam-client';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
@@ -15,13 +15,14 @@ import { setupCiKey } from '../../tasks/setup-ci-key';
 import { planUploadsKey, writeUploadsKey } from '../../tasks/uploads-key';
 import { confirm, select } from '../prompts/back';
 import { forgetOwnerKey, rememberOperatorKey } from '../session';
-import type { CliMode, InfraContext } from '../shared';
+import type { InfraContext } from '../shared';
 import { autoAcceptDefaults, confirmOrDefault, inputOrDefault, pointTo } from '../shared';
+import { uploadsApplication } from './identity';
 import { ensureObserverForEnvironment } from './observer-key';
-import { ensureOperatorForEnvironment } from './operator-key';
+import { ensureOperatorForEnvironment } from './operators';
 import { acquireOwnerKey } from './owner-key';
 
-export type SetupMode = Extract<CliMode, 'resume' | 'rotate-keys'>;
+export type SetupMode = Extract<OperatorActionId, 'resume' | 'rotate-keys'>;
 
 /** Result of the CI-deploy-key phase; empty strings when nothing was minted. */
 export interface CiKeyResult {
@@ -180,10 +181,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
     try {
       const registry = { slug: appConfig.slug, mode: environment };
       const auth = { secretKey: pair.secretKey };
-      await ensureApplication(
-        { ...registry, callerSecretKey: pair.secretKey, projectId, organizationId },
-        { suffix: 'uploads', description: "The uploads key: signs the backend's uploads and presigned URLs" },
-      );
+      await ensureApplication({ ...registry, callerSecretKey: pair.secretKey, projectId, organizationId }, uploadsApplication);
       await writeDeclaredPolicies(auth, organizationId, [uploadsPolicy({ ...registry, projectId })]);
       const secrets = createSecretManagerClient({ secretKey: pair.secretKey, region: appConfig.s3.region, projectId });
       const planned = await planUploadsKey({ auth, secrets, organizationId, ...registry });

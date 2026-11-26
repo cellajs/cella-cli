@@ -12,12 +12,21 @@ import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath, type OperatorActionId } from '../../lib/operator-actions';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
-import { type LockInfo, leaseDeploys, leaseHeldByRun, lockKey, makeControlClient, peekLock } from '../../lib/stack/control-store';
-import { checkMark, crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
+import {
+  type LockInfo,
+  leaseDeploys,
+  leaseHeldByRun,
+  leaseLive,
+  lockKey,
+  makeControlClient,
+  peekLock,
+  type S3Like,
+} from '../../lib/stack/control-store';
+import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { sleep } from '../../lib/utils/sleep';
 import { Interrupted, untilInterrupt } from '../prompts/abort';
 import { confirm } from '../prompts/back';
-import { autoAcceptDefaults, type InfraContext, stackNameFor } from '../shared';
+import { asksPerson, type InfraContext, stackNameFor } from '../shared';
 
 const POLL_MS = 5_000;
 const MAX_TRIES = 3;
@@ -33,11 +42,15 @@ export function deployFixes(outcome: FollowOutcome): OperatorActionId[] {
   return outcome === 'blocked' ? ['env', 'apply'] : [];
 }
 
-/** The run store and the control client of the environment, on a key the bucket admits: the observer's for reading, the operator's for both. */
-async function deployStores(
-  context: InfraContext,
-  key: KeyPair,
-): Promise<{ store: RunStore; control: Awaited<ReturnType<typeof makeControlClient>>; bucket: string }> {
+/** The environment's boot-diagnostics bucket on one key: its runs, and its other objects through the control client. */
+export interface BootDiag {
+  store: RunStore;
+  control: S3Like;
+  bucket: string;
+}
+
+/** The boot-diagnostics bucket of the environment, on a key the bucket admits: the observer's for reading, the operator's for both. */
+export async function bootDiagOn(context: InfraContext, key: KeyPair): Promise<BootDiag> {
   const state = stateKeyOf(key, context.projectId);
   const { naming } = deriveInfra(context.appConfig);
   const [s3, control] = await Promise.all([
@@ -48,13 +61,10 @@ async function deployStores(
 }
 
 /** The commit the environment runs: the primary role's in the live record, none before the first deploy. */
-export async function liveCommit(context: InfraContext, key: KeyPair): Promise<string | undefined> {
-  const { appConfig, projectId } = context;
-  const primary = machineRoles(appConfig).find((role) => role.primary);
+export async function liveCommit(context: InfraContext, diag: BootDiag): Promise<string | undefined> {
+  const primary = machineRoles(context.appConfig).find((role) => role.primary);
   if (!primary) return undefined;
-  const state = stateKeyOf(key, projectId);
-  const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
-  const { record } = await readLiveRecord(s3, deriveInfra(appConfig).naming.bootDiagBucket, stackNameFor(context));
+  const { record } = await readLiveRecord(diag.control, diag.bucket, stackNameFor(context));
   return record.roles[primary.role]?.commit;
 }
 
@@ -125,8 +135,7 @@ function recordOutcome(outcome: RunOutcome): FollowOutcome {
  */
 async function reportEnd(
   context: InfraContext,
-  key: KeyPair,
-  store: RunStore,
+  diag: BootDiag,
   outcome: FollowOutcome,
   sha: string,
   record: RunRecord | undefined,
@@ -156,11 +165,11 @@ async function reportEnd(
   // A crash of the release is read here, without a second screen: the failed machine's own account, as Deploy logs prints it.
   const crashed = verdict?.side === 'release' ? record?.boot?.find((entry) => entry.failed && entry.key) : undefined;
   if (crashed?.key) {
-    const body = await store.readBootAccount(crashed.key).catch(() => undefined);
+    const body = await diag.store.readBootAccount(crashed.key).catch(() => undefined);
     console.info(pc.dim(`  ${crashed.service}: boot failed (boot-diag/${crashed.key})`));
     for (const line of body ? accountExcerpt(body, BOOT_EXCERPT_LINES) : ['(the account has expired or cannot be read)']) console.info(`  ${line}`);
   }
-  const live = await liveCommit(context, key).catch(() => undefined);
+  const live = await liveCommit(context, diag).catch(() => undefined);
   if (live) {
     const still = sha.startsWith(live) ? '' : ' still';
     console.info(`${pc.green('●')} Your users${still} get ${commitName(await commitRefs(), live)}`);
@@ -184,15 +193,15 @@ export async function deployAndFollow(
 ): Promise<FollowOutcome> {
   const auth = { secretKey: key.secretKey };
   const { region } = deriveInfra(context.appConfig);
-  const { store } = await deployStores(context, key);
+  const diag = await bootDiagOn(context, key);
   for (let tries = 1; ; tries++) {
     const start = await startJobRun(auth, { region, definitionId, values: { TARGET_SHA: commit.sha, RETRY: String(commit.retry) } });
     console.info(`  ${checkMark} ${started}.`);
-    const { run, record } = await stoppable((signal) => followRun(auth, region, store, commit.sha, start, signal));
+    const { run, record } = await stoppable((signal) => followRun(auth, region, diag.store, commit.sha, start, signal));
     const outcome = mainJobOutcome(run);
     const unended = `The run ended ${run.state} before ${record ? 'its record did' : 'it wrote a record'}${run.error_message ? `: ${run.error_message}` : '.'}`;
-    const verdict = await reportEnd(context, key, store, outcome, commit.sha, record, unended);
-    const offer = verdict?.retryLikely && tries < MAX_TRIES && hasPerson() && !autoAcceptDefaults();
+    const verdict = await reportEnd(context, diag, outcome, commit.sha, record, unended);
+    const offer = verdict?.retryLikely && tries < MAX_TRIES && asksPerson();
     if (!offer || !(await confirm({ message: 'Retry now?', default: true }))) return outcome;
   }
 }
@@ -208,9 +217,9 @@ export interface LiveDeploy {
  * so the home and Deploy now find it without a paste. Undefined when no deploy runs.
  */
 export async function liveDeploy(context: InfraContext, key: KeyPair): Promise<LiveDeploy | undefined> {
-  const { store, control, bucket } = await deployStores(context, key);
+  const { store, control, bucket } = await bootDiagOn(context, key);
   const lock = await peekLock(control, bucket, lockKey(context.environment));
-  if (!lock || !leaseDeploys(lock) || Date.parse(lock.expiresAt) <= Date.now()) return undefined;
+  if (!lock || !leaseDeploys(lock) || !leaseLive(lock)) return undefined;
   const [newest] = await store.listRuns(1);
   const record = newest ? (await store.readRecord(newest))?.newest : undefined;
   if (record?.outcome !== 'running' || !leaseHeldByRun(lock, record.run)) return undefined;
@@ -223,7 +232,8 @@ export async function liveDeploy(context: InfraContext, key: KeyPair): Promise<L
  * {@link deployAndFollow} does, without a retry offer, as the target is the schedule's to start again.
  */
 export async function followLiveDeploy(context: InfraContext, key: KeyPair, live: LiveDeploy): Promise<FollowOutcome> {
-  const { store, control, bucket } = await deployStores(context, key);
+  const diag = await bootDiagOn(context, key);
+  const { store, control, bucket } = diag;
   let record = live.record;
   console.info(`  ${pc.dim(`Run ${record.run}, started ${record.startedAt.slice(11, 16)} UTC: following it.`)}`);
   let shown = printNewSteps(record, 0);
@@ -243,6 +253,6 @@ export async function followLiveDeploy(context: InfraContext, key: KeyPair, live
     return 'failed';
   }
   const outcome = recordOutcome(record.outcome);
-  await reportEnd(context, key, store, outcome, record.target, record, `The run ended ${record.outcome}.`);
+  await reportEnd(context, diag, outcome, record.target, record, `The run ended ${record.outcome}.`);
   return outcome;
 }

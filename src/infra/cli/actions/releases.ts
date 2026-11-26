@@ -4,28 +4,23 @@ import { appDescription } from '../../lib/deploy/app-description';
 import { APPLY_NEEDED, type AppliedEngine, descriptionHash, readAppliedEngine } from '../../lib/deploy/applied-engine';
 import { describeChanges } from '../../lib/deploy/description-diff';
 import { commitRefs } from '../../lib/deploy/git-remote';
-import { findJobDefinition } from '../../lib/deploy/job-runs';
-import { readLiveRecord } from '../../lib/deploy/live-record';
 import { parseReleaseManifest, type ReleaseManifest, releaseManifestKey } from '../../lib/deploy/release-archives';
 import { type RunRecord, runOutcomeText } from '../../lib/deploy/run-record';
-import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
+import type { RunStore } from '../../lib/deploy/run-store';
 import { commitName, ENVIRONMENTS_FILE, type RemoteRef, sortedReleases } from '../../lib/deploy/target';
-import { machineRoles } from '../../lib/machine-roles';
-import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
-import { makeControlClient, readObjectText, readRotations, type S3Like, storedBeforeKeyRotation } from '../../lib/stack/control-store';
+import { readObjectText, readRotations, storedBeforeKeyRotation } from '../../lib/stack/control-store';
 import { accessDenied } from '../../lib/status/providers/runs';
-import { checkMark, crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
+import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
 import { BACK, RULE } from '../menu';
 import { PromptBack } from '../prompts/back';
 import { ESCAPED, menuSelect } from '../prompts/menu-select';
-import { autoAcceptDefaults, confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
-import { deployAndFollow, deployFixes } from './deploy-follow';
+import { asksPerson, confirmOrDefault, endAction, type InfraContext, pointTo, stackNameFor } from '../shared';
+import { type BootDiag, bootDiagOn, deployAndFollow, deployFixes, liveCommit } from './deploy-follow';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
-import { environmentTarget } from './start-deploy';
+import { environmentTarget, findMainJob } from './start-deploy';
 
 const LISTED_RELEASES = 10;
 /** How many of the newest runs are searched for a release's deploys. */
@@ -38,24 +33,6 @@ interface ReleaseRow {
   merged: string;
   newest?: RunRecord;
   runs: number;
-}
-
-/** The environment's boot-diagnostics bucket on one key: its runs, and its other objects through the control client. */
-interface BootDiag {
-  store: RunStore;
-  control: S3Like;
-  bucket: string;
-}
-
-async function bootDiagOn(context: InfraContext, key: KeyPair): Promise<BootDiag> {
-  const state = stateKeyOf(key, context.projectId);
-  const region = context.appConfig.s3.region;
-  const bucket = deriveInfra(context.appConfig).naming.bootDiagBucket;
-  return {
-    store: bucketRunStore(await makeS3Client(region, state.accessKey, state.secretKey), bucket),
-    control: await makeControlClient(region, state.accessKey, state.secretKey),
-    bucket,
-  };
 }
 
 /** `Nov 2` for a commit's date in this checkout's git; none for a commit it does not hold. */
@@ -93,14 +70,6 @@ function deployText(row: ReleaseRow): string {
   const text = `${runOutcomeText(row.newest)}${row.runs > 1 ? ` · ${row.runs} runs` : ''}`;
   if (row.newest.outcome === 'failed') return pc.red(text);
   return row.newest.outcome === 'blocked' || row.newest.outcome === APPLY_NEEDED ? pc.yellow(text) : text;
-}
-
-/** The commit the environment serves: the primary role's in the live record, none before the first deploy. */
-async function servingCommit(context: InfraContext, diag: BootDiag): Promise<string | undefined> {
-  const primary = machineRoles(context.appConfig).find((role) => role.primary);
-  if (!primary) return undefined;
-  const { record } = await readLiveRecord(diag.control, diag.bucket, stackNameFor(context));
-  return record.roles[primary.role]?.commit;
 }
 
 /**
@@ -159,7 +128,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
   const diag = await bootDiagOn(context, observer);
   const [refs, live, applied, { rotations }] = await Promise.all([
     commitRefs(),
-    servingCommit(context, diag),
+    liveCommit(context, diag),
     readAppliedEngine(diag.control, diag.bucket, environment),
     readRotations(diag.control, diag.bucket, stackNameFor(context)),
   ]);
@@ -179,7 +148,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
     console.info(`  ${row.tag.padEnd(width)}${row.merged.padEnd(8)}${deployText(row)}${serves(row) ? `  ${pc.green('● serving')}` : ''}`);
   }
   const earlier = rows.filter((row) => !serves(row));
-  if (autoAcceptDefaults() || !hasPerson() || earlier.length === 0) return;
+  if (!asksPerson() || earlier.length === 0) return;
 
   console.info('');
   const tag = await menuSelect({
@@ -214,9 +183,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
   if (!(await confirmOrDefault({ message: `Deploy ${picked.tag} to ${environment} now?`, default: false }))) return;
 
   operator ??= await acquireOperatorKey(context);
-  const auth = { secretKey: operator.secretKey };
-  const { naming, region } = deriveInfra(context.appConfig);
-  const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
+  const definitionId = await findMainJob(context, operator);
   if (!definitionId) {
     console.error(`${crossMark} ${environment} has no main job yet: an apply makes it (${pointTo('apply')}).`);
     return endAction(1);

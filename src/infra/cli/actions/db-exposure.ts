@@ -187,7 +187,7 @@ export function prepareClose(context: InfraContext): NonNullable<OperatorApplyOp
 }
 
 /** Converge with the exposure semantics: a throw or a declined retry loop is a hard stop. */
-async function convergeOrExit(
+async function convergeOrEnd(
   context: InfraContext,
   operation: string,
   hooks: Pick<OperatorApplyOptions, 'prepare' | 'afterUp'>,
@@ -247,7 +247,7 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
   ]);
 
   let live: { endpoints: RdbEndpoint[]; aclRules: string[] } | undefined;
-  const { env, stack } = await convergeOrExit(context, 'expose-db', {
+  const { env, stack } = await convergeOrEnd(context, 'expose-db', {
     prepare: prepareExpose(context, acl),
     afterUp: async (e) => {
       live = await readDbExposure(context, convergeSecretKey(e));
@@ -296,7 +296,7 @@ export async function runUnexposeDatabase(context: InfraContext): Promise<void> 
   }
 
   let left: RdbEndpoint[] | undefined;
-  await convergeOrExit(context, 'unexpose-db', {
+  await convergeOrEnd(context, 'unexpose-db', {
     prepare: prepareClose(context),
     afterUp: async (env) => {
       left = (await readDbExposure(context, convergeSecretKey(env))).endpoints;

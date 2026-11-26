@@ -6,19 +6,18 @@ import { findJobDefinition, listJobRuns, runEnded, startJobRun } from '../../lib
 import { readLiveRecord } from '../../lib/deploy/live-record';
 import { mainJobOutcome } from '../../lib/deploy/main-job';
 import { repositoryUrl } from '../../lib/deploy/repository-key';
-import { bucketRunStore, commitRecords } from '../../lib/deploy/run-store';
+import { commitRecords } from '../../lib/deploy/run-store';
 import { rotationTarget } from '../../lib/deploy/scheduled-run';
 import { commitName, ENVIRONMENTS_FILE, parseEnvironmentsFile, resolveTarget, type Target } from '../../lib/deploy/target';
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel, menuPath } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
-import { leaseDeploys, lockKey, makeControlClient, peekLock } from '../../lib/stack/control-store';
+import { leaseDeploys, leaseLive, lockKey, peekLock } from '../../lib/stack/control-store';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { infraDir } from '../../lib/utils/paths';
 import { confirmOrDefault, endAction, type InfraContext, stackNameFor } from '../shared';
-import { deployAndFollow, deployFixes, type FollowOutcome, followLiveDeploy, liveCommit, liveDeploy } from './deploy-follow';
+import { bootDiagOn, deployAndFollow, deployFixes, type FollowOutcome, followLiveDeploy, liveCommit, liveDeploy } from './deploy-follow';
 import { acquireOperatorKey } from './operator-unlock';
 
 /**
@@ -28,7 +27,6 @@ import { acquireOperatorKey } from './operator-unlock';
  * @param opts.asked the caller asked the person already, so the deploy starts without a second question.
  */
 export async function runStartDeploy(context: InfraContext, opts: { asked?: boolean } = {}): Promise<void> {
-  const { appConfig, projectId } = context;
   const environment = context.environment;
   const target = await environmentTarget(context);
   if (!target) {
@@ -46,9 +44,7 @@ export async function runStartDeploy(context: InfraContext, opts: { asked?: bool
 
   const operator = await acquireOperatorKey(context);
   if (!observer && (await followIfLive(context, operator)) === 'deployed') return;
-  const auth = { secretKey: operator.secretKey };
-  const { naming, region } = deriveInfra(appConfig);
-  const definitionId = await findJobDefinition(auth, { region, projectId, name: naming.resource('main') });
+  const definitionId = await findMainJob(context, operator);
   if (!definitionId) {
     console.error(
       `${crossMark} ${environment} has no main job yet: "${menuPath('apply')}" makes it, once the deploy key's copy is in the engine folder ("${menuPath('rotate-keys')}").`,
@@ -68,6 +64,12 @@ async function followIfLive(context: InfraContext, key: KeyPair): Promise<Follow
   if (!live) return 'none';
   console.info(`${pc.yellow('●')} ${commitName(await commitRefs(), live.record.target)} is deploying.`);
   return followLiveDeploy(context, key, live);
+}
+
+/** The id of the environment's main job definition, read with `key`; undefined before an apply made it. */
+export async function findMainJob(context: InfraContext, key: { secretKey: string }): Promise<string | undefined> {
+  const { naming, region } = deriveInfra(context.appConfig);
+  return findJobDefinition({ secretKey: key.secretKey }, { region, projectId: context.projectId, name: naming.resource('main') });
 }
 
 /** How long a target read waits for the repository before it fails with a line, so a stalled remote never hangs an action. */
@@ -92,14 +94,9 @@ export async function environmentTarget(context: InfraContext): Promise<Target |
  * @returns False when either read fails, said in a line, so no first deploy is offered on a guess.
  */
 export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Promise<boolean> {
-  const { appConfig } = context;
-  const state = stateKeyOf(key, context.projectId);
-  const bucket = deriveInfra(appConfig).naming.bootDiagBucket;
   try {
-    const [runs, live] = await Promise.all([
-      makeS3Client(appConfig.s3.region, state.accessKey, state.secretKey).then((s3) => bucketRunStore(s3, bucket).listRuns(1)),
-      makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey).then((s3) => readLiveRecord(s3, bucket, stackNameFor(context))),
-    ]);
+    const diag = await bootDiagOn(context, key);
+    const [runs, live] = await Promise.all([diag.store.listRuns(1), readLiveRecord(diag.control, diag.bucket, stackNameFor(context))]);
     return runs.length === 0 && Object.keys(live.record.roles).length === 0;
   } catch (error) {
     console.warn(
@@ -123,16 +120,18 @@ export async function awaitsFirstDeploy(context: InfraContext, key: KeyPair): Pr
  */
 export async function redeployAfterRotation(context: InfraContext, key: KeyPair): Promise<void> {
   const auth = { secretKey: key.secretKey };
-  const { naming, region } = deriveInfra(context.appConfig);
-  const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
+  const { region } = deriveInfra(context.appConfig);
+  const definitionId = await findMainJob(context, key);
   if (!definitionId) {
     console.warn(`${warningMark} ${context.environment} has no main job yet: deploy with "${menuPath('deploy-now')}" once an apply made it.`);
     return;
   }
-  const live = await liveCommit(context, key).catch((error) => {
-    console.warn(`${warningMark} The live commit could not be read (${errorMessage(error)}): the target alone is started.`);
-    return undefined;
-  });
+  const live = await bootDiagOn(context, key)
+    .then((diag) => liveCommit(context, diag))
+    .catch((error) => {
+      console.warn(`${warningMark} The live commit could not be read (${errorMessage(error)}): the target alone is started.`);
+      return undefined;
+    });
   const target = await environmentTarget(context);
   if (
     live &&
@@ -177,11 +176,10 @@ export async function redeployAfterRotation(context: InfraContext, key: KeyPair)
  * never undoes a rollback it could not see.
  */
 async function targetHasRun(context: InfraContext, key: KeyPair, live: string, target: Target): Promise<boolean> {
-  const state = stateKeyOf(key, context.projectId);
   const [refs, records] = await Promise.all([
     commitRefs(),
-    makeS3Client(context.appConfig.s3.region, state.accessKey, state.secretKey)
-      .then((s3) => commitRecords(bucketRunStore(s3, deriveInfra(context.appConfig).naming.bootDiagBucket), target.sha))
+    bootDiagOn(context, key)
+      .then((diag) => commitRecords(diag.store, target.sha))
       .catch((error: unknown) => ({ error: errorMessage(error) })),
   ]);
   const [liveName, targetName] = [commitName(refs, live), commitName(refs, target.sha)];
@@ -210,17 +208,12 @@ async function targetHasRun(context: InfraContext, key: KeyPair, live: string, t
  */
 export async function startBlockedTarget(context: InfraContext, key: KeyPair): Promise<boolean> {
   const auth = { secretKey: key.secretKey };
-  const { naming, region } = deriveInfra(context.appConfig);
-  const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
+  const { region } = deriveInfra(context.appConfig);
+  const definitionId = await findMainJob(context, key);
   if (!definitionId) return false;
-  const state = stateKeyOf(key, context.projectId);
-  const held = await peekLock(
-    await makeControlClient(context.appConfig.s3.region, state.accessKey, state.secretKey),
-    naming.bootDiagBucket,
-    lockKey(context.environment),
-  );
-  if (held && Date.parse(held.expiresAt) > Date.now() && leaseDeploys(held)) return false;
-  const store = bucketRunStore(await makeS3Client(context.appConfig.s3.region, state.accessKey, state.secretKey), naming.bootDiagBucket);
+  const { store, control, bucket } = await bootDiagOn(context, key);
+  const held = await peekLock(control, bucket, lockKey(context.environment));
+  if (held && leaseLive(held) && leaseDeploys(held)) return false;
   const [newest] = await store.listRuns(1);
   const record = newest ? await store.currentRecord(newest) : undefined;
   const ended = (await listJobRuns(auth, { region, projectId: context.projectId, definitionId })).find(runEnded);

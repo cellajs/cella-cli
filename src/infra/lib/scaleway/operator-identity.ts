@@ -1,10 +1,9 @@
 import { OBSERVER_KEY_NAMES } from '../utils/env-files';
 import { errorMessage } from '../utils/errors';
 import type { FetchLike } from '../utils/fetch-like';
-import { resolveFetch } from '../utils/fetch-like';
-import { getApiKey, IAM_BASE, type IamAuth, listOrganizationPolicies, resolveOrganizationIdViaProject } from './iam-client';
+import { getApiKey, IAM_BASE, listOrganizationPolicies, policyRules, resolveOrganizationIdViaProject } from './iam-client';
 import type { AppPrincipalNames, PrincipalNames } from './principals';
-import { scwFetch } from './scw-fetch';
+import { type ScwAuth, scwFetch } from './scw-fetch';
 
 export interface KeyPair {
   accessKey: string;
@@ -70,7 +69,7 @@ export interface KeyDescription {
  * holds IAM read). A key that cannot read IAM throws: it is neither an engine application nor an Owner API key, and the caller says so.
  */
 export async function describeKey(pair: KeyPair, opts: { fetchImpl?: FetchLike } = {}): Promise<KeyDescription> {
-  const auth: IamAuth = { secretKey: pair.secretKey, fetchImpl: resolveFetch(opts.fetchImpl) };
+  const auth: ScwAuth = { secretKey: pair.secretKey, fetchImpl: opts.fetchImpl };
   const record = await getApiKey(auth, pair.accessKey);
   const base = { accessKey: pair.accessKey, expiresAt: record.expires_at ?? undefined, description: record.description || undefined };
   if (record.user_id) {
@@ -109,7 +108,7 @@ export async function organizationIdOfKey(pair: KeyPair, projectId?: string, opt
     () => undefined,
   );
   if (described) return described;
-  const auth = { secretKey: pair.secretKey, fetchImpl: resolveFetch(opts.fetchImpl) };
+  const auth = { secretKey: pair.secretKey, fetchImpl: opts.fetchImpl };
   const project = projectId ?? (await getApiKey(auth, pair.accessKey)).default_project_id;
   if (!project) throw new Error(`API key ${pair.accessKey} names no project to find its organization by: set SCW_DEFAULT_ORGANIZATION_ID.`);
   return resolveOrganizationIdViaProject(auth, project);
@@ -200,17 +199,13 @@ export async function assertIamManager(opts: {
     );
   }
   if (role === 'owner') return { desc, role };
-  const auth: IamAuth = { secretKey: opts.pair.secretKey, fetchImpl: resolveFetch(opts.fetchImpl) };
+  const auth: ScwAuth = { secretKey: opts.pair.secretKey, fetchImpl: opts.fetchImpl };
   const policies = await listOrganizationPolicies(auth, opts.organizationId);
   const bound = policies.filter((policy) =>
     desc.bearer === 'application' ? policy.application_id === desc.bearerId : policy.user_id === desc.bearerId,
   );
   for (const policy of bound) {
-    const { rules = [] } = await scwFetch<{ rules?: Array<{ permission_set_names?: string[] }> }>(
-      auth,
-      'GET',
-      `${IAM_BASE}/rules?policy_id=${policy.id}&page_size=100`,
-    );
+    const rules = await policyRules(auth, policy.id);
     if (rules.some((rule) => (rule.permission_set_names ?? []).includes('IAMManager'))) return { desc, role };
   }
   throw new Error(

@@ -4,7 +4,6 @@ import { actionLabel } from '../../lib/operator-actions';
 import { shutOutOfBuckets } from '../../lib/scaleway/bucket-admission';
 import { describeKey } from '../../lib/scaleway/operator-identity';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
-import { buildProviderEnv } from '../../lib/scaleway/provider-env';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { makeControlClient, readObjectEtag, stateBucket } from '../../lib/stack/control-store';
@@ -20,8 +19,8 @@ import { type PublishedEngine, pruneEngines, recordAppliedEngine } from '../../t
 import { verifyAfterApply } from '../../tasks/verify-after-apply';
 import { confirm } from '../prompts/back';
 import { forgetOperatorKey } from '../session';
-import { acquireStackLockOrExit, endAction, type InfraContext, pointTo, pulumiLoginAndSelect, pulumiLoginUrl, stackNameFor } from '../shared';
-import { exitOnIdentityChanges } from './identity';
+import { acquireStackLockOrEnd, endAction, type InfraContext, openStack, pointTo } from '../shared';
+import { endOnIdentityChanges } from './identity';
 import { acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { askToApply, type ReviewedPlan, showPlan } from './plan';
 
@@ -80,35 +79,22 @@ export async function runOperatorApply(context: InfraContext, opts: OperatorAppl
 
   const operator = await acquireAdmittedOperatorKey(context);
   const { organizationId } = operator;
-  const stack = stackNameFor(context);
-
-  const env = buildProviderEnv(infraDir, {
-    accessKey: operator.accessKey,
-    secretKey: operator.secretKey,
-    projectId,
-    stateBackendUrl: pulumiLoginUrl(appConfig),
-  });
+  const { stack, env } = openStack(context, operator);
   if (opts.engine) env.INFRA_ENGINE_IMAGE = opts.engine.image;
-  pulumiLoginAndSelect(infraDir, env, appConfig, stack);
 
   // Lock the stack through the control bucket to exclude concurrent operators and CI.
-  // Every exit path must release. The hard-failure paths release before they print and end the action, and the guard stops the double release when the finally below runs too.
+  // Every exit path must release. The hard-failure paths release before they print and end the action; a second release does nothing.
   // The state side names this project: the operator key is made in one environment's project and serves them all.
   const stateKey = stateKeyOf(operator, projectId);
   const stateS3 = await makeControlClient(appConfig.s3.region, stateKey.accessKey, stateKey.secretKey);
-  const stackLock = await acquireStackLockOrExit({
+  const stackLock = await acquireStackLockOrEnd({
     appConfig,
     accessKey: stateKey.accessKey,
     secretKey: stateKey.secretKey,
     stack,
     operation: opts.operation,
   });
-  let lockReleased = false;
-  const releaseLock = async () => {
-    if (lockReleased) return;
-    lockReleased = true;
-    await stackLock.release();
-  };
+  const releaseLock = () => stackLock.release();
 
   /** Why a plan confirmed before the lock may no longer hold; empty when the state it was computed from stands. A state that cannot be compared counts as changed. */
   const changesSinceReview = async (reviewed: ReviewedPlan): Promise<string[]> => {
@@ -124,10 +110,8 @@ export async function runOperatorApply(context: InfraContext, opts: OperatorAppl
   let completed = false;
   let verified: boolean | undefined;
   try {
-    env.SCW_DEFAULT_ORGANIZATION_ID = organizationId;
-
     // Identities are IAM, which the operator key writes none of: one that differs from the declared ones stops the run before its `up`.
-    await exitOnIdentityChanges(context, { secretKey: operator.secretKey, organizationId }, releaseLock);
+    await endOnIdentityChanges(context, { secretKey: operator.secretKey, organizationId }, releaseLock);
 
     // An errored certificate leaves the state and Scaleway here. The `up` makes it anew behind its DNS gate; certificates are the apply's.
     console.info(pc.dim('\n→ Clearing errored load balancer certificates (repair-certs)…'));
@@ -287,7 +271,7 @@ async function shutOutOfBucketsSaid(context: InfraContext, key: { accessKey: str
 }
 
 /** End the action for a key the bucket policies shut out (see {@link shutOutOfBucketsSaid}), dropping it so the next action asks for another. */
-export async function exitWhenShutOutOfBuckets(context: InfraContext, key: { accessKey: string; secretKey: string }): Promise<void> {
+export async function endOnShutOutOfBuckets(context: InfraContext, key: { accessKey: string; secretKey: string }): Promise<void> {
   if (!(await shutOutOfBucketsSaid(context, key))) return;
   forgetOperatorKey();
   endAction(1);

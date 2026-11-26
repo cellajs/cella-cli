@@ -1,14 +1,7 @@
-import type { FetchLike } from '../utils/fetch-like';
-import { scwFetch, scwSend } from './scw-fetch';
+import { type ScwAuth, scwFetch, scwListAll, scwSend } from './scw-fetch';
 
 export const IAM_BASE = 'https://api.scaleway.com/iam/v1alpha1';
 export const ACCOUNT_BASE = 'https://api.scaleway.com/account/v3';
-
-/** Auth shape shared with scwFetch, so callers injecting a fetch and callers mocking the scw-fetch module both work. */
-export interface IamAuth {
-  secretKey: string;
-  fetchImpl?: FetchLike;
-}
 
 export interface ScwApiKey {
   access_key: string;
@@ -27,12 +20,12 @@ export interface ScwApiKeyRecord {
 }
 
 /** Describe one api key. A key may describe itself, so this is the self-inspection every principal can perform. */
-export async function getApiKey(auth: IamAuth, accessKey: string): Promise<ScwApiKeyRecord> {
+export async function getApiKey(auth: ScwAuth, accessKey: string): Promise<ScwApiKeyRecord> {
   return scwFetch<ScwApiKeyRecord>(auth, 'GET', `${IAM_BASE}/api-keys/${accessKey}`);
 }
 
 /** Resolve the organization id owning a project (the api-key-free path). */
-export async function resolveOrganizationIdViaProject(auth: IamAuth, projectId: string): Promise<string> {
+export async function resolveOrganizationIdViaProject(auth: ScwAuth, projectId: string): Promise<string> {
   const project = await scwFetch<{ organization_id?: string }>(auth, 'GET', `${ACCOUNT_BASE}/projects/${projectId}`);
   if (!project?.organization_id) {
     throw new Error(`Could not resolve organization_id from project ${projectId}: set SCW_DEFAULT_ORGANIZATION_ID in .env and run again.`);
@@ -41,7 +34,7 @@ export async function resolveOrganizationIdViaProject(auth: IamAuth, projectId: 
 }
 
 /** Resolve an IAM application's id from its (unique) name. Returns null when not found. */
-export async function resolveApplicationIdByName(auth: IamAuth, organizationId: string, name: string): Promise<string | null> {
+export async function resolveApplicationIdByName(auth: ScwAuth, organizationId: string, name: string): Promise<string | null> {
   const { applications = [] } = await scwFetch<{ applications?: Array<{ id: string; name: string }> }>(
     auth,
     'GET',
@@ -50,33 +43,46 @@ export async function resolveApplicationIdByName(auth: IamAuth, organizationId: 
   return applications.find((app) => app.name === name)?.id ?? null;
 }
 
-interface IamPolicy {
+export interface IamPolicy {
   id: string;
   name: string;
+  description?: string;
   /** Principal bindings: a policy targets exactly one of application / user / group. */
   application_id?: string;
   user_id?: string;
   group_id?: string;
 }
 
+/** A rule as IAM returns it. */
+export interface LiveRule {
+  permission_set_names?: readonly string[];
+  project_ids?: readonly string[] | null;
+  organization_id?: string | null;
+  condition?: string | null;
+}
+
 /** Every policy in the organization, paged. The list endpoint's `application_id` filter is unreliable, so callers filter by principal client-side. */
-export async function listOrganizationPolicies(auth: IamAuth, organizationId: string): Promise<IamPolicy[]> {
-  const pageSize = 100;
-  const all: IamPolicy[] = [];
-  for (let page = 1; page <= 100; page++) {
-    const { policies = [], total_count = 0 } = await scwFetch<{ policies?: IamPolicy[]; total_count?: number }>(
-      auth,
-      'GET',
-      `${IAM_BASE}/policies?organization_id=${organizationId}&page=${page}&page_size=${pageSize}`,
-    );
-    all.push(...policies);
-    if (policies.length === 0 || all.length >= total_count) break;
-  }
-  return all;
+export async function listOrganizationPolicies(auth: ScwAuth, organizationId: string): Promise<IamPolicy[]> {
+  return scwListAll<IamPolicy>(auth, (page) => `${IAM_BASE}/policies?organization_id=${organizationId}&page=${page}&page_size=100`, 'policies');
+}
+
+/** An IAM policy by its exact name within an organization, or undefined: the name filter narrows the list, and the name decides. */
+export async function findPolicy(auth: ScwAuth, organizationId: string, name: string): Promise<IamPolicy | undefined> {
+  const { policies = [] } = await scwFetch<{ policies?: IamPolicy[] }>(
+    auth,
+    'GET',
+    `${IAM_BASE}/policies?organization_id=${organizationId}&policy_name=${encodeURIComponent(name)}&page_size=20`,
+  );
+  return policies.find((policy) => policy.name === name);
+}
+
+/** A policy's rules, one page of 100. */
+export async function policyRules(auth: ScwAuth, policyId: string): Promise<LiveRule[]> {
+  return (await scwFetch<{ rules?: LiveRule[] | null }>(auth, 'GET', `${IAM_BASE}/rules?policy_id=${policyId}&page_size=100`)).rules ?? [];
 }
 
 /** All api keys on an application (one page of 100; a declared identity holds one key). */
-export async function listApiKeys(auth: IamAuth, organizationId: string, applicationId: string): Promise<ScwApiKey[]> {
+export async function listApiKeys(auth: ScwAuth, organizationId: string, applicationId: string): Promise<ScwApiKey[]> {
   const { api_keys = [] } = await scwFetch<{ api_keys?: ScwApiKey[] }>(
     auth,
     'GET',
@@ -87,7 +93,7 @@ export async function listApiKeys(auth: IamAuth, organizationId: string, applica
 
 /** Mint a fresh api key on an application or a user, optionally expiring (RFC 3339). */
 export async function createApiKey(
-  auth: IamAuth,
+  auth: ScwAuth,
   opts: { applicationId?: string; userId?: string; description: string; defaultProjectId: string; expiresAt?: string },
 ): Promise<ScwApiKey> {
   return scwFetch<ScwApiKey>(auth, 'POST', `${IAM_BASE}/api-keys`, {
@@ -99,6 +105,6 @@ export async function createApiKey(
   });
 }
 
-export async function deleteApiKey(auth: IamAuth, accessKey: string): Promise<void> {
+export async function deleteApiKey(auth: ScwAuth, accessKey: string): Promise<void> {
   await scwSend(auth, 'DELETE', `${IAM_BASE}/api-keys/${accessKey}`);
 }

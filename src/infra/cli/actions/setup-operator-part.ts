@@ -24,7 +24,7 @@ import { confirm, input } from '../prompts/back';
 import { maskedSecret } from '../prompts/masked-secret';
 import type { InfraContext } from '../shared';
 import {
-  acquireStackLockOrExit,
+  acquireStackLockOrEnd,
   autoAcceptDefaults,
   confirmOrDefault,
   endAction,
@@ -34,8 +34,8 @@ import {
   pulumiLoginUrl,
   stackNameFor,
 } from '../shared';
-import { exitOnOpenDbEndpoint } from './apply';
-import { exitWhenShutOutOfBuckets } from './operator-apply';
+import { endOnOpenDbEndpoint } from './apply';
+import { endOnShutOutOfBuckets } from './operator-apply';
 import type { OperatorKey } from './operator-unlock';
 import { printLaunchChecklist } from './setup-checklist';
 import { connectRepository, offerFirstDeploy } from './setup-connect';
@@ -148,10 +148,10 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
       if (!(await confirmOrDefault({ message: 'Continue with pulumi up anyway?', default: false }))) endAction(1);
     }
   }
-  if (ctx.context.state !== 'fresh') await exitOnOpenDbEndpoint(ctx.context, ctx.secretKey);
+  if (ctx.context.state !== 'fresh') await endOnOpenDbEndpoint(ctx.context, ctx.secretKey);
 
   // Lock provisioning against concurrent operators and deploys; every exit path releases it, and abandoned locks expire or clear with "Unlock".
-  const stackLock = await acquireStackLockOrExit({
+  const stackLock = await acquireStackLockOrEnd({
     appConfig: ctx.appConfig,
     accessKey: ctx.stateKey.accessKey,
     secretKey: ctx.stateKey.secretKey,
@@ -279,7 +279,7 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
 
   // The operator key serves the state side too, naming this project, as it is made in one environment's. A stack whose buckets predate the
   // operator application lets it in first.
-  if (!firstSetup) await exitWhenShutOutOfBuckets(context, operatorKey);
+  if (!firstSetup) await endOnShutOutOfBuckets(context, operatorKey);
   const stateKey: KeyPair = stateKeyOf(operatorKey, projectId);
   const childEnv = buildProviderEnv(infraDir, {
     accessKey: operatorKey.accessKey,
@@ -373,7 +373,7 @@ export async function recordKeyRotation(context: InfraContext, operatorKey: Oper
   const { appConfig, projectId } = context;
   const stack = stackNameFor(context);
   const state = stateKeyOf(operatorKey, projectId);
-  const lock = await acquireStackLockOrExit({
+  const lock = await acquireStackLockOrEnd({
     appConfig,
     ...state,
     stack,

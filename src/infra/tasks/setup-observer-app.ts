@@ -1,9 +1,9 @@
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
-import type { IamAuth } from '../lib/scaleway/iam-client';
 import { OBSERVER_ORG_PERMISSION_SETS, OBSERVER_PROJECT_PERMISSION_SETS } from '../lib/scaleway/permissions';
 import { type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { appPrincipalNames } from '../lib/scaleway/principals';
 import { type PolicyRule, type ProvisionScopedKeyOptions, provisionScopedKey, type ScopedKeyResult } from '../lib/scaleway/scaleway-iam';
+import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 
 export interface SetupObserverAppOptions extends Omit<ProvisionScopedKeyOptions, 'mode'> {
   /** The app's own slug (`appSlug`): the observer application is one per app. */
@@ -49,7 +49,7 @@ export async function setupObserverApp(opts: SetupObserverAppOptions): Promise<S
 }
 
 /** Where the app's observer policy reaches; undefined when the app has no observer. */
-export async function observerReach(auth: IamAuth, organizationId: string, slug: string): Promise<PolicyReach | undefined> {
+export async function observerReach(auth: ScwAuth, organizationId: string, slug: string): Promise<PolicyReach | undefined> {
   const policy = await readPolicy(auth, organizationId, `${appPrincipalNames(slug).observer}-policy`);
   return policy ? policyReach(policy.rules, OBSERVER_PROJECT_PERMISSION_SETS) : undefined;
 }
@@ -60,7 +60,7 @@ export async function observerReach(auth: IamAuth, organizationId: string, slug:
  * has no observer. Read with any key that reads IAM.
  */
 export async function declaredObserverPolicy(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   slug: string,
   projectId: string,

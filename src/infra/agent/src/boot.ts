@@ -6,7 +6,7 @@ import { scrubSecretLines, uploadBootDiagnostics } from './diagnostics';
 import { type ExecFn, execCommand, mustExec } from './exec';
 import { createJsonLogger } from './logger';
 import { type BootPlan, parseBootPlanJson } from './plan';
-import { envFileValues, fetchRuntimeEnv } from './runtime-secrets';
+import { envFileValues, fetchRuntimeEnv } from './runtime-env';
 import { createSecretRedactor } from './secret-redactor';
 
 /** The machine's env file, kept at 0600 for every boot after the first, which fetched it. */

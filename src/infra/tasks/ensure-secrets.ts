@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { databaseRuntimeSecrets, generatedRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
+import { engineMadeRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecrets } from '../lib/runtime-secrets';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 
@@ -79,6 +79,6 @@ export async function ensureSecrets(opts: {
     return value;
   };
 
-  for (const definition of [...generatedRuntimeSecrets(all), ...databaseRuntimeSecrets(all)]) await resolveValue(definition);
+  for (const definition of engineMadeRuntimeSecrets(all)) await resolveValue(definition);
   return written;
 }

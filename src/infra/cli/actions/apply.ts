@@ -5,7 +5,7 @@ import { discardEngine, type PublishedEngine, publishEngine } from '../../tasks/
 import { endAction, type InfraContext, pointTo } from '../shared';
 import { openDbEndpoints } from './db-exposure';
 import { dropKeptPassphrase } from './drop-passphrase';
-import { exitOnIdentityChanges } from './identity';
+import { endOnIdentityChanges } from './identity';
 import { acquireAdmittedOperatorKey, runOperatorApply } from './operator-apply';
 import { askToApply, reviewPlan } from './plan';
 import { checkWaitingRelease } from './releases';
@@ -15,7 +15,7 @@ import { startBlockedTarget } from './start-deploy';
  * End the action while the database has a public endpoint, before an apply or a setup's resume runs `pulumi up`. The committed stack config
  * never records an open endpoint: its plan keeps the endpoint and deletes the ACL.
  */
-export async function exitOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
+export async function endOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
   const open = await openDbEndpoints(context, secretKey);
   if (open.length === 0) return;
   console.error(
@@ -37,9 +37,9 @@ export async function runApply(context: InfraContext): Promise<void> {
   const operator = await acquireAdmittedOperatorKey(context);
   // Before anything runs Pulumi, the close of an open endpoint included.
   await dropKeptPassphrase(context, operator);
-  await exitOnOpenDbEndpoint(context, operator.secretKey);
+  await endOnOpenDbEndpoint(context, operator.secretKey);
   // A missing identity would break the plan itself: the program looks up every application it names.
-  await exitOnIdentityChanges(context, operator);
+  await endOnIdentityChanges(context, operator);
   // A release waiting on an apply deploys only on the description of its own checkout: another one ends the action before the build.
   await checkWaitingRelease(context, operator);
   // Built and pushed before the plan, so the plan shows the main job's new image: until the `up` names it, nothing runs it.

@@ -5,10 +5,9 @@ export interface SetupCiKeyOptions extends ProvisionScopedKeyOptions {
   /** Deploy mode; per-mode CI apps keep staging/production keys independent. */
   mode: string;
 }
-export type CiKeyResult = ScopedKeyResult;
 
 /** Create the scoped CI application, least-privilege policy, and fresh key. */
-export async function setupCiKey(opts: SetupCiKeyOptions): Promise<CiKeyResult> {
+export async function setupCiKey(opts: SetupCiKeyOptions): Promise<ScopedKeyResult> {
   return provisionScopedKey(opts, {
     suffix: 'ci-deploy',
     appDescription: "The deploy key: the environment's main job deploys with it",

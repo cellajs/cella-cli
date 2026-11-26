@@ -35,7 +35,7 @@ vi.mock('../../lib/scaleway/scaleway-secret-manager', () => ({
 
 vi.mock('../../tasks/provision-managed-key', () => ({ provisionManagedKey: (...args: unknown[]) => provisionManagedKey(...args) }));
 
-const acquireStackLockOrExit = vi.fn();
+const acquireStackLockOrEnd = vi.fn();
 const confirmOrDefault = vi.fn();
 const recordRotation = vi.fn();
 const startBlockedTarget = vi.fn();
@@ -43,7 +43,7 @@ const redeployAfterRotation = vi.fn();
 
 vi.mock('../shared', async (original) => ({
   ...(await original<typeof import('../shared')>()),
-  acquireStackLockOrExit: (...args: unknown[]) => acquireStackLockOrExit(...args),
+  acquireStackLockOrEnd: (...args: unknown[]) => acquireStackLockOrEnd(...args),
   confirmOrDefault: (...args: unknown[]) => confirmOrDefault(...args),
 }));
 vi.mock('../../lib/stack/control-store', async (original) => ({
@@ -260,7 +260,7 @@ describe('offerDeploy', () => {
   it('records a changed value as a rotation before it deploys the live release again, which alone would leave the machines on their env file', async () => {
     vi.spyOn(console, 'info').mockImplementation(() => {});
     const release = vi.fn();
-    acquireStackLockOrExit.mockResolvedValue({ release });
+    acquireStackLockOrEnd.mockResolvedValue({ release });
     recordRotation.mockResolvedValue({ counter: 4, values: { at: '2026-11-20T10:00:00.000Z', by: 'operator:flip' } });
     startBlockedTarget.mockResolvedValue(false);
     confirmOrDefault.mockResolvedValue(true);

@@ -1,12 +1,12 @@
 import { actionLabel } from '../../lib/operator-actions';
 import type { DeclaredPolicy } from '../../lib/scaleway/declared-identities';
 import { declaredIdentities } from '../../lib/scaleway/declared-identities';
-import { IAM_BASE, type IamAuth } from '../../lib/scaleway/iam-client';
+import { IAM_BASE } from '../../lib/scaleway/iam-client';
 import { organizationIdOfKey, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { type AppPrincipalNames, appPrincipalNames, principalNames } from '../../lib/scaleway/principals';
 import { ensureApplication } from '../../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
-import { scwSend } from '../../lib/scaleway/scw-fetch';
+import { type ScwAuth, scwSend } from '../../lib/scaleway/scw-fetch';
 import { changeMark, checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { planDeclaredPolicies, writeDeclaredPolicies } from '../../tasks/declared-policies';
@@ -18,6 +18,9 @@ import { confirmOrDefault, endAction, type InfraContext, pointTo } from '../shar
 import { ensureObserverForEnvironment, type ObserverStep, observerStep } from './observer-key';
 import { acquireIdentityKey } from './operator-unlock';
 import { printRevokeReminder } from './owner-key';
+
+/** The uploads application, as the setup and an identity update make it. */
+export const uploadsApplication = { suffix: 'uploads', description: "The uploads key: signs the backend's uploads and presigned URLs" };
 
 /**
  * What an identity update would change: the identity plan with the policies of the app's observer and Transloadit application among its
@@ -83,7 +86,7 @@ function planChanges(context: Pick<InfraContext, 'appConfig' | 'environment' | '
  * End a run on the operator key when the identities differ from the declared ones: they are IAM, which that key cannot write, and an `up`
  * would fail on them halfway. `release` lets go of what the run holds first.
  */
-export async function exitOnIdentityChanges(
+export async function endOnIdentityChanges(
   context: Pick<InfraContext, 'appConfig' | 'environment' | 'projectId'>,
   key: { secretKey: string; organizationId: string },
   release?: () => Promise<void>,
@@ -106,7 +109,7 @@ export async function exitOnIdentityChanges(
  * apply checks leaves it out. Empty while the app has no observer, as its creation writes it.
  */
 async function observerPolicies(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   context: Pick<InfraContext, 'appConfig' | 'projectId'>,
 ): Promise<DeclaredPolicy[]> {
@@ -115,7 +118,7 @@ async function observerPolicies(
 }
 
 async function planIdentities(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   context: Pick<InfraContext, 'appConfig' | 'environment' | 'projectId'>,
 ): Promise<IdentityPlan> {
@@ -141,7 +144,7 @@ async function planIdentities(
  * Make the app's Transloadit application reach the environment, and show a key it had to make: nothing stores that key, so this is the one
  * time it is readable.
  */
-async function ensureTransloaditForEnvironment(context: InfraContext, auth: IamAuth, organizationId: string): Promise<void> {
+async function ensureTransloaditForEnvironment(context: InfraContext, auth: ScwAuth, organizationId: string): Promise<void> {
   const { appConfig, projectId } = context;
   const { transloadit } = appPrincipalNames(appConfig.appSlug);
   const key = await writeTransloadit({ auth, organizationId, projectId, slug: appConfig.appSlug });
@@ -197,12 +200,12 @@ export async function runIdentity(context: InfraContext): Promise<void> {
     if (!show(plan)) return;
     if (!(await confirmOrDefault({ message: 'Write them?', default: false }))) return;
   }
-  // The setup makes the deploy application with its key; the uploads application is the one Update identities makes.
+  // The setup makes the deploy and uploads applications with their keys; an update makes a missing uploads one as the setup does.
   const { uploads } = principalNames(appConfig.slug, context.environment);
   if (plan.missingApplications.includes(uploads)) {
     await ensureApplication(
       { ...registry, callerSecretKey: ownerKey.secretKey, projectId, organizationId: ownerKey.organizationId },
-      { suffix: 'uploads', description: "The uploads key: signs the backend's uploads and presigned URLs" },
+      uploadsApplication,
     );
   }
   await writeDeclaredPolicies(auth, ownerKey.organizationId, [

@@ -3,16 +3,17 @@ import { actionCommand, actionLabel, menuPath, OPERATOR_ACTIONS, type OperatorAc
 import { crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { debugFile } from '../../lib/utils/paths';
+import { QUIT } from '../menu';
 import { isPromptAbort } from '../prompts/abort';
 import { PromptBack } from '../prompts/back';
-import { afterFirstSetup, backToMenu, keptKeyNote, LEAVE, leaveRow, QUIT, type WayOut, whatNow } from '../prompts/what-now';
+import { afterFirstSetup, backToMenu, keptKeyNote, LEAVE, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
 import { forgetAnswers, inMenuSession, rememberedOperatorKey } from '../session';
 import { ActionEnded, type InfraContext, releaseHeldLocks } from '../shared';
 import { runApply } from './apply';
 import { runExposeDatabase, runUnexposeDatabase } from './db-exposure';
 import { runEnvImport } from './env-import';
 import { runIdentity } from './identity';
-import { runOperatorKey } from './operator-key';
+import { runOperators } from './operators';
 import { runPreview } from './preview';
 import { runReleases } from './releases';
 import { runRepositoryKey } from './repository-key';
@@ -38,7 +39,7 @@ export const ACTION_RUNNERS: ActionRunners = {
   apply: runApply,
   'rotate-keys': (context) => runSetup(context, 'rotate-keys'),
   'rotate-secrets': runRotateSecrets,
-  operators: runOperatorKey,
+  operators: runOperators,
   identities: runIdentity,
   'deploy-now': runStartDeploy,
   releases: runReleases,

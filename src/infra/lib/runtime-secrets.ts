@@ -1,31 +1,20 @@
 import { runtimeSecretsConfig } from 'infra/config/runtime-secrets.config';
 import { appStores } from 'infra/config/stores.config';
 import type { ServiceName } from '../compose/compose';
-import type { RuntimeSecretDerivation, RuntimeSecretGeneration, RuntimeSecretValueSource } from './runtime-secrets-config';
+import type { RuntimeSecretConfig } from './runtime-secrets-config';
 import { type ServiceDefinition, serviceNames } from './services';
 import type { DatabaseRole, StoreProvisioner } from './stores';
 
 export const runtimeSecretConsumers = serviceNames;
 
-export type RuntimeSecretConsumer = ServiceName;
-
 /** A runtime-secret id. Store contributions register ids outside the app-config key union, so this stays a plain string and load-time validation rejects duplicates. */
 export type RuntimeSecretId = string;
 
 /** A runtime secret definition: registry data plus the id it is addressed by. */
-export interface RuntimeSecretDefinition {
+export interface RuntimeSecretDefinition extends Omit<RuntimeSecretConfig, 'services'> {
   id: RuntimeSecretId;
-  secretName: string;
-  description: string;
-  envVar: string;
-  required: boolean;
-  valueSource: RuntimeSecretValueSource;
-  generation: RuntimeSecretGeneration;
   /** Consuming services; store contributions are runtime-validated against the registry. */
   services: readonly string[];
-  group?: string;
-  derivedFrom?: RuntimeSecretDerivation;
-  rotatable?: boolean;
   /** A database connection string the operator task ensure-database assembles for this role. */
   database?: { role: DatabaseRole };
 }
@@ -119,12 +108,12 @@ export function protectsStoredData(definition: Pick<RuntimeSecretDefinition, 'va
 
 export const operatorManagedRuntimeSecrets: RuntimeSecretDefinition[] = runtimeSecrets.filter((secret) => secret.valueSource === 'operator');
 
-export function runtimeSecretsForConsumer(consumer: RuntimeSecretConsumer): RuntimeSecretDefinition[] {
+export function runtimeSecretsForConsumer(consumer: ServiceName): RuntimeSecretDefinition[] {
   return runtimeSecrets.filter((secret) => secret.services.some((service) => service === consumer));
 }
 
 /** Union of runtime-secret definitions across consumers, deduplicated by id in per-consumer registry order: the order of a machine's env file. */
-function unionRuntimeSecrets(consumers: readonly RuntimeSecretConsumer[]): RuntimeSecretDefinition[] {
+function unionRuntimeSecrets(consumers: readonly ServiceName[]): RuntimeSecretDefinition[] {
   const seen = new Set<string>();
   return consumers
     .flatMap((consumer) => runtimeSecretsForConsumer(consumer))

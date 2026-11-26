@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { envFileValues } from './runtime-secrets';
+import { envFileValues } from './runtime-env';
 
 describe('envFileValues', () => {
   it('learns every value of the env file once, an equals sign inside a value included', () => {

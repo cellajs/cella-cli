@@ -123,6 +123,21 @@ export async function scwFetch<T>(auth: ScwAuth, method: string, url: string, bo
   }
 }
 
+/**
+ * Every item of a paged Scaleway list under `field`, read page by page from page 1 until a page is empty or `total_count` items are in.
+ * @param maxPages The most pages read; the listing ends there with what it holds.
+ */
+export async function scwListAll<T>(auth: ScwAuth, url: (page: number) => string, field: string, maxPages = 100): Promise<T[]> {
+  const all: T[] = [];
+  for (let page = 1; page <= maxPages; page++) {
+    const body = await scwFetch<Record<string, unknown>>(auth, 'GET', url(page));
+    const items = (body[field] as T[] | undefined) ?? [];
+    all.push(...items);
+    if (items.length === 0 || all.length >= Number(body.total_count ?? 0)) break;
+  }
+  return all;
+}
+
 /** Authenticated Scaleway call with no expected response body (DELETE, 204). */
 export async function scwSend(auth: ScwAuth, method: string, url: string, body?: unknown): Promise<void> {
   await request(auth, method, url, body === undefined ? undefined : JSON.stringify(body));

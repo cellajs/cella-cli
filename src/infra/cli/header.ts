@@ -7,6 +7,11 @@ import { infraDir } from '../lib/utils/paths';
 /** The header's width, the same as the divider under it and the headers of cella-cli and create-cella. */
 const HEADER_WIDTH = 60;
 
+/** The environment's name as the header shows it: production bold red, staging cyan. */
+export function environmentName(environment: Environment): string {
+  return environment === 'production' ? pc.bold(pc.red(environment)) : pc.cyan(environment);
+}
+
 export interface HeaderFacts {
   slug: string;
   /** The release this checkout is at, left out when the root package.json names none. */
@@ -37,7 +42,6 @@ export function formatHeader(facts: HeaderFacts): [string, string] {
   const state = facts.state === 'bootstrapped' ? '' : facts.state === 'fresh' ? ' · new' : ' · setup not finished';
   const host = facts.host ? ` · ${facts.host}` : '';
   const padding = ' '.repeat(Math.max(1, HEADER_WIDTH - `${left}${version}${facts.environment}${state}${host}`.length));
-  const mode = facts.environment === 'production' ? pc.bold(pc.red(facts.environment)) : pc.cyan(facts.environment);
-  const right = `${mode}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
+  const right = `${environmentName(facts.environment)}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
   return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, DIVIDER];
 }

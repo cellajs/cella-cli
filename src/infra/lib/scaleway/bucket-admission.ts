@@ -1,7 +1,6 @@
 import { GetBucketPolicyCommand } from '@aws-sdk/client-s3';
 import type { EngineConfig } from '../engine-config';
 import { deriveInfra } from '../naming';
-import { stateBucket } from '../stack/control-store';
 import type { KeyPair } from './operator-identity';
 import { makeS3Client, stateKeyOf } from './s3-client';
 
@@ -15,7 +14,7 @@ export function policyAdmits(policyText: string | undefined, principal: string):
 /** Every bucket whose policy the program writes. */
 function policedBuckets(appConfig: EngineConfig): string[] {
   const { naming } = deriveInfra(appConfig);
-  return [stateBucket(appConfig.slug), naming.frontendBucket, naming.publicBucket, naming.privateBucket, naming.bootDiagBucket];
+  return [naming.pulumiStateBucket, naming.frontendBucket, naming.publicBucket, naming.privateBucket, naming.bootDiagBucket];
 }
 
 /**

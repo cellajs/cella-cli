@@ -1,4 +1,5 @@
 import { hasPerson, pc } from '../../lib/utils/cli-output';
+import { backToMenuLabel, QUIT } from '../menu';
 import { inMenuSession, rememberedOperatorKey } from '../session';
 import { isPromptAbort } from './abort';
 import { ESCAPED, menuSelect } from './menu-select';
@@ -15,12 +16,10 @@ export interface WayOut<T extends string> {
 /** The value of the row that leaves a failure. */
 export const LEAVE = 'leave';
 
-const BACK_LABEL = '← Back to menu';
-
 /** The row that leaves a failure: back to the menu in a menu session, out of the CLI otherwise. */
 export function leaveRow(): WayOut<typeof LEAVE> {
   return inMenuSession()
-    ? { value: LEAVE, label: BACK_LABEL, description: 'The menu lists every action again.' }
+    ? { value: LEAVE, label: backToMenuLabel, description: 'The menu lists every action again.' }
     : { value: LEAVE, label: 'Quit', description: 'End this run.' };
 }
 
@@ -28,9 +27,6 @@ export function leaveRow(): WayOut<typeof LEAVE> {
 export function keptKeyNote(): string | undefined {
   return rememberedOperatorKey() ? 'Your operator key is kept for this run.' : undefined;
 }
-
-/** The value of the row that quits the CLI from the frame after a first setup. */
-export const QUIT = 'quit';
 
 /**
  * Ask what to do after a failure: `? What now?` over its rows, with `note` dim under the highlighted row's line. Esc and Ctrl-C pick the
@@ -69,7 +65,7 @@ export async function afterFirstSetup(): Promise<typeof LEAVE | typeof QUIT> {
  */
 export async function backToMenu(): Promise<typeof LEAVE> {
   if (!hasPerson()) return LEAVE;
-  await menuSelect({ message: '', items: [{ group: '' }, { name: BACK_LABEL, value: LEAVE }] }).catch((error: unknown) => {
+  await menuSelect({ message: '', items: [{ group: '' }, { name: backToMenuLabel, value: LEAVE }] }).catch((error: unknown) => {
     if (!isPromptAbort(error)) throw error;
   });
   return LEAVE;

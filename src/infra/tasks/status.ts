@@ -9,7 +9,7 @@ import { deriveInfra, hasDomain as hasDeployDomain } from '../lib/naming';
 import { type KeyPair, resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { projectAccessKey } from '../lib/scaleway/s3-client';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
-import { lockKey, makeControlClient, peekLock, stateBucket } from '../lib/stack/control-store';
+import { leaseLive, lockKey, makeControlClient, peekLock, stateBucket } from '../lib/stack/control-store';
 import { nameSubject, rowText } from '../lib/status/check';
 import { buildStatusReport, checkGroups, groupOf } from '../lib/status/registry';
 import type { Check, CheckStatus, ProbeSession, ScalewayFacts, StatusReport } from '../lib/status/types';
@@ -80,7 +80,7 @@ export function buildSession(ctx: StatusContext): ProbeSession {
                 operation: info.operation,
                 acquiredAt: info.acquiredAt,
                 expiresAt: info.expiresAt,
-                stale: Date.parse(info.expiresAt) < Date.now(),
+                stale: !leaseLive(info),
               }
             : { held: false };
         } catch {

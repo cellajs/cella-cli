@@ -1,7 +1,8 @@
 import { uploadsKeySecrets } from '../lib/runtime-secrets';
-import { createApiKey, deleteApiKey, type IamAuth, listApiKeys, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
+import { createApiKey, deleteApiKey, listApiKeys, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
 import { principalNames } from '../lib/scaleway/principals';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
+import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 import { RUNTIME_FOLDER } from '../lib/scaleway/secret-paths';
 
 /** The Secret Manager calls the uploads key needs, so a test passes its own. */
@@ -37,7 +38,7 @@ function storedAccessKey(description: string | null | undefined): string | undef
  * longer live, `prune` when the application holds keys beside it, `none` otherwise. Any key that reads IAM and secret metadata computes it.
  */
 export async function planUploadsKey(opts: {
-  auth: IamAuth;
+  auth: ScwAuth;
   secrets: Pick<UploadsKeySecrets, 'getSecretByName'>;
   organizationId: string;
   slug: string;
@@ -59,7 +60,7 @@ export async function planUploadsKey(opts: {
  * `prune`: the keys beside the stored one deleted.
  */
 export async function writeUploadsKey(opts: {
-  auth: IamAuth;
+  auth: ScwAuth;
   secrets: UploadsKeySecrets;
   organizationId: string;
   projectId: string;

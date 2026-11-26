@@ -6,10 +6,10 @@ import { machineRoles } from '../../machine-roles';
 import { deriveInfra } from '../../naming';
 import { actionCommand } from '../../operator-actions';
 import { declaredIdentities } from '../../scaleway/declared-identities';
-import { IAM_BASE, listOrganizationPolicies } from '../../scaleway/iam-client';
+import { IAM_BASE, type LiveRule, listOrganizationPolicies, policyRules } from '../../scaleway/iam-client';
 import { durableKeyLife, organizationIdOfKey } from '../../scaleway/operator-identity';
 import { appPrincipalNames } from '../../scaleway/principals';
-import { scwFetch } from '../../scaleway/scw-fetch';
+import { scwFetch, scwListAll } from '../../scaleway/scw-fetch';
 import { type CheckBuilder, check, probed } from '../check';
 import type { Check, StatusProvider } from '../types';
 
@@ -18,7 +18,7 @@ interface InventoryPolicy {
   name: string;
   application_id?: string;
   group_id?: string;
-  rules: Array<{ permission_set_names?: string[]; project_ids?: string[] | null; organization_id?: string | null }>;
+  rules: LiveRule[];
 }
 
 /** What exists, as IAM lists it for the organization and the Instance API for the environment's project. */
@@ -288,17 +288,6 @@ function expectationOf(appConfig: { slug: string; appSlug: string }, mode: strin
   };
 }
 
-async function listAll<T>(auth: { secretKey: string }, url: (page: number) => string, field: string): Promise<T[]> {
-  const all: T[] = [];
-  for (let page = 1; page <= 100; page++) {
-    const body = await scwFetch<Record<string, unknown>>(auth, 'GET', url(page));
-    const items = (body[field] as T[] | undefined) ?? [];
-    all.push(...items);
-    if (items.length === 0 || all.length >= Number(body.total_count ?? 0)) break;
-  }
-  return all;
-}
-
 /** The project's volumes no machine holds in the zones given: Block Storage ones nothing references, and local ones without a server. */
 async function looseVolumes(
   auth: { secretKey: string },
@@ -308,12 +297,12 @@ async function looseVolumes(
   const perZone = await Promise.all(
     zones.map(async (zone) => {
       const [block, local] = await Promise.all([
-        listAll<{ id: string; name: string; created_at?: string; references?: unknown[] }>(
+        scwListAll<{ id: string; name: string; created_at?: string; references?: unknown[] }>(
           auth,
           (page) => `https://api.scaleway.com/block/v1/zones/${zone}/volumes?project_id=${projectId}&page=${page}&page_size=100`,
           'volumes',
         ),
-        listAll<{ id: string; name: string; creation_date?: string; server?: unknown }>(
+        scwListAll<{ id: string; name: string; creation_date?: string; server?: unknown }>(
           auth,
           (page) => `https://api.scaleway.com/instance/v1/zones/${zone}/volumes?project=${projectId}&page=${page}&per_page=100`,
           'volumes',
@@ -357,9 +346,9 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
           () => ({}),
         );
       const [applications, groups, apiKeys, policies, servers, volumes, mainJob] = await Promise.all([
-        listAll<InventoryFacts['applications'][number]>(auth, org('applications'), 'applications'),
-        listAll<InventoryFacts['groups'][number]>(auth, org('groups'), 'groups'),
-        listAll<InventoryFacts['apiKeys'][number]>(auth, org('api-keys'), 'api_keys'),
+        scwListAll<InventoryFacts['applications'][number]>(auth, org('applications'), 'applications'),
+        scwListAll<InventoryFacts['groups'][number]>(auth, org('groups'), 'groups'),
+        scwListAll<InventoryFacts['apiKeys'][number]>(auth, org('api-keys'), 'api_keys'),
         listOrganizationPolicies(auth, organizationId),
         // Every zone of the region: a machine an intruder made in another zone of the project is still the project's. The observer key reads
         // no machine, as user data holds links to the env file until the deploy strips them; a listing that fails leaves the machines unread
@@ -367,7 +356,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
         operatorSecretKey
           ? Promise.all(
               zones.map((zone) =>
-                listAll<{ id: string; name: string; creation_date?: string }>(
+                scwListAll<{ id: string; name: string; creation_date?: string }>(
                   { secretKey: operatorSecretKey },
                   (page) => `https://api.scaleway.com/instance/v1/zones/${zone}/servers?project=${session.projectId}&page=${page}&per_page=100`,
                   'servers',
@@ -392,12 +381,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
       const withRules = await Promise.all(
         policies
           .filter((policy) => policy.application_id || policy.group_id)
-          .map(async (policy) => ({
-            ...policy,
-            rules:
-              (await scwFetch<{ rules?: InventoryPolicy['rules'] }>(auth, 'GET', `${IAM_BASE}/rules?policy_id=${policy.id}&page_size=100`)).rules ??
-              [],
-          })),
+          .map(async (policy) => ({ ...policy, rules: await policyRules(auth, policy.id) })),
       );
       const liveMachines = Object.fromEntries(Object.entries(live.roles).map(([role, entry]) => [role, entry.machine]));
       const machines = servers?.map(({ id, name, creation_date }) => ({ id, name, ...(creation_date ? { createdAt: creation_date } : {}) }));

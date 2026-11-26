@@ -1,5 +1,5 @@
 import type { FetchLike } from '../utils/fetch-like';
-import { type ScwAuth, scwFetch, scwSend } from './scw-fetch';
+import { type ScwAuth, scwFetch, scwListAll, scwSend } from './scw-fetch';
 
 const SECRET_MANAGER_BASE = 'https://api.scaleway.com/secret-manager/v1beta1';
 
@@ -25,11 +25,6 @@ export interface SecretManagerSecretVersion {
   description?: string | null;
   latest?: boolean;
   region?: string;
-}
-
-interface SecretListResponse {
-  secrets: SecretManagerSecret[];
-  total_count: number;
 }
 
 interface AccessSecretVersionResponse {
@@ -75,14 +70,12 @@ export function createSecretManagerClient(options: SecretManagerClientOptions) {
   return {
     /** Every secret of the project, or of one folder, page by page at the API's page size: a project holds more secrets than one page. */
     async listSecrets(path?: string): Promise<SecretManagerSecret[]> {
-      const secrets: SecretManagerSecret[] = [];
-      for (let page = 1; ; page++) {
+      const url = (page: number) => {
         const query = new URLSearchParams({ project_id: options.projectId, scheduled_for_deletion: 'false', page: String(page) });
         if (path) query.set('path', normalizeSecretPath(path));
-        const response = await scwFetch<SecretListResponse>(auth, 'GET', buildSecretsUrl(options.region, query));
-        secrets.push(...response.secrets);
-        if (response.secrets.length === 0 || secrets.length >= (response.total_count ?? 0)) return secrets;
-      }
+        return buildSecretsUrl(options.region, query);
+      };
+      return scwListAll<SecretManagerSecret>(auth, url, 'secrets', Number.POSITIVE_INFINITY);
     },
 
     /** Every secret at `root` or below. The API's `path` filter is exact-match only, so subtree listing filters client-side over the project listing. */

@@ -1,11 +1,11 @@
 import { sameRules } from '../lib/scaleway/declared-identities';
 import { resolveDnsProjectIds } from '../lib/scaleway/dns-zone-project';
-import { IAM_BASE, type IamAuth } from '../lib/scaleway/iam-client';
+import { IAM_BASE, type LiveRule } from '../lib/scaleway/iam-client';
 import { DNS_PERMISSION_SETS, OPERATOR_ORG_PERMISSION_SETS, OPERATOR_PROJECT_PERMISSION_SETS } from '../lib/scaleway/permissions';
-import { type LivePolicy, type LiveRule, type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
+import { type LivePolicy, type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
 import { type AppPrincipalNames, appPrincipalNames } from '../lib/scaleway/principals';
 import { addApplicationToGroup, ensureApplication, ensureGroup, type PolicyRule } from '../lib/scaleway/scaleway-iam';
-import { scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
+import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 import { changeMark, checkMark, warningMark } from '../lib/utils/cli-output';
 
 export interface SetupOperatorsOptions {
@@ -60,7 +60,7 @@ export function operatorRules(opts: { projectIds: readonly string[]; organizatio
  * of that name bound to another principal is left alone and named: it is fixed in the console. Needs IAM write and read: an Owner key.
  */
 async function writeOperatorsPolicy(
-  auth: IamAuth,
+  auth: ScwAuth,
   organizationId: string,
   policy: { name: string; groupId: string; rules: PolicyRule[] },
   live: LivePolicy | undefined,

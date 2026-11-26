@@ -46,7 +46,7 @@ async function writeOperators(
  * A run rewrites the policy in place: the caller is the organization Owner (or another IAMManager principal). A new environment is
  * added by its setup.
  */
-export async function runOperatorKey(context: InfraContext): Promise<void> {
+export async function runOperators(context: InfraContext): Promise<void> {
   const { appConfig, projectId } = context;
   const mode = context.environment;
   const names = allPrincipalNames(appConfig, mode);
@@ -66,7 +66,7 @@ export async function runOperatorKey(context: InfraContext): Promise<void> {
 
 /**
  * Make sure the app's operators reach this environment, at an Owner moment: the application, the group and its policy are written as
- * declared, with this environment's project added to the projects they reach today, so a key of either keeps working.
+ * declared, with this environment's project added to the projects they reach today. A key of either then keeps working.
  */
 export async function ensureOperatorForEnvironment(context: InfraContext, ownerKey: OwnerKey, projectId: string): Promise<void> {
   const names = appPrincipalNames(context.appConfig.appSlug);

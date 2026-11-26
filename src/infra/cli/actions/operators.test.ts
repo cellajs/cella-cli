@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { operatorReach } from './operator-key';
+import { operatorReach } from './operators';
 
 describe('operatorReach', () => {
   it('reaches the environment the action runs for, then every other one that has a project', () => {

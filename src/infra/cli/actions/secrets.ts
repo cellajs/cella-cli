@@ -1,14 +1,13 @@
 import { blockedValues } from '../../lib/deploy/failure-class';
-import { bucketRunStore } from '../../lib/deploy/run-store';
 import { type ManagedKeyDefinition, managedKeys } from '../../lib/managed-keys';
 import { deriveInfra } from '../../lib/naming';
 import { actionLabel } from '../../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../../lib/runtime-secrets';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { makeS3Client, stateKeyOf } from '../../lib/scaleway/s3-client';
+import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { createSecretManagerClient, type SecretManagerSecret } from '../../lib/scaleway/scaleway-secret-manager';
 import { controlActor, makeControlClient, recordRotation } from '../../lib/stack/control-store';
-import { checkMark, hasPerson, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
+import { checkMark, pc, tildeMark, warningMark } from '../../lib/utils/cli-output';
 import { isEnvFileDeliverable } from '../../lib/utils/env-file';
 import { errorMessage } from '../../lib/utils/errors';
 import {
@@ -23,21 +22,12 @@ import {
 } from '../../tasks/manage-runtime-secrets';
 import { provisionManagedKey } from '../../tasks/provision-managed-key';
 import { BACK, type MenuChoice, RULE } from '../menu';
-import { isPromptAbort } from '../prompts/abort';
 import { confirm, PromptBack } from '../prompts/back';
 import { maskedSecret } from '../prompts/masked-secret';
 import { ESCAPED, type MenuSelectOptions, menuSelect } from '../prompts/menu-select';
 import { leaveRow } from '../prompts/what-now';
-import {
-  ActionEnded,
-  acquireStackLockOrExit,
-  autoAcceptDefaults,
-  confirmOrDefault,
-  endsAction,
-  type InfraContext,
-  pointTo,
-  stackNameFor,
-} from '../shared';
+import { acquireStackLockOrEnd, asksPerson, confirmOrDefault, endsAction, type InfraContext, pointTo, stackNameFor } from '../shared';
+import { bootDiagOn } from './deploy-follow';
 import { acquireIdentityKey, acquireOperatorKey, type OperatorKey } from './operator-unlock';
 import { type OwnerKey, printRevokeReminder } from './owner-key';
 import { lastSecretsRotation, runRotateSecrets } from './rotate-secrets';
@@ -183,7 +173,7 @@ async function handleMint(ctx: MenuContext, key: ManagedKeyDefinition): Promise<
     ctx.log(`${checkMark} Minted ${key.label}`);
   } catch (error) {
     // Esc or Ctrl-C at the Owner key prompt leaves the mint as at any other prompt.
-    if (error instanceof PromptBack || error instanceof ActionEnded || isPromptAbort(error)) throw error;
+    if (endsAction(error)) throw error;
     ctx.log(`${warningMark} Mint failed: ${errorMessage(error)}`);
   }
 }
@@ -331,9 +321,7 @@ export async function secretsMenu(options: SecretsMenuOptions): Promise<{ change
 
 /** The newest deploy when it ended blocked on values no secret holds, read on the observer key: its target and those env vars. */
 async function blockedOnValues(context: InfraContext, observer: KeyPair): Promise<{ target: string; values: string[] } | undefined> {
-  const key = stateKeyOf(observer, context.projectId);
-  const s3 = await makeS3Client(context.appConfig.s3.region, key.accessKey, key.secretKey);
-  const store = bucketRunStore(s3, deriveInfra(context.appConfig).naming.bootDiagBucket);
+  const { store } = await bootDiagOn(context, observer);
   const [run] = await store.listRuns(1);
   const record = run ? (await store.readRecord(run))?.newest : undefined;
   const values = record?.outcome === 'blocked' ? blockedValues(record.error) : [];
@@ -348,7 +336,7 @@ async function recordValuesChange(context: InfraContext, operator: OperatorKey):
   const { appConfig } = context;
   const stack = stackNameFor(context);
   const state = stateKeyOf(operator, context.projectId);
-  const lock = await acquireStackLockOrExit({ appConfig, ...state, stack, operation: 'record-values' });
+  const lock = await acquireStackLockOrEnd({ appConfig, ...state, stack, operation: 'record-values' });
   try {
     const s3 = await makeControlClient(appConfig.s3.region, state.accessKey, state.secretKey);
     const rotations = await recordRotation({ s3, bucket: deriveInfra(appConfig).naming.bootDiagBucket, stack, kind: 'values', by: controlActor() });
@@ -410,7 +398,7 @@ export async function runSecrets(context: InfraContext): Promise<void> {
       )
     : undefined;
   let identityKey: OwnerKey | undefined;
-  const pick = hasPerson() && !autoAcceptDefaults();
+  const pick = asksPerson();
 
   const outcome = await secretsMenu({
     readKey: reader.secretKey,

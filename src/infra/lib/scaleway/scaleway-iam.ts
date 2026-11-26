@@ -1,6 +1,15 @@
 import { changeMark, checkMark, tildeMark } from '../utils/cli-output';
 import { errorMessage } from '../utils/errors';
-import { createApiKey, deleteApiKey, IAM_BASE, listApiKeys, listOrganizationPolicies, resolveApplicationIdByName } from './iam-client';
+import {
+  createApiKey,
+  deleteApiKey,
+  findPolicy,
+  IAM_BASE,
+  type IamPolicy,
+  listApiKeys,
+  listOrganizationPolicies,
+  resolveApplicationIdByName,
+} from './iam-client';
 import { principalNames, principalTags } from './principals';
 import { scwErrorStatus, scwFetch, scwSend } from './scw-fetch';
 
@@ -15,10 +24,6 @@ function isAlreadyExists(error: unknown): boolean {
 }
 
 interface ScwApp {
-  id: string;
-  name: string;
-}
-interface ScwPolicy {
   id: string;
   name: string;
 }
@@ -106,7 +111,7 @@ async function writeApplicationPolicy(
   const log = opts.log ?? ((msg) => console.info(msg));
   const policyName = `${app.name}-policy`;
   try {
-    const existingId = await findPolicyIdByName(callerSecretKey, organizationId, policyName);
+    const existingId = (await findPolicy({ secretKey: callerSecretKey }, organizationId, policyName))?.id;
     if (existingId) {
       await scwSend({ secretKey: callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${existingId}`);
       log(`  ${tildeMark} Removed existing policy: ${policyName} (recreating with current rules)`);
@@ -116,7 +121,7 @@ async function writeApplicationPolicy(
     log(`  ${tildeMark} Cannot list policies (IAMManager without IAMReadOnly): creating '${policyName}' directly`);
   }
   try {
-    await scwFetch<ScwPolicy>({ secretKey: callerSecretKey }, 'POST', `${IAM_BASE}/policies`, {
+    await scwFetch<IamPolicy>({ secretKey: callerSecretKey }, 'POST', `${IAM_BASE}/policies`, {
       name: policyName,
       organization_id: organizationId,
       application_id: app.id,
@@ -171,16 +176,6 @@ export async function provisionScopedKey(opts: ProvisionScopedKeyOptions, config
   });
   const key = await mintApplicationKey(opts, app, config.suffix);
   return { ...key, applicationId: app.id, organizationId: opts.organizationId };
-}
-
-/** An IAM policy's id by its exact name within an organization, or undefined: the name filter narrows the list, and the name decides. */
-async function findPolicyIdByName(secretKey: string, organizationId: string, name: string): Promise<string | undefined> {
-  const { policies } = await scwFetch<{ policies: ScwPolicy[] }>(
-    { secretKey },
-    'GET',
-    `${IAM_BASE}/policies?organization_id=${organizationId}&policy_name=${encodeURIComponent(name)}&page_size=20`,
-  );
-  return policies.find((p) => p.name === name)?.id;
 }
 
 /** An IAM group as the API lists it, with its members. */
@@ -329,7 +324,7 @@ export async function removeBootstrapDnsGrant(opts: {
 }): Promise<boolean> {
   const log = opts.log ?? ((msg) => console.info(msg));
   const policyName = `${opts.slug}-bootstrap-dns`;
-  const id = await findPolicyIdByName(opts.callerSecretKey, opts.organizationId, policyName);
+  const id = (await findPolicy({ secretKey: opts.callerSecretKey }, opts.organizationId, policyName))?.id;
   if (!id) return false;
   await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${IAM_BASE}/policies/${id}`);
   log(`  ${tildeMark} Removed org-wide bootstrap DNS grant '${policyName}'`);

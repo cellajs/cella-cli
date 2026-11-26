@@ -35,7 +35,10 @@ export type MenuItem<T extends string> = MenuChoice<T> | { group: string } | Sep
 export const RULE = new Separator(pc.dim('─'.repeat(40)));
 
 export const BACK = 'back';
+/** The value of the row that quits the CLI: the main menu's, and the frame's after a first setup. */
 export const QUIT = 'quit';
+/** The label of the row that returns to the menu. */
+export const backToMenuLabel = '← Back to menu';
 /** The value of the row that runs the recommended step. */
 export const UP_NEXT = 'up-next';
 
@@ -136,5 +139,5 @@ export function pickItems(id: MenuRowId, state: MenuState): Array<MenuItem<Opera
       items.push({ name: pickName(action, width, Boolean(reason)), value: action, ...(reason ? { disabled: `(${reason})` } : {}) });
     }
   }
-  return [...items, RULE, { name: '← Back to menu', value: BACK }];
+  return [...items, RULE, { name: backToMenuLabel, value: BACK }];
 }

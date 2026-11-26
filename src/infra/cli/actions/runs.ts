@@ -10,7 +10,6 @@ import {
 import { classifyRun, scalewayStatus } from '../../lib/deploy/failure-class';
 import { commitRefs } from '../../lib/deploy/git-remote';
 import {
-  findJobDefinition,
   isScheduledRun,
   type JobDefinitionFacts,
   type JobRun,
@@ -30,12 +29,13 @@ import { deployedServices } from '../../lib/services';
 import { type LockInfo, leaseHeldByRun, lockKey, makeControlClient, peekLock } from '../../lib/stack/control-store';
 import { runOverrides } from '../../lib/status/providers/runs';
 import { getFlag } from '../../lib/utils/args';
-import { crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
+import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { BACK, RULE } from '../menu';
 import { PromptBack } from '../prompts/back';
 import { ESCAPED, menuSelect } from '../prompts/menu-select';
-import { autoAcceptDefaults, endAction, type InfraContext, pointTo } from '../shared';
+import { asksPerson, endAction, type InfraContext, pointTo } from '../shared';
+import { findMainJob } from './start-deploy';
 
 const LIST_LENGTH = 10;
 const LOG_TAIL = 40;
@@ -269,7 +269,7 @@ export async function runRuns(context: InfraContext): Promise<void> {
   }
   const auth = { secretKey: observer.secretKey };
   const read = async (): Promise<{ jobRuns: JobRun[]; definition?: JobDefinitionFacts }> => {
-    const definitionId = await findJobDefinition(auth, { region, projectId: context.projectId, name: naming.resource('main') });
+    const definitionId = await findMainJob(context, observer);
     if (!definitionId) return { jobRuns: [] };
     const [jobRuns, definition] = await Promise.all([
       listJobRuns(auth, { region, projectId: context.projectId, definitionId }),
@@ -288,7 +288,7 @@ export async function runRuns(context: InfraContext): Promise<void> {
   const lock = await peekLock(control, naming.bootDiagBucket, lockKey(context.environment)).catch(() => undefined);
   console.info(pc.dim(`\n${actionLabel('logs')} of ${context.environment}, newest first:\n`));
   await showRuns(bucketRunStore(s3, naming.bootDiagBucket), {
-    pick: hasPerson() && !autoAcceptDefaults(),
+    pick: asksPerson(),
     jobRuns,
     definition,
     environment: context.environment,

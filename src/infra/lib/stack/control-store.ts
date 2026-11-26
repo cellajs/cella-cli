@@ -265,6 +265,11 @@ export function leaseDeploys(info: { owner?: string; operation?: string }): bool
   return Boolean(info.owner?.startsWith('run:') && info.operation === DEPLOY_OPERATION);
 }
 
+/** True while a lease runs at `now`. One at or past its `expiresAt`, or whose expiry does not parse, is broken by the next acquire. */
+export function leaseLive(info: Pick<LockInfo, 'expiresAt'>, now = Date.now()): boolean {
+  return Date.parse(info.expiresAt) > now;
+}
+
 /** True while a deploy holds a live lease under this run: its record that says running is deploying, and interrupted otherwise. */
 export function leaseHeldByRun(lock: { owner?: string; operation?: string; expiresAt?: string } | undefined, run: string, now = Date.now()): boolean {
   return lock?.owner === leaseOwnerOfRun(run) && lock.operation === DEPLOY_OPERATION && Date.parse(lock.expiresAt ?? '') > now;
@@ -356,7 +361,7 @@ export async function acquireLock(
   }
   // A lock object exists; break it only if it has expired.
   const { info: held, etag } = await readLock(s3, bucket, key);
-  if (held && Date.parse(held.expiresAt) > now && !(opts.adopt && held.owner === opts.owner)) return { acquired: false, held };
+  if (held && leaseLive(held, now) && !(opts.adopt && held.owner === opts.owner)) return { acquired: false, held };
   try {
     await putLock(s3, bucket, key, info, conditionOn(etag));
     return { acquired: true, info };
