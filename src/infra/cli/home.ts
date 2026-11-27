@@ -121,7 +121,7 @@ function securityFindings(report: StatusReport): Check[] {
 
 /**
  * The step the report recommends, as the menu runs it: a next action whose command names one action of the CLI, a failed or blocked
- * deploy's log named by its release; else following the deploy under way (Deploy now follows it); else the full status when the security
+ * deploy's log named by its release; else following the deploy under way (`deploy-now` follows it); else the full status when the security
  * checks found something, which name no command of their own (the console deletes what they find).
  */
 export function upNextOf(report: StatusReport, refs?: readonly RemoteRef[]): UpNext | undefined {

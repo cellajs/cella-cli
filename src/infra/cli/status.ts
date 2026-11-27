@@ -1,3 +1,4 @@
+import { commandTitle } from '../../utils/display';
 import { terminalColumns, visibleWidth } from '../../utils/layout';
 import { commitRefs } from '../lib/deploy/git-remote';
 import { commitName, type RemoteRef } from '../lib/deploy/target';
@@ -92,7 +93,7 @@ function okLines(checks: readonly Check[], refs?: readonly RemoteRef[]): string[
  * be read, and the ok checks folded into one line per group.
  */
 export function formatReport(report: StatusReport, refs?: readonly RemoteRef[]): string {
-  const lines = [pc.bold('Full status'), divider];
+  const lines = [commandTitle('infra', 'status'), divider];
   const toFix = report.checks.filter((check) => check.status !== 'ok' && check.status !== 'unknown');
   const unknown = report.checks.filter((check) => check.status === 'unknown');
   if (toFix.length > 0)
@@ -144,7 +145,7 @@ function recentReport(mode: string): StatusReport | undefined {
   return lastReport;
 }
 
-/** The inventory alone (`inventory.*`), as Rotate keys prints it at its end: what remains beside the declared identities and machines. */
+/** The inventory alone (`inventory.*`), as `rotate-keys` prints it at its end: what remains beside the declared identities and machines. */
 export async function printInventory(context: Parameters<typeof runStatus>[0]): Promise<void> {
   const report = await buildReport({
     mode: context.environment,

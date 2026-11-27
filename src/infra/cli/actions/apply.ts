@@ -1,4 +1,3 @@
-import { actionLabel } from '../../lib/operator-actions';
 import { crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { discardEngine, type PublishedEngine, publishEngine } from '../../tasks/publish-engine';
@@ -31,7 +30,7 @@ export async function endOnOpenDbEndpoint(context: InfraContext, secretKey: stri
  * The plan is made before the lease is taken, so it is taken only for a plan the operator said yes to.
  */
 export async function runApply(context: InfraContext): Promise<void> {
-  console.info(pc.dim(`\n${actionLabel('apply')}: plan what differs between code and live stack and apply it.\n`));
+  console.info(pc.dim('\napply: plan what differs between code and live stack and apply it.\n'));
 
   // The plan is made before the lock, so the operator says yes before anything is held; the lock comes with the `up`.
   const operator = await acquireAdmittedOperatorKey(context);

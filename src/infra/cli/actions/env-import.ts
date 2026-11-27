@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { actionLabel } from '../../lib/operator-actions';
+import { commandTitle } from '../../../utils/display';
 import { runtimeSecrets } from '../../lib/runtime-secrets';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { createSecretManagerClient, type SecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
@@ -37,7 +37,7 @@ export interface EnvImportOptions {
 export async function importEnvFile(options: EnvImportOptions): Promise<{ changed: boolean }> {
   const log = options.log ?? ((message) => console.info(message));
   const scope = { region: options.region, projectId: options.projectId };
-  log(`\n${pc.bold(actionLabel('env-import'))}`);
+  log(`\n${commandTitle('infra', 'env-import')}`);
   log(pc.dim('For a move from another host, such as the file heroku config -s writes.\n'));
   const path = (await options.prompts.input({ message: 'File' })).trim();
   if (!path) {

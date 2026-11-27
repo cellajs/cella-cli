@@ -73,7 +73,7 @@ export interface Finding {
 
 export interface InventoryFindings {
   applications: Finding[];
-  /** An extra key that Rotate keys removes, or a person's key without an end date. */
+  /** An extra key that `rotate-keys` removes, or a person's key without an end date. */
   keys: Finding[];
   /** A key of the operator that outlives a day, which the console deletes: the CLI takes none such. */
   operatorKeys: Finding[];
@@ -246,7 +246,7 @@ function mainJobVerdict(
   if (applied === undefined) return builder.warn('the applied engine (applied.json) could not be read');
   if (applied === null) {
     const verdict = builder.error(`runs ${mainJob.imageUri}, which no apply recorded publishing`, {
-      description: 'Review & apply changes publishes the engine image and points the main job at it',
+      description: 'An apply publishes the engine image and points the main job at it',
       command: actionCommand('apply'),
     });
     return { ...verdict, headline: 'runs an image no apply published' };
@@ -263,7 +263,7 @@ function mainJobVerdict(
   return { ...builder.ok('runs the declared script, image, env and secret references'), headline: 'deploy job as declared' };
 }
 
-/** The environment's expectation, from the identities Update identities writes and the app's own. */
+/** The environment's expectation, from the identities `identities` writes and the app's own. */
 function expectationOf(appConfig: { slug: string; appSlug: string }, mode: string, projectId: string): InventoryExpectation {
   const app = appPrincipalNames(appConfig.appSlug);
   const declared = Object.fromEntries([
@@ -315,7 +315,7 @@ async function looseVolumes(
 
 /**
  * The inventory: what can act in the environment and what runs in its project, against what the code declares, read on
- * the observer key, and the machines on the operator key when the run holds it. Rotate keys deletes every key beside the declared ones; an
+ * the observer key, and the machines on the operator key when the run holds it. `rotate-keys` deletes every key beside the declared ones; an
  * application, a policy or a machine the engine did not make is removed in the console once it is known who made it.
  */
 export const inventoryProvider: StatusProvider<InventoryFacts> = {
@@ -408,7 +408,7 @@ export const inventoryProvider: StatusProvider<InventoryFacts> = {
       findings.length === 0
         ? { ...builder.ok(fine[0]), headline: fine[1] }
         : { ...builder.error(findings.map((finding) => finding.detail).join('; ')), ...found, items: findings.map((finding) => finding.item) };
-    const rotate = { description: 'Rotate keys deletes every key beside the declared ones', command: actionCommand('rotate-keys') };
+    const rotate = { description: 'A key rotation deletes every key beside the declared ones', command: actionCommand('rotate-keys') };
     const unknownMaker = 'remove each in the Scaleway console once you know who made it';
     return [
       item('inventory.applications', 'Applications', (b, { found }) =>

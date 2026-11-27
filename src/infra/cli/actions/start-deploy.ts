@@ -9,7 +9,6 @@ import { commitRecords } from '../../lib/deploy/run-store';
 import { rotationTarget } from '../../lib/deploy/scheduled-run';
 import { commitName, environmentsFile, parseEnvironmentsFile, resolveTarget, type Target } from '../../lib/deploy/target';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { listJobRuns, runEnded, startJobRun } from '../../lib/scaleway/serverless-jobs';
 import { leaseDeploys, leaseLive, lockKey, peekLock } from '../../lib/stack/control-store';
@@ -34,7 +33,7 @@ export async function runStartDeploy(context: InfraContext, opts: { asked?: bool
     return endAction(1);
   }
   const name = commitName(await commitRefs(), target.sha);
-  if (target.retry > 0) console.info(pc.dim(`\n${actionLabel('deploy-now')}: ${name} to ${environment}, retry ${target.retry}.\n`));
+  if (target.retry > 0) console.info(pc.dim(`\ndeploy-now: ${name} to ${environment}, retry ${target.retry}.\n`));
   // A deploy under way is followed, not doubled: the observer key finds it without a paste, the operator key once it is in hand.
   const observer = resolveOperatorIdentity().observer;
   if (observer && (await followIfLive(context, observer)) === 'deployed') return;
@@ -191,7 +190,7 @@ async function targetHasRun(context: InfraContext, key: KeyPair, live: string, t
 
 /**
  * Start the environment's main job again for the target whose last deploy ended blocked or apply needed, on the operator key: the apply,
- * or Env vars & secrets for a missing secret, does it at its end, as a scheduled run never starts a target and retry counter that have
+ * or `env` for a missing secret, does it at its end, as a scheduled run never starts a target and retry counter that have
  * a record. The last deploy is the newest record, or a newer job run started by hand that exited blocked and wrote no record. Nothing while a
  * deploy holds the lease, or when the last deploy ended otherwise; a target that moved on since is the schedule's. The lease decides, not
  * the run list: a scheduled run looks for seconds every cadence and deploys nothing. A start by hand still queued holds no lease, so the

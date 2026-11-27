@@ -16,7 +16,6 @@ import { type Growth, type RunRecord, rewriteNote, runSummaryLine, stepLine, wro
 import { bucketRunStore, type RunStore } from '../../lib/deploy/run-store';
 import { commitName, type RemoteRef } from '../../lib/deploy/target';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { makeS3Client, projectAccessKey } from '../../lib/scaleway/s3-client';
 import {
@@ -252,9 +251,7 @@ async function showMachines(reader: BootAccountReader, services: readonly string
 export async function runRuns(context: InfraContext): Promise<void> {
   const { observer } = resolveOperatorIdentity();
   if (!observer) {
-    console.error(
-      `${crossMark} ${actionLabel('logs')} reads with the observer key, and this machine has none: ${pointTo('identities')} puts one here.`,
-    );
+    console.error(`${crossMark} "logs" reads with the observer key, and this machine has none: ${pointTo('identities')} puts one here.`);
     return endAction(1);
   }
   const { naming, region } = deriveInfra(context.appConfig);
@@ -287,7 +284,7 @@ export async function runRuns(context: InfraContext): Promise<void> {
   ]);
   const control = await makeControlClient(context.appConfig.s3.region, projectAccessKey(observer.accessKey, context.projectId), observer.secretKey);
   const lock = await peekLock(control, naming.bootDiagBucket, lockKey(context.environment)).catch(() => undefined);
-  console.info(pc.dim(`\n${actionLabel('logs')} of ${context.environment}, newest first:\n`));
+  console.info(pc.dim(`\nDeploys of ${context.environment}, newest first:\n`));
   await showRuns(bucketRunStore(s3, naming.bootDiagBucket), {
     pick: asksPerson(),
     jobRuns,

@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { actionLabel } from '../../lib/operator-actions';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { repoRoot } from '../../lib/utils/paths';
@@ -24,7 +23,7 @@ export async function runSeedDatabase(context: InfraContext): Promise<void> {
     console.error(`${crossMark} Could not detect your public IP; use ${pointTo('db-open')} + manual seeding instead.`);
     endAction(1);
   }
-  console.info(pc.dim(`\n${actionLabel('db-seed')}: open the endpoint to ${detected}/32, run the backend seeds, close it.\n`));
+  console.info(pc.dim(`\ndb-seed: open the endpoint to ${detected}/32, run the backend seeds, close it.\n`));
   if (!(await confirm({ message: `Seed the ${context.environment} database now?`, default: false }))) {
     console.info('Aborted; no changes made.');
     return;

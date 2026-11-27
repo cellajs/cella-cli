@@ -2,6 +2,9 @@ import process from 'node:process';
 import { styleText } from 'node:util';
 
 type ColorStyle =
+  | 'bgCyan'
+  | 'bgRed'
+  | 'black'
   | 'blue'
   | 'bold'
   | 'cyan'
@@ -29,6 +32,9 @@ function applyStyle(style: ColorStyle, text: string): string {
 }
 
 const pc = {
+  bgCyan: (text: string) => applyStyle('bgCyan', text),
+  bgRed: (text: string) => applyStyle('bgRed', text),
+  black: (text: string) => applyStyle('black', text),
   blue: (text: string) => applyStyle('blue', text),
   bold: (text: string) => applyStyle('bold', text),
   cyan: (text: string) => applyStyle('cyan', text),

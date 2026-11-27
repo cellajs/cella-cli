@@ -1,6 +1,5 @@
 import { spawn } from 'node:child_process';
 import { rerunReleaseCheck } from '../../lib/deploy/release-gate';
-import { actionLabel } from '../../lib/operator-actions';
 import { shutOutOfBuckets } from '../../lib/scaleway/bucket-admission';
 import { describeKey } from '../../lib/scaleway/operator-identity';
 import { appPrincipalNames } from '../../lib/scaleway/principals';
@@ -71,7 +70,7 @@ async function infraTask(env: NodeJS.ProcessEnv, task: string, words: string[]):
 }
 
 /**
- * The operator apply shared by "Review & apply changes", the DB access actions, and seeding, in order: take the
+ * The operator apply shared by `apply`, the DB access actions, and seeding, in order: take the
  * operator key and the lease, apply the caller's config mutation, hold the plan against what the operator confirmed, then `pulumi up` with
  * an orphan-prune/retry loop.
  * Returns the provider env and stack for reading outputs after the lock releases, and exits the process on hard failures before the `up` loop.
@@ -267,7 +266,7 @@ async function shutOutOfBucketsSaid(context: InfraContext, key: { accessKey: str
   if (!shutOut) return false;
   const names = appPrincipalNames(context.appConfig.appSlug);
   console.error(
-    `${warningMark} The bucket policies of ${context.environment} do not name ${operator.name} yet: the first "${actionLabel('apply')}" since you joined '${names.operators}' runs on a key of '${names.operator}', or of a member they name, and writes you in. Paste that key.`,
+    `${warningMark} The bucket policies of ${context.environment} do not name ${operator.name} yet: the first apply since you joined '${names.operators}' runs on a key of '${names.operator}', or of a member they name, and writes you in. Paste that key.`,
   );
   return true;
 }

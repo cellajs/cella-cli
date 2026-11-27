@@ -20,7 +20,7 @@ export interface IdentityChanges {
   extraPolicies: ExtraPolicy[];
 }
 
-/** The policies on the declared identities beside the declared ones: each widens what its identity may do, so Update identities deletes it. */
+/** The policies on the declared identities beside the declared ones: each widens what its identity may do, so `identities` deletes it. */
 async function extraPolicies(auth: ScwAuth, organizationId: string, declared: readonly DeclaredPolicy[]): Promise<ExtraPolicy[]> {
   const ids = new Map<string, string>();
   for (const policy of declared) {
@@ -36,7 +36,7 @@ async function extraPolicies(auth: ScwAuth, organizationId: string, declared: re
 
 /**
  * The identity plan: where the deploy key and the uploads application differ from what the environment's code declares, in their
- * applications, policies and the uploads key. Read with any key that reads IAM and secret metadata; nothing is written. The apply reads it at its start, and Update identities writes what it names.
+ * applications, policies and the uploads key. Read with any key that reads IAM and secret metadata; nothing is written. The apply reads it at its start, and `identities` writes what it names.
  */
 export async function planIdentityChanges(opts: {
   auth: ScwAuth;

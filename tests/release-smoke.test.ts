@@ -18,7 +18,6 @@ const subpathExports: Record<string, string[]> = {
   // An app's infra workspace runs these: the Pulumi program, and the engine its own tests check files against
   './infra/program': [],
   './infra/contract': [
-    'actionLabel',
     'appServices',
     'documentedTasks',
     'engineAssetsDir',

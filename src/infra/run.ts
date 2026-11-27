@@ -37,10 +37,11 @@ function usageError(args: CliArgs): string | undefined {
 
 /**
  * Runs a task, or the infra CLI with every other first word: the CLI ends the process itself, after a prompt aborted at its
- * top level too. The help and a command line the CLI refuses are answered before the CLI's import loads the app's config.
- * @returns a task's exit code, 0 after the help, 2 for a command line the CLI refuses
+ * top level too. The help and a command line the CLI refuses are answered before the CLI's import loads the app's config. With `back`,
+ * the package menu opened the CLI, and its menu's `← Back` returns here.
+ * @returns a task's exit code, 0 after the help or a step back, 2 for a command line the CLI refuses
  */
-export async function runInfra(words: string[]): Promise<number> {
+export async function runInfra(words: string[], { back = false } = {}): Promise<number> {
   const [first = '', ...rest] = words;
   const task = Object.hasOwn(tasks, first) ? tasks[first] : undefined;
   if (task) return runTask(task, rest);
@@ -56,7 +57,7 @@ export async function runInfra(words: string[]): Promise<number> {
   }
   const { runInfraCli } = await import('./cli/infra-cli');
   try {
-    await runInfraCli(args);
+    await runInfraCli({ ...args, back });
   } catch (error) {
     // A rejection at the CLI's top level ends here, and the CLI's uncaught-exception handler never sees it
     const { endIfPromptAbort } = await import('./cli/prompts/abort');

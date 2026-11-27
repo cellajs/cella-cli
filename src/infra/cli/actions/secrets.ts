@@ -1,8 +1,8 @@
+import { commandTitle } from '../../../utils/display';
 import { escaped, type MenuChoice, type MenuSelectOptions, menuSelect, rule } from '../../../utils/menu';
 import { blockedValues } from '../../lib/deploy/failure-class';
 import { type ManagedKeyDefinition, managedKeys } from '../../lib/managed-keys';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { type RuntimeSecretDefinition, runtimeSecrets } from '../../lib/runtime-secrets';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
@@ -58,7 +58,7 @@ export interface SecretsMenuOptions {
   notice?: Promise<string | undefined>;
   /** The last rotation of the values infra makes, read while the table is, as {@link lastSecretsRotation} gives it. */
   rotation?: Promise<string | null | undefined>;
-  /** Rotate secrets, which the row of the values infra makes opens: true when it rotated. */
+  /** `rotate-secrets`, which the row of the values infra makes opens: true when it rotated. */
   rotate: () => Promise<boolean>;
   prompts: SecretsPrompts;
   log?: (message: string) => void;
@@ -248,7 +248,7 @@ function rowDescription(row: SecretRow): string {
 
 /**
  * The operator values of one environment as one table, a row per group, read with `readKey`; a picked row opens its values, and the first
- * write asks for the operator key. The values infra makes are one row, which opens Rotate secrets and shows when it last ran. Esc or the
+ * write asks for the operator key. The values infra makes are one row, which opens `rotate-secrets` and shows when it last ran. Esc or the
  * last row ends the table, as does a rotation.
  * @returns Whether a value changed, and whether the secrets were rotated.
  */
@@ -267,7 +267,7 @@ export async function secretsMenu(options: SecretsMenuOptions): Promise<{ change
   };
 
   const [read, notice, rotation] = await Promise.all([readContainers(reader), options.notice, options.rotation]);
-  ctx.log(pc.bold(actionLabel('env')));
+  ctx.log(commandTitle('infra', 'env'));
   ctx.log(pc.dim(takesEffect));
   ctx.log('');
   if (notice) ctx.log(`${notice}\n`);

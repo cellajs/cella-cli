@@ -1,11 +1,13 @@
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import type { Command } from '../command';
-import { handOverSignals } from '../utils/signals';
+import { handOverSignals, installSignalHandlers } from '../utils/signals';
 import { infraHelp } from './cli/help';
 
 interface InfraOptions {
   words: string[];
+  /** The package menu opened the engine: its menu ends on `← Back`, which returns to the package menu. */
+  back: boolean;
 }
 
 /** The app's description, relative to its root. */
@@ -35,8 +37,8 @@ export const infraCommand: Command<InfraOptions> = {
   outsideGit: true,
   jobs: [],
   passthrough: ['words', 'an action and its options, or a task by its name'],
-  parse: ({ passthrough }) => ({ words: passthrough }),
-  run: async (dir, { words }) => {
+  parse: ({ passthrough, menu }) => ({ words: passthrough, back: menu === true }),
+  run: async (dir, { words, back }) => {
     if (!hasInfraFolder(dir)) throw new Error(`this app has no infra: ${description} is missing`);
     // The engine finds the app root from the working directory: this folder, or two up when it is the cella/infra folder
     process.chdir(dir);
@@ -45,6 +47,9 @@ export const infraCommand: Command<InfraOptions> = {
     // The engine ends its own work on ctrl-c, a stack lease among it, and then the process
     handOverSignals();
     const { runInfra } = await import('./run');
-    return runInfra(words);
+    const code = await runInfra(words, { back });
+    // Back in the package menu, ctrl-c runs the cleanups of the package's commands again
+    if (back) installSignalHandlers();
+    return code;
   },
 };

@@ -9,7 +9,6 @@ import { parseReleaseManifest, type ReleaseManifest, releaseManifestKey } from '
 import { type RunRecord, runOutcomeText } from '../../lib/deploy/run-record';
 import type { RunStore } from '../../lib/deploy/run-store';
 import { commitName, environmentsFile, type RemoteRef, sortedReleases } from '../../lib/deploy/target';
-import { actionLabel } from '../../lib/operator-actions';
 import { type KeyPair, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
 import { isAccessDenied } from '../../lib/scaleway/s3-client';
 import { readObjectText, readRotations, storedBeforeKeyRotation } from '../../lib/stack/control-store';
@@ -119,9 +118,7 @@ function deployable(tag: string, manifest: ReleaseManifest | undefined, applied:
 export async function runReleases(context: InfraContext): Promise<void> {
   const { observer } = resolveOperatorIdentity();
   if (!observer) {
-    console.error(
-      `${crossMark} ${actionLabel('releases')} reads with the observer key, and this machine has none: ${pointTo('identities')} puts one here.`,
-    );
+    console.error(`${crossMark} "releases" reads with the observer key, and this machine has none: ${pointTo('identities')} puts one here.`);
     return endAction(1);
   }
   const environment = context.environment;
@@ -142,7 +139,7 @@ export async function runReleases(context: InfraContext): Promise<void> {
   if (rows.length === 0) return console.info('The repository has no release yet: a tag such as 0.1.0 publishes one.');
   const serves = (row: ReleaseRow) => live !== undefined && row.sha.startsWith(live);
   const width = Math.max(...rows.map((row) => row.tag.length), 'VERSION'.length) + 2;
-  console.info(pc.dim(`\n${actionLabel('releases')} of ${environment}, newest first:\n`));
+  console.info(pc.dim(`\nReleases of ${environment}, newest first:\n`));
   console.info(pc.dim(`  ${'VERSION'.padEnd(width)}${'MERGED'.padEnd(8)}DEPLOY`));
   for (const row of rows) {
     console.info(`  ${row.tag.padEnd(width)}${row.merged.padEnd(8)}${deployText(row)}${serves(row) ? `  ${pc.green('● serving')}` : ''}`);

@@ -1,5 +1,4 @@
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { allPrincipalNames, appPrincipalNames } from '../../lib/scaleway/principals';
 import { projectsOfOtherModes } from '../../lib/stack/project-per-mode';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
@@ -51,7 +50,7 @@ export async function runOperators(context: InfraContext): Promise<void> {
   const mode = context.environment;
   const names = allPrincipalNames(appConfig, mode);
   const reach = operatorReach(mode, projectId, projectsOfOtherModes(mode));
-  console.info(pc.dim(`\n${actionLabel('operators')}: who may run privileged actions.\n`));
+  console.info(pc.dim('\noperators: who may run privileged actions.\n'));
   console.info(`They work in ${reach.map((entry) => `${pc.cyan(entry.mode)} ${pc.dim(`(project ${entry.projectId})`)}`).join(' and ')}.\n`);
   if (!(await confirm({ message: `Set up the operators of ${appConfig.appSlug}?`, default: false }))) {
     console.info('Aborted; nothing changed.');

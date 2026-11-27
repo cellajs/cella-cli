@@ -114,10 +114,11 @@ describe('parseCommandLine', () => {
   it('hands every word after infra to the infra CLI as typed, its help included', () => {
     expect(parse('infra', 'apply', '--mode', 'production', '--once')).toEqual({
       words: ['apply', '--mode', 'production', '--once'],
+      back: false,
     });
-    expect(parse('infra', '--help')).toEqual({ words: ['--help'] });
-    expect(parse('infra', 'status', '--json')).toEqual({ words: ['status', '--json'] });
-    expect(parse('infra')).toEqual({ words: [] });
+    expect(parse('infra', '--help')).toEqual({ words: ['--help'], back: false });
+    expect(parse('infra', 'status', '--json')).toEqual({ words: ['status', '--json'], back: false });
+    expect(parse('infra')).toEqual({ words: [], back: false });
   });
 
   it('reports with a bare audit and writes with audit fix', () => {

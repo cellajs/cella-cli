@@ -43,7 +43,7 @@ describe('runAction', () => {
     await expect(runAction('unlock', context, { runners: broken, keep, log: (line) => lines.push(stripVTControlCharacters(line)) })).resolves.toEqual(
       { code: 1 },
     );
-    expect(lines[0]).toContain('Unlock failed: AccessDenied: the state bucket refused this key');
+    expect(lines[0]).toContain('"unlock" failed: AccessDenied: the state bucket refused this key');
     expect(lines[1]).toContain('/app/cella/infra/.debug/unlock.stack.txt');
     expect(lines).toHaveLength(2);
     expect(keep).toHaveBeenCalledWith('unlock', expect.any(Error));
@@ -66,7 +66,7 @@ describe('runAction', () => {
     await expect(runAction('apply', context, { runners: held, log: (line) => lines.push(stripVTControlCharacters(line)) })).resolves.toEqual({
       code: 1,
     });
-    expect(lines).toEqual(['  Unlock: pnpm cella infra unlock']);
+    expect(lines).toEqual(['  pnpm cella infra unlock: clear the lease a stopped run left']);
   });
 });
 
@@ -78,11 +78,7 @@ describe('runAction in a menu session', () => {
 
     await expect(runAction('apply', context, { runners: runnersOf(runner), choose })).resolves.toEqual({ code: 1, next: 'unlock' });
     expect(runner).toHaveBeenCalledTimes(2);
-    expect(choose.mock.calls[0]?.[0].map((row: { label: string }) => row.label)).toEqual([
-      'Retry Review & apply changes',
-      'Unlock',
-      '← Back to menu',
-    ]);
+    expect(choose.mock.calls[0]?.[0].map((row: { label: string }) => row.label)).toEqual(['Retry apply', 'unlock', '← Back to menu']);
   });
 
   it('returns to the menu on a Ctrl-C or an Esc at a prompt, and offers nothing', async () => {

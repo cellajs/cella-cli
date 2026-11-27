@@ -102,7 +102,7 @@ describe('formatHome', () => {
   it('says when nothing was read for lack of a key, and renders nothing before the setup is done', () => {
     expect(plain(formatHome({ ...healthy, keyConfigured: false }))).toEqual([
       '? Live         not read',
-      '⚠ Not read     this machine has no observer key: "More → Update identities" puts\n               one here',
+      '⚠ Not read     this machine has no observer key: "more › identities" puts one\n               here',
     ]);
     expect(formatHome({ ...healthy, report: { ...healthy.report, stackState: 'partial' } })).toEqual([]);
   });

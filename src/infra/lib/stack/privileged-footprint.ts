@@ -12,7 +12,7 @@ export interface PrivilegedFootprint {
 /** What merging a change owes in one environment: an Owner moment for its identities, an apply for its privileged resources. */
 export interface OwedWork {
   environment: string;
-  /** Applications and policies that are new, gone or changed: **Update identities**, with an Owner API key. */
+  /** Applications and policies that are new, gone or changed: `identities`, with an Owner API key. */
   ownerMoment: string[];
   /** Privileged resources that are new, gone or changed, and the applied description when it changed: an apply, on the operator key. */
   apply: string[];

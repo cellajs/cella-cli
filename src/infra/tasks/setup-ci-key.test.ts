@@ -54,7 +54,7 @@ describe('setupCiKey', () => {
     expect(JSON.parse(appCreate.init.body as string).name).toBe(principalNames(baseOpts.slug, baseOpts.mode).ciDeploy);
 
     const policyCreate = calls.find((c) => c.url.endsWith('/policies') && c.init.method === 'POST')!;
-    // The deploy rules, the same ones Update identities writes in place (lib/scaleway/deploy-policy.ts).
+    // The deploy rules, the same ones `identities` writes in place (lib/scaleway/deploy-policy.ts).
     expect(JSON.parse(policyCreate.init.body as string).rules).toEqual(deployRules({ projectId: 'proj-1' }));
   });
 

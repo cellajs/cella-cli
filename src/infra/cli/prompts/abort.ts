@@ -101,11 +101,14 @@ export function endIfPromptAbort(error: unknown): boolean {
 /**
  * Route every uncaught error of the CLI process: a prompt abort ends the run through {@link endOnPromptAbort}, anything else prints the way
  * Node prints an uncaught error and exits 1. Install it before the first prompt.
+ * @returns the function that takes the handler off again, for a run that hands the process back to the package menu
  */
-export function installPromptAbortHandler(): void {
-  process.on('uncaughtException', (error) => {
+export function installPromptAbortHandler(): () => void {
+  const handler = (error: Error) => {
     if (endIfPromptAbort(error)) return;
     console.error(error);
     process.exit(1);
-  });
+  };
+  process.on('uncaughtException', handler);
+  return () => process.off('uncaughtException', handler);
 }

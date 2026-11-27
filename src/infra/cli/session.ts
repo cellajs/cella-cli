@@ -89,11 +89,17 @@ export function forgetAnswers(): void {
   session.answers.clear();
 }
 
-/** Drop everything the session holds. */
-export function forgetSession(): void {
+/**
+ * Drop everything the session holds, as the package menu does when it takes the run back: the next entry asks for each key again.
+ * @returns the names of the keys it held (`operator`, `Owner`)
+ */
+export function forgetSession(): string[] {
+  const held = [session.operatorKey && 'operator', session.ownerKey && 'Owner'].filter((name) => typeof name === 'string');
   session.ownerKey = undefined;
   session.operatorKey = undefined;
   session.operatorKeyMinted = undefined;
   session.menu = undefined;
+  session.environment = undefined;
   session.answers.clear();
+  return held;
 }

@@ -1,7 +1,6 @@
 import { type MenuItem, rule } from '../../utils/menu';
 import {
   actionCommand,
-  actionLabel,
   type MenuRowId,
   menuPath,
   menuRow,
@@ -32,7 +31,7 @@ export interface MenuState {
 }
 
 export const backChoice = 'back';
-/** The value of the row that quits the CLI: the main menu's, and the frame's after a first setup. */
+/** The value of the row that leaves the CLI, or steps back to the package menu: the main menu's, and the frame's after a first setup. */
 export const quitChoice = 'quit';
 /** The label of the row that returns to the menu. */
 export const backToMenuLabel = '← Back to menu';
@@ -98,9 +97,9 @@ function entryName(id: MenuRowId): string {
 
 /**
  * The main menu: the recommended step and a blank line first when there is one, then every row with its description dim beside it, then
- * the way out. A disabled row shows its reason in place of the description.
+ * the way out: `Quit`, or `← Back` when the package menu opened the CLI. A disabled row shows its reason in place of the description.
  */
-export function mainMenuItems(state: MenuState): Array<MenuItem<MainMenuValue>> {
+export function mainMenuItems(state: MenuState, back = false): Array<MenuItem<MainMenuValue>> {
   const items: Array<MenuItem<MainMenuValue>> = [];
   if (state.upNext) items.push({ name: `${pc.cyan('▶')}  ${state.upNext.description}`, value: upNext }, { group: '' });
   const rows = visibleRows(state);
@@ -116,13 +115,13 @@ export function mainMenuItems(state: MenuState): Array<MenuItem<MainMenuValue>> 
       ...(reason ? { disabled: `(${reason})` } : {}),
     });
   }
-  items.push(rule, { name: 'Quit', value: quitChoice });
+  items.push(rule, { name: back ? '← Back' : 'Quit', value: quitChoice });
   return items;
 }
 
-/** An action's name in a pick: the label padded to the summary column, then its summary dim. A disabled entry shows the label alone, so the reason after it fits the row. */
+/** An action's entry in a pick: its command word padded to the summary column, then its summary dim. A disabled entry shows the word alone, so the reason after it fits the row. */
 function pickName(action: OperatorActionId, width: number, disabled: boolean): string {
-  return disabled ? actionLabel(action) : `${actionLabel(action).padEnd(width)}  ${pc.dim(operatorActions[action].summary)}`;
+  return disabled ? action : `${action.padEnd(width)}  ${pc.dim(operatorActions[action].summary)}`;
 }
 
 /** The sections a row's pick lists its actions in: the More pick's, one for any other row. */
@@ -132,7 +131,7 @@ function pickSections(id: MenuRowId): Array<readonly OperatorActionId[]> {
 
 /** The pick a row with several actions opens: its actions with their summaries, a rule between sections, then the way back. */
 export function pickItems(id: MenuRowId, state: MenuState): Array<MenuItem<OperatorActionId | typeof backChoice>> {
-  const width = Math.max(...menuRow(id).actions.map((action) => actionLabel(action).length));
+  const width = Math.max(...menuRow(id).actions.map((action) => action.length));
   const items: Array<MenuItem<OperatorActionId | typeof backChoice>> = [];
   for (const actions of pickSections(id)) {
     if (items.length) items.push(rule);

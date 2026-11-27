@@ -13,7 +13,7 @@ export async function setupCiKey(opts: SetupCiKeyOptions): Promise<ScopedKeyResu
     suffix: principalSuffixes.ciDeploy,
     appDescription: "The deploy key: the environment's main job deploys with it",
     policyDescription: 'Least-privilege policy for deploys (auto-generated)',
-    // The deploy key's rights (lib/scaleway/deploy-policy.ts), which Update identities also writes in place.
+    // The deploy key's rights (lib/scaleway/deploy-policy.ts), which `identities` also writes in place.
     buildRules: ({ projectId }) => deployRules({ projectId }),
   });
 }

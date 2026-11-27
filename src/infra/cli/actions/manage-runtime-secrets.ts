@@ -103,7 +103,7 @@ export function setValue(client: SecretManagerClient, container: SecretManagerSe
   return client.putSecretValue({
     secretId: container.id,
     value,
-    description: 'Updated by the infra CLI (Env vars & secrets)',
+    description: 'Updated by the infra CLI (pnpm cella infra env)',
     disablePrevious: true,
   });
 }

@@ -1,119 +1,97 @@
 export interface OperatorAction {
-  /** The one name of the action: its menu entry, every prompt and hint that points at it, and the docs. */
-  label: string;
-  /** Shown dim beside the action's row or pick entry: a lowercase phrase that fits one 80-column line with the label. */
+  /** Shown dim beside the action's row or pick entry: a lowercase phrase that fits one 80-column line with the id. */
   summary: string;
   /** What the action does, shown under a failure's way to it while that is highlighted: one line of at most 96 characters that names no key. */
   description: string;
 }
 
 /**
- * Every operator action of the infra CLI, keyed by the id that also runs it: `pnpm cella infra <id>`. A message that sends the operator to an
- * action names it through {@link actionLabel}, {@link menuPath} or {@link actionCommand}, so an action has one name wherever it is mentioned.
+ * Every operator action of the infra CLI, keyed by the id that also runs it: `pnpm cella infra <id>`. The id is the action's one name: its
+ * menu entry, every message that mentions it and the docs. A message that sends the operator to an action names it through
+ * {@link menuPath} or {@link actionCommand}.
  */
 export const operatorActions = {
   status: {
-    label: 'Full status',
     summary: 'every check and finding, and what fixes it',
     description: 'Every check and finding, what it means and what fixes it. Read-only.',
   },
   logs: {
-    label: 'Deploy logs',
     summary: 'the last deploys and how each ended',
     description: 'The last deploys and how each ended, then one in full with the end of its log. Read-only.',
   },
   preview: {
-    label: 'Preview changes',
-    summary: 'what Review & apply would change; read-only',
-    description: 'The changes "Review & apply changes" would make, read fresh against what runs. Read-only.',
+    summary: 'what apply would change; read-only',
+    description: 'The changes apply would make, read fresh against what runs. Read-only.',
   },
   apply: {
-    label: 'Review & apply changes',
     summary: 'what differs from what runs, applied on your yes',
     description: 'See what differs between the code and what runs, and apply it on your yes.',
   },
   'rotate-keys': {
-    label: 'Rotate keys',
     summary: 'new deploy and uploads keys, then a redeploy',
     description: 'Replace the deploy and uploads keys, then redeploy so no machine keeps an old one.',
   },
   'rotate-secrets': {
-    label: 'Rotate secrets',
     summary: 'new passwords and generated values, redeployed',
     description: 'New database passwords and generated values, then deploys what serves again.',
   },
   operators: {
-    label: 'Set up operators',
     summary: 'make or repair the operator app and group',
     description: "Make or repair the app's operator application and operators group.",
   },
   identities: {
-    label: 'Update identities',
     summary: 'write what differs from the declared identities',
     description: 'Write what differs from the declared identities. Asks for a key only when something must change.',
   },
   'deploy-now': {
-    label: 'Deploy now',
     summary: 'without waiting for the scheduled run',
     description: 'Deploy the target now, without waiting for the scheduled run, and follow it step by step.',
   },
   releases: {
-    label: 'Releases & roll back',
     summary: 'the last releases; deploy an earlier one again',
     description: 'The last releases and how each deploy ended; pick an earlier one to deploy it again.',
   },
   'repository-key': {
-    label: 'Set repository read key',
     summary: 'the GitHub key a private repository needs',
     description: 'Store, replace or remove the read-only GitHub key a private repository needs.',
   },
   env: {
-    label: 'Env vars & secrets',
     summary: 'the values the services read at boot',
     description: 'The values the services read at boot. A changed value reaches the machines at the next deploy.',
   },
   'env-import': {
-    label: 'Import a .env file',
     summary: 'set the values a .env file holds',
     description: 'Set the values a .env file holds, such as one from another host, after one confirmation.',
   },
   'db-open': {
-    label: 'Open DB access',
     summary: 'a public endpoint to your IP, until you close it',
     description: 'Open a public endpoint to your IP and print the admin connection string. Close it when done.',
   },
   'db-seed': {
-    label: 'Seed database',
     summary: 'the backend seeds, over a short-lived endpoint',
     description: 'Open the endpoint to your IP, run the backend seeds, and close it again. Never on production.',
   },
   'db-close': {
-    label: 'Close DB access',
     summary: 'close the temporary public endpoint',
     description: 'Close the temporary public endpoint.',
   },
   'db-reset': {
-    label: 'Reset database',
     summary: 'wipe and rebuild it empty, after a backup',
     description: 'Wipe the database and rebuild it empty, after a backup.',
   },
   unlock: {
-    label: 'Unlock',
     summary: 'clear the lease a stopped run left',
     description: 'Clear the lease a stopped run left, and review what it left unfinished in the Pulumi state.',
   },
   resume: {
-    label: 'Resume setup',
     summary: 'continue an interrupted setup',
     description: 'Continue an interrupted setup: re-sync config and self-heal missing keys.',
   },
   'state-remove': {
-    label: 'Remove from state',
     summary: 'drop a gone resource from the Pulumi state',
     description: 'Take out of the Pulumi state a resource the code no longer declares and that is gone already.',
   },
   teardown: {
-    label: 'Tear down',
     summary: 'delete all that runs or costs, after a final dump',
     description: 'Delete everything that runs or costs, after a final dump that is kept.',
   },
@@ -122,7 +100,7 @@ export const operatorActions = {
 export type OperatorActionId = keyof typeof operatorActions;
 
 export interface MenuRow {
-  /** The row's name. A row with one action carries that action's label. */
+  /** The row's name: the action's id for a row with one action. */
   label: string;
   /** The actions behind the row; more than one opens a short pick. */
   actions: readonly OperatorActionId[];
@@ -139,9 +117,9 @@ export const moreSections = {
   Environment: ['env-import', 'teardown'],
 } as const satisfies Record<string, readonly OperatorActionId[]>;
 
-/** A row of the menu for one action, under its label and summary. */
+/** A row of the menu for one action, under its id and summary. */
 function actionRow(id: OperatorActionId): MenuRow {
-  return { label: actionLabel(id), actions: [id], description: operatorActions[id].summary };
+  return { label: id, actions: [id], description: operatorActions[id].summary };
 }
 
 /**
@@ -157,7 +135,7 @@ export const menuRows = {
   'db-open': actionRow('db-open'),
   'db-close': actionRow('db-close'),
   more: {
-    label: 'More',
+    label: 'more',
     actions: Object.values(moreSections).flat(),
     description: 'deploy now, keys, repairs, the database, teardown',
   },
@@ -190,23 +168,17 @@ export function isOperatorActionId(value: string): value is OperatorActionId {
   return Object.hasOwn(operatorActions, value);
 }
 
-/** The one name of an action, for a message that mentions it. */
-export function actionLabel(id: OperatorActionId): string {
-  return operatorActions[id].label;
-}
-
 /** The command that runs an action without the menu. */
 export function actionCommand(id: OperatorActionId): string {
   return `pnpm cella infra ${id}`;
 }
 
 /**
- * Where an operator finds an action: `<row> → <action>` for an action picked inside a row, the label alone for a row of its own, and the
- * command for an action no row lists.
+ * Where an operator finds an action: `<row> › <id>` for an action picked inside a row, the id alone for a row of its own, and the command
+ * for an action no row lists.
  */
 export function menuPath(id: OperatorActionId): string {
-  const label = actionLabel(id);
   const row = (Object.values(menuRows) as MenuRow[]).find((entry) => entry.actions.includes(id));
   if (!row) return actionCommand(id);
-  return row.actions.length === 1 || row.label === label ? label : `${row.label} → ${label}`;
+  return row.actions.length === 1 ? id : `${row.label} › ${id}`;
 }

@@ -6,7 +6,6 @@ import { join } from 'node:path';
 import { parseAclInput } from '../../lib/db-exposure-acl';
 import { closePublicEndpoints, dbInstanceUrn, endpointAddress, exposureOverlayPath, publicEndpoints } from '../../lib/db-public-endpoint';
 import { deriveInfra } from '../../lib/naming';
-import { actionLabel } from '../../lib/operator-actions';
 import { formatPostgresUrl } from '../../lib/postgres-url';
 import { postgresRoleNames } from '../../lib/scaleway/db-privileges';
 import { resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
@@ -209,10 +208,10 @@ async function convergeOrEnd(
 
 /**
  * Open the database's public endpoint for scoped operator access: prompt for the client ACL (default the detected /32), converge with the operator key, print the admin DSN.
- * The endpoint is internet-reachable but restricted to the ACL; run "Close DB access" when finished.
+ * The endpoint is internet-reachable but restricted to the ACL; run `db-close` when finished.
  */
 export async function runExposeDatabase(context: InfraContext): Promise<void> {
-  console.info(pc.dim(`\n${actionLabel('db-open')}: the database gets a temporary public address, open to your IP only.\n`));
+  console.info(pc.dim('\ndb-open: the database gets a temporary public address, open to your IP only.\n'));
 
   const detected = await detectPublicIp();
   const suggestion = detected ? `${detected}/32` : '';
@@ -289,7 +288,7 @@ export async function runExposeDatabase(context: InfraContext): Promise<void> {
 
 /** Close the database's public endpoint: delete it over the RDB API, converge without the exposure config, and confirm the instance has none left. */
 export async function runUnexposeDatabase(context: InfraContext): Promise<void> {
-  console.info(pc.dim(`\n${actionLabel('db-close')}: back to private.\n`));
+  console.info(pc.dim('\ndb-close: back to private.\n'));
   if (!(await confirm({ message: 'Close the public database endpoint now?', default: true }))) {
     console.info('Aborted; no changes made.');
     return;
