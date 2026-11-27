@@ -1,14 +1,10 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { composeConfig, services } from './compose';
-import { outputPath, renderCompose } from './synth';
+import { renderCompose } from './synth';
+import type { ComposeService } from './types';
 
 describe('compose synth', () => {
-  it('generated compose.gen.yml is up to date (drift check)', () => {
-    const current = readFileSync(outputPath, 'utf-8');
-    expect(current).toBe(renderCompose(composeConfig));
-  });
-
   it('every logical service slug matches a compose profile', () => {
     const profiles = new Set<string>(Object.values(composeConfig.services).flatMap((s) => s.profiles));
     for (const meta of services) expect(profiles.has(meta.slug)).toBe(true);
@@ -38,5 +34,48 @@ describe('compose synth', () => {
         expect(host?.environment?.[key], `host env should carry co-hosted ${meta.slug}'s ${key}`).toBe(value);
       }
     }
+  });
+});
+
+// The Compose file every machine of the fixture app runs: a rendering change shows in the engine's pull request as a change to this file
+describe('the rendered Compose file', () => {
+  it('of the fixture app is the recorded one, which `vitest -u` rewrites', async () => {
+    await expect(renderCompose(composeConfig)).toMatchFileSnapshot('../tests/fixtures/app/compose.expected.yml');
+  });
+
+  const block: ComposeService = { image: 'r/x:latest', pull_policy: 'never', profiles: ['x'], restart: 'no' };
+  const cases: [refusal: string, services: Record<string, ComposeService>][] = [
+    // A line break in a key would add a key of its own, such as `privileged: true`
+    ['an environment key holding a line break', { x: { ...block, environment: { 'A\nprivileged: true': 'v' } } }],
+    ['a service name holding a carriage return', { 'x\rprivileged: true': block }],
+  ];
+
+  it.each(cases)('refuses %s', (_refusal, services) => {
+    expect(() => renderCompose({ services })).toThrow(/holds a control character/);
+  });
+
+  // Compose interpolates every $ of the file: only the engine's own placeholders may hold one
+  const interpolated: [refusal: string, services: Record<string, ComposeService>][] = [
+    ['a $ in an environment value', { x: { ...block, environment: { V: 'pa$$word' } } }],
+    ["an environment value naming another variable's placeholder", { x: { ...block, environment: { V: '${OTHER}' } } }],
+    ['a placeholder outside an image, command or mounts', { x: { ...block, profiles: ['${PROFILE}'] } }],
+  ];
+
+  it.each(interpolated)('refuses %s', (_refusal, services) => {
+    expect(() => renderCompose({ services })).toThrow(/holds a \$ the engine did not write/);
+  });
+
+  // YAML reads each of these plain as another type, or as another key
+  const quoted: [form: string, value: string][] = [
+    ['a trailing colon', 'host:'],
+    ['a float without its leading digit', '.5'],
+    ['a signed float without its leading digit', '+.5'],
+    ['infinity', '.inf'],
+    ['not a number', '.NaN'],
+  ];
+
+  it.each(quoted)('keeps %s a string', (_form, value) => {
+    const text = renderCompose({ services: { x: { ...block, environment: { V: value } } } });
+    expect(parse(text).services.x.environment.V).toBe(value);
   });
 });

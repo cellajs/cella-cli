@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { mainJobExit } from '../lib/deploy/main-job';
-import { runtimeSecretsForConsumer, uploadsKeySecrets } from '../lib/runtime-secrets';
+import { runtimeSecretsForConsumer } from '../lib/runtime-secrets';
+import { uploadsKeySecrets } from '../lib/runtime-secrets-config';
 import { servicesByName } from '../lib/services';
 import { ExitCodeError } from '../lib/utils/errors';
 import { fakeConfig } from '../tests/helpers/fake-config';

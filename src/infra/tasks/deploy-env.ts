@@ -51,7 +51,7 @@ export function buildDeployEnv(appConfig: EngineConfig): DeployEnv {
   const buildImages = enabled
     .filter((service) => !service.reusesImageOf)
     .map((service): BuildImageRow => {
-      if (!service.dockerfile) throw new Error(`Service '${service.slug}' builds its own image but has no dockerfile in services.config.ts`);
+      if (!service.dockerfile) throw new Error(`Service '${service.slug}' builds its own image but has no dockerfile in infra/description.yml`);
       return { service: service.slug, dockerfile: service.dockerfile, target: service.target ?? '' };
     });
 

@@ -1,4 +1,5 @@
 import { basename, dirname } from 'node:path';
+import { agentProfile } from '../../compose/infrastructure';
 import { pinnedNodeImage } from '../deploy/node-image';
 import { agentImageName } from '../deploy/release-archives';
 import { engineAssets } from './builder-machine';
@@ -47,7 +48,7 @@ export function bakeDefinition(rows: BuildImageRow[], opts: BakeOptions): { grou
       output: archive(row.service),
     };
   }
-  target.agent = {
+  target[agentProfile] = {
     context: `${engineAssets}/agent`,
     dockerfile: 'Dockerfile',
     tags: [image(agentImageName)],
@@ -55,7 +56,7 @@ export function bakeDefinition(rows: BuildImageRow[], opts: BakeOptions): { grou
     output: archive(agentImageName),
   };
   const services = rows.filter((row) => !row.dockerfile.startsWith(`${engineAssets}/`)).map((row) => row.service);
-  const engine = [...rows.filter((row) => !services.includes(row.service)).map((row) => row.service), 'agent'];
+  const engine = [...rows.filter((row) => !services.includes(row.service)).map((row) => row.service), agentProfile];
   return {
     group: { default: { targets: [...services, ...engine] }, services: { targets: services }, engine: { targets: engine } },
     target,

@@ -9,7 +9,7 @@ let appConfig: EngineConfig;
 
 beforeAll(async () => {
   h = await installPulumiMocks();
-  ({ engineConfig: appConfig } = await import('infra/config/engine-config'));
+  ({ engineConfig: appConfig } = await import('../lib/description/app'));
   await import('./state-bucket-policy');
   await h.settle();
 });

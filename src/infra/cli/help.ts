@@ -18,9 +18,18 @@ const actionOptions: Item[] = [
 
 const actionItems = (ids: readonly OperatorActionId[]): Item[] => ids.map((id) => [id, operatorActions[id].summary]);
 
+/** The tasks a person runs, with what each prints. */
+const personTasks = {
+  compose: 'the Compose file a deploy renders',
+  description: 'with --mode <mode>: the app as the engine of that mode sees it',
+} as const;
+
+/** The first words of `pnpm cella infra` a person runs as a task: the help lists them, and an app's docs test accepts each. */
+export const documentedTasks: readonly string[] = Object.keys(personTasks);
+
 /**
  * The page `cella help infra`, `cella infra help` and `cella infra <action> --help` print, 80 columns wide in Commander's layout: the
- * actions as the menu groups them, each with its summary, and every flag the engine reads. It reads no app config.
+ * actions as the menu groups them, each with its summary, every flag the engine reads and the tasks a person runs. It reads no app config.
  */
 export function infraHelp(): string {
   const help = Object.assign(new Help(), { helpWidth: 80 });
@@ -30,6 +39,7 @@ export function infraHelp(): string {
     ['Daily actions:', actionItems(daily)],
     ...Object.entries(moreSections).map(([name, ids]): [string, Item[]] => [`${name}:`, actionItems(ids)]),
     ['Options of one action:', actionOptions],
+    ['Tasks a person runs:', Object.entries(personTasks)],
   ];
   const width = Math.max(...sections.flatMap(([, items]) => items.map(([term]) => term.length)));
   return [
@@ -38,7 +48,7 @@ export function infraHelp(): string {
     help.boxWrap("set up, apply and deploy the app's environments; without an action the menu opens on the home screen", 80),
     '',
     ...sections.flatMap(([heading, items]) => [heading, ...items.map(([term, text]) => help.formatItem(term, width, text, help)), '']),
-    help.boxWrap("Other first words are tasks: the app's scripts and the main job run them, and a person does not type them.", 80),
+    help.boxWrap("Other first words are tasks, which the app's scripts and the main job run.", 80),
     '',
   ].join('\n');
 }

@@ -7,7 +7,7 @@ export type StoreOutputs = Record<string, pulumi.Output<string>>;
 /** One store's provisioning result: output values plus the runtime-secret values it supplies, keyed by runtime-secret id. */
 export interface ProvisionedStore {
   outputs: StoreOutputs;
-  /** Runtime-secret id to value. Keys match the ids in `runtime-secrets.config.ts` or in this store's `secrets()`. The engine merges these across stores. */
+  /** Runtime-secret id to value. Keys match the ids of the description's `runtimeSecrets` or of this store's `secrets()`. The engine merges these across stores. */
   secretValues: Record<string, pulumi.Input<string>>;
 }
 
@@ -34,7 +34,7 @@ export interface ProvisionContext {
   zone: string;
   /** Days a managed store keeps its automatic backups: `appConfig.retention.backupDays`. */
   backupDays: number;
-  /** The database size from `config/general.config.ts`, resolved for the environment, which managed stores consume. */
+  /** The database size from `general.database` of `infra/description.yml`, resolved for the environment, which managed stores consume. */
   sizing: { dbNodeType: string; dbVolumeSize: number };
   /** The deployment's private network, where managed stores expose endpoints. */
   privateNetworkId: pulumi.Input<string>;
@@ -53,11 +53,6 @@ export interface StoreProvisioner {
   readonly settings?: object;
   /** Create the store's cloud resources and return their outputs and the values of the `'engine'` secrets it supplies. Called once by `resources/stores`; a rerun duplicates Pulumi resources. */
   provision(ctx: ProvisionContext): ProvisionedStore;
-  /** Runtime-secret declarations this store owns, merged ahead of `runtime-secrets.config.ts`. Must be pure with no Pulumi access: it runs in CLI tasks too. */
+  /** Runtime-secret declarations this store owns, merged ahead of the description's `runtimeSecrets`. Must be pure with no Pulumi access: it runs in CLI tasks too. */
   secrets?(): StoreSecretContribution[];
-}
-
-/** Typed identity for the store registry (`config/stores.config.ts`): preserves literal keys so a store id is a compile-time value. */
-export function defineStores<const T extends Record<string, StoreProvisioner>>(stores: T): T {
-  return stores;
 }

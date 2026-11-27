@@ -1,9 +1,10 @@
 {
-  "name": "infra",
-  "private": true,
+  "name": "cella",
+  "version": "0.49.0",
+  "repository": "https://github.com/cellajs/cella",
   "type": "module",
-  "exports": {
-    "./config/*": "./config/*.ts",
-    "./package.json": "./package.json"
-  }
+  "engines": {
+    "node": "26.13.1"
+  },
+  "packageManager": "pnpm@11.29.0"
 }

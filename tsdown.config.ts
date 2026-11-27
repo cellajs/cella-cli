@@ -1,4 +1,9 @@
+import { writeFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { defineConfig } from 'tsdown';
+import { z } from 'zod';
+// The build script loads this file through tsx: the schema's modules import each other without file extensions
+import { descriptionSchema } from './src/infra/lib/description/schema';
 
 export default defineConfig([
   {
@@ -11,7 +16,6 @@ export default defineConfig([
       a11y: 'src/exports/a11y.ts',
       screenshots: 'src/exports/screenshots.ts',
       pentest: 'src/exports/pentest.ts',
-      infra: 'src/infra/exports.ts',
       'infra-program': 'src/infra/program.ts',
       'infra-contract': 'src/infra/contract.ts',
     },
@@ -29,6 +33,12 @@ export default defineConfig([
       { from: ['src/infra/agent/Dockerfile', 'src/infra/agent/docker.asc'], to: 'dist/infra-assets/agent' },
       { from: ['src/infra/caddy/Dockerfile', 'src/infra/caddy/Caddyfile'], to: 'dist/infra-assets/caddy' },
     ],
+    // The JSON Schema of infra/description.yml, which an app's editor validates the file with (the export ./infra/description.schema.json)
+    onSuccess: () =>
+      writeFileSync(
+        resolve(import.meta.dirname, 'dist/infra-description.schema.json'),
+        `${JSON.stringify(z.toJSONSchema(descriptionSchema), null, 2)}\n`,
+      ),
   },
   {
     // The agent every machine runs: one CommonJS file its image copies, with no dependency to install

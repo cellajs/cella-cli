@@ -3,7 +3,7 @@ import type { DeclaredPolicy } from '../../lib/scaleway/declared-identities';
 import { declaredIdentities } from '../../lib/scaleway/declared-identities';
 import { iamBase } from '../../lib/scaleway/iam-client';
 import { organizationIdOfKey, resolveOperatorIdentity } from '../../lib/scaleway/operator-identity';
-import { type AppPrincipalNames, appPrincipalNames, principalNames } from '../../lib/scaleway/principals';
+import { type AppPrincipalNames, appPrincipalNames, principalNames, principalSuffixes } from '../../lib/scaleway/principals';
 import { ensureApplication } from '../../lib/scaleway/scaleway-iam';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { type ScwAuth, scwSend } from '../../lib/scaleway/scw-fetch';
@@ -20,7 +20,10 @@ import { acquireIdentityKey } from './operator-unlock';
 import { printRevokeReminder } from './owner-key';
 
 /** The uploads application, as the setup and an identity update make it. */
-export const uploadsApplication = { suffix: 'uploads', description: "The uploads key: signs the backend's uploads and presigned URLs" };
+export const uploadsApplication = {
+  suffix: principalSuffixes.uploads,
+  description: "The uploads key: signs the backend's uploads and presigned URLs",
+};
 
 /**
  * What an identity update would change: the identity plan with the policies of the app's observer and Transloadit application among its

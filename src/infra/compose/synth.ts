@@ -1,19 +1,11 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { infraDir } from '../lib/utils/paths';
+import { variableName } from '../lib/description/schema';
 import { composeConfig } from './compose';
 import type { ComposeFile } from './types';
 
 const generatedHeader = [
-  '# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.',
-  '# Edit the service registry there and re-run the command.',
+  '# Rendered from infra/description.yml by the deploy engine: `cella infra compose` prints it.',
   '# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).',
 ].join('\n');
-
-/** A Compose file without its leading comment lines: a file whose header an older release wrote is still current. */
-function withoutHeader(yaml: string): string {
-  return yaml.replace(/^(?:#.*\n)*/, '');
-}
 
 /** Keys whose array value is rendered as an inline flow sequence, not a block. */
 const flowKeys = new Set(['profiles', 'test']);
@@ -25,100 +17,96 @@ function needsQuote(v: string): boolean {
   if (v === '') return true;
   if (/^\s|\s$/.test(v)) return true; // leading/trailing whitespace
   if (/^[-?:,[\]{}#&*!|>'"%@`]/.test(v)) return true; // YAML indicator start
-  if (/:\s|\s#/.test(v)) return true; // "key: value" or " #comment" ambiguity
+  if (/:\s|\s#|:$/.test(v)) return true; // "key: value", " #comment" or a trailing ":" ambiguity
   if (/^[+-]?\d/.test(v)) return true; // numbers, ports, durations, IPs
+  if (/^[+-]?\.(?:\d|inf$|nan$)/i.test(v)) return true; // floats such as .5, +.5, .inf and .nan
   if (/^(y|yes|n|no|true|false|on|off|null|~)$/i.test(v)) return true; // bool/null coercion
+  if (v === '<<') return true; // a merge key
   return false;
 }
 
-/** A scalar on one line, quoted where YAML would read it as another type. @throws on a control character, which a quoted line folds or ends. */
-function scalar(v: string, forceQuote = false): string {
+/** A Compose placeholder as the engine writes one: `${NAME}` or `${NAME:-fallback}`. */
+const placeholder = new RegExp(String.raw`\$\{${variableName}(?::-[^$}]*)?\}`, 'g');
+
+/** The keys under which the engine writes placeholders into a value: an image reference, and the agent's command and mounts. */
+const placeholderKeys = new Set(['image', 'command', 'volumes']);
+
+/** Where a value sits: its key, and the key of the mapping that holds it. */
+interface Place {
+  key: string;
+  parent: string | undefined;
+}
+
+/**
+ * Whether the engine wrote each `$` of a value: as placeholders under an image, command or mounts key, or as the one placeholder of an
+ * `environment` value that names its own variable, which the static env fills.
+ */
+function engineDollars(v: string, { key, parent }: Place): boolean {
+  if (parent === 'environment') return v.match(new RegExp(String.raw`^\$\{(${variableName})(?::-[^$}]*)?\}$`))?.[1] === key;
+  return placeholderKeys.has(key) && !v.replace(placeholder, '').includes('$');
+}
+
+/**
+ * A scalar on one line, a mapping key or a value, quoted where YAML would read it as another type or another key.
+ * @param place where a value sits; a key takes none, and holds no `$`
+ * @throws on a control character, which a quoted line folds or ends, and on a `$` the engine did not write, which Compose would interpolate
+ */
+function scalar(v: string, forceQuote = false, place?: Place): string {
   if (/\p{Cc}/u.test(v)) throw new Error(`compose synth: refused ${JSON.stringify(v)}, which holds a control character`);
+  if (v.includes('$') && !(place && engineDollars(v, place))) {
+    throw new Error(`compose synth: refused ${JSON.stringify(v)}, which holds a $ the engine did not write: Compose would interpolate it`);
+  }
   if (forceQuote || needsQuote(v)) return `'${v.replace(/'/g, "''")}'`;
   return v;
 }
 
-function emitMapping(obj: object, indent: number): string[] {
+function emitMapping(obj: object, indent: number, parent?: string): string[] {
   const pad = '  '.repeat(indent);
   const lines: string[] = [];
-  for (const [key, val] of Object.entries(obj) as Array<[string, unknown]>) {
+  for (const [name, val] of Object.entries(obj) as Array<[string, unknown]>) {
+    const key = scalar(name);
+    const place = { key: name, parent };
     if (val === null || val === undefined) {
       lines.push(`${pad}${key}:`);
     } else if (Array.isArray(val)) {
-      if (flowKeys.has(key)) {
-        const quoted = flowQuotedKeys.has(key);
-        lines.push(`${pad}${key}: [${val.map((x) => scalar(String(x), quoted)).join(', ')}]`);
+      if (flowKeys.has(name)) {
+        const quoted = flowQuotedKeys.has(name);
+        lines.push(`${pad}${key}: [${val.map((x) => scalar(String(x), quoted, place)).join(', ')}]`);
       } else {
         lines.push(`${pad}${key}:`);
         for (const item of val) {
           if (item === null || typeof item !== 'object') {
-            lines.push(`${pad}  - ${scalar(String(item))}`);
+            lines.push(`${pad}  - ${scalar(String(item), false, place)}`);
             continue;
           }
           // A mapping item: its first key on the dash line, the rest under it.
-          const [first = '', ...rest] = emitMapping(item, indent + 2);
+          const [first = '', ...rest] = emitMapping(item, indent + 2, name);
           lines.push(`${pad}  - ${first.trimStart()}`, ...rest);
         }
       }
     } else if (typeof val === 'object') {
       lines.push(`${pad}${key}:`);
-      lines.push(...emitMapping(val, indent + 1));
+      lines.push(...emitMapping(val, indent + 1, name));
     } else if (typeof val === 'number' || typeof val === 'boolean') {
       lines.push(`${pad}${key}: ${val}`);
     } else {
-      lines.push(`${pad}${key}: ${scalar(String(val))}`);
+      lines.push(`${pad}${key}: ${scalar(String(val), false, place)}`);
     }
   }
   return lines;
 }
 
-/** Render a ComposeFile to deterministic YAML text. Pure, exported for tests. */
+/** Render a ComposeFile to deterministic YAML text. */
 export function renderCompose(file: ComposeFile): string {
   const lines: string[] = ['services:'];
   for (const [name, svc] of Object.entries(file.services)) {
-    lines.push(`  ${name}:`);
+    lines.push(`  ${scalar(name)}:`);
     lines.push(...emitMapping(svc, 2));
   }
   return `${generatedHeader}\n\n${lines.join('\n')}\n`;
 }
 
-/** The generated deploy artifact, read by the deploy and written into each machine's user data. */
-export const outputPath = join(infraDir, 'compose.gen.yml');
-
-/** `compose-generate` writes the file; with `--check`, as `compose-check` runs it, it fails when the file differs. */
-export function main(words: string[]): void {
-  const yaml = renderCompose(composeConfig);
-  if (words.includes('--check')) {
-    const current = readCompose();
-    if (current === undefined) {
-      console.error(`::error::${outputPath} is missing: run \`pnpm --filter infra compose:generate\`.`);
-      process.exit(1);
-    }
-    if (withoutHeader(current) !== withoutHeader(yaml)) {
-      console.error(`::error::${outputPath} is out of date: run \`pnpm --filter infra compose:generate\` and commit.`);
-      process.exit(1);
-    }
-    console.info('compose.gen.yml is up to date.');
-    return;
-  }
-  writeCompose();
-  console.info(`Wrote ${outputPath}`);
-}
-
-/** The Compose file on disk; undefined when it is missing. */
-function readCompose(): string | undefined {
-  try {
-    return readFileSync(outputPath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}
-
-/** Write the Compose file from the service registry; `unchanged` when the file already holds it, so a caller can stay quiet. */
-export function writeCompose(): 'written' | 'unchanged' {
-  const yaml = renderCompose(composeConfig);
-  const current = readCompose();
-  if (current !== undefined && withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
-  writeFileSync(outputPath, yaml);
-  return 'written';
+/** The task `compose`: prints the Compose file the deploy renders from the description, which each machine's user data carries. */
+export function main(): void {
+  process.stdout.write(renderCompose(composeConfig));
 }

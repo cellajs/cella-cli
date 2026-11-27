@@ -3,7 +3,7 @@ import { resolveDnsProjectIds } from '../lib/scaleway/dns-zone-project';
 import { iamBase, type LiveRule } from '../lib/scaleway/iam-client';
 import { dnsPermissionSets, operatorOrgPermissionSets, operatorProjectPermissionSets } from '../lib/scaleway/permissions';
 import { type LivePolicy, type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
-import { type AppPrincipalNames, appPrincipalNames } from '../lib/scaleway/principals';
+import { type AppPrincipalNames, appPrincipalNames, principalSuffixes } from '../lib/scaleway/principals';
 import { addApplicationToGroup, ensureApplication, ensureGroup, type PolicyRule } from '../lib/scaleway/scaleway-iam';
 import { type ScwAuth, scwFetch, scwSend } from '../lib/scaleway/scw-fetch';
 import { changeMark, checkMark, warningMark } from '../lib/utils/cli-output';
@@ -103,7 +103,7 @@ export async function setupOperators(opts: SetupOperatorsOptions): Promise<Opera
   const application = await ensureApplication(
     { ...opts, log },
     {
-      suffix: 'operator',
+      suffix: principalSuffixes.operator,
       description: 'Operator principal: privileged infra changes in every environment of the app, on a key that ends within a day',
     },
   );

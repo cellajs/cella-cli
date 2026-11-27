@@ -1,4 +1,6 @@
 import { composeConfig, type ServiceName } from '../../compose/compose';
+import { imageTagVariable } from '../description/resolve';
+import { variableName } from '../description/schema';
 import type { EngineConfig } from '../engine-config';
 import type { EnvSupplier, EnvSupplierContext } from '../env-suppliers';
 import { internalLbPort, type MachineRole } from '../machine-roles';
@@ -7,8 +9,9 @@ import { type ServiceDefinition, serviceEndpoints, servicesByName } from '../ser
 
 /** Placeholders the engine sets on every machine: the registry the release's images are named for, the mode, and the agent's own. */
 const injectedVars = new Set(['REGISTRY', 'APP_MODE', 'AGENT_TAG', 'AGENT_DIR']);
-const placeholderRe = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
-const bindingRe = /@\{([a-z]+)\.([a-zA-Z]+)\}/g;
+const placeholderRe = new RegExp(String.raw`\$\{(${variableName})(?::-[^}]*)?\}`, 'g');
+/** `@{<slug or self>.<property>}`, the slug in kebab-case. */
+const bindingRe = /@\{([a-z][a-z0-9-]*)\.([a-zA-Z]+)\}/g;
 
 /** All `${VAR}` placeholders in the compose blocks that run in a service's profile. */
 function composePlaceholders(slug: string): string[] {
@@ -20,9 +23,6 @@ function composePlaceholders(slug: string): string[] {
   }
   return [...vars].filter(Boolean);
 }
-
-/** The compose `*_TAG` variable a service's image reference reads, e.g. backend to BACKEND_TAG. */
-const tagVar = (slug: string): string => `${slug.toUpperCase()}_TAG`;
 
 /** What a machine's static env is made from, beside its role. */
 export interface StaticEnvInput {
@@ -66,7 +66,7 @@ function effectiveBindings(role: MachineRole): Record<string, EffectiveBinding> 
 }
 
 function bindingPart(input: StaticEnvInput, binding: EffectiveBinding, target: string, prop: string): string {
-  const slug = (target === 'self' ? binding.owner : target) as ServiceName;
+  const slug = target === 'self' ? binding.owner : target;
   const definition: ServiceDefinition | undefined = servicesByName.get(slug);
   if (!definition) throw new Error(`static env: binding @{${target}.${prop}} on '${binding.owner}' names no service '${slug}'.`);
   const onThisMachine = binding.loopback === true && slug === input.role.role;
@@ -92,7 +92,7 @@ function bindingPart(input: StaticEnvInput, binding: EffectiveBinding, target: s
 
 /**
  * A role's static `.env`, one `NAME=value` per line: the registry, the mode, the release tag of every image it runs, the agent's tag and
- * folder, then each compose placeholder of its services from a binding or an app supplier. It holds no secret: the runtime values travel in
+ * folder, then each compose placeholder of its services from a binding or an engine supplier. It holds no secret: the runtime values travel in
  * the machine's env file. A placeholder neither defines throws, naming where to add it, as does a value with a control character, which
  * would end its line here or in a header the Caddy proxy sends from it.
  */
@@ -104,7 +104,7 @@ export function staticEnv(input: StaticEnvInput): string {
     AGENT_TAG: input.release,
     AGENT_DIR: input.agentDir,
   };
-  for (const service of role.services) env[tagVar(service.slug)] = input.release;
+  for (const service of role.services) env[imageTagVariable(service.slug)] = input.release;
   const bindings = effectiveBindings(role);
   // The host block folds every co-hosted worker's env, so its placeholders show up even for a worker this deploy leaves off.
   const carried = new Set(role.services.map((service) => service.slug));
@@ -125,7 +125,7 @@ export function staticEnv(input: StaticEnvInput): string {
     if (!supply) {
       if (skippable.has(name)) continue;
       throw new Error(
-        `static env: '${role.role}' references \${${name}} in its compose blocks but no binding or env supplier defines it: add a binding in config/services.config.ts or a supplier in config/env-suppliers.config.ts.`,
+        `static env: '${role.role}' references \${${name}} in its compose blocks but no binding or engine supplier defines it: give it a value holding @{...} in its service's env in infra/description.yml.`,
       );
     }
     env[name] = supply(input.context);
@@ -141,7 +141,7 @@ export function staticEnv(input: StaticEnvInput): string {
 /** The context every supplier is called with for an environment: its names, region and mode, and its public services' URLs. */
 export function supplierContext(config: EngineConfig): EnvSupplierContext {
   const { naming, region } = deriveInfra(config);
-  const urls = new Map(serviceEndpoints(config).map((endpoint) => [endpoint.slug as string, endpoint.url]));
+  const urls = new Map(serviceEndpoints(config).map((endpoint) => [endpoint.slug, endpoint.url]));
   return {
     config,
     naming,

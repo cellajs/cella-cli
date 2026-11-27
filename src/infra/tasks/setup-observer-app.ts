@@ -1,7 +1,7 @@
 import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
 import { observerOrgPermissionSets, observerProjectPermissionSets } from '../lib/scaleway/permissions';
 import { type PolicyReach, policyReach, readPolicy } from '../lib/scaleway/policy-reach';
-import { appPrincipalNames } from '../lib/scaleway/principals';
+import { appPrincipalNames, principalSuffixes } from '../lib/scaleway/principals';
 import { type PolicyRule, type ProvisionScopedKeyOptions, provisionScopedKey, type ScopedKeyResult } from '../lib/scaleway/scaleway-iam';
 import type { ScwAuth } from '../lib/scaleway/scw-fetch';
 
@@ -41,7 +41,7 @@ export function observerPolicy(opts: { slug: string; organizationId: string; pro
 export async function setupObserverApp(opts: SetupObserverAppOptions): Promise<ScopedKeyResult> {
   if (!opts.projectIds.includes(opts.projectId)) throw new Error(`setupObserverApp: project ${opts.projectId} is not among the app's projects.`);
   return provisionScopedKey(opts, {
-    suffix: 'observer',
+    suffix: principalSuffixes.observer,
     appDescription: 'Observer principal: read-only, in every environment of the app, from any address',
     policyDescription: policyDescription,
     buildRules: ({ organizationId }) => observerRules({ projectIds: opts.projectIds, organizationId }),

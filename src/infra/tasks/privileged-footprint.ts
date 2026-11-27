@@ -28,7 +28,7 @@ export async function main(words: string[]): Promise<void> {
   // One digest for every render, so the main job compares on its script and env: the image an apply builds is no code of the change.
   process.env.INFRA_ENGINE_IMAGE = `rg.keyless/engine/infra-engine@sha256:${'0'.repeat(64)}`;
 
-  const { engineConfig: appConfig } = await import('infra/config/engine-config');
+  const { engineConfig: appConfig } = await import('../lib/description/app');
   const pulumi = await import('@pulumi/pulumi');
   const { installKeylessMocks, keylessFetch, settleRender } = await import('../lib/stack/keyless-render');
   const { declaredIdentities } = await import('../lib/scaleway/declared-identities');

@@ -1,4 +1,5 @@
 import { deployRules } from '../lib/scaleway/deploy-policy';
+import { principalSuffixes } from '../lib/scaleway/principals';
 import { type ProvisionScopedKeyOptions, provisionScopedKey, type ScopedKeyResult } from '../lib/scaleway/scaleway-iam';
 
 export interface SetupCiKeyOptions extends ProvisionScopedKeyOptions {
@@ -9,7 +10,7 @@ export interface SetupCiKeyOptions extends ProvisionScopedKeyOptions {
 /** Create the scoped CI application, least-privilege policy, and fresh key. */
 export async function setupCiKey(opts: SetupCiKeyOptions): Promise<ScopedKeyResult> {
   return provisionScopedKey(opts, {
-    suffix: 'ci-deploy',
+    suffix: principalSuffixes.ciDeploy,
     appDescription: "The deploy key: the environment's main job deploys with it",
     policyDescription: 'Least-privilege policy for deploys (auto-generated)',
     // The deploy key's rights (lib/scaleway/deploy-policy.ts), which Update identities also writes in place.

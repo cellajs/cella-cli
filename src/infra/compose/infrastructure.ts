@@ -7,30 +7,31 @@ import type { AppServiceConfig, AppServices, ComposeFile, ComposeService, Health
  */
 export const agentPortOffset = 5000;
 
-/** Helper for `services.config.ts`: checks the ports and path prefixes, and returns the services with their literal keys. */
-export function defineServices<const T extends AppServices>(services: T): T {
+/**
+ * Checks a service registry's ports and path prefixes, which the description loader runs on the services it resolved.
+ * @throws for an internal or agent port another service holds, or a path prefix that is malformed, unrouted or taken
+ */
+export function validateServices(services: AppServices): void {
   validateInternalPorts(services);
   validateAgentPorts(services);
   const seenPrefixes = new Map<string, string>();
   for (const [slug, cfg] of Object.entries(services)) {
     const prefix = cfg.pathPrefix;
     if (prefix === undefined) {
-      if (cfg.lbRoute === 'path') throw new Error(`services config: '${slug}' has lbRoute 'path' but no pathPrefix: nothing would route to it.`);
+      if (cfg.lbRoute === 'path') throw new Error(`'${slug}' has lbRoute 'path' but no pathPrefix: nothing would route to it.`);
       continue;
     }
     // The LB matches the raw path-begin string, so a malformed prefix routes wrong traffic: validate at synth time.
-    if (!cfg.lbRoute)
-      throw new Error(`services config: '${slug}' declares pathPrefix without lbRoute: an internal-only service has no LB backend to route to.`);
+    if (!cfg.lbRoute) throw new Error(`'${slug}' declares pathPrefix without lbRoute: an internal-only service has no LB backend to route to.`);
     if (!/^\/[a-z0-9-]+$/.test(prefix)) {
       throw new Error(
-        `services config: '${slug}' pathPrefix '${prefix}' must be a single lowercase path segment starting with '/' and no trailing slash (e.g. '/api').`,
+        `'${slug}' pathPrefix '${prefix}' must be a single lowercase path segment starting with '/' and no trailing slash (e.g. '/api').`,
       );
     }
     const owner = seenPrefixes.get(prefix);
-    if (owner) throw new Error(`services config: pathPrefix '${prefix}' declared by both '${owner}' and '${slug}': path prefixes must be unique.`);
+    if (owner) throw new Error(`pathPrefix '${prefix}' declared by both '${owner}' and '${slug}': path prefixes must be unique.`);
     seenPrefixes.set(prefix, slug);
   }
-  return services;
 }
 
 /**
@@ -43,12 +44,9 @@ function validateInternalPorts(services: AppServices): void {
   for (const [slug, cfg] of Object.entries(services)) {
     const port = cfg.internalPort;
     if (port === undefined) continue;
-    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`services config: '${slug}' internalPort ${port} is not a valid port.`);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) throw new Error(`'${slug}' internalPort ${port} is not a valid port.`);
     const owner = owners.get(port);
-    if (owner)
-      throw new Error(
-        `services config: '${slug}' internalPort ${port} is also the port of '${owner}': an internal listener needs a port of its own.`,
-      );
+    if (owner) throw new Error(`'${slug}' internalPort ${port} is also the port of '${owner}': an internal listener needs a port of its own.`);
     owners.set(port, slug);
   }
 }
@@ -67,9 +65,7 @@ function validateAgentPorts(services: AppServices): void {
     const port = cfg.port + agentPortOffset;
     const owner = taken.get(port);
     if (port > 65535 || owner) {
-      throw new Error(
-        `services config: '${slug}' port ${cfg.port} puts its agent port on ${port}, ${owner ? `the port of '${owner}'` : 'outside the port range'}.`,
-      );
+      throw new Error(`'${slug}' port ${cfg.port} puts its agent port on ${port}, ${owner ? `the port of '${owner}'` : 'outside the port range'}.`);
     }
   }
 }
@@ -173,7 +169,10 @@ function releaseBlock(slug: string, cfg: AppServiceConfig): ComposeService {
 }
 
 /** The agent's compose service, which every machine runs beside its app (agent/): the launcher starts it, and it starts the rest. */
-const agentService = 'infra-agent';
+export const agentService = 'infra-agent';
+
+/** The agent's compose profile and bake target, which an app service takes from its slug. */
+export const agentProfile = 'agent';
 
 /**
  * The agent: on the host network, where it answers the load balancer on each service's agent port and reads its manifest from the metadata
@@ -185,7 +184,7 @@ function agentBlock(): ComposeService {
   return {
     image: '${REGISTRY}/infra-agent:${AGENT_TAG}',
     pull_policy: 'never',
-    profiles: ['agent'],
+    profiles: [agentProfile],
     restart: 'no',
     command: ['agent', '--plan', '${AGENT_DIR}/boot-plan.json'],
     network_mode: 'host',
@@ -214,7 +213,6 @@ export function assembleCompose(appServices: AppServices, options: { processIden
     services[slug] = appBlock(slug, cfg);
     if (cfg.release) services[releaseServiceName(slug)] = releaseBlock(slug, cfg);
   }
-  if (agentService in services) throw new Error(`services config: '${agentService}' is the engine's agent and no app service name.`);
   services[agentService] = agentBlock();
   publishCoHostedPorts(appServices, services);
   publishCoHostedEnv(appServices, services, processIdentityEnv);
@@ -244,7 +242,7 @@ function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, Com
       const existing = merged[key];
       if (existing !== undefined && existing !== value) {
         throw new Error(
-          `compose synth: co-hosted service '${slug}' env '${key}=${value}' conflicts with '${existing}' already on host '${hostSlug}': rename the worker's variable in services.config.ts (folded env must not overload host keys).`,
+          `compose synth: co-hosted service '${slug}' env '${key}=${value}' conflicts with '${existing}' already on host '${hostSlug}': rename the worker's variable in infra/description.yml (folded env must not overload host keys).`,
         );
       }
       merged[key] = value;

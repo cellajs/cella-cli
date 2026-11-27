@@ -33,8 +33,12 @@ export const infraCommand: Command<InfraOptions> = {
   jobs: [],
   passthrough: ['words', 'an action and its options, or a task the app runs by script'],
   parse: ({ passthrough }) => ({ words: passthrough }),
-  run: async (repoRoot, { words }) => {
-    if (!hasInfraWorkspace(repoRoot)) throw new Error(`this app has no infra workspace: ${infraManifest} is missing`);
+  run: async (dir, { words }) => {
+    if (!hasInfraWorkspace(dir)) throw new Error(`this app has no infra workspace: ${infraManifest} is missing`);
+    // The engine finds the app root from the working directory: this folder, or its parent when it is the infra workspace
+    process.chdir(dir);
+    // Refuses a root without infra/description.yml before any of the engine loads
+    await import('./lib/utils/paths');
     // The engine ends its own work on ctrl-c, a stack lease among it, and then the process
     handOverSignals();
     const { runInfra } = await import('./run');

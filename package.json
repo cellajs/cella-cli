@@ -47,10 +47,6 @@
       "types": "./dist/pentest.d.ts",
       "import": "./dist/pentest.js"
     },
-    "./infra": {
-      "types": "./dist/infra.d.ts",
-      "import": "./dist/infra.js"
-    },
     "./infra/program": {
       "types": "./dist/infra-program.d.ts",
       "import": "./dist/infra-program.js"
@@ -59,6 +55,7 @@
       "types": "./dist/infra-contract.d.ts",
       "import": "./dist/infra-contract.js"
     },
+    "./infra/description.schema.json": "./dist/infra-description.schema.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -72,7 +69,7 @@
   "scripts": {
     "start": "tsx index.ts",
     "clean": "rimraf ./dist",
-    "build": "tsdown",
+    "build": "tsdown --config-loader tsx",
     "test-build": "pnpm run build && node index.js --help",
     "prepublishOnly": "pnpm run test:release",
     "check": "pnpm ts && pnpm biome check --write .",
@@ -97,16 +94,12 @@
     "zod": "^4.6.7"
   },
   "peerDependencies": {
-    "infra": "*",
     "@pulumi/pulumi": "^3.277.0",
     "@pulumiverse/scaleway": "^1.62.1",
     "@aws-sdk/client-s3": "^3.1176.0",
     "@aws-sdk/s3-request-presigner": "^3.1176.0"
   },
   "peerDependenciesMeta": {
-    "infra": {
-      "optional": true
-    },
     "@pulumi/pulumi": {
       "optional": true
     },
@@ -134,7 +127,6 @@
     "@types/semver": "^7.8.0",
     "@typescript/native-preview": "7.0.0-dev.20260707.2",
     "ajv": "^8.20.0",
-    "infra": "link:src/infra/tests/fixtures/app",
     "playwright": "^1.65.0",
     "rimraf": "^6.1.4",
     "tailwindcss": "^4.3.5",

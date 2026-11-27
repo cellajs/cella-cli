@@ -1,18 +1,32 @@
-import { mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * The app's `infra/` folder: its Pulumi project and stack files, `compose.gen.yml`, env files and debug captures, with the
- * app's root one level up. It is the folder of the app's `infra` workspace, which the package takes as a peer: engine
- * code reads its own files by import, never through this path.
+ * The app root for a working directory: the directory itself, or its parent when it is the app's `infra` workspace (its `package.json` is
+ * named `infra`), where that workspace's scripts run.
+ * @throws when the root holds no `infra/description.yml`, or holds another one in `infra/infra/`
  */
-export const infraDir = dirname(createRequire(import.meta.url).resolve('infra/package.json'));
+export function appRootOf(dir: string): string {
+  const manifest = join(dir, 'package.json');
+  const parsed: { name?: unknown } = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {};
+  const root = parsed.name === 'infra' ? dirname(resolve(dir)) : resolve(dir);
+  if (!existsSync(join(root, 'infra', 'description.yml'))) {
+    throw new Error(
+      `${root} has no infra/description.yml. An app that still describes its infra in infra/config/ moves it with the template's alignment infra-description (cella/alignments/): \`pnpm cella align\` lists it after the upgrade.`,
+    );
+  }
+  const nested = join(root, 'infra', 'infra', 'description.yml');
+  if (existsSync(nested)) throw new Error(`${nested}: the engine reads the app root's infra/description.yml alone: remove this one.`);
+  return root;
+}
 
-/** The app's root folder, one level above `infra/`: its git checkout, root `package.json`, `.env` and environments file. */
-export const repoRoot = join(infraDir, '..');
+/** The app's root folder, from the working directory: its git checkout, root `package.json`, `.env` and environments file. */
+export const repoRoot = appRootOf(process.cwd());
+
+/** The app's `infra/` folder: its description, Pulumi project and stack files, env files and debug captures. */
+export const infraDir = join(repoRoot, 'infra');
 
 /** The build files the package ships beside its bundle: the engine image's Dockerfile, and the agent's and the frontend proxy's folders. */
 export const engineAssetsDir = resolve(dirname(fileURLToPath(import.meta.url)), 'infra-assets');

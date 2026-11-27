@@ -1,6 +1,7 @@
 import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { documentedTasks } from '../../cli/help';
 import {
   actionCommand,
   actionLabel,
@@ -125,13 +126,13 @@ describe('one name per action', () => {
     const unknown: string[] = [];
     for (const file of docs) {
       const text = readFileSync(path.join(repoRoot, file), 'utf8');
-      // `pnpm cella infra` → **Row** (→ **Action**), and the command form `pnpm cella infra <action>`.
+      // `pnpm cella infra` → **Row** (→ **Action**), and the command form `pnpm cella infra <action or task>`.
       for (const match of text.matchAll(/`pnpm cella infra` → \*\*([^*]+)\*\*(?: → \*\*([^*]+)\*\*)?/g)) {
         for (const name of [match[1], match[2]]) if (name && !known.has(name)) unknown.push(`${file}: ${name}`);
       }
       for (const match of text.matchAll(/pnpm cella infra ([a-z][a-z-]*)/g)) {
         const word = match[1] ?? '';
-        if (word !== 'help' && !isOperatorActionId(word)) unknown.push(`${file}: pnpm cella infra ${word}`);
+        if (word !== 'help' && !isOperatorActionId(word) && !documentedTasks.includes(word)) unknown.push(`${file}: pnpm cella infra ${word}`);
       }
     }
     expect(unknown).toEqual([]);

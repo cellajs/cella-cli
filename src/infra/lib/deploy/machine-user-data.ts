@@ -63,7 +63,7 @@ const scrubPattern = 'SECRET|PASSWORD|API_KEY|DATABASE_URL|X-Amz-Signature';
 /**
  * The first-boot script cloud-init runs: the serial console marker `::<slug>:: boot start`, then the replay and agent units, then the log
  * scrub. The role and release travel in the boot plan (JSON) and the agent logs them itself, so no per-deploy value is interpolated into a
- * bash command position. `slug` is validated kebab-case at the config boundary (`defineEngineConfig`, lib/engine-config.ts).
+ * bash command position. `slug` is kebab-case, which `engineConfigSchema` (lib/description/schema.ts) checks at load.
  */
 const firstBootScript = (slug: string): string => `#!/bin/bash
 exec > >(tee -a ${bootLogPath} 2>/dev/null > /dev/console) 2>&1

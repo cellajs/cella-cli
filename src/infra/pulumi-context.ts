@@ -1,6 +1,6 @@
 import * as pulumi from '@pulumi/pulumi';
-import { engineConfig as appConfig } from 'infra/config/engine-config';
 import type { ServiceName } from './compose/compose';
+import { engineConfig as appConfig } from './lib/description/app';
 import { deriveInfra } from './lib/naming';
 import { serviceEndpoints } from './lib/services';
 import { type Environment, isEnvironment } from './lib/stack/environment';

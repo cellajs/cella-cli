@@ -1,5 +1,4 @@
-# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.
-# Edit the service registry there and re-run the command.
+# Rendered from infra/description.yml by the deploy engine: `cella infra compose` prints it.
 # The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).
 
 services:
@@ -57,6 +56,8 @@ services:
       dockerfile: Dockerfile
       target: backend
       s3Access: true
+      bindings:
+        APP_ORIGIN: '@{frontend.url}'
   backend-release:
     image: ${REGISTRY}/backend:${BACKEND_TAG:-latest}
     pull_policy: never
@@ -116,6 +117,7 @@ services:
       coHosted: true
       bindings:
         BACKEND_INTERNAL_URL: http://@{backend.internalHost}:@{backend.internalPort}
+        APP_ORIGIN: '@{frontend.url}'
   yjs:
     image: ${REGISTRY}/yjs:${YJS_TAG:-latest}
     pull_policy: never
@@ -159,6 +161,7 @@ services:
       target: yjs
       coHosted: true
       bindings:
+        APP_ORIGIN: '@{frontend.url}'
         BACKEND_INTERNAL_URL: http://@{backend.internalHost}:@{backend.internalPort}
   mcp:
     image: ${REGISTRY}/backend:${MCP_TAG:-latest}
@@ -200,6 +203,8 @@ services:
       pathPrefix: /mcp
       reusesImageOf: backend
       coHosted: true
+      bindings:
+        APP_ORIGIN: '@{frontend.url}'
   oauth:
     image: ${REGISTRY}/backend:${OAUTH_TAG:-latest}
     pull_policy: never
@@ -240,6 +245,8 @@ services:
       pathPrefix: /oauth
       reusesImageOf: backend
       coHosted: true
+      bindings:
+        APP_ORIGIN: '@{frontend.url}'
   jobs:
     image: ${REGISTRY}/backend:${JOBS_TAG:-latest}
     pull_policy: never
@@ -277,6 +284,8 @@ services:
       instanceType: DEV1-S
       reusesImageOf: backend
       coHosted: true
+      bindings:
+        APP_ORIGIN: '@{frontend.url}'
   frontend:
     image: ${REGISTRY}/frontend:${FRONTEND_TAG:-latest}
     pull_policy: never

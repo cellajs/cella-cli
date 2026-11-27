@@ -3,7 +3,7 @@ import type { RuntimeSecretId } from './runtime-secrets';
 /** Which half of a minted Scaleway IAM key a managed key routes into a runtime secret: a single-token key uses only `secretKey`, an access/secret pair uses both. */
 export type MintedKeyField = 'accessKey' | 'secretKey';
 
-/** One managed key's data from `managed-keys.config.ts`. The `id` is the config object key; `ManagedKeyDefinition` is the flattened shape. */
+/** One managed key as `managedKeys` of `infra/description.yml` resolves it, keyed by its id; `ManagedKeyDefinition` is the flattened shape. */
 export interface ManagedKeyConfig {
   /** IAM application/policy name suffix: `<slug>-<mode>-<suffix>`. Also the API-key description prefix. */
   suffix: string;
@@ -19,9 +19,4 @@ export interface ManagedKeyConfig {
   prompt: { message: string; default: boolean };
   /** Routes each minted key half to the runtime secret that stores it, keyed by `RuntimeSecretId` so a typo is a compile error. */
   assign: Partial<Record<MintedKeyField, RuntimeSecretId>>;
-}
-
-/** Helper for `managed-keys.config.ts`: typed identity preserving literal keys. This module imports no registry, so the config that calls it closes no import cycle. */
-export function defineManagedKeys<const T extends Record<string, ManagedKeyConfig>>(keys: T): T {
-  return keys;
 }

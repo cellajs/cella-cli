@@ -182,7 +182,7 @@ export function liveEffects(): MainJobEffects {
   const repositoryReads = async ({ mode, key, projectId }: { mode: string; key: DeployKey; projectId: string }) => {
     process.env.APP_MODE = mode;
     const [{ engineConfig }, { deriveInfra }, { createSecretManagerClient }, { readRepositoryKey, repositoryUrl }, gitRemote] = await Promise.all([
-      import('infra/config/engine-config'),
+      import('../lib/description/app'),
       import('../lib/naming'),
       import('../lib/scaleway/scaleway-secret-manager'),
       import('../lib/deploy/repository-key'),
@@ -215,7 +215,7 @@ export function liveEffects(): MainJobEffects {
         { acquireLock, handOverLock, lockKey, makeControlClient, releaseLock },
         { bucketRunStore, commitRecords, putRunRecord },
       ] = await Promise.all([
-        import('infra/config/engine-config'),
+        import('../lib/description/app'),
         import('../lib/naming'),
         import('../lib/scaleway/scaleway-secret-manager'),
         import('../lib/deploy/repository-key'),

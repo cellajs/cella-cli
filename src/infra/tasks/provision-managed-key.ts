@@ -34,7 +34,7 @@ function runtimeSecretById(id: string): RuntimeSecretDefinition {
   const secret = runtimeSecrets.find((entry) => entry.id === id);
   // managed-keys.ts validates every assign target at load time, so this is a
   // config-drift guard, not an expected runtime path.
-  if (!secret) throw new Error(`provision-managed-key: unknown runtime secret id '${id}' (managed-keys.config drift).`);
+  if (!secret) throw new Error(`provision-managed-key: unknown runtime secret id '${id}' (managedKeys of infra/description.yml drift).`);
   return secret;
 }
 

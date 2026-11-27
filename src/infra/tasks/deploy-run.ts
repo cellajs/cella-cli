@@ -16,7 +16,6 @@ import { deployS3Key, makeS3Client } from '../lib/scaleway/s3-client';
 import { type Environment, isEnvironment } from '../lib/stack/environment';
 import { getFlag } from '../lib/utils/args';
 import { ExitCodeError, errorMessage } from '../lib/utils/errors';
-import { infraDir } from '../lib/utils/paths';
 import type { BuildReleaseStep } from './build-release';
 import type { ClearMachineLinksStep } from './clear-machine-links';
 import type { ComposeEnvStep, MachineEnv } from './compose-env';
@@ -136,7 +135,7 @@ type RunConfig = ReturnType<typeof deriveInfra> & { appConfig: EngineConfig };
 /** Load the app's config for the requested mode, once per run: the deploy env table and every live effect read it. */
 async function loadRunConfig(mode: string): Promise<RunConfig> {
   process.env.APP_MODE = mode;
-  const { engineConfig: appConfig } = await import('infra/config/engine-config');
+  const { engineConfig: appConfig } = await import('../lib/description/app');
   if (appConfig.mode !== mode) throw new Error(`Mode mismatch: requested "${mode}" but loaded config is "${appConfig.mode}"`);
   return { ...deriveInfra(appConfig), appConfig };
 }
@@ -406,7 +405,7 @@ async function writeRunRecordToBucket(opts: { bucket: string; region: string; re
 async function publishEntryFilesToBucket(opts: { distDir: string; bucket: string; region: string; sha: string }, runMode: string): Promise<void> {
   const [{ PutObjectCommand }, { generalConfig }, { resolvePerMode }, { contentTypeFor, entryFileNames, pruneFrontendAssets }] = await Promise.all([
     import('@aws-sdk/client-s3'),
-    import('infra/config/general.config'),
+    import('../lib/description'),
     import('../lib/general-config'),
     import('./frontend-assets'),
   ]);
@@ -555,18 +554,24 @@ function liveEffects(config: RunConfig): DeployEffects {
         { recordRole },
         { controlActor },
         { liveSwitchEffects, switchMachines },
-        { appEnvSuppliers },
+        { proxyHeaders },
+        { proxyEnvSuppliers },
         { supplierContext },
         { projectAccessKey },
+        { composeConfig },
+        { renderCompose },
       ] = await Promise.all([
         import('../lib/scaleway/foundation'),
         import('../lib/scaleway/presign'),
         import('../lib/deploy/live-record'),
         import('../lib/stack/control-store'),
         import('./switch-machines'),
-        import('infra/config/env-suppliers.config'),
+        import('../lib/description/app'),
+        import('../lib/env-suppliers'),
         import('../lib/deploy/static-env'),
         import('../lib/scaleway/s3-client'),
+        import('../compose/compose'),
+        import('../compose/synth'),
       ]);
       const { GetObjectCommand } = await import('@aws-sdk/client-s3');
       const { storedBeforeItsKey } = await import('../lib/deploy/boot-accounts');
@@ -577,7 +582,7 @@ function liveEffects(config: RunConfig): DeployEffects {
       const s3 = await diagnosticsClient(region);
       const control = await controlClient(region);
       const foundation = await readFoundation({ secretKey }, { region, zone, projectId, naming, mode, roles: request.roles });
-      const composeContent = await readFile(join(infraDir, 'compose.gen.yml'), 'utf8');
+      const composeContent = renderCompose(composeConfig);
       const effects = liveSwitchEffects({
         secretKey,
         projectId,
@@ -595,7 +600,7 @@ function liveEffects(config: RunConfig): DeployEffects {
             () => undefined,
           ),
         record: (role, entry) => recordRole(control, naming.bootDiagBucket, request.stack, role, entry, { by: controlActor() }),
-        suppliers: appEnvSuppliers,
+        suppliers: proxyEnvSuppliers(proxyHeaders),
         supplierContext: supplierContext(appConfig),
         composeContent,
         log: (message) => console.info(message),
