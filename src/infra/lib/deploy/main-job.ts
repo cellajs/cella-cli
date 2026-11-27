@@ -5,6 +5,7 @@ import { resolvePerMode } from '../general-config';
 import { engineFolder } from '../scaleway/secret-paths';
 import { findJobDefinition } from '../scaleway/serverless-jobs';
 import { isEnvironment } from '../stack/environment';
+import { engineTaskCommand } from '../utils/engine-task';
 import { repoRoot } from '../utils/paths';
 
 /** The deploy key's copy the main job's definition references: `{ accessKey, secretKey }`, written when the key is made or replaced. */
@@ -62,7 +63,7 @@ export const mainJobEnvNames = ['TARGET_SHA', 'RETRY', 'DEPLOY_KEY_JSON', 'SCW_D
  * only built and checked by it. POSIX sh reads no startup file when it runs a command string.
  */
 export const mainJobScript = `cd /engine || exit 1
-exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/root ${mainJobEnvNames.map((name) => `${name}="$${name}"`).join(' ')} pnpm --silent --filter infra main-job
+exec /usr/bin/env -i PATH=/usr/local/bin:/usr/bin:/bin HOME=/root ${mainJobEnvNames.map((name) => `${name}="$${name}"`).join(' ')} ${engineTaskCommand('/engine', 'main-job').join(' ')}
 `;
 
 /** How long one run may take before Scaleway ends it: the definition's time limit, and the age a deploy's machine can reach unnamed. */
@@ -75,7 +76,7 @@ export interface MainJobSchedule {
 }
 
 /**
- * The minutes between an environment's scheduled runs, `general.schedule.everyMinutes` of infra/description.yml.
+ * The minutes between an environment's scheduled runs, `general.schedule.everyMinutes` of cella/infra/description.yml.
  * @throws for a mode that is no environment, which has no main job
  */
 export function scheduleEveryMinutes(mode: string): number {

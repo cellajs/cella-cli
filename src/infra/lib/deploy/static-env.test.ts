@@ -68,7 +68,7 @@ describe("a machine's static env", () => {
     vi.resetModules();
     vi.doMock('../description', async (importOriginal) => {
       const original = await importOriginal<typeof import('../description')>();
-      const file = parse(readFileSync('infra/description.yml', 'utf8'));
+      const file = parse(readFileSync('cella/infra/description.yml', 'utf8'));
       file.services['bg-jobs'] = {
         port: 4007,
         startPeriod: '15s',

@@ -294,12 +294,12 @@ describe('printUpstreamOverrideChanges', () => {
     const out = capture({
       type: 'changes',
       pinned: { added: ['backend/src/bundle-config.ts'], removed: [] },
-      ignored: { added: ['infra/Pulumi.staging.yaml'], removed: ['old'] },
+      ignored: { added: ['cella/infra/Pulumi.staging.yaml'], removed: ['old'] },
       packageJsonKeys: { added: ['exports'], removed: ['engines'] },
     });
     expect(out).toContain('upstream changed its CLI config · 5 entries to review');
     expect(out).toContain('+ pinned: backend/src/bundle-config.ts');
-    expect(out).toContain('+ ignored: infra/Pulumi.staging.yaml');
+    expect(out).toContain('+ ignored: cella/infra/Pulumi.staging.yaml');
     expect(out).toContain('− ignored: old');
     expect(out).toContain('+ packageJsonKeys: exports');
     expect(out).toContain('− packageJsonKeys: engines');

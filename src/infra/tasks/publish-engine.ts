@@ -26,7 +26,7 @@ import { errorMessage } from '../lib/utils/errors';
 import { engineAssetsDir, repoRoot } from '../lib/utils/paths';
 
 /** What the image copies of the checkout (the package's Dockerfile), relative to its root. */
-const contextPaths = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches', 'shared', 'infra'];
+const contextPaths = ['package.json', 'pnpm-lock.yaml', 'pnpm-workspace.yaml', 'patches', 'shared', 'cella/infra'];
 
 /** An engine image an apply built and pushed, with what `applied.json` records of it once the apply's `up` completed. */
 export interface PublishedEngine {

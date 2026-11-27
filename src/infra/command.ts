@@ -1,5 +1,5 @@
-import { existsSync, readFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve } from 'node:path';
 import type { Command } from '../command';
 import { handOverSignals } from '../utils/signals';
 import { infraHelp } from './cli/help';
@@ -8,16 +8,17 @@ interface InfraOptions {
   words: string[];
 }
 
-/** The manifest of the app's `infra` workspace, relative to the app's root. */
-const infraManifest = join('infra', 'package.json');
+/** The app's description, relative to its root. */
+const description = join('cella', 'infra', 'description.yml');
 
-/** Whether `dir` is the app's root with an `infra` workspace, or that workspace itself, where its scripts run. */
-export function hasInfraWorkspace(dir: string): boolean {
-  if (existsSync(join(dir, infraManifest))) return true;
-  const manifest = join(dir, 'package.json');
-  if (!existsSync(manifest)) return false;
-  const parsed: { name?: unknown } = JSON.parse(readFileSync(manifest, 'utf8'));
-  return parsed.name === 'infra';
+/**
+ * Whether `dir` is an app root with infra, or its `cella/infra` folder, where Pulumi runs the program. An app that keeps its infra in
+ * `infra/` counts: the engine's start refuses it with the alignment that moves it.
+ */
+export function hasInfraFolder(dir: string): boolean {
+  if (existsSync(join(dir, description)) || existsSync(join(dir, 'infra', 'package.json'))) return true;
+  const up = resolve(dir, '..', '..');
+  return resolve(dir) === join(up, 'cella', 'infra') && existsSync(join(up, description));
 }
 
 export const infraCommand: Command<InfraOptions> = {
@@ -31,13 +32,13 @@ export const infraCommand: Command<InfraOptions> = {
   // The engine image and the builder run its tasks without a git checkout
   outsideGit: true,
   jobs: [],
-  passthrough: ['words', 'an action and its options, or a task the app runs by script'],
+  passthrough: ['words', 'an action and its options, or a task by its name'],
   parse: ({ passthrough }) => ({ words: passthrough }),
   run: async (dir, { words }) => {
-    if (!hasInfraWorkspace(dir)) throw new Error(`this app has no infra workspace: ${infraManifest} is missing`);
-    // The engine finds the app root from the working directory: this folder, or its parent when it is the infra workspace
+    if (!hasInfraFolder(dir)) throw new Error(`this app has no infra: ${description} is missing`);
+    // The engine finds the app root from the working directory: this folder, or two up when it is the cella/infra folder
     process.chdir(dir);
-    // Refuses a root without infra/description.yml before any of the engine loads
+    // Refuses a root without cella/infra/description.yml before any of the engine loads
     await import('./lib/utils/paths');
     // The engine ends its own work on ctrl-c, a stack lease among it, and then the process
     handOverSignals();

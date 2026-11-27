@@ -27,7 +27,7 @@ import { autoAcceptDefaults, pointTo } from './shared';
  * The target mode. `--mode` or INFRA_MODE selects it explicitly, including a fresh stack with no Pulumi.<mode>.yaml yet;
  * otherwise the only existing stack file wins silently, two existing stack files ask once (under `--defaults` they need `--mode`), and with no stack
  * file an interactive install asks, defaulting to production.
- * A mode-scoped `infra/.env.<mode>` OVERRIDES the ambient env, so a staging run cannot inherit production keys from the repo-root .env.
+ * A mode-scoped `cella/infra/.env.<mode>` OVERRIDES the ambient env: a staging run cannot inherit production keys from the repo-root .env.
  */
 async function resolveMode(flag: string | undefined): Promise<Environment> {
   const raw = flag ?? process.env.INFRA_MODE;
@@ -49,7 +49,7 @@ async function resolveMode(flag: string | undefined): Promise<Environment> {
         {
           name: 'staging (optional)',
           value: 'staging',
-          description: "A second environment, billed apart. It deploys only while infra/environments has the line 'staging branch:main'.",
+          description: "A second environment, billed apart. It deploys only while cella/infra/environments has the line 'staging branch:main'.",
         },
       ],
     });
@@ -74,13 +74,13 @@ async function loadContext(environment: Environment, log?: (message: string) => 
   // The project id scopes every Scaleway call. Only a fresh install may lack one: the setup wizard picks or creates the project and writes it to the stack file.
   if (!stack.projectId && stack.state !== 'fresh') {
     throw new Error(
-      `infra/Pulumi.${environment}.yaml names no project: add this environment's project id under config, as infra:projectId, before running the infra CLI.`,
+      `cella/infra/Pulumi.${environment}.yaml names no project: add this environment's project id under config, as infra:projectId, before running the infra CLI.`,
     );
   }
   // An existing stack whose project an env file still names moves it to the stack file, which every checkout has.
   if (stack.projectIdSource === 'env-file' && stack.stackYaml) {
     writeStackFileProjectId(environment, stack.projectId);
-    log?.(`The project id moved to infra/Pulumi.${environment}.yaml: commit that file.`);
+    log?.(`The project id moved to cella/infra/Pulumi.${environment}.yaml: commit that file.`);
   }
   // A stack file that came with a pull names the project already: the env file's copy goes.
   if (stack.projectIdSource === 'stack-file') removeModeProjectId(environment);

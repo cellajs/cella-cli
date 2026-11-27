@@ -195,7 +195,7 @@ describe('exit codes', () => {
     ['an unknown job', 2, repo, ['testbed', 'restart']],
     ['a command outside a git repository', 2, plain, ['stats']],
     ['an adopt with no forks to adopt from', 1, repo, ['adopt']],
-    ['an infra in an app without an infra workspace', 2, repo, ['infra', 'status']],
+    ['an infra in an app without an infra folder', 2, repo, ['infra', 'status']],
   ])('%s exits %i', (_, code, cwd, args) => {
     const run = spawnSync(join(cli, 'node_modules/.bin/tsx'), [join(cli, 'index.ts'), ...args], { cwd });
     expect(run.status).toBe(code);

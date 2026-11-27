@@ -28,7 +28,7 @@ import {
  */
 export type ImportExport = (path: string, exportName: string) => Promise<unknown>;
 
-/** The registries of `infra/description.yml` alone, which import nothing of the app: any module may read them before `APP_MODE` is set. */
+/** The registries of `cella/infra/description.yml` alone, which import nothing of the app: any module may read them before `APP_MODE` is set. */
 export interface FileRegistries {
   appServices: Readonly<Record<string, AppServiceConfig>>;
   processIdentityEnv: readonly string[];
@@ -49,7 +49,7 @@ export interface AppRegistries {
   derivationProbes: Readonly<Record<string, string>>;
 }
 
-const fileName = 'infra/description.yml';
+const fileName = 'cella/infra/description.yml';
 
 /** The `dockerfile` that names the engine's frontend proxy. */
 const proxyDockerfile = 'engine:proxy';
@@ -117,11 +117,11 @@ const idOf = (variable: string): string => variable.toLowerCase().replace(/_([a-
 
 const kebabOf = (variable: string): string => variable.toLowerCase().replaceAll('_', '-');
 
-/** Checks a reference's form: its file stays under `shared/` or `infra/`, the folders the engine image holds. */
+/** Checks a reference's form: its file stays under `shared/` or `cella/infra/`, the folders the engine image holds. */
 function referenceOf(reference: string, path: string): { file: string; exportName: string } {
   const [file, exportName] = reference.split('#');
   const relative = posix.normalize(file);
-  if (!/^(?:shared|infra)\//.test(relative)) refuse(path, `'${reference}' names no file under shared/ or infra/`);
+  if (!/^(?:shared|cella\/infra)\//.test(relative)) refuse(path, `'${reference}' names no file under shared/ or cella/infra/`);
   return { file: relative, exportName };
 }
 

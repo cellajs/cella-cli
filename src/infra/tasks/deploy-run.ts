@@ -109,7 +109,7 @@ export function deployFailureHint(err: unknown, mode: string): { description: st
           command: `${actionCommand('apply')} --mode ${mode}`,
         }
       : {
-          description: `${where}No apply deploys a target older than the applied engine: pin a newer release in infra/environments, or roll forward.`,
+          description: `${where}No apply deploys a target older than the applied engine: pin a newer release in cella/infra/environments, or roll forward.`,
         };
   }
   if (step && !stepsWithMachines.has(step)) return { description: `${where}Re-running is safe: the live record says what serves.` };

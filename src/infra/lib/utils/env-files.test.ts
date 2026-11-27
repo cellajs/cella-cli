@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, retiredKeyNames, writeEnvValues } from './env-files';
+import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, refuseKeyFileLeftBehind, retiredKeyNames, writeEnvValues } from './env-files';
 
 describe('parseEnvText', () => {
   it.each([
@@ -112,5 +112,25 @@ describe('writeEnvValues', () => {
   it('refuses a value that spans lines', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'envw-')), '.env.staging');
     expect(() => writeEnvValues(path, { X: 'a\nb' })).toThrow(/cannot span lines/);
+  });
+});
+
+// The operator's key files are ignored by git: the alignment that moves the app's infra to cella/infra/ leaves them where they are
+describe('a key file left in infra/', () => {
+  it.each([
+    [
+      'refuses one with no copy in cella/infra/, naming the mv',
+      ['infra/.env.production'],
+      /mv infra\/\.env\.production cella\/infra\/\.env\.production/,
+    ],
+    ['reads cella/infra/ once a key file is there', ['infra/.env.production', 'cella/infra/.env.production'], undefined],
+  ])('%s', (_case, files, refusal) => {
+    const root = mkdtempSync(join(tmpdir(), 'key-files-'));
+    for (const file of files) {
+      mkdirSync(join(root, file, '..'), { recursive: true });
+      writeFileSync(join(root, file), 'SCW_DEFAULT_PROJECT_ID=p\n');
+    }
+    if (refusal) expect(() => refuseKeyFileLeftBehind('production', root)).toThrow(refusal);
+    else expect(() => refuseKeyFileLeftBehind('production', root)).not.toThrow();
   });
 });

@@ -92,7 +92,7 @@ export function checklistRows(facts: ChecklistFacts): ChecklistRow[] {
     {
       title: 'Connect',
       done: facts.stackFile === 'pushed',
-      detail: facts.stackFile === 'pushed' ? `infra/Pulumi.${facts.mode}.yaml pushed` : 'commit and push the stack file',
+      detail: facts.stackFile === 'pushed' ? `cella/infra/Pulumi.${facts.mode}.yaml pushed` : 'commit and push the stack file',
     },
     firstReleaseRow(facts),
     { title: 'First admin', done: adminDone, detail: firstAdminDetail(adminDone) },
@@ -190,7 +190,7 @@ async function collectChecklistFacts(context: InfraContext): Promise<ChecklistFa
     hasCiKey: context.hasCiKey || stackState === 'bootstrapped',
     stackState,
     firstProvisioning: Boolean(detectComputeDeferred(stackYaml)),
-    stackFile: gitFileState(`infra/Pulumi.${mode}.yaml`),
+    stackFile: gitFileState(`cella/infra/Pulumi.${mode}.yaml`),
     releaseTag: newestReleaseTag(),
     environmentsTarget: environmentsTarget(mode),
     adminEmailSet: await readAdminEmailSet(context, stackState),

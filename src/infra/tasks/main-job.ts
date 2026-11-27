@@ -8,12 +8,13 @@ import { RunRecorder } from '../lib/deploy/run-record';
 import { type ScheduledEffects, scheduledVerdict } from '../lib/deploy/scheduled-run';
 import { commitName, defaultRule, fullCommitPattern, isReleaseCommit, type RemoteRef } from '../lib/deploy/target';
 import { leaseOwnerOfRun } from '../lib/stack/control-store';
+import { engineTaskCommand } from '../lib/utils/engine-task';
 import { errorMessage } from '../lib/utils/errors';
 import { isRecord } from '../lib/utils/guards';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 
 /** Run one infra task to its end with the env given, its output in the run's log; resolves to its exit code. */
-export type RunTask = (script: string, args: string[], env: NodeJS.ProcessEnv) => number;
+export type RunTask = (task: string, args: string[], env: NodeJS.ProcessEnv) => number;
 
 /** What a run reads outside its own values. */
 export interface MainJobEffects {
@@ -253,7 +254,9 @@ export function liveEffects(): MainJobEffects {
         writeRecord: (record) => putRunRecord(s3, bucket, record),
       };
     },
-    run: (script, args, env) =>
-      spawnSync('pnpm', ['--silent', 'run', script, ...args], { cwd: infraDir, stdio: 'inherit', env }).status ?? mainJobExit.failed,
+    run: (task, args, env) => {
+      const [command, ...words] = engineTaskCommand(repoRoot, task, args);
+      return spawnSync(command, words, { cwd: repoRoot, stdio: 'inherit', env }).status ?? mainJobExit.failed;
+    },
   };
 }

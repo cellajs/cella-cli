@@ -13,7 +13,7 @@ const runOptions: Item[] = [
 const actionOptions: Item[] = [
   ['--sha <sha>', "logs: every boot account of that release, with the builder's report"],
   ['--machines', 'logs: the newest boot account of each service'],
-  ['--debug-provider', 'apply: keep the engine and provider log under infra/.debug/'],
+  ['--debug-provider', 'apply: keep the engine and provider log under cella/infra/.debug/'],
 ];
 
 const actionItems = (ids: readonly OperatorActionId[]): Item[] => ids.map((id) => [id, operatorActions[id].summary]);

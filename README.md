@@ -44,8 +44,8 @@ without a checkout. The upstream commands, `style` and `i18n unused` read
 | Gate | `style` | The style check: terminology, docs, comments and frontend code |
 
 The menu leaves out `testbed`, which `pnpm testbed` runs, and `style`, which scripts and CI run. It shows `adopt` only
-when `cella.config.ts` lists `forks`, and `infra` only when the app has an `infra` workspace. Esc or `Quit` leaves it,
-and a command with several jobs asks which one, with `← Back` to the commands.
+when `cella.config.ts` lists `forks`, and `infra` only when the app has `cella/infra/`, or an `infra/` the alignment
+moves there. Esc or `Quit` leaves it, and a command with several jobs asks which one, with `← Back` to the commands.
 
 `pnpm cella infra` hands every word after `infra` to the deploy engine. A first word that names a task (`main-job`,
 `deploy`, `description-hash` and the others the app's `infra` scripts list) runs that task. Any other runs the infra
@@ -289,7 +289,7 @@ Two rules read only what the template has. `alignment` checks the shape of every
 | `change-history` | `previously`, `formerly`, `used to`, `originally` | comments |
 | `review-conversation` | `maybe`, `perhaps`, `we should`, `we could`, `we might`, `was considered` | comments |
 | `concrete-language` | `invariant` | comments, Markdown and MDX prose |
-| `load-bearing`, `authoritative` | the word the rule is named after | comments, Markdown and MDX prose, outside `infra/` and `cella/alignments/` |
+| `load-bearing`, `authoritative` | the word the rule is named after | comments, Markdown and MDX prose, outside `cella/infra/` and `cella/alignments/` |
 | `detached-long-comment` | a comment of more than three prose lines outside a statement and not directly above a declaration; a licence header passes | source and config files |
 | `code-in-link` | inline code in a link label | Markdown and MDX |
 | `long-paragraph` | a prose paragraph of more than 80 words, inline code and link targets uncounted | Markdown and MDX, outside `cella/alignments/` and `cella/skills/` |

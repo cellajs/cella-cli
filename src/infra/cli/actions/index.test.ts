@@ -39,12 +39,12 @@ describe('runAction', () => {
     const broken = runnersOf(async () => {
       throw new Error('AccessDenied: the state bucket refused this key');
     });
-    const keep = vi.fn(() => '/infra/.debug/unlock.stack.txt');
+    const keep = vi.fn(() => '/app/cella/infra/.debug/unlock.stack.txt');
     await expect(runAction('unlock', context, { runners: broken, keep, log: (line) => lines.push(stripVTControlCharacters(line)) })).resolves.toEqual(
       { code: 1 },
     );
     expect(lines[0]).toContain('Unlock failed: AccessDenied: the state bucket refused this key');
-    expect(lines[1]).toContain('/infra/.debug/unlock.stack.txt');
+    expect(lines[1]).toContain('/app/cella/infra/.debug/unlock.stack.txt');
     expect(lines).toHaveLength(2);
     expect(keep).toHaveBeenCalledWith('unlock', expect.any(Error));
   });

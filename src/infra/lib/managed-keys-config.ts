@@ -3,7 +3,7 @@ import type { RuntimeSecretId } from './runtime-secrets';
 /** Which half of a minted Scaleway IAM key a managed key routes into a runtime secret: a single-token key uses only `secretKey`, an access/secret pair uses both. */
 export type MintedKeyField = 'accessKey' | 'secretKey';
 
-/** One managed key as `managedKeys` of `infra/description.yml` resolves it, keyed by its id; `ManagedKeyDefinition` is the flattened shape. */
+/** One managed key as `managedKeys` of `cella/infra/description.yml` resolves it, keyed by its id; `ManagedKeyDefinition` is the flattened shape. */
 export interface ManagedKeyConfig {
   /** IAM application/policy name suffix: `<slug>-<mode>-<suffix>`. Also the API-key description prefix. */
   suffix: string;

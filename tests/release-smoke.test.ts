@@ -33,7 +33,7 @@ const subpathExports: Record<string, string[]> = {
   ],
 };
 
-/** The subpaths that name one file: the JSON Schema of `infra/description.yml`, which an app's editor validates the file with. */
+/** The subpaths that name one file: the JSON Schema of `cella/infra/description.yml`, which an app's editor validates the file with. */
 const fileExports = ['./infra/description.schema.json'];
 
 /**
@@ -54,8 +54,8 @@ describe('release package', () => {
     writeFileSync(join(appDir, 'package.json'), '{"type":"module"}\n');
     execFileSync('pnpm', ['add', join(tempRoot, tarball!)], { cwd: appDir, stdio: 'pipe' });
     // The contract reads the app's description when it loads
-    mkdirSync(join(appDir, 'infra'));
-    copyFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/infra/description.yml'), join(appDir, 'infra/description.yml'));
+    mkdirSync(join(appDir, 'cella/infra'), { recursive: true });
+    copyFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/cella/infra/description.yml'), join(appDir, 'cella/infra/description.yml'));
   });
 
   afterAll(() => {
@@ -86,7 +86,7 @@ describe('release package', () => {
     const { exports } = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'));
     const schema = JSON.parse(readFileSync(join(packageDir, exports['./infra/description.schema.json']), 'utf8'));
     const validate = new Ajv2020({ allErrors: true }).compile(schema);
-    const description = parse(readFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/infra/description.yml'), 'utf8'));
+    const description = parse(readFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/cella/infra/description.yml'), 'utf8'));
     expect(validate(description), JSON.stringify(validate.errors)).toBe(true);
   });
 

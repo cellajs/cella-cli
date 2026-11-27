@@ -242,7 +242,7 @@ function publishCoHostedEnv(appServices: AppServices, blocks: Record<string, Com
       const existing = merged[key];
       if (existing !== undefined && existing !== value) {
         throw new Error(
-          `compose synth: co-hosted service '${slug}' env '${key}=${value}' conflicts with '${existing}' already on host '${hostSlug}': rename the worker's variable in infra/description.yml (folded env must not overload host keys).`,
+          `compose synth: co-hosted service '${slug}' env '${key}=${value}' conflicts with '${existing}' already on host '${hostSlug}': rename the worker's variable in cella/infra/description.yml (folded env must not overload host keys).`,
         );
       }
       merged[key] = value;

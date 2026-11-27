@@ -1,7 +1,7 @@
 import { isRecord } from '../utils/guards';
 import { readObjectText, type S3Like } from './control-store';
 
-/** Pulumi's project name (`name` in infra/Pulumi.yaml), the middle segment of `organization/<project>/<stack>`. */
+/** Pulumi's project name (`name` in cella/infra/Pulumi.yaml), the middle segment of `organization/<project>/<stack>`. */
 const pulumiProject = 'infra';
 
 /**

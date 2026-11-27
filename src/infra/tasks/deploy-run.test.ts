@@ -323,7 +323,7 @@ describe('the run record', () => {
     const older = await runDeploy(baseOpts, predates.fx, fakeDeployEnv).catch((err: unknown) => err);
     expect(predates.records.at(-1)?.record).toMatchObject({ outcome: 'apply needed', failedStep: 'Check the description' });
     expect(deployFailureHint(older, 'production')).toEqual({
-      description: expect.stringContaining('pin a newer release in infra/environments, or roll forward'),
+      description: expect.stringContaining('pin a newer release in cella/infra/environments, or roll forward'),
     });
   });
 

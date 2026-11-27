@@ -34,7 +34,7 @@ export interface ProvisionContext {
   zone: string;
   /** Days a managed store keeps its automatic backups: `appConfig.retention.backupDays`. */
   backupDays: number;
-  /** The database size from `general.database` of `infra/description.yml`, resolved for the environment, which managed stores consume. */
+  /** The database size from `general.database` of `cella/infra/description.yml`, resolved for the environment, which managed stores consume. */
   sizing: { dbNodeType: string; dbVolumeSize: number };
   /** The deployment's private network, where managed stores expose endpoints. */
   privateNetworkId: pulumi.Input<string>;
