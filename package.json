@@ -1,6 +1,6 @@
 {
   "name": "@cellajs/cli",
-  "version": "0.11.0",
+  "version": "0.12.0",
   "private": false,
   "license": "MIT",
   "description": "CLI for apps built from the cella template: a testbed and its tools, upgrades from upstream cella, and deploys.",
