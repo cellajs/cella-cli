@@ -45,6 +45,9 @@ function fake(manifests: Array<Manifest | Error>, opts: { bootFails?: boolean } 
     sleep: async (ms) => {
       ops.push(`sleep ${ms}`);
     },
+    readContainers: async () => [],
+    restartContainer: async () => {},
+    now: () => 0,
     log: () => {},
   };
   return { fx, ops, state: () => state?.() };

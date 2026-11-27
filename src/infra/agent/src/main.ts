@@ -5,6 +5,7 @@ import { runAgent } from './agent';
 import { appDir, boot, profileArgs } from './boot';
 import { execCommand, mustExec } from './exec';
 import { serveHealth } from './health';
+import { readContainers, restartContainer } from './liveness';
 import { createJsonLogger } from './logger';
 import { readManifest } from './manifest';
 import { parseBootPlanJson } from './plan';
@@ -31,6 +32,9 @@ async function startAgent(planPath: string): Promise<never> {
         serveHealth({ ports: plan.agent.ports, release: plan.releaseSha, state, log: (message) => logger.log('warn', 'health', { message }) });
       },
       sleep,
+      readContainers: () => readContainers(execCommand, plan),
+      restartContainer: (id) => restartContainer(execCommand, id),
+      now: Date.now,
       log: (step, fields) => logger.log('info', step, fields),
     },
     { drainSeconds: plan.agent.drainSeconds },

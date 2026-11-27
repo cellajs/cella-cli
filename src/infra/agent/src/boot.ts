@@ -52,7 +52,7 @@ export async function waitForPrivateNetwork(opts: WaitForPrivateNetworkOptions):
 }
 
 /** `--profile` for every service started: each runs in its own profile, the release companion in its service's. */
-export function profileArgs(plan: BootPlan): string[] {
+export function profileArgs(plan: Pick<BootPlan, 'services'>): string[] {
   return plan.services.flatMap((service) => ['--profile', service]);
 }
 
