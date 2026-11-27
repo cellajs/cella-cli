@@ -1,5 +1,18 @@
 # Changelog
 
+## [0.11.0](https://github.com/cellajs/cella-cli/compare/cli-0.10.0...cli-0.11.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **infra:** the app's infra files live in cella/infra, and the engine runs its tasks by its own command ([#123](https://github.com/cellajs/cella-cli/issues/123))
+* **infra:** the app describes its deployment in one file, infra/description.yml ([#121](https://github.com/cellajs/cella-cli/issues/121))
+
+### 🎉 New features
+
+* **infra:** the app describes its deployment in one file, infra/description.yml ([#121](https://github.com/cellajs/cella-cli/issues/121)) ([8d86bdd](https://github.com/cellajs/cella-cli/commit/8d86bdd882593975c363003396f0f9332b3c29f1))
+* **infra:** the app's infra files live in cella/infra, and the engine runs its tasks by its own command ([#123](https://github.com/cellajs/cella-cli/issues/123)) ([605a632](https://github.com/cellajs/cella-cli/commit/605a6329f3d0b0c2f61fcce2ffa8f58479c72814))
+
 ## [0.10.0](https://github.com/cellajs/cella-cli/compare/cli-0.9.1...cli-0.10.0) (2026-11-26)
 
 
