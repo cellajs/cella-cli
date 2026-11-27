@@ -31,7 +31,7 @@ function engineFields(config: EngineConfig): EngineConfig {
 
 /**
  * The app as the engine of one environment sees it: the engine config's fields, every registry of `infra/description.yml` the apply and the
- * deploy read (the runtime secrets and managed keys as the engine reads them, each derived secret with the source text of its function),
+ * deploy read (the runtime secrets and managed keys as the engine reads them, each derived secret with what its function answers for the engine's probe input),
  * each value the engine supplies to the proxy's env, the boot plan's contract version, and the Node, pnpm and repository the root
  * `package.json` names, which the builder and the engine run on. A store is described by its kind and its factory's settings. Run once
  * `APP_MODE` names the environment: the app stage loads here.
@@ -40,7 +40,7 @@ function engineFields(config: EngineConfig): EngineConfig {
 export async function appDescription(root = repoRoot): Promise<Record<string, unknown>> {
   const [
     { appStores, appServices, processIdentityEnv, generalConfig },
-    { engineConfig: config, proxyHeaders, derivationSources },
+    { engineConfig: config, proxyHeaders, derivationProbes },
     { runtimeSecrets },
     { managedKeys },
     { healthContract },
@@ -64,12 +64,12 @@ export async function appDescription(root = repoRoot): Promise<Record<string, un
     processIdentityEnv,
     general: generalConfig,
     health: healthContract,
-    // A change to a derivation's function owes an apply: its source text stands where the wrapper that imports it would.
+    // A change to a derivation, or to what it calls, owes an apply: its answer for the probe stands where the wrapper that imports it would
     runtimeSecrets: runtimeSecrets.map(({ derivedFrom, ...secret }) =>
       derivedFrom
         ? {
             ...secret,
-            derivedFrom: { secretId: derivedFrom.secretId, reference: derivedFrom.reference, source: derivationSources[derivedFrom.reference] },
+            derivedFrom: { secretId: derivedFrom.secretId, reference: derivedFrom.reference, probe: derivationProbes[derivedFrom.reference] },
           }
         : secret,
     ),

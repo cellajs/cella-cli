@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildRuntimeSecrets, type RuntimeSecretDefinition, validateRuntimeSecrets } from './runtime-secrets';
+import { buildRuntimeSecrets, type RuntimeSecretDefinition, runtimeSecretsForConsumer, validateRuntimeSecrets } from './runtime-secrets';
 import type { StoreSecretContribution } from './stores';
 
 /** A minimal non-cella app config. */
@@ -83,5 +83,12 @@ describe('derived runtime secrets', () => {
       const secrets = buildRuntimeSecrets({}, entries);
       expect(() => validateRuntimeSecrets(secrets, knownServices), label).toThrow(/must be pulumi-owned/);
     }
+  });
+});
+
+// An app's tests ask which secrets a service receives: a mistyped slug must fail there, not pass a leak check on an empty list
+describe('runtimeSecretsForConsumer', () => {
+  it('refuses a slug the description names no service by', () => {
+    expect(() => runtimeSecretsForConsumer('backnd')).toThrow(/names no service 'backnd'/);
   });
 });

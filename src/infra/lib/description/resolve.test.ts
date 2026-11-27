@@ -22,7 +22,7 @@ const baseFile = (): File => ({
     web: { ...service, dockerfile: 'engine:proxy', port: 80, lbRoute: 'default', headers: 'shared/csp.ts#headers' },
   },
   runtimeSecrets: {
-    SIGNING_KEY: { description: 'Signs tokens', services: ['api'], generation: 'random', rotatable: true },
+    SIGNING_KEY: { secretName: 'signing-key', description: 'Signs tokens', services: ['api'], generation: 'random', rotatable: true },
     PUBLIC_KEY: { description: 'Verifies tokens', services: ['bg-jobs'], derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/key.ts#publicKey' } },
     MAIL_API_KEY: { description: 'Sends mail', services: ['api'], group: 'Mail' },
   },
@@ -53,9 +53,15 @@ const baseAppConfig = (): AppConfig => ({
   retention: { backupDays: 7 },
 });
 
+const headers = { csp: "default-src 'self'", embedCsp: "frame-ancestors 'none'", permissionsPolicy: 'camera=()' };
 const appExports: Record<string, Record<string, unknown>> = {
-  'shared/csp.ts': { headers: { csp: "default-src 'self'", embedCsp: "frame-ancestors 'none'", permissionsPolicy: 'camera=()' }, plain: 'x' },
-  'shared/key.ts': { publicKey: (value: string) => `public:${value}` },
+  'shared/csp.ts': { headers, placeholder: { ...headers, csp: "default-src 'self' {env.SIGNING_KEY}" }, plain: 'x' },
+  'shared/key.ts': {
+    publicKey: (value: string) => `public:${value}`,
+    throws: () => {
+      throw new Error('no key');
+    },
+  },
 };
 const importExport: ImportExport = async (path, exportName) => appExports[path]?.[exportName];
 
@@ -117,6 +123,73 @@ describe('the description refuses', () => {
       'runtimeSecrets.MAIL_API_KEY.secretName',
       (f) => Object.assign(f.runtimeSecrets.MAIL_API_KEY, { secretName: 'signing-key' }),
     ],
+    [
+      "the repository read key's stored name",
+      'runtimeSecrets.MAIL_API_KEY.secretName',
+      (f) => Object.assign(f.runtimeSecrets.MAIL_API_KEY, { secretName: 'repository-read-key' }),
+    ],
+    [
+      "the uploads key's stored name",
+      'runtimeSecrets.MAIL_API_KEY.secretName',
+      (f) => Object.assign(f.runtimeSecrets.MAIL_API_KEY, { secretName: 'uploads-access-key' }),
+    ],
+    ['a generated secret without its stored name', 'runtimeSecrets.SIGNING_KEY.secretName', (f) => delete f.runtimeSecrets.SIGNING_KEY.secretName],
+    // A key holding a line break would add a key of its own to the rendered Compose file
+    [
+      'an env key that is no variable name',
+      'services.api.env."X\\nprivileged: true"',
+      (f) => Object.assign(f.services.api, { env: { 'X\nprivileged: true': 'x' } }),
+    ],
+    [
+      'a release env key that is no variable name',
+      'services.api.release.env.debug',
+      (f) => Object.assign(f.services.api, { release: { env: { debug: '1' } } }),
+    ],
+    ['a process identity entry that is no variable name', 'processIdentityEnv.1', (f) => f.processIdentityEnv.push('service')],
+    [
+      'a runtime secret keyed by no variable name',
+      'runtimeSecrets.mail-key',
+      (f) => Object.assign(f.runtimeSecrets, { 'mail-key': { description: 'Mail', services: ['api'] } }),
+    ],
+    [
+      "an env key that is a runtime secret's variable",
+      'services.api.env.MAIL_API_KEY',
+      (f) => Object.assign(f.services.api, { env: { MAIL_API_KEY: 'k' } }),
+    ],
+    [
+      "a release env key that is a store's secret variable",
+      'services.api.release.env.DATABASE_URL',
+      (f) => Object.assign(f.services.api, { release: { env: { DATABASE_URL: 'postgres://elsewhere' } } }),
+    ],
+    [
+      "a dockerfile naming the engine's proxy by its path",
+      'services.api.dockerfile',
+      (f) => Object.assign(f.services.api, { dockerfile: '/engine-assets/caddy/Dockerfile' }),
+    ],
+    [
+      'a header value holding a Caddy placeholder',
+      'services.web.headers: csp',
+      (f) => Object.assign(f.services.web, { headers: 'shared/csp.ts#placeholder' }),
+    ],
+    [
+      'a derivation that throws on the probe input',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/key.ts#throws' } }),
+    ],
+    [
+      'a reference outside shared/ and infra/',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'backend/key.ts#publicKey' } }),
+    ],
+    // zod drops a record entry keyed __proto__, which the file still shows
+    ['a key named __proto__', 'services.__proto__', (f) => Object.defineProperty(f.services, '__proto__', { value: service, enumerable: true })],
+    ['a key named constructor', 'managedKeys.ai.constructor', (f) => Object.assign(f.managedKeys.ai, { constructor: 'x' })],
+    [
+      "a slug ending in a release companion's suffix",
+      'services.api-release',
+      (f) => Object.assign(f.services, { 'api-release': { ...service, port: 4010 } }),
+    ],
+    ["the slug of the engine's agent", 'services.agent', (f) => Object.assign(f.services, { agent: { ...service, port: 4010 } })],
   ];
 
   it.each(cases)('%s at %s', async (_refusal, keyPath, edit) => {

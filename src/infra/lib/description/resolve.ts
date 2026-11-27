@@ -1,13 +1,14 @@
 import { posix } from 'node:path';
 import type { z } from 'zod';
-import { validateServices } from '../../compose/infrastructure';
+import { agentProfile, agentService, validateServices } from '../../compose/infrastructure';
 import type { AppServiceConfig } from '../../compose/types';
 import { postgresManaged } from '../../resources/stores/catalog';
-import { frontendProxyDockerfile } from '../builder/builder-machine';
+import { engineAssets, frontendProxyDockerfile } from '../builder/builder-machine';
+import { repositoryKeyName } from '../deploy/repository-key';
 import { proxyEnvNames } from '../env-suppliers';
 import { type GeneralConfig, validateGeneral } from '../general-config';
 import type { ManagedKeyConfig, MintedKeyField } from '../managed-keys-config';
-import type { RuntimeSecretConfig } from '../runtime-secrets-config';
+import { type RuntimeSecretConfig, uploadsKeySecrets } from '../runtime-secrets-config';
 import type { StoreProvisioner } from '../stores';
 import { errorMessage } from '../utils/errors';
 import {
@@ -43,8 +44,8 @@ export interface AppRegistries {
   engineConfig: DescribedEngineConfig;
   /** Undefined when no service runs the engine's proxy. */
   proxyHeaders: ProxyHeaders | undefined;
-  /** The source text of each derived secret's function, by its reference. */
-  derivationSources: Readonly<Record<string, string>>;
+  /** What each derived secret's function answers for `derivationProbe`, by its reference: a change to the function or what it calls moves it. */
+  derivationProbes: Readonly<Record<string, string>>;
 }
 
 const fileName = 'infra/description.yml';
@@ -52,32 +53,61 @@ const fileName = 'infra/description.yml';
 /** The `dockerfile` that names the engine's frontend proxy. */
 const proxyDockerfile = 'engine:proxy';
 
+/** The input each derived secret's function is called with once the mode loads, at least as long as a generated value. */
+const derivationProbe = 'derivation-probe:the-engine-calls-each-derivation-with-this';
+
+/** Keys a JavaScript object reads from its prototype: a parsed file holding one would lose or bend that entry. */
+const prototypeKeys = new Set(['__proto__', 'constructor', 'prototype']);
+
+/** Slugs the engine's agent takes: its compose service, and its compose profile and bake target. */
+const reservedSlugs = new Set([agentService, agentProfile]);
+
 function refuse(path: string, message: string): never {
   throw new Error(`${fileName}: ${path}: ${message}`);
 }
+
+/** A key path as a message shows it: a key holding anything beyond a name's characters is quoted, a control character escaped. */
+const keyPath = (keys: readonly PropertyKey[]): string =>
+  keys.map((key) => (typeof key === 'number' || /^[\w$-]+$/.test(String(key)) ? String(key) : JSON.stringify(String(key)))).join('.');
 
 /** Parses with a schema, or throws one line per issue that names the key path. */
 function parse<T extends z.ZodType>(schema: T, input: unknown, source: string): z.output<T> {
   const result = schema.safeParse(input);
   if (result.success) return result.data;
   const lines = result.error.issues.flatMap((issue) => {
-    const path = issue.path.join('.');
-    const paths = issue.code === 'unrecognized_keys' ? issue.keys.map((key) => (path ? `${path}.${key}` : key)) : [path || '(root)'];
-    return paths.map((keyPath) => `${source}: ${keyPath}: ${issue.message}`);
+    const keys = issue.code === 'unrecognized_keys' ? issue.keys.map((key) => [...issue.path, key]) : [issue.path];
+    // A record key's own issue holds the rule it broke
+    const message = issue.code === 'invalid_key' ? issue.issues.map((inner) => inner.message).join('; ') : issue.message;
+    return keys.map((path) => `${source}: ${path.length > 0 ? keyPath(path) : '(root)'}: ${message}`);
   });
   throw new Error(lines.join('\n'));
 }
+
+/** Refuses a key a JavaScript object reads from its prototype, anywhere in the parsed file: zod drops such an entry from a record. */
+function refusePrototypeKeys(value: unknown, path: readonly string[] = []): void {
+  if (typeof value !== 'object' || value === null) return;
+  for (const [key, child] of Object.entries(value)) {
+    if (prototypeKeys.has(key)) refuse(keyPath([...path, key]), 'is a key a JavaScript object reads from its prototype');
+    refusePrototypeKeys(child, [...path, key]);
+  }
+}
+
+/** The variable a service's image reference reads its release tag from: `bg-jobs` gives `BG_JOBS_TAG`. */
+export const imageTagVariable = (slug: string): string => `${slug.toUpperCase().replaceAll('-', '_')}_TAG`;
+
+/** Whether a resolved service runs the engine's frontend proxy: every check of the proxy asks this. */
+const isProxy = (service: Pick<AppServiceConfig, 'dockerfile'>): boolean => service.dockerfile === frontendProxyDockerfile;
 
 /** `COOKIE_SECRET` gives `cookieSecret`: the id code addresses a runtime secret by. */
 const idOf = (variable: string): string => variable.toLowerCase().replace(/_([a-z0-9])/g, (_match, char: string) => char.toUpperCase());
 
 const kebabOf = (variable: string): string => variable.toLowerCase().replaceAll('_', '-');
 
-/** Checks a reference's form: its file stays inside the app root. */
+/** Checks a reference's form: its file stays under `shared/` or `infra/`, the folders the engine image holds. */
 function referenceOf(reference: string, path: string): { file: string; exportName: string } {
   const [file, exportName] = reference.split('#');
   const relative = posix.normalize(file);
-  if (posix.isAbsolute(relative) || relative === '..' || relative.startsWith('../')) refuse(path, `'${reference}' leaves the app root`);
+  if (!/^(?:shared|infra)\//.test(relative)) refuse(path, `'${reference}' names no file under shared/ or infra/`);
   return { file: relative, exportName };
 }
 
@@ -93,38 +123,62 @@ async function importReference(reference: string, path: string, importExport: Im
   return value;
 }
 
+/** Refuses an env key that is a runtime secret's variable: Compose gives the `environment` line the win over the env file's value. */
+function refuseSecretVariables(path: string, entries: Readonly<Record<string, string>>, secretVariables: ReadonlySet<string>): void {
+  for (const name of Object.keys(entries)) {
+    if (secretVariables.has(name)) refuse(`${path}.${name}`, "is a runtime secret's variable, which the machine's env file holds");
+  }
+}
+
 /** Splits a service's env: a value holding `@{` becomes the placeholder `${NAME}` and a binding, any other value stays literal. */
-function envOf(slug: string, entries: Readonly<Record<string, string>>, isProxy: boolean): Pick<AppServiceConfig, 'env' | 'bindings'> {
+function envOf(slug: string, entries: Readonly<Record<string, string>>, proxy: boolean): Pick<AppServiceConfig, 'env' | 'bindings'> {
   const env: Record<string, string> = {};
   const bindings: Record<string, string> = {};
   for (const [name, value] of Object.entries(entries)) {
-    if (isProxy && proxyEnvNames.includes(name)) refuse(`services.${slug}.env.${name}`, 'the engine supplies it to the proxy');
+    if (proxy && proxyEnvNames.includes(name)) refuse(`services.${slug}.env.${name}`, 'the engine supplies it to the proxy');
     if (value.includes('@{')) bindings[name] = value;
     env[name] = value.includes('@{') ? `\${${name}}` : value;
   }
-  if (isProxy) for (const name of proxyEnvNames) env[name] = `\${${name}}`;
+  if (proxy) for (const name of proxyEnvNames) env[name] = `\${${name}}`;
   return { ...(Object.keys(env).length > 0 && { env }), ...(Object.keys(bindings).length > 0 && { bindings }) };
 }
 
-function resolveServices(file: DescriptionFile): { services: Record<string, AppServiceConfig>; proxyHeadersReference: string | undefined } {
+/** A service's Dockerfile: the word `engine:proxy` names the engine's proxy, and no path names a file of the engine's folder. */
+function dockerfileOf(dockerfile: string | undefined, path: string): string | undefined {
+  if (dockerfile === proxyDockerfile) return frontendProxyDockerfile;
+  if (dockerfile !== undefined && posix.normalize(dockerfile).startsWith(`${engineAssets}/`)) {
+    refuse(path, `names a file of the engine's ${engineAssets}: only ${proxyDockerfile} names the engine's proxy`);
+  }
+  return dockerfile;
+}
+
+function resolveServices(
+  file: DescriptionFile,
+  secretVariables: ReadonlySet<string>,
+): { services: Record<string, AppServiceConfig>; proxyHeadersReference: string | undefined } {
   const services: Record<string, AppServiceConfig> = {};
   let proxyHeadersReference: string | undefined;
   for (const [slug, entry] of Object.entries(file.services)) {
     const path = `services.${slug}`;
-    const { dockerfile, env = {}, headers, ...fields } = entry;
-    const isProxy = dockerfile === proxyDockerfile;
-    if (isProxy && headers === undefined) refuse(`${path}.headers`, `the ${proxyDockerfile} service takes a reference to its header values`);
-    if (!isProxy && headers !== undefined) refuse(`${path}.headers`, `only the ${proxyDockerfile} service takes headers`);
+    if (reservedSlugs.has(slug)) refuse(path, "is a name the engine's agent takes");
+    if (slug.endsWith('-release')) refuse(path, "ends in -release, the suffix of a service's release companion");
+    const { dockerfile: stated, env = {}, headers, ...fields } = entry;
+    const dockerfile = dockerfileOf(stated, `${path}.dockerfile`);
+    const proxy = isProxy({ dockerfile });
+    if (proxy && headers === undefined) refuse(`${path}.headers`, `the ${proxyDockerfile} service takes a reference to its header values`);
+    if (!proxy && headers !== undefined) refuse(`${path}.headers`, `only the ${proxyDockerfile} service takes headers`);
     if (headers !== undefined) {
       if (proxyHeadersReference !== undefined) refuse(`${path}.dockerfile`, `only one service runs the ${proxyDockerfile}`);
       referenceOf(headers, `${path}.headers`);
       proxyHeadersReference = headers;
     }
+    refuseSecretVariables(`${path}.env`, env, secretVariables);
+    refuseSecretVariables(`${path}.release.env`, entry.release?.env ?? {}, secretVariables);
     services[slug] = {
       ...fields,
-      image: `\${REGISTRY}/${entry.reusesImageOf ?? slug}:\${${slug.toUpperCase().replaceAll('-', '_')}_TAG:-latest}`,
-      ...(dockerfile !== undefined && { dockerfile: isProxy ? frontendProxyDockerfile : dockerfile }),
-      ...envOf(slug, env, isProxy),
+      image: `\${REGISTRY}/${entry.reusesImageOf ?? slug}:\${${imageTagVariable(slug)}:-latest}`,
+      ...(dockerfile !== undefined && { dockerfile }),
+      ...envOf(slug, env, proxy),
     };
   }
   try {
@@ -143,6 +197,9 @@ function resolveSecrets(file: DescriptionFile, storedNames: Map<string, string>,
     services.forEach((slug, index) => {
       if (!Object.hasOwn(file.services, slug)) refuse(`${path}.services.${index}`, `names no service '${slug}'`);
     });
+    if (generation === 'random' && entry.secretName === undefined) {
+      refuse(`${path}.secretName`, 'a generated secret states its stored name: another name makes a new container with a new value');
+    }
     if (rotatable !== undefined && generation !== 'random') refuse(`${path}.rotatable`, 'takes generation: random');
     if (generation && derivedFrom) refuse(`${path}.derivedFrom`, 'a derived secret takes no generation');
     if (required !== undefined && (generation || derivedFrom)) refuse(`${path}.required`, 'a generated or derived secret is always required');
@@ -203,13 +260,22 @@ function resolveManagedKeys(file: DescriptionFile): Record<string, ManagedKeyCon
  * @throws on an unknown key, a wrong type or a broken rule, naming the key's path
  */
 export function resolveFile(file: unknown, importExport: ImportExport): FileRegistries {
+  refusePrototypeKeys(file);
   const description = parse(descriptionSchema, file, fileName);
 
   const appStores: Record<string, StoreProvisioner> = {};
   for (const [id, { secretConsumers }] of Object.entries(description.stores)) appStores[id] = postgresManaged({ secretConsumers });
-  const storedNames = new Map<string, string>();
+  // The runtime folder's containers and the env file's variables beside the description's own: the engine's and the stores'
+  const storedNames = new Map<string, string>([
+    [repositoryKeyName, 'the repository read key'],
+    ...uploadsKeySecrets.map(({ secretName }) => [secretName, 'the uploads key'] as const),
+  ]);
+  const secretVariables = new Set<string>([...Object.keys(description.runtimeSecrets), ...uploadsKeySecrets.map(({ envVar }) => envVar)]);
   for (const [id, store] of Object.entries(appStores)) {
-    for (const secret of store.secrets?.() ?? []) storedNames.set(secret.secretName, `store '${id}'`);
+    for (const secret of store.secrets?.() ?? []) {
+      storedNames.set(secret.secretName, `store '${id}'`);
+      secretVariables.add(secret.envVar);
+    }
   }
 
   try {
@@ -218,7 +284,7 @@ export function resolveFile(file: unknown, importExport: ImportExport): FileRegi
     refuse('general.schedule.everyMinutes', errorMessage(error));
   }
 
-  const { services, proxyHeadersReference } = resolveServices(description);
+  const { services, proxyHeadersReference } = resolveServices(description, secretVariables);
   return {
     appServices: services,
     processIdentityEnv: description.processIdentityEnv,
@@ -243,7 +309,7 @@ function checkEndpoints(services: FileRegistries['appServices'], config: Describ
       }
     };
     // The proxy listens on a port of its own: appConfig's frontend port is the dev server's.
-    if (service.dockerfile !== frontendProxyDockerfile) compare('port', service.port, endpoint.port);
+    if (!isProxy(service)) compare('port', service.port, endpoint.port);
     compare('internalPort', service.internalPort, endpoint.internalPort);
     if (service.lbRoute === 'path') {
       const path = endpoint.publicUrl === undefined ? undefined : URL.parse(endpoint.publicUrl)?.pathname;
@@ -275,20 +341,27 @@ export async function resolveApp(
   let proxyHeaders: ProxyHeaders | undefined;
   const { proxyHeadersReference: headers } = files;
   if (headers !== undefined) {
-    const slug = Object.keys(files.appServices).find((key) => files.appServices[key]?.dockerfile === frontendProxyDockerfile);
+    const slug = Object.entries(files.appServices).find(([, service]) => isProxy(service))?.[0];
     const path = `services.${slug}.headers`;
     proxyHeaders = parse(proxyHeadersSchema, await importReference(headers, path, importExport), `${fileName}: ${path}`);
   }
 
-  const derivationSources: Record<string, string> = {};
+  const derivationProbes: Record<string, string> = {};
   for (const secret of Object.values(files.runtimeSecretsConfig)) {
     if (!secret.derivedFrom) continue;
     const { reference } = secret.derivedFrom;
     const path = `runtimeSecrets.${secret.envVar}.derivedFrom.with`;
     const fn = await importReference(reference, path, importExport);
     if (typeof fn !== 'function') refuse(path, `'${reference}' is no function`);
-    derivationSources[reference] = String(fn);
+    let probed: unknown;
+    try {
+      probed = await fn(derivationProbe);
+    } catch (error) {
+      refuse(path, `'${reference}' throws on the engine's probe input: ${errorMessage(error)}`);
+    }
+    if (typeof probed !== 'string') refuse(path, `'${reference}' returned no string`);
+    derivationProbes[reference] = probed;
   }
 
-  return { engineConfig, proxyHeaders, derivationSources };
+  return { engineConfig, proxyHeaders, derivationProbes };
 }

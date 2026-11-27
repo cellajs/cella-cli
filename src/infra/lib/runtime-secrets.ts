@@ -1,6 +1,6 @@
 import type { ServiceName } from '../compose/compose';
 import { appStores, runtimeSecretsConfig } from './description';
-import type { RuntimeSecretConfig } from './runtime-secrets-config';
+import { type RuntimeSecretConfig, uploadsKeySecrets } from './runtime-secrets-config';
 import { type ServiceDefinition, serviceNames } from './services';
 import type { DatabaseRole, StoreProvisioner } from './stores';
 
@@ -107,7 +107,12 @@ export function protectsStoredData(definition: Pick<RuntimeSecretDefinition, 'va
 
 export const operatorManagedRuntimeSecrets: RuntimeSecretDefinition[] = runtimeSecrets.filter((secret) => secret.valueSource === 'operator');
 
+/**
+ * The runtime secrets one service receives, in registry order.
+ * @throws for a slug `infra/description.yml` names no service by
+ */
 export function runtimeSecretsForConsumer(consumer: ServiceName): RuntimeSecretDefinition[] {
+  if (!serviceNames.includes(consumer)) throw new Error(`runtime secrets: infra/description.yml names no service '${consumer}'`);
   return runtimeSecrets.filter((secret) => secret.services.some((service) => service === consumer));
 }
 
@@ -122,15 +127,6 @@ function unionRuntimeSecrets(consumers: readonly ServiceName[]): RuntimeSecretDe
       return true;
     });
 }
-
-/**
- * The uploads key's two halves, which Update identities and Rotate keys write into the runtime folder: the key of the uploads application,
- * which a service with `s3Access` signs uploads and presigned URLs with. Its consumers are those services.
- */
-export const uploadsKeySecrets = [
-  { secretName: 'uploads-access-key', envVar: 'S3_ACCESS_KEY_ID', half: 'accessKey' },
-  { secretName: 'uploads-secret-key', envVar: 'S3_ACCESS_KEY_SECRET', half: 'secretKey' },
-] as const;
 
 /** One name a machine's env file carries: its env var, the runtime-folder container it is read from, and whether a missing value stops a deploy. */
 export interface RuntimeEnvEntry {

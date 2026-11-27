@@ -9,7 +9,7 @@ export type EnsureSecretsClient = Pick<SecretManagerClient, 'getSecretByName' | 
 };
 
 /** A fresh generated value: 32 URL-safe characters from 192 random bits. */
-export function generateSecretValue(): string {
+function generateSecretValue(): string {
   return randomBytes(24).toString('base64url');
 }
 

@@ -19,10 +19,14 @@ function needsQuote(v: string): boolean {
   if (/:\s|\s#/.test(v)) return true; // "key: value" or " #comment" ambiguity
   if (/^[+-]?\d/.test(v)) return true; // numbers, ports, durations, IPs
   if (/^(y|yes|n|no|true|false|on|off|null|~)$/i.test(v)) return true; // bool/null coercion
+  if (v === '<<') return true; // a merge key
   return false;
 }
 
-/** A scalar on one line, quoted where YAML would read it as another type. @throws on a control character, which a quoted line folds or ends. */
+/**
+ * A scalar on one line, a mapping key or a value, quoted where YAML would read it as another type or another key.
+ * @throws on a control character, which a quoted line folds or ends
+ */
 function scalar(v: string, forceQuote = false): string {
   if (/\p{Cc}/u.test(v)) throw new Error(`compose synth: refused ${JSON.stringify(v)}, which holds a control character`);
   if (forceQuote || needsQuote(v)) return `'${v.replace(/'/g, "''")}'`;
@@ -32,12 +36,13 @@ function scalar(v: string, forceQuote = false): string {
 function emitMapping(obj: object, indent: number): string[] {
   const pad = '  '.repeat(indent);
   const lines: string[] = [];
-  for (const [key, val] of Object.entries(obj) as Array<[string, unknown]>) {
+  for (const [name, val] of Object.entries(obj) as Array<[string, unknown]>) {
+    const key = scalar(name);
     if (val === null || val === undefined) {
       lines.push(`${pad}${key}:`);
     } else if (Array.isArray(val)) {
-      if (flowKeys.has(key)) {
-        const quoted = flowQuotedKeys.has(key);
+      if (flowKeys.has(name)) {
+        const quoted = flowQuotedKeys.has(name);
         lines.push(`${pad}${key}: [${val.map((x) => scalar(String(x), quoted)).join(', ')}]`);
       } else {
         lines.push(`${pad}${key}:`);
@@ -67,7 +72,7 @@ function emitMapping(obj: object, indent: number): string[] {
 export function renderCompose(file: ComposeFile): string {
   const lines: string[] = ['services:'];
   for (const [name, svc] of Object.entries(file.services)) {
-    lines.push(`  ${name}:`);
+    lines.push(`  ${scalar(name)}:`);
     lines.push(...emitMapping(svc, 2));
   }
   return `${generatedHeader}\n\n${lines.join('\n')}\n`;

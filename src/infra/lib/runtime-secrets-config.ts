@@ -39,3 +39,12 @@ export interface RuntimeSecretDerivation {
   /** Imports the referenced function on its first call. */
   derive: (sourceValue: string) => string | Promise<string>;
 }
+
+/**
+ * The uploads key's two halves, which Update identities and Rotate keys write into the runtime folder: the key of the uploads application,
+ * which a service with `s3Access` signs uploads and presigned URLs with. Its consumers are those services.
+ */
+export const uploadsKeySecrets = [
+  { secretName: 'uploads-access-key', envVar: 'S3_ACCESS_KEY_ID', half: 'accessKey' },
+  { secretName: 'uploads-secret-key', envVar: 'S3_ACCESS_KEY_SECRET', half: 'secretKey' },
+] as const;

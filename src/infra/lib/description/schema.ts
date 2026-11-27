@@ -7,20 +7,25 @@ const perMode = <T extends z.ZodType>(value: T) => z.union([value, z.partialReco
 /** Lowercase kebab-case: a service slug, a stored secret name, the app's slug. */
 const kebab = z.string().regex(/^[a-z][a-z0-9-]*$/, 'takes lowercase kebab-case');
 
-/** An environment variable's name, which keys a runtime secret. */
-const variable = z.string().regex(/^[A-Z][A-Z0-9_]*$/, 'takes an upper-case variable name');
+/** An environment variable's name, as a regular expression's source: an `env` key, a runtime secret's key, a `${NAME}` of the Compose file. */
+export const variableName = '[A-Z_][A-Z0-9_]*';
 
-/** `'<path from the app root>#<export>'`: the engine imports that file and reads the export. */
-export const referenceSchema = z.string().regex(/^[^#]+#[A-Za-z_$][\w$]*$/, "takes a reference '<path>#<export>'");
+const variable = z.string().regex(new RegExp(`^${variableName}$`), 'takes an upper-case variable name');
 
-const stringMap = z.record(z.string(), z.string());
+/** `'<path from the app root>#<export>'`, the path under `shared/` or `infra/`: the engine image holds those two folders alone. */
+export const referenceSchema = z
+  .string()
+  .regex(/^(?:shared|infra)\/[^#]+#[A-Za-z_$][\w$]*$/, "takes a reference '<path>#<export>' to a file under shared/ or infra/");
+
+/** A service's environment: each key becomes a variable of its container. */
+const envMap = z.record(variable, z.string());
 
 const serviceSchema = z.strictObject({
   s3Access: z.boolean().optional(),
   port: z.int().min(1),
   startPeriod: z.string(),
   replacementStrategy: z.enum(['start-first', 'stop-first']),
-  release: z.strictObject({ env: stringMap.optional() }).optional(),
+  release: z.strictObject({ env: envMap.optional() }).optional(),
   primaryRollout: z.boolean().optional(),
   drainPolicy: z.enum(['requests', 'reconnect']).optional(),
   drainSeconds: z.number().min(0).optional(),
@@ -37,7 +42,7 @@ const serviceSchema = z.strictObject({
   instanceType: perMode(z.string()),
   capabilities: z.array(z.string()).optional(),
   /** A value holding `@{` is a binding template; any other value is literal. */
-  env: stringMap.optional(),
+  env: envMap.optional(),
   includeStandardEnv: z.boolean().optional(),
   includeEnvFile: z.boolean().optional(),
   /** The proxy's header values: required on the `engine:proxy` service, refused on any other. */
@@ -47,7 +52,10 @@ const serviceSchema = z.strictObject({
 const runtimeSecretSchema = z.strictObject({
   description: z.string().min(1),
   services: z.array(kebab).min(1),
-  /** Defaults to the variable in kebab-case. Pulumi names the secret's resources by it, so it never changes. */
+  /**
+   * Defaults to the variable in kebab-case, except on a generated secret, which states it. Pulumi names the secret's resources by it, so
+   * it never changes.
+   */
   secretName: kebab.optional(),
   required: z.boolean().optional(),
   generation: z.literal('random').optional(),
@@ -91,8 +99,11 @@ export const descriptionSchema = z.strictObject({
 
 export type DescriptionFile = z.infer<typeof descriptionSchema>;
 
+/** A header value the Caddyfile writes inside double quotes: a quote, a backslash, a placeholder brace, `$` or a backtick would change it. */
+const headerValue = z.string().regex(/^[^"\\{}$`\p{Cc}]*$/u, 'takes no double quote, backslash, brace, $, backtick or control character');
+
 /** The proxy's response headers, which the engine supplies to its env. */
-export const proxyHeadersSchema = z.strictObject({ csp: z.string(), embedCsp: z.string(), permissionsPolicy: z.string() });
+export const proxyHeadersSchema = z.strictObject({ csp: headerValue, embedCsp: headerValue, permissionsPolicy: headerValue });
 
 export type ProxyHeaders = z.infer<typeof proxyHeadersSchema>;
 

@@ -1,4 +1,4 @@
-import { uploadsKeySecrets } from '../lib/runtime-secrets';
+import { uploadsKeySecrets } from '../lib/runtime-secrets-config';
 import { createApiKey, deleteApiKey, listApiKeys, resolveApplicationIdByName } from '../lib/scaleway/iam-client';
 import { principalNames } from '../lib/scaleway/principals';
 import type { SecretManagerClient } from '../lib/scaleway/scaleway-secret-manager';

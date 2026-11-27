@@ -1,4 +1,6 @@
 import { composeConfig, type ServiceName } from '../../compose/compose';
+import { imageTagVariable } from '../description/resolve';
+import { variableName } from '../description/schema';
 import type { EngineConfig } from '../engine-config';
 import type { EnvSupplier, EnvSupplierContext } from '../env-suppliers';
 import { internalLbPort, type MachineRole } from '../machine-roles';
@@ -7,8 +9,9 @@ import { type ServiceDefinition, serviceEndpoints, servicesByName } from '../ser
 
 /** Placeholders the engine sets on every machine: the registry the release's images are named for, the mode, and the agent's own. */
 const injectedVars = new Set(['REGISTRY', 'APP_MODE', 'AGENT_TAG', 'AGENT_DIR']);
-const placeholderRe = /\$\{([A-Z][A-Z0-9_]*)(?::-[^}]*)?\}/g;
-const bindingRe = /@\{([a-z]+)\.([a-zA-Z]+)\}/g;
+const placeholderRe = new RegExp(String.raw`\$\{(${variableName})(?::-[^}]*)?\}`, 'g');
+/** `@{<slug or self>.<property>}`, the slug in kebab-case. */
+const bindingRe = /@\{([a-z][a-z0-9-]*)\.([a-zA-Z]+)\}/g;
 
 /** All `${VAR}` placeholders in the compose blocks that run in a service's profile. */
 function composePlaceholders(slug: string): string[] {
@@ -20,9 +23,6 @@ function composePlaceholders(slug: string): string[] {
   }
   return [...vars].filter(Boolean);
 }
-
-/** The compose `*_TAG` variable a service's image reference reads, e.g. backend to BACKEND_TAG. */
-const tagVar = (slug: string): string => `${slug.toUpperCase()}_TAG`;
 
 /** What a machine's static env is made from, beside its role. */
 export interface StaticEnvInput {
@@ -104,7 +104,7 @@ export function staticEnv(input: StaticEnvInput): string {
     AGENT_TAG: input.release,
     AGENT_DIR: input.agentDir,
   };
-  for (const service of role.services) env[tagVar(service.slug)] = input.release;
+  for (const service of role.services) env[imageTagVariable(service.slug)] = input.release;
   const bindings = effectiveBindings(role);
   // The host block folds every co-hosted worker's env, so its placeholders show up even for a worker this deploy leaves off.
   const carried = new Set(role.services.map((service) => service.slug));

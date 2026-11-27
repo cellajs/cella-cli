@@ -169,7 +169,10 @@ function releaseBlock(slug: string, cfg: AppServiceConfig): ComposeService {
 }
 
 /** The agent's compose service, which every machine runs beside its app (agent/): the launcher starts it, and it starts the rest. */
-const agentService = 'infra-agent';
+export const agentService = 'infra-agent';
+
+/** The agent's compose profile and bake target, which an app service takes from its slug. */
+export const agentProfile = 'agent';
 
 /**
  * The agent: on the host network, where it answers the load balancer on each service's agent port and reads its manifest from the metadata
@@ -181,7 +184,7 @@ function agentBlock(): ComposeService {
   return {
     image: '${REGISTRY}/infra-agent:${AGENT_TAG}',
     pull_policy: 'never',
-    profiles: ['agent'],
+    profiles: [agentProfile],
     restart: 'no',
     command: ['agent', '--plan', '${AGENT_DIR}/boot-plan.json'],
     network_mode: 'host',
@@ -210,7 +213,6 @@ export function assembleCompose(appServices: AppServices, options: { processIden
     services[slug] = appBlock(slug, cfg);
     if (cfg.release) services[releaseServiceName(slug)] = releaseBlock(slug, cfg);
   }
-  if (agentService in services) throw new Error(`infra/description.yml: services.${agentService}: is the engine's agent and no app service name.`);
   services[agentService] = agentBlock();
   publishCoHostedPorts(appServices, services);
   publishCoHostedEnv(appServices, services, processIdentityEnv);
