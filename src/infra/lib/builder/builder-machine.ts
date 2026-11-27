@@ -93,6 +93,11 @@ else
 fi
 unset REPO_KEY
 git -C /build checkout -q FETCH_HEAD
+# A commit from before cella/infra has no cella package to install the engine from.
+if [ ! -f /build/cella/package.json ]; then
+  echo "$SHA is from before cella/infra, and the engine deploys no target older than itself."
+  finish failed
+fi
 
 # A BuildKit container: the docker driver writes no archive per target. Its image by digest, as it runs every build: a BuildKit bump takes
 # the index digest that 'docker buildx imagetools inspect moby/buildkit:<version>' prints.
@@ -118,9 +123,9 @@ fi
 wait "$SERVICES"
 wait "$AGENT"
 # The release's own description of the app, which the deploy holds against the applied engine's: the target's description-hash task,
-# by the engine its cella package installed for the agent bundle, in a keyless container. A commit without cella/infra/description.yml reports
-# none. Beside the hash goes the description itself only as the text the hash was taken of: a commit older than --json prints its hash
-# again, and no field goes in.
+# by the engine its cella package installed for the agent bundle, in a keyless container. A commit whose cella package comes without
+# cella/infra/description.yml reports none. Beside the hash goes the description itself only as the text the hash was taken of: a commit
+# older than --json prints its hash again, and no field goes in.
 DESCRIPTION_FIELD=''
 if [ -f /build/cella/infra/description.yml ]; then
   DESCRIPTION=$(docker run --rm -e APP_MODE -v /build:/build:ro -w /build "$NODE_IMAGE" ${engineTaskCommand('/build', 'description-hash').join(' ')})

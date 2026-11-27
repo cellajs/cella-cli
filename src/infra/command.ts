@@ -13,10 +13,12 @@ const description = join('cella', 'infra', 'description.yml');
 
 /**
  * Whether `dir` is an app root with infra, or its `cella/infra` folder, where Pulumi runs the program. An app that keeps its infra in
- * `infra/` counts: the engine's start refuses it with the alignment that moves it.
+ * `infra/` counts, and so does the app's `cella` folder: the engine's start refuses the one with the alignment that moves it, the other with
+ * the app's root.
  */
 export function hasInfraFolder(dir: string): boolean {
-  if (existsSync(join(dir, description)) || existsSync(join(dir, 'infra', 'package.json'))) return true;
+  const infra = join(dir, 'infra');
+  if (existsSync(join(dir, description)) || existsSync(join(infra, 'package.json')) || existsSync(join(infra, 'description.yml'))) return true;
   const up = resolve(dir, '..', '..');
   return resolve(dir) === join(up, 'cella', 'infra') && existsSync(join(up, description));
 }

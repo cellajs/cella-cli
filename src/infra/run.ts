@@ -5,8 +5,8 @@ import { crossMark, pc } from './lib/utils/cli-output';
 import { ExitCodeError, errorMessage } from './lib/utils/errors';
 
 /**
- * The engine's tasks by name, which `cella infra <task>` runs: the main job, the image and the builder, CI and the engine itself
- * call them (lib/utils/engine-task.ts). A task is handed the words after its name.
+ * The engine's tasks by name, which `cella infra <task>` runs: CI calls them by `pnpm cella infra <task>`, the image, the builder and the
+ * engine itself by the `cella` package's bin (lib/utils/engine-task.ts). A task is handed the words after its name.
  */
 export const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
   'main-job': async () => {

@@ -1,6 +1,6 @@
 import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /** The infra folder's path from the app root. */
@@ -13,8 +13,8 @@ const alignmentHint =
 /**
  * The app root for a working directory: the directory itself when it holds `cella/infra/description.yml`, or two folders up when it is that
  * `cella/infra` folder, where Pulumi runs the program.
- * @throws for a root on the layout with `infra/description.yml` or `infra/config/`, a root without `cella/infra/description.yml`, or one that
- * holds another description in `cella/infra/cella/infra/`
+ * @throws for the app's `cella` folder, a root on the layout with `infra/description.yml` or `infra/config/`, a root without
+ * `cella/infra/description.yml`, or one that holds another description in `cella/infra/cella/infra/`
  */
 export function appRootOf(dir: string): string {
   const here = resolve(dir);
@@ -22,6 +22,9 @@ export function appRootOf(dir: string): string {
   // The old infra workspace of a checkout named cella ends in cella/infra too: its manifest tells it apart
   const inFolder = here === join(up, infraFolder) && existsSync(join(here, 'description.yml')) && !existsSync(join(here, 'package.json'));
   const root = inFolder ? up : here;
+  if (basename(root) === 'cella' && existsSync(join(root, 'infra', 'description.yml')) && !existsSync(join(root, 'infra', 'package.json'))) {
+    throw new Error(`${root} is the app's cella folder: run from the app's root, one folder up.`);
+  }
   if (existsSync(join(root, 'infra', 'description.yml')) || existsSync(join(root, 'infra', 'config'))) {
     throw new Error(`${root} keeps its infra in infra/, and the engine reads cella/infra/. ${alignmentHint}`);
   }

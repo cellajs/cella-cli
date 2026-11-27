@@ -32,6 +32,13 @@ describe('the app root', () => {
       /cella\/infra\/cella\/infra\/description\.yml: /,
     ],
     ['refuses a root without a description', { 'package.json': '{}' }, '.', /has no cella\/infra\/description\.yml.*alignment infra-description/],
+    // An editor's vitest and `pnpm --filter cella-tools exec` start in the cella package
+    [
+      'refuses the cella folder, naming the root one up',
+      description,
+      'cella',
+      /cella is the app's cella folder: run from the app's root, one folder up/,
+    ],
     // An upgrade that brings the engine before the alignment runs reads nothing of the old layout
     [
       'refuses a root that keeps its infra in infra/',

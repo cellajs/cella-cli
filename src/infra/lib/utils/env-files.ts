@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { environments } from '../stack/environment';
 import { infraDir, machineDir, repoRoot } from './paths';
 
 /**
@@ -107,32 +108,41 @@ export function modeEnvValues(parsed: Record<string, string>, mode: string): { v
 }
 
 /**
- * Refuses a mode's key file the move to `cella/infra/` left in `infra/`: the CLI reads keys from `cella/infra/` alone.
- * @throws when `infra/.env.<mode>` exists and `cella/infra/.env.<mode>` does not, with the `mv` that moves it
+ * Refuses the files the move to `cella/infra/` left in `infra/`: each environment's stack file, exposure overlay and key file. The engine reads
+ * them from `cella/infra/` alone, and a stack file it cannot find reads as an environment not set up yet.
+ * @returns one warning when an old copy sits beside its `cella/infra/` twin, else none
+ * @throws for a file in `infra/` whose twin is missing, with one `mv` line per file, relative to the app root
  */
-export function refuseKeyFileLeftBehind(mode: string, root = repoRoot): void {
-  const left = join('infra', `.env.${mode}`);
-  const read = join('cella', 'infra', `.env.${mode}`);
-  if (existsSync(join(root, left)) && !existsSync(join(root, read))) {
-    throw new Error(`${join(root, left)} is not read: the CLI reads this mode's keys from ${read}. Move it, in ${root}:\n  mv ${left} ${read}`);
+export function refuseFilesLeftBehind(root = repoRoot): string[] {
+  const left = environments
+    .flatMap((mode) => [`Pulumi.${mode}.yaml`, `Pulumi.${mode}.exposure.yaml`, `.env.${mode}`])
+    .filter((name) => existsSync(join(root, 'infra', name)));
+  const moves = left.filter((name) => !existsSync(join(root, 'cella', 'infra', name)));
+  if (moves.length > 0) {
+    const lines = moves.map((name) => `  mv ${join('infra', name)} ${join('cella', 'infra', name)}`);
+    throw new Error(`infra/ holds stack or key files the engine reads from cella/infra/ alone. Move them, in ${root}:\n${lines.join('\n')}`);
   }
+  if (left.length === 0) return [];
+  return [
+    `${left.map((name) => join('infra', name)).join(', ')} ${left.length === 1 ? 'is' : 'are'} not read: the engine reads the copies in cella/infra/.`,
+  ];
 }
 
 /**
  * Load `cella/infra/.env.<mode>`, which overrides the ambient env so a staging run cannot inherit production values. The file may hold a
- * live secret key: it is tightened to 0600 on sight. Returns the warnings the file earned (superseded key names, values the CLI no longer
- * reads).
- * @throws for a key file left in `infra/`, before any key is read
+ * live secret key: it is tightened to 0600 on sight. Returns the warnings the files earned (old copies left in `infra/`, superseded key
+ * names, values the CLI no longer reads).
+ * @throws for a stack or key file left in `infra/`, before any key is read
  */
 export function loadModeEnvFile(mode: string, log: (message: string) => void = () => {}): string[] {
-  refuseKeyFileLeftBehind(mode);
+  const leftBehind = refuseFilesLeftBehind();
   // A bare cella/infra/.env is never read; naming the file that is read saves a round of prompts for the values it holds.
   const strayEnvPath = resolve(infraDir, '.env');
   if (existsSync(strayEnvPath)) {
     log(`${strayEnvPath} is not read: mode-scoped keys live in cella/infra/.env.${mode} (cella/infra/README.md, Key files).`);
   }
   const modeEnvPath = resolve(infraDir, `.env.${mode}`);
-  if (!existsSync(modeEnvPath)) return [];
+  if (!existsSync(modeEnvPath)) return leftBehind;
   const fileMode = statSync(modeEnvPath).mode;
   if ((fileMode & 0o077) !== 0) {
     chmodSync(modeEnvPath, 0o600);
@@ -140,7 +150,7 @@ export function loadModeEnvFile(mode: string, log: (message: string) => void = (
   }
   const { values, warnings } = modeEnvValues(parseEnvFile(modeEnvPath), mode);
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
-  return warnings;
+  return [...leftBehind, ...warnings];
 }
 
 /** Path of the mode-scoped operator env file. */

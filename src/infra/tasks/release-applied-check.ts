@@ -4,8 +4,9 @@ import { appliedDescriptionVariable, followsReleases } from '../lib/deploy/relea
 import { actionCommand } from '../lib/operator-actions';
 import { environments } from '../lib/stack/environment';
 import { stackFilePath } from '../lib/stack/project-per-mode';
+import { engineTaskCommand } from '../lib/utils/engine-task';
 import { isRecord } from '../lib/utils/guards';
-import { infraDir } from '../lib/utils/paths';
+import { repoRoot } from '../lib/utils/paths';
 
 /** The repository's variables, as the workflow passes them in `REPOSITORY_VARIABLES` (`toJSON(vars)`). */
 function repositoryVariables(): Record<string, unknown> {
@@ -15,10 +16,8 @@ function repositoryVariables(): Record<string, unknown> {
 
 /** The hash of this checkout's description of the app for one environment, as its builder reports it, in a process of its own: the config loads per mode. */
 function releaseDescription(mode: string): string {
-  const run = spawnSync('pnpm', ['--silent', 'run', 'description-hash', '--mode', mode], {
-    cwd: infraDir,
-    encoding: 'utf8',
-  });
+  const [command, ...words] = engineTaskCommand(repoRoot, 'description-hash', ['--mode', mode]);
+  const run = spawnSync(command, words, { cwd: repoRoot, encoding: 'utf8' });
   if (run.status !== 0) throw new Error(`the description of ${mode} did not render:\n${run.stderr.trim().split('\n').slice(-12).join('\n')}`);
   return run.stdout.trim();
 }

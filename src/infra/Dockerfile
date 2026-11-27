@@ -19,8 +19,9 @@ COPY pnpm-lock.yaml pnpm-workspace.yaml ./
 COPY patche[s] patches/
 COPY shared/package.json shared/
 COPY cella/package.json cella/
-# The production dependencies of the cella package, the engine among them, and of shared, each selected by its folder: the root is no
-# project of the install, and its lifecycle scripts do not run. The store and cache pnpm filled to install them go, as no run installs.
+# The production dependencies of the cella package, the engine among them, and of shared, each selected by its folder. pnpm installs the
+# root's own production dependencies and runs its lifecycle scripts too, which must pass without its dev dependencies. The store and cache
+# pnpm filled to install them go, as no run installs.
 # Every task runs by the engine's bin in cella/node_modules/.bin, from /engine (lib/utils/engine-task.ts).
 RUN pnpm install --frozen-lockfile --prod --filter '{./cella}...' --filter '{./shared}...' \
  && rm -rf "$(pnpm store path)" /root/.cache

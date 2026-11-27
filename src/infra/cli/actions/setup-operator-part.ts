@@ -14,8 +14,9 @@ import { importPlan, keptResources } from '../../lib/stack/kept-resources';
 import { writeStackFileProjectId } from '../../lib/stack/project-per-mode';
 import { runPulumiUpWithHint } from '../../lib/stack/pulumi-up';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
+import { engineTaskCommand } from '../../lib/utils/engine-task';
 import { errorMessage } from '../../lib/utils/errors';
-import { infraDir } from '../../lib/utils/paths';
+import { infraDir, repoRoot } from '../../lib/utils/paths';
 import { ensureDatabaseForStack } from '../../tasks/ensure-database';
 import { ensureSecrets } from '../../tasks/ensure-secrets';
 import { type PublishedEngine, pruneEngines, publishEngine, recordAppliedEngine } from '../../tasks/publish-engine';
@@ -52,11 +53,20 @@ async function optionalSecret(message: string): Promise<string> {
   }
 }
 
-/** Run a labelled command in the infra folder and end the action on a non-zero exit; with `retry`, a failure first asks to run it again. */
-async function mustRun(label: string, cmd: string, args: string[], env: NodeJS.ProcessEnv, opts: { retry?: boolean } = {}): Promise<void> {
+/**
+ * Run a labelled command in `cwd`, the infra folder by default, and end the action on a non-zero exit; with `retry`, a failure first asks to
+ * run it again.
+ */
+async function mustRun(
+  label: string,
+  cmd: string,
+  args: string[],
+  env: NodeJS.ProcessEnv,
+  opts: { retry?: boolean; cwd?: string } = {},
+): Promise<void> {
   while (true) {
     console.info(`\n→ ${label}\n  $ ${cmd} ${args.join(' ')}`);
-    const { status } = spawnSync(cmd, args, { cwd: infraDir, env, stdio: 'inherit' });
+    const { status } = spawnSync(cmd, args, { cwd: opts.cwd ?? infraDir, env, stdio: 'inherit' });
     if (status === 0) return;
     console.error(`\n${crossMark} ${label} failed (exit ${status}).`);
     if (!opts.retry || !(await confirm({ message: 'Retry?', default: true }))) endAction(status ?? 1);
@@ -300,7 +310,8 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   };
 
   // State backend + stack
-  await mustRun('Ensure Pulumi state bucket', 'pnpm', ['ensure-state-bucket'], childEnv, { retry: true });
+  const [engine, ...ensureBucket] = engineTaskCommand(repoRoot, 'ensure-state-bucket');
+  await mustRun('Ensure Pulumi state bucket', engine, ensureBucket, childEnv, { retry: true, cwd: repoRoot });
   await mustRun('Pulumi login (S3 backend)', 'pulumi', ['login', pulumiLoginUrl(appConfig)], childEnv, { retry: true });
   const selected = spawnSync('pulumi', ['stack', 'select', stackName], { cwd: infraDir, env: childEnv, stdio: 'ignore' });
   if (selected.status !== 0) await mustRun('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], childEnv);

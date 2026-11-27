@@ -8,7 +8,7 @@ import { type Environment, environments, isEnvironment } from '../lib/stack/envi
 import { stackFilePath, writeStackFileProjectId } from '../lib/stack/project-per-mode';
 import { loadStackContext } from '../lib/stack/stack-context';
 import { crossMark, hasPerson, pc, printFailureHint, warningMark, withSpinner } from '../lib/utils/cli-output';
-import { dropPromptOnlyEnv, loadRootEnvFile, removeModeProjectId } from '../lib/utils/env-files';
+import { dropPromptOnlyEnv, loadRootEnvFile, refuseFilesLeftBehind, removeModeProjectId } from '../lib/utils/env-files';
 import { installedPulumiVersion, pulumiCliLagWarning, sdkPulumiVersion } from '../lib/utils/pulumi-version';
 import { type ActionOutcome, runAction } from './actions';
 import { printLaunchChecklist } from './actions/setup-checklist';
@@ -222,6 +222,9 @@ function readAhead(environment: Environment): { startedAt: number; context: Prom
 export async function runInfraCli(args: CliArgs): Promise<void> {
   // The actions read their flags on process.argv, where `--sha=<sha>` must read as `--sha <sha>` too.
   process.argv = splitFlagValues(process.argv);
+
+  // A stack file left in infra/ would read as an environment not set up yet. The warnings for old copies print with the stack's notices.
+  refuseFilesLeftBehind();
 
   // Load the repo-root .env so infra child tasks share the app's local config; ambient env keeps precedence over the file.
   loadRootEnvFile();
