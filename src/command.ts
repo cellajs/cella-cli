@@ -12,7 +12,7 @@ export interface MenuContext {
   hasForks: boolean;
   /** The checkout is the template itself, which has no upstream to upgrade from. */
   isUpstreamRepo: boolean;
-  /** The app has an `infra` workspace. */
+  /** The app has infra: `cella/infra/description.yml`, or an `infra/` folder the alignment moves there. */
   hasInfra: boolean;
 }
 

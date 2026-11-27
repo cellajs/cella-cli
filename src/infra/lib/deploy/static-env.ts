@@ -125,7 +125,7 @@ export function staticEnv(input: StaticEnvInput): string {
     if (!supply) {
       if (skippable.has(name)) continue;
       throw new Error(
-        `static env: '${role.role}' references \${${name}} in its compose blocks but no binding or engine supplier defines it: give it a value holding @{...} in its service's env in infra/description.yml.`,
+        `static env: '${role.role}' references \${${name}} in its compose blocks but no binding or engine supplier defines it: give it a value holding @{...} in its service's env in cella/infra/description.yml.`,
       );
     }
     env[name] = supply(input.context);

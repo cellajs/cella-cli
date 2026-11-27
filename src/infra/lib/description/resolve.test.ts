@@ -184,10 +184,11 @@ describe('the description refuses', () => {
       'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
       (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/key.ts#throws' } }),
     ],
+    // The engine image copies shared/ and cella/infra/ alone: infra/ is a folder of the old layout
     [
-      'a reference outside shared/ and infra/',
+      'a reference outside shared/ and cella/infra/',
       'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
-      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'backend/key.ts#publicKey' } }),
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'infra/key.ts#publicKey' } }),
     ],
     // The form passes the schema's pattern: the normalized path leaves shared/
     [

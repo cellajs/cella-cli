@@ -18,7 +18,7 @@ export interface RuntimeSecretDefinition extends Omit<RuntimeSecretConfig, 'serv
   database?: { role: DatabaseRole };
 }
 
-/** Pure merge of a store registry's secret contributions with the `runtimeSecrets` of `infra/description.yml`. Store-owned declarations come first, in store-registry order. */
+/** Pure merge of a store registry's secret contributions with the `runtimeSecrets` of `cella/infra/description.yml`. Store-owned declarations come first, in store-registry order. */
 export function buildRuntimeSecrets(
   stores: Record<string, Pick<StoreProvisioner, 'secrets'>>,
   appSecrets: Record<string, Omit<RuntimeSecretDefinition, 'id'>>,
@@ -109,10 +109,10 @@ export const operatorManagedRuntimeSecrets: RuntimeSecretDefinition[] = runtimeS
 
 /**
  * The runtime secrets one service receives, in registry order.
- * @throws for a slug `infra/description.yml` names no service by
+ * @throws for a slug `cella/infra/description.yml` names no service by
  */
 export function runtimeSecretsForConsumer(consumer: ServiceName): RuntimeSecretDefinition[] {
-  if (!serviceNames.includes(consumer)) throw new Error(`runtime secrets: infra/description.yml names no service '${consumer}'`);
+  if (!serviceNames.includes(consumer)) throw new Error(`runtime secrets: cella/infra/description.yml names no service '${consumer}'`);
   return runtimeSecrets.filter((secret) => secret.services.some((service) => service === consumer));
 }
 

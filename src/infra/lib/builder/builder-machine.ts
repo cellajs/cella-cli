@@ -1,9 +1,10 @@
 import { metadataHost } from '../../agent/src/manifest';
 import { type CloudConfigFile, cloudConfigDocument } from '../utils/cloud-config';
+import { engineTaskCommand } from '../utils/engine-task';
 
 /**
  * Where the builder puts the engine's build folders before the `engine` group bakes: the agent's and the frontend proxy's, each a
- * Dockerfile with what it copies. The release's engine package ships them; a release from before the package has them in its checkout.
+ * Dockerfile with what it copies, which the release's engine package ships.
  */
 export const engineAssets = '/engine-assets';
 
@@ -92,6 +93,11 @@ else
 fi
 unset REPO_KEY
 git -C /build checkout -q FETCH_HEAD
+# A commit from before cella/infra has no cella package to install the engine from.
+if [ ! -f /build/cella/package.json ]; then
+  echo "$SHA is from before cella/infra, and the engine deploys no target older than itself."
+  finish failed
+fi
 
 # A BuildKit container: the docker driver writes no archive per target. Its image by digest, as it runs every build: a BuildKit bump takes
 # the index digest that 'docker buildx imagetools inspect moby/buildkit:<version>' prints.
@@ -104,18 +110,11 @@ if [ -n "$FRONTEND" ]; then cp -a /build /frontend; fi
 mkdir -p /var/lib/release/images
 docker buildx bake --file /etc/builder-bake.json services &
 SERVICES=$!
-# Keyless containers: the infra workspace installs in the checkout, and the app's frontend builds in its copy.
+# Keyless containers: the engine installs in the checkout's cella package, and the app's frontend builds in its copy.
 docker run --rm -v /build:/build -v /etc/builder-agent.sh:/script.sh:ro -w /build "$NODE_IMAGE" bash -eo pipefail /script.sh
-# The engine's build folders: the release's engine package ships them, a release from before the package keeps them in its checkout,
-# with the agent bundle the container just built. Copied with links resolved, as the package sits behind pnpm's links.
-if [ -d /build/infra/agent/src ]; then
-  mkdir -p ${engineAssets}/caddy/infra/caddy
-  cp -R /build/infra/agent ${engineAssets}/agent
-  cp /build/infra/caddy/Dockerfile ${engineAssets}/caddy/Dockerfile
-  cp /build/infra/caddy/Caddyfile ${engineAssets}/caddy/infra/caddy/Caddyfile
-else
-  cp -RL /build/infra/node_modules/@cellajs/cli/dist/infra-assets ${engineAssets}
-fi
+# The engine's build folders, which the release's engine package ships with the agent bundled. Copied with links resolved, as the package
+# sits behind pnpm's links.
+cp -RL /build/cella/node_modules/@cellajs/cli/dist/infra-assets ${engineAssets}
 docker buildx bake --file /etc/builder-bake.json engine &
 AGENT=$!
 if [ -n "$FRONTEND" ]; then
@@ -123,16 +122,16 @@ if [ -n "$FRONTEND" ]; then
 fi
 wait "$SERVICES"
 wait "$AGENT"
-# The release's own description of the app, which the deploy holds against the applied engine's: the target's description-hash
-# script by name, which npm runs as the image has no pnpm, in a keyless container on the engine workspace the agent bundle installed.
-# A commit older than the script reports none. Beside the hash goes the
-# description itself only as the text the hash was taken of: a commit older than --json prints its hash again, and no field goes in.
+# The release's own description of the app, which the deploy holds against the applied engine's: the target's description-hash task,
+# by the engine its cella package installed for the agent bundle, in a keyless container. A commit whose cella package comes without
+# cella/infra/description.yml reports none. Beside the hash goes the description itself only as the text the hash was taken of: a commit
+# older than --json prints its hash again, and no field goes in.
 DESCRIPTION_FIELD=''
-if grep -q '"description-hash"' /build/infra/package.json; then
-  DESCRIPTION=$(docker run --rm -e APP_MODE -v /build:/build:ro -w /build/infra "$NODE_IMAGE" npm run --silent description-hash)
+if [ -f /build/cella/infra/description.yml ]; then
+  DESCRIPTION=$(docker run --rm -e APP_MODE -v /build:/build:ro -w /build "$NODE_IMAGE" ${engineTaskCommand('/build', 'description-hash').join(' ')})
   printf '%s' "$DESCRIPTION" | grep -Eqx '[0-9a-f]{64}' || { echo "the release's description hash is no hash: $DESCRIPTION"; false; }
   DESCRIPTION_FIELD=",\"description\":\"$DESCRIPTION\""
-  DESCRIBES=$(docker run --rm -e APP_MODE -v /build:/build:ro -w /build/infra "$NODE_IMAGE" npm run --silent description-hash -- --json)
+  DESCRIBES=$(docker run --rm -e APP_MODE -v /build:/build:ro -w /build "$NODE_IMAGE" ${engineTaskCommand('/build', 'description-hash', ['--json']).join(' ')})
   if [ "$(printf '%s' "$DESCRIBES" | sha256sum | cut -d ' ' -f 1)" = "$DESCRIPTION" ]; then
     DESCRIPTION_FIELD="$DESCRIPTION_FIELD,\"describes\":$DESCRIBES"
   fi
@@ -160,21 +159,22 @@ put manifest /run/manifest.json
 finish ok
 `;
 
-/** The keyless container that builds the agent bundle: the app's infra workspace only. */
+/**
+ * The keyless container that installs the engine, whose package ships the agent bundled: the production dependencies of the `cella`
+ * package and of `shared`, selected by folder as the engine image installs them.
+ */
 export function agentBundleScript(pnpmVersion: string): string {
   return [
     `npm install -g --silent pnpm@${pnpmVersion}`,
-    "pnpm install --frozen-lockfile --filter 'infra...'",
-    // A release from before the engine package builds its agent from its checkout; the package ships it built
-    'if [ -d infra/agent/src ]; then pnpm --filter infra agent:build; fi',
+    "pnpm install --frozen-lockfile --prod --filter '{./cella}...' --filter '{./shared}...'",
     '',
   ].join('\n');
 }
 
 /**
  * The keyless container that builds the frontend on its copy: this environment's OpenAPI spec first, which the docs page serves with its
- * URLs. CI's frontend-build job runs this same script on every PR (`pnpm --filter infra builder-script frontend`), so a change it cannot
- * build fails there and not at the release deploy.
+ * URLs. A change it cannot build fails in CI and not at the release deploy: the frontend-build job runs this same script on every PR
+ * (`pnpm cella infra builder-script frontend`).
  */
 export function frontendScript(pnpmVersion: string): string {
   return [

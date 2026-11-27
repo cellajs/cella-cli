@@ -28,7 +28,7 @@ export interface BakeOptions {
 
 /**
  * A `docker buildx bake` definition covering every app image and the agent, in two groups: `services` bakes while the release's
- * workspace installs, `engine` after it, with the agent and every image whose Dockerfile is one of the engine's. Each image is written to `<archiveDir>/<name>.tar` in the format `docker load` reads, tagged as the release's
+ * engine installs, `engine` after it, with the agent and every image whose Dockerfile is one of the engine's. Each image is written to `<archiveDir>/<name>.tar` in the format `docker load` reads, tagged as the release's
  * compose file names it, and pushed nowhere.
  */
 export function bakeDefinition(rows: BuildImageRow[], opts: BakeOptions): { group: unknown; target: Record<string, unknown> } {

@@ -30,7 +30,7 @@ function engineFields(config: EngineConfig): EngineConfig {
 }
 
 /**
- * The app as the engine of one environment sees it: the engine config's fields, every registry of `infra/description.yml` the apply and the
+ * The app as the engine of one environment sees it: the engine config's fields, every registry of `cella/infra/description.yml` the apply and the
  * deploy read (the runtime secrets and managed keys as the engine reads them, each derived secret with what its function answers for the engine's probe input),
  * each value the engine supplies to the proxy's env, the boot plan's contract version, and the Node, pnpm and repository the root
  * `package.json` names, which the builder and the engine run on. A store is described by its kind and its factory's settings. Run once

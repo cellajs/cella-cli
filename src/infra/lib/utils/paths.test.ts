@@ -7,8 +7,7 @@ import { appRootOf } from './paths';
 const base = mkdtempSync(join(tmpdir(), 'app-root-'));
 afterAll(() => rmSync(base, { recursive: true, force: true }));
 
-const description = { 'infra/description.yml': '' };
-const workspace = { 'infra/package.json': '{ "name": "infra" }' };
+const description = { 'cella/infra/description.yml': '' };
 
 /** A new app folder holding `files`, each at its path from the folder. */
 function app(files: Record<string, string>): string {
@@ -23,21 +22,36 @@ function app(files: Record<string, string>): string {
 describe('the app root', () => {
   const cases: [found: string, files: Record<string, string>, from: string, expected: string | RegExp][] = [
     ['the working directory', description, '.', '.'],
-    ["the infra workspace's parent, where its scripts run", { ...description, ...workspace }, 'infra', '.'],
-    // A pull request that adds one would move the root of every script the infra workspace runs
+    // Pulumi runs the program in the folder that holds Pulumi.yaml
+    ['two up from the cella/infra folder', description, 'cella/infra', '.'],
+    // A pull request that adds one would move the root of every task that runs in cella/infra
     [
-      'refuses a description nested in infra/infra/',
-      { ...description, ...workspace, 'infra/infra/description.yml': '' },
-      'infra',
-      /infra\/infra\/description\.yml: /,
+      'refuses a description nested in cella/infra/cella/infra/',
+      { ...description, 'cella/infra/cella/infra/description.yml': '' },
+      'cella/infra',
+      /cella\/infra\/cella\/infra\/description\.yml: /,
     ],
-    ['refuses a root without a description', workspace, 'infra', /alignment infra-description/],
+    ['refuses a root without a description', { 'package.json': '{}' }, '.', /has no cella\/infra\/description\.yml.*alignment infra-description/],
+    // An editor's vitest and `pnpm --filter cella-tools exec` start in the cella package
+    [
+      'refuses the cella folder, naming the root one up',
+      description,
+      'cella',
+      /cella is the app's cella folder: run from the app's root, one folder up/,
+    ],
+    // An upgrade that brings the engine before the alignment runs reads nothing of the old layout
+    [
+      'refuses a root that keeps its infra in infra/',
+      { 'infra/package.json': '{ "name": "infra" }', 'infra/description.yml': '' },
+      '.',
+      /keeps its infra in infra\/.*alignment infra-description/,
+    ],
     // A worktree inside an app reads no description, env or stack file of the checkout around it
     [
       'refuses a worktree without a description of its own',
       { ...description, '.claude/worktrees/x/package.json': '{}' },
       '.claude/worktrees/x',
-      /has no infra/,
+      /has no cella\/infra/,
     ],
   ];
 

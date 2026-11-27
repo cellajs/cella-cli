@@ -35,9 +35,9 @@ export const templateExceptions: StyleExceptions = {
     ],
     // The marketing site and the docs content are the template's own voice
     'product-name': ['frontend/src/modules/marketing/', 'frontend/src/content/'],
-    // Agent-associated wording, skipped in infra/ and in alignments, which address app maintainers
-    'load-bearing': ['cella/alignments/', 'infra/'],
-    authoritative: ['cella/alignments/', 'infra/'],
+    // Agent-associated wording, skipped in cella/infra/ and in alignments, which address app maintainers
+    'load-bearing': ['cella/alignments/', 'cella/infra/'],
+    authoritative: ['cella/alignments/', 'cella/infra/'],
     'consequence-tail': ['cella/alignments/', 'backend/drizzle/'],
     // Alignments address an upgrade's maintainer once, skills address an agent
     'long-paragraph': ['cella/alignments/', 'cella/skills/'],
@@ -62,7 +62,7 @@ export const templateExceptions: StyleExceptions = {
       'frontend/src/content',
       'frontend/src/routes/routeTree.gen.ts',
       'frontend/src/styling/gradients.css',
-      'infra/',
+      'cella/infra/',
       'sdk/gen',
       'shared/config',
       'shared/json/',

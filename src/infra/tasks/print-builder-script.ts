@@ -5,7 +5,7 @@ import { repoRoot } from '../lib/utils/paths';
 /**
  * Print one of the builder's scripts as a deploy would hand it to the builder machine, for a run outside a deploy: CI's frontend-build job
  * runs the frontend one on every PR, so a change the builder cannot build fails there and not at the release deploy.
- * Usage: `pnpm --filter infra builder-script <frontend|agent>`.
+ * Usage: `pnpm cella infra builder-script <frontend|agent>`.
  */
 export async function main(words: string[]): Promise<number> {
   const [which] = words;

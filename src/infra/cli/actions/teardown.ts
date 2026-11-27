@@ -54,7 +54,7 @@ function keptNames(context: InfraContext, kept: readonly KeptResource[]): string
  * key holds every right. Under the lease it deletes the builder machines and every role's machine with the live record that named them,
  * writes the final dump of the database into the boot-diag bucket, takes the kept resources out of the state (lib/stack/kept-resources.ts)
  * and destroys the rest. Then it removes the stack, deletes
- * every secret container but the kept ones and the environment's identities, and leaves the project id in `infra/.env.<mode>`, where the
+ * every secret container but the kept ones and the environment's identities, and leaves the project id in `cella/infra/.env.<mode>`, where the
  * next setup finds it and adopts what was kept. A dump that fails deletes nothing.
  */
 export async function runTeardown(context: InfraContext): Promise<void> {

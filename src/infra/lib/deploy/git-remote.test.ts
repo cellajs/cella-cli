@@ -1,8 +1,9 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterAll, describe, expect, it } from 'vitest';
+import { readEnvironmentsFile } from './environments-file';
 import { defaultBranchContains } from './git-remote';
 
 const work = mkdtempSync(join(tmpdir(), 'git-remote-test-'));
@@ -39,5 +40,33 @@ describe('defaultBranchContains', () => {
     expect(await ask(stray)).toBe(false);
     expect(await ask(head)).toBe(true);
     expect(await ask(earlier)).toBe(true);
+  });
+});
+
+// An environment applied before the move reaches the default branch reads the file where that branch still keeps it
+describe('readEnvironmentsFile', () => {
+  it.each([
+    [
+      'reads infra/environments on a default branch the move has not reached',
+      { 'infra/environments': 'staging branch:main\n' },
+      'staging branch:main\n',
+    ],
+    [
+      'reads cella/infra/environments first',
+      { 'infra/environments': 'staging branch:main\n', 'cella/infra/environments': 'staging releases\n' },
+      'staging releases\n',
+    ],
+  ])('%s', async (_case, files, expected) => {
+    const repository = mkdtempSync(join(work, 'origin-'));
+    execFileSync('git', ['init', '-q', '-b', 'main', repository]);
+    gitIn(repository, 'config', 'uploadpack.allowFilter', 'true');
+    gitIn(repository, 'config', 'uploadpack.allowAnySHA1InWant', 'true');
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(join(repository, path, '..'), { recursive: true });
+      writeFileSync(join(repository, path), text);
+    }
+    gitIn(repository, 'add', '-A');
+    gitIn(repository, 'commit', '-q', '-m', 'environments');
+    expect(await readEnvironmentsFile({ repository, key: undefined, dir: mkdtempSync(join(work, 'clone-')) })).toBe(expected);
   });
 });

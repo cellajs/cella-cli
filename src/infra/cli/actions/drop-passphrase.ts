@@ -50,5 +50,5 @@ export async function dropKeptPassphrase(context: InfraContext, operator: Operat
     endAction(1);
   }
   await secrets.deleteSecret(kept.id);
-  console.info(`${checkMark} Done. Commit infra/Pulumi.${context.environment}.yaml: its encryptionsalt changed.`);
+  console.info(`${checkMark} Done. Commit cella/infra/Pulumi.${context.environment}.yaml: its encryptionsalt changed.`);
 }

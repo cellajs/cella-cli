@@ -1,5 +1,6 @@
 import { chmodSync, existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
+import { environments } from '../stack/environment';
 import { infraDir, machineDir, repoRoot } from './paths';
 
 /**
@@ -93,29 +94,55 @@ export function modeEnvValues(parsed: Record<string, string>, mode: string): { v
   for (const name of stored) delete values[name];
   if (stored.length > 0) {
     warnings.push(
-      `infra/.env.${mode}: ${stored.join(', ')} ${stored.length === 1 ? 'is' : 'are'} not read. The CLI asks for a privileged key at the prompt: remove ${stored.length === 1 ? 'the line' : 'these lines'}.`,
+      `cella/infra/.env.${mode}: ${stored.join(', ')} ${stored.length === 1 ? 'is' : 'are'} not read. The CLI asks for a privileged key at the prompt: remove ${stored.length === 1 ? 'the line' : 'these lines'}.`,
     );
   }
   const retired = retiredKeyNames.filter((name) => name in values);
   for (const name of retired) delete values[name];
   if (retired.length > 0) {
     warnings.push(
-      `infra/.env.${mode}: ${retired.join(', ')} ${retired.length === 1 ? 'is' : 'are'} not read. The admin application key is retired and the observer key (SCW_OBSERVER_*) reads: remove ${retired.length === 1 ? 'the line' : 'these lines'}.`,
+      `cella/infra/.env.${mode}: ${retired.join(', ')} ${retired.length === 1 ? 'is' : 'are'} not read. The admin application key is retired and the observer key (SCW_OBSERVER_*) reads: remove ${retired.length === 1 ? 'the line' : 'these lines'}.`,
     );
   }
   return { values, warnings };
 }
 
 /**
- * Load `infra/.env.<mode>`, which overrides the ambient env so a staging run cannot inherit production values. The file may hold a live
- * secret key: it is tightened to 0600 on sight. Returns the warnings the file earned (superseded key names, values the CLI no longer reads).
+ * Refuses the files the move to `cella/infra/` left in `infra/`: each environment's stack file, exposure overlay and key file. The engine reads
+ * them from `cella/infra/` alone, and a stack file it cannot find reads as an environment not set up yet.
+ * @returns one warning when an old copy sits beside its `cella/infra/` twin, else none
+ * @throws for a file in `infra/` whose twin is missing, with one `mv` line per file, relative to the app root
+ */
+export function refuseFilesLeftBehind(root = repoRoot): string[] {
+  const left = environments
+    .flatMap((mode) => [`Pulumi.${mode}.yaml`, `Pulumi.${mode}.exposure.yaml`, `.env.${mode}`])
+    .filter((name) => existsSync(join(root, 'infra', name)));
+  const moves = left.filter((name) => !existsSync(join(root, 'cella', 'infra', name)));
+  if (moves.length > 0) {
+    const lines = moves.map((name) => `  mv ${join('infra', name)} ${join('cella', 'infra', name)}`);
+    throw new Error(`infra/ holds stack or key files the engine reads from cella/infra/ alone. Move them, in ${root}:\n${lines.join('\n')}`);
+  }
+  if (left.length === 0) return [];
+  return [
+    `${left.map((name) => join('infra', name)).join(', ')} ${left.length === 1 ? 'is' : 'are'} not read: the engine reads the copies in cella/infra/.`,
+  ];
+}
+
+/**
+ * Load `cella/infra/.env.<mode>`, which overrides the ambient env so a staging run cannot inherit production values. The file may hold a
+ * live secret key: it is tightened to 0600 on sight. Returns the warnings the files earned (old copies left in `infra/`, superseded key
+ * names, values the CLI no longer reads).
+ * @throws for a stack or key file left in `infra/`, before any key is read
  */
 export function loadModeEnvFile(mode: string, log: (message: string) => void = () => {}): string[] {
-  // A bare infra/.env is never read; naming the file that is read saves a round of prompts for the values it holds.
+  const leftBehind = refuseFilesLeftBehind();
+  // A bare cella/infra/.env is never read; naming the file that is read saves a round of prompts for the values it holds.
   const strayEnvPath = resolve(infraDir, '.env');
-  if (existsSync(strayEnvPath)) log(`${strayEnvPath} is not read: mode-scoped keys live in infra/.env.${mode} (infra/README.md, Key files).`);
+  if (existsSync(strayEnvPath)) {
+    log(`${strayEnvPath} is not read: mode-scoped keys live in cella/infra/.env.${mode} (cella/infra/README.md, Key files).`);
+  }
   const modeEnvPath = resolve(infraDir, `.env.${mode}`);
-  if (!existsSync(modeEnvPath)) return [];
+  if (!existsSync(modeEnvPath)) return leftBehind;
   const fileMode = statSync(modeEnvPath).mode;
   if ((fileMode & 0o077) !== 0) {
     chmodSync(modeEnvPath, 0o600);
@@ -123,7 +150,7 @@ export function loadModeEnvFile(mode: string, log: (message: string) => void = (
   }
   const { values, warnings } = modeEnvValues(parseEnvFile(modeEnvPath), mode);
   for (const [key, value] of Object.entries(values)) process.env[key] = value;
-  return warnings;
+  return [...leftBehind, ...warnings];
 }
 
 /** Path of the mode-scoped operator env file. */
@@ -192,7 +219,7 @@ export function writeObserverKey(appSlug: string, pair: { accessKey: string; sec
 }
 
 /**
- * Load the app's observer key from this machine's file into the process, over the ambient env. A key an `infra/.env.<mode>` of this
+ * Load the app's observer key from this machine's file into the process, over the ambient env. A key a `cella/infra/.env.<mode>` of this
  * checkout holds moves to the machine's file when that holds none, and leaves the mode file with the retired names either way.
  * @returns one line for each key that moved, and one for each key a mode file held beside the machine's, which works until it is deleted
  * in the console
@@ -206,11 +233,11 @@ export function loadObserverKey(appSlug: string, modes: readonly string[]): stri
     const stored = storedObserverKey(appSlug);
     if (!stored) {
       warnings.push(
-        `The observer key moved from infra/.env.${mode} to ${writeObserverKey(appSlug, held)}, which every checkout of the app here reads.`,
+        `The observer key moved from cella/infra/.env.${mode} to ${writeObserverKey(appSlug, held)}, which every checkout of the app here reads.`,
       );
     } else if (stored.accessKey !== held.accessKey) {
       warnings.push(
-        `infra/.env.${mode} held another observer key (${held.accessKey}), which the CLI reads no more: delete it in the console (IAM → Applications → ${appSlug}-observer → API keys).`,
+        `cella/infra/.env.${mode} held another observer key (${held.accessKey}), which the CLI reads no more: delete it in the console (IAM → Applications → ${appSlug}-observer → API keys).`,
       );
     }
     writeEnvValues(path, {}, { remove: [...Object.values(observerKeyNames), ...retiredKeyNames] });

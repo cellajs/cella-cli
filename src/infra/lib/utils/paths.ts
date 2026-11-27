@@ -1,32 +1,44 @@
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
-import { dirname, join, resolve } from 'node:path';
+import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
+/** The infra folder's path from the app root. */
+const infraFolder = join('cella', 'infra');
+
+/** What a refusal of the app root says last: the alignment that moves an app's infra into `cella/infra/`. */
+const alignmentHint =
+  "The template's alignment infra-description (cella/alignments/) moves an app's infra from infra/ to cella/infra/: `pnpm cella align` lists it after the upgrade.";
+
 /**
- * The app root for a working directory: the directory itself, or its parent when it is the app's `infra` workspace (its `package.json` is
- * named `infra`), where that workspace's scripts run.
- * @throws when the root holds no `infra/description.yml`, or holds another one in `infra/infra/`
+ * The app root for a working directory: the directory itself when it holds `cella/infra/description.yml`, or two folders up when it is that
+ * `cella/infra` folder, where Pulumi runs the program.
+ * @throws for the app's `cella` folder, a root on the layout with `infra/description.yml` or `infra/config/`, a root without
+ * `cella/infra/description.yml`, or one that holds another description in `cella/infra/cella/infra/`
  */
 export function appRootOf(dir: string): string {
-  const manifest = join(dir, 'package.json');
-  const parsed: { name?: unknown } = existsSync(manifest) ? JSON.parse(readFileSync(manifest, 'utf8')) : {};
-  const root = parsed.name === 'infra' ? dirname(resolve(dir)) : resolve(dir);
-  if (!existsSync(join(root, 'infra', 'description.yml'))) {
-    throw new Error(
-      `${root} has no infra/description.yml. An app that still describes its infra in infra/config/ moves it with the template's alignment infra-description (cella/alignments/): \`pnpm cella align\` lists it after the upgrade.`,
-    );
+  const here = resolve(dir);
+  const up = resolve(here, '..', '..');
+  // The old infra workspace of a checkout named cella ends in cella/infra too: its manifest tells it apart
+  const inFolder = here === join(up, infraFolder) && existsSync(join(here, 'description.yml')) && !existsSync(join(here, 'package.json'));
+  const root = inFolder ? up : here;
+  if (basename(root) === 'cella' && existsSync(join(root, 'infra', 'description.yml')) && !existsSync(join(root, 'infra', 'package.json'))) {
+    throw new Error(`${root} is the app's cella folder: run from the app's root, one folder up.`);
   }
-  const nested = join(root, 'infra', 'infra', 'description.yml');
-  if (existsSync(nested)) throw new Error(`${nested}: the engine reads the app root's infra/description.yml alone: remove this one.`);
+  if (existsSync(join(root, 'infra', 'description.yml')) || existsSync(join(root, 'infra', 'config'))) {
+    throw new Error(`${root} keeps its infra in infra/, and the engine reads cella/infra/. ${alignmentHint}`);
+  }
+  if (!existsSync(join(root, infraFolder, 'description.yml'))) throw new Error(`${root} has no cella/infra/description.yml. ${alignmentHint}`);
+  const nested = join(root, infraFolder, infraFolder, 'description.yml');
+  if (existsSync(nested)) throw new Error(`${nested}: the engine reads the app root's cella/infra/description.yml alone: remove this one.`);
   return root;
 }
 
-/** The app's root folder, from the working directory: its git checkout, root `package.json`, `.env` and environments file. */
+/** The app's root folder, from the working directory: its git checkout, root `package.json`, `.env` and install. */
 export const repoRoot = appRootOf(process.cwd());
 
-/** The app's `infra/` folder: its description, Pulumi project and stack files, env files and debug captures. */
-export const infraDir = join(repoRoot, 'infra');
+/** The app's `cella/infra/` folder: its description, environments file, Pulumi project and stack files, env files and debug captures. */
+export const infraDir = join(repoRoot, infraFolder);
 
 /** The build files the package ships beside its bundle: the engine image's Dockerfile, and the agent's and the frontend proxy's folders. */
 export const engineAssetsDir = resolve(dirname(fileURLToPath(import.meta.url)), 'infra-assets');
@@ -35,7 +47,7 @@ export const engineAssetsDir = resolve(dirname(fileURLToPath(import.meta.url)), 
 export const machineDir = (appSlug: string): string => join(homedir(), '.config', appSlug);
 
 /**
- * A new file's path under `infra/.debug/`, which git ignores and this makes: `<stem>-<time>.<extension>`.
+ * A new file's path under `cella/infra/.debug/`, which git ignores and this makes: `<stem>-<time>.<extension>`.
  * @throws when the folder cannot be made
  */
 export function debugFile(stem: string, extension: string): string {

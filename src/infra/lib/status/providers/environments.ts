@@ -6,7 +6,7 @@ import { infraDir, repoRoot } from '../../utils/paths';
 import { check } from '../check';
 import type { StatusProvider } from '../types';
 
-/** This checkout's environments file ('' without one), and the environments whose `infra/Pulumi.<environment>.yaml` exists. */
+/** This checkout's environments file ('' without one), and the environments whose `cella/infra/Pulumi.<environment>.yaml` exists. */
 export type EnvironmentsFacts = { text: string; stacks: string[] };
 
 /**
@@ -35,7 +35,7 @@ export const environmentsProvider: StatusProvider<EnvironmentsFacts> = {
         .map((name) => `${name} is set up but not deployed: it still costs; add \`${name} branch:main\`, or tear it down`),
       ...lines
         .filter((name) => !facts.stacks.includes(name))
-        .map((name) => `${name} has a line but is not set up (no infra/Pulumi.${name}.yaml): set it up, or remove the line`),
+        .map((name) => `${name} has a line but is not set up (no cella/infra/Pulumi.${name}.yaml): set it up, or remove the line`),
     ];
     if (findings.length > 0) return [environments.warn(findings.join('; '))];
     const stacks = facts.stacks.join(', ') || 'none';

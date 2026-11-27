@@ -132,7 +132,7 @@ describe('clearPendingCreates', () => {
       },
       saveBackup: () => {
         steps.push('backup');
-        return '/infra/.state-backups/production.json';
+        return '/app/cella/infra/.state-backups/production.json';
       },
       importState: (document) => {
         steps.push('import');
@@ -148,7 +148,7 @@ describe('clearPendingCreates', () => {
 
   it('saves the export before importing it without the creates, then confirms they are gone', async () => {
     const { fx, steps, imported } = effects();
-    await expect(clearPendingCreates(reviewed, fx)).resolves.toEqual({ backupPath: '/infra/.state-backups/production.json' });
+    await expect(clearPendingCreates(reviewed, fx)).resolves.toEqual({ backupPath: '/app/cella/infra/.state-backups/production.json' });
     expect(steps).toEqual(['export', 'backup', 'import', 'verify']);
     expect(imported).toEqual([exported([])]);
   });

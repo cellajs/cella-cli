@@ -61,7 +61,7 @@ describe('doc and wording rules', () => {
     expect(found('CHANGELOG.md', `${dash} ${singular}`)).toEqual([]);
     expect(found('guide.txt', `${dash} ${singular}`)).toEqual([]);
     expect(found('cella/alignments/x/README.md', 'This lands load-bearing code.')).toEqual([]);
-    expect(found('infra/README.md', `A ${dash} here.`)).toHaveLength(1);
+    expect(found('cella/infra/README.md', `A ${dash} here.`)).toHaveLength(1);
   });
 
   it('finds a prose paragraph over 80 words, hard-wrapped lines included, never a list, a table, code or an exempt folder', () => {

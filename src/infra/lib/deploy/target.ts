@@ -5,7 +5,7 @@ import { errorMessage } from '../utils/errors';
  * release, any other environment only what its line names. A line also pins a release or a commit, or raises the retry counter; an
  * environment that follows the releases takes `releases` or a release tag only. Every scheduled run of the main job reads it, as data.
  */
-export const environmentsFile = 'infra/environments';
+export const environmentsFile = 'cella/infra/environments';
 
 /** How an environment's target is found. */
 export type TargetRule = { kind: 'branch'; branch: string } | { kind: 'releases' } | { kind: 'pin'; ref: string };

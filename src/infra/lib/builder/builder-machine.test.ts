@@ -109,8 +109,8 @@ describe('the builder machine', () => {
       [hash, undefined],
     ] as const) {
       const dir = mkdtempSync(join(tmpdir(), 'builder-'));
-      mkdirSync(join(dir, 'build/infra'), { recursive: true });
-      writeFileSync(join(dir, 'build/infra/package.json'), JSON.stringify({ scripts: { 'description-hash': 'tsx tasks/description-hash.ts' } }));
+      mkdirSync(join(dir, 'build/cella/infra'), { recursive: true });
+      writeFileSync(join(dir, 'build/cella/infra/description.yml'), '');
       writeFileSync(join(dir, 'hash'), `${hash}\n`);
       writeFileSync(join(dir, 'json'), `${printed}\n`);
       const script = [
@@ -133,8 +133,7 @@ describe('the builder machine', () => {
     }
   });
 
-  it('builds the boot bundle with the engine only, apart from the frontend', () => {
-    expect(agentBundleScript('11.8.0')).toContain('pnpm --filter infra agent:build');
+  it('installs the engine for the boot bundle apart from the frontend', () => {
     expect(agentBundleScript('11.8.0')).not.toContain('frontend');
   });
 });

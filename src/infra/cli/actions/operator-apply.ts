@@ -11,8 +11,9 @@ import { checkpointKey } from '../../lib/stack/pending-operations';
 import { parseOrphanedDeletes, pruneOrphanedDeletes, runPulumiUpWithHint } from '../../lib/stack/pulumi-up';
 import { exitCodeOf } from '../../lib/utils/child-exit';
 import { checkMark, pc, warningMark } from '../../lib/utils/cli-output';
+import { engineTaskCommand } from '../../lib/utils/engine-task';
 import { errorMessage } from '../../lib/utils/errors';
-import { debugFile, infraDir } from '../../lib/utils/paths';
+import { debugFile, repoRoot } from '../../lib/utils/paths';
 import { ensureDatabaseForStack } from '../../tasks/ensure-database';
 import { ensureSecrets } from '../../tasks/ensure-secrets';
 import { type PublishedEngine, pruneEngines, recordAppliedEngine } from '../../tasks/publish-engine';
@@ -44,7 +45,7 @@ export interface OperatorApplyOptions {
   reviewed?: ReviewedPlan;
   /** After a completed `up`, prove the live database privileges match what the program declares; the outcome lands in `verified`. */
   verifyAfter?: boolean;
-  /** Capture the engine and provider log of the `up` under infra/.debug/, for an update Pulumi reports but the provider never sent. */
+  /** Capture the engine and provider log of the `up` under cella/infra/.debug/, for an update Pulumi reports but the provider never sent. */
   debugProvider?: boolean;
   /** Read-only check after a completed `up`, while the run's privileged key is still valid; a throw is reported as a warning. */
   afterUp?: (env: NodeJS.ProcessEnv) => Promise<void>;
@@ -64,8 +65,9 @@ export interface OperatorApplyResult {
 }
 
 /** One infra task under the lock, as a child that leaves the event loop free, so the stack lease keeps renewing while it runs. */
-async function infraTask(env: NodeJS.ProcessEnv, args: string[]): Promise<{ status: number }> {
-  return { status: await exitCodeOf(spawn('pnpm', ['--filter', 'infra', ...args], { cwd: infraDir, env, stdio: 'inherit' })) };
+async function infraTask(env: NodeJS.ProcessEnv, task: string, words: string[]): Promise<{ status: number }> {
+  const [command, ...args] = engineTaskCommand(repoRoot, task, words);
+  return { status: await exitCodeOf(spawn(command, args, { cwd: repoRoot, env, stdio: 'inherit' })) };
 }
 
 /**
@@ -115,7 +117,7 @@ export async function runOperatorApply(context: InfraContext, opts: OperatorAppl
 
     // An errored certificate leaves the state and Scaleway here. The `up` makes it anew behind its DNS gate; certificates are the apply's.
     console.info(pc.dim('\n→ Clearing errored load balancer certificates (repair-certs)…'));
-    const repair = await infraTask(env, ['repair-certs', '--stack', stack]);
+    const repair = await infraTask(env, 'repair-certs', ['--stack', stack]);
     if (repair.status !== 0) {
       await releaseLock();
       console.error(`${warningMark} repair-certs failed (exit ${repair.status}). Nothing applied.`);

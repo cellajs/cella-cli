@@ -12,10 +12,10 @@ export const variableName = '[A-Z_][A-Z0-9_]*';
 
 const variable = z.string().regex(new RegExp(`^${variableName}$`), 'takes an upper-case variable name');
 
-/** `'<path from the app root>#<export>'`, the path under `shared/` or `infra/`: the engine image holds those two folders alone. */
+/** `'<path from the app root>#<export>'`, the path under `shared/` or `cella/infra/`: the engine image holds those two folders alone. */
 export const referenceSchema = z
   .string()
-  .regex(/^(?:shared|infra)\/[^#]+#[A-Za-z_$][\w$]*$/, "takes a reference '<path>#<export>' to a file under shared/ or infra/");
+  .regex(/^(?:shared|cella\/infra)\/[^#]+#[A-Za-z_$][\w$]*$/, "takes a reference '<path>#<export>' to a file under shared/ or cella/infra/");
 
 /** A `#` after whitespace, where the unquoted line of a machine's static env file ends its value. */
 const commentStart = /\s#/;
@@ -96,7 +96,7 @@ const generalSchema = z.strictObject({
   schedule: z.strictObject({ everyMinutes: perMode(z.number()) }),
 });
 
-/** `infra/description.yml`: the app's services, secrets, stores, keys and general settings. */
+/** `cella/infra/description.yml`: the app's services, secrets, stores, keys and general settings. */
 export const descriptionSchema = z.strictObject({
   general: generalSchema,
   processIdentityEnv: z.array(variable),

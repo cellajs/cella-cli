@@ -12,8 +12,10 @@ describe('the main job', () => {
   });
 
   it("hands the engine the names it lists alone: a start call's NODE_OPTIONS, GIT_CONFIG_* or RELEASES_ONLY never reach it", () => {
-    // The script as it runs, with env printing what the engine would start with: no /engine here, and env takes pnpm's place.
-    const script = mainJobScript.replace('cd /engine || exit 1', 'true').replace(' pnpm --silent --filter infra main-job', ' /usr/bin/env');
+    // The script as it runs, with env printing what the engine would start with: no /engine here, and env takes the engine's place.
+    const script = mainJobScript
+      .replace('cd /engine || exit 1', 'true')
+      .replace(' /engine/cella/node_modules/.bin/cella infra main-job', ' /usr/bin/env');
     const started = spawnSync('sh', ['-c', script], {
       encoding: 'utf8',
       env: {

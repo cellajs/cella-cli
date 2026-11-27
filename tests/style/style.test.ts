@@ -33,7 +33,7 @@ const dirty = makeRepo({
     `const k = '${name}_id';`,
   ].join('\n'),
   'backend/src/long.ts': ['// one', '// two', '// three', '// four', '', 'const x = 1;'].join('\n'),
-  'infra/c.yaml': [
+  'cella/infra/c.yaml': [
     `# ${bearing} in infra`,
     `# ${dash} still required`,
     `key: value # ${maybe} later`,
@@ -75,14 +75,14 @@ const required = [
   `  backend/src/rules.ts:2:26 [review-conversation] "${maybe}": resolve the question or track it outside the source comment`,
   `  backend/src/rules.ts:3:41 [${bearing}] "${bearing}": name the dependency, requirement, or failure consequence directly`,
   `  backend/src/rules.ts:5:12 [product-name] "${name}_i": derive it from appConfig or use a neutral name; the product name is not an identifier or wire string`,
+  `  cella/infra/c.yaml:2:3 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
+  `  cella/infra/c.yaml:3:14 [review-conversation] "${maybe}": resolve the question or track it outside the source comment`,
   `  docs/guide.md:1:9 [concrete-language] "${term}": name the precise rule, constraint, guarantee, requirement, contract, precondition, or assumption`,
   `  docs/guide.md:3:7 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
   `  docs/guide.md:4:5 [${bearing}] "${bearing}": name the dependency, requirement, or failure consequence directly`,
   '  frontend/src/comp.tsx:2:14 [component-declaration] Arrow is an ordinary component; use a named function declaration',
   tokenBoundary,
   storeRead,
-  `  infra/c.yaml:2:3 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
-  `  infra/c.yaml:3:14 [review-conversation] "${maybe}": resolve the question or track it outside the source comment`,
   `  shared/config/x.jsonc:2:6 [concrete-language] "${term}": name the precise rule, constraint, guarantee, requirement, contract, precondition, or assumption`,
   `  shared/config/x.jsonc:3:36 [em-dash] "${dash}": split the sentence, use a colon, or drop the clause`,
 ];

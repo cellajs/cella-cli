@@ -38,7 +38,7 @@ function addEnvironmentsLine(environment: string, branch: string): boolean {
  * Off the default branch the commit reaches it through a pull request, so nothing is pushed.
  */
 export async function connectRepository(environment: string): Promise<void> {
-  const stackFile = `infra/Pulumi.${environment}.yaml`;
+  const stackFile = `cella/infra/Pulumi.${environment}.yaml`;
   const state = gitFileState(stackFile);
   if (state === 'pushed' || state === 'missing') return;
   const base = defaultBranch();

@@ -1,8 +1,8 @@
-import { mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, retiredKeyNames, writeEnvValues } from './env-files';
+import { dropPromptOnlyEnv, modeEnvValues, parseEnvFile, parseEnvText, refuseFilesLeftBehind, retiredKeyNames, writeEnvValues } from './env-files';
 
 describe('parseEnvText', () => {
   it.each([
@@ -112,5 +112,36 @@ describe('writeEnvValues', () => {
   it('refuses a value that spans lines', () => {
     const path = join(mkdtempSync(join(tmpdir(), 'envw-')), '.env.staging');
     expect(() => writeEnvValues(path, { X: 'a\nb' })).toThrow(/cannot span lines/);
+  });
+});
+
+// An operator's key files and exposure overlays are ignored by git, and a stack file the template does not have stays where the move found it
+describe('files left in infra/', () => {
+  it.each([
+    // A stack file the engine cannot find reads as a new app, and setup would run against the live stack
+    [
+      'refuses a stack file with no twin in cella/infra/',
+      ['infra/Pulumi.staging.yaml'],
+      /\n {2}mv infra\/Pulumi\.staging\.yaml cella\/infra\/Pulumi\.staging\.yaml$/,
+    ],
+    [
+      'refuses an exposure overlay with no twin',
+      ['infra/Pulumi.production.exposure.yaml'],
+      /mv infra\/Pulumi\.production\.exposure\.yaml cella\/infra\/Pulumi\.production\.exposure\.yaml$/,
+    ],
+    ['refuses a key file with no twin', ['infra/.env.production'], /mv infra\/\.env\.production cella\/infra\/\.env\.production$/],
+    [
+      'warns in one line when both copies are there',
+      ['infra/.env.production', 'cella/infra/.env.production'],
+      ['infra/.env.production is not read: the engine reads the copies in cella/infra/.'],
+    ],
+  ])('%s', (_case, files, expected) => {
+    const root = mkdtempSync(join(tmpdir(), 'left-behind-'));
+    for (const file of files) {
+      mkdirSync(join(root, file, '..'), { recursive: true });
+      writeFileSync(join(root, file), 'SCW_DEFAULT_PROJECT_ID=p\n');
+    }
+    if (expected instanceof RegExp) expect(() => refuseFilesLeftBehind(root)).toThrow(expected);
+    else expect(refuseFilesLeftBehind(root)).toEqual(expected);
   });
 });

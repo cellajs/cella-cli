@@ -3,7 +3,7 @@ import type { ServiceName } from '../compose/compose';
 export type RuntimeSecretValueSource = 'engine' | 'operator';
 export type RuntimeSecretGeneration = 'manual' | 'random';
 
-/** One runtime secret as `runtimeSecrets` of `infra/description.yml` resolves it, keyed by its id; `RuntimeSecretDefinition` (lib/runtime-secrets.ts) is the flattened shape. */
+/** One runtime secret as `runtimeSecrets` of `cella/infra/description.yml` resolves it, keyed by its id; `RuntimeSecretDefinition` (lib/runtime-secrets.ts) is the flattened shape. */
 export interface RuntimeSecretConfig {
   /** Scaleway Secret Manager container name (kebab-case). */
   secretName: string;
