@@ -11,7 +11,6 @@ export default defineConfig([
       a11y: 'src/exports/a11y.ts',
       screenshots: 'src/exports/screenshots.ts',
       pentest: 'src/exports/pentest.ts',
-      infra: 'src/infra/exports.ts',
       'infra-program': 'src/infra/program.ts',
       'infra-contract': 'src/infra/contract.ts',
     },

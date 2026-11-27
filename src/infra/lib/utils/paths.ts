@@ -1,18 +1,26 @@
-import { mkdirSync } from 'node:fs';
-import { createRequire } from 'node:module';
+import { existsSync, mkdirSync } from 'node:fs';
 import { homedir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 /**
- * The app's `infra/` folder: its Pulumi project and stack files, `compose.gen.yml`, env files and debug captures, with the
- * app's root one level up. It is the folder of the app's `infra` workspace, which the package takes as a peer: engine
- * code reads its own files by import, never through this path.
+ * The app's root: the nearest folder, from `from` upward, that holds `infra/description.yml`.
+ * @throws when no folder up to the file system's root holds one
  */
-export const infraDir = dirname(createRequire(import.meta.url).resolve('infra/package.json'));
+export function findAppRoot(from: string = process.cwd()): string {
+  let dir = resolve(from);
+  while (!existsSync(join(dir, 'infra', 'description.yml'))) {
+    if (dirname(dir) === dir) throw new Error(`No infra/description.yml in ${from} or any folder above it: run this inside an app.`);
+    dir = dirname(dir);
+  }
+  return dir;
+}
 
-/** The app's root folder, one level above `infra/`: its git checkout, root `package.json`, `.env` and environments file. */
-export const repoRoot = join(infraDir, '..');
+/** The app's root folder, found from the working directory: its git checkout, root `package.json`, `.env` and environments file. */
+export const repoRoot = findAppRoot();
+
+/** The app's `infra/` folder: its description, Pulumi project and stack files, env files and debug captures. */
+export const infraDir = join(repoRoot, 'infra');
 
 /** The build files the package ships beside its bundle: the engine image's Dockerfile, and the agent's and the frontend proxy's folders. */
 export const engineAssetsDir = resolve(dirname(fileURLToPath(import.meta.url)), 'infra-assets');

@@ -175,8 +175,8 @@ export interface AppServiceConfig {
   /**
    * Deploy-time values for this service's `${VAR}` env placeholders, expressed as templates over other services:
    * `@{<slug>.url}`, `@{<slug>.port}`, `@{<slug>.internalHost}`, `@{<slug>.internalPort}`, or `@{self.…}`. Resolved when the
-   * deploy writes a machine's static `.env` (lib/deploy/static-env.ts). Vars without a binding fall back to the app's env
-   * suppliers (config/env-suppliers.config.ts: APP_ORIGIN, FRONTEND_CSP, …).
+   * deploy writes a machine's static `.env` (lib/deploy/static-env.ts). The loader makes one of each env value of `infra/description.yml`
+   * that holds `@{`; a var without a binding falls back to the engine's suppliers of the proxy's env (lib/env-suppliers.ts).
    */
   bindings?: Readonly<Record<string, string>>;
   /** Inject `NODE_ENV`/`APP_MODE`/`TZ`. Default true; set false for the SPA proxy. */

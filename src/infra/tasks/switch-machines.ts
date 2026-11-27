@@ -1,10 +1,10 @@
-import { generalConfig } from 'infra/config/general.config';
 import { composeConfig } from '../compose/compose';
 import { accountFailed } from '../lib/deploy/boot-accounts';
 import type { DeployTarget, LiveRecord, LiveRole } from '../lib/deploy/live-record';
 import { manifestKey, renderMachineUserData, renderManifest } from '../lib/deploy/machine-user-data';
 import { agentImageName, imageRepositoryOf, type ReleaseManifest, releaseArchiveKey } from '../lib/deploy/release-archives';
 import { staticEnv } from '../lib/deploy/static-env';
+import { generalConfig } from '../lib/description';
 import type { EnvSupplier, EnvSupplierContext } from '../lib/env-suppliers';
 import { lbServerStats, waitForPools } from '../lib/health-probes';
 import {

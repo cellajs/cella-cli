@@ -80,7 +80,7 @@ export async function main({ envsFile, machinesFile, wait }: ClearMachineLinksSt
   if (!projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY, SCW_DEFAULT_PROJECT_ID');
   const envs = JSON.parse(await readFile(envsFile, 'utf8')) as MachineEnv[];
   const machines = JSON.parse(await readFile(machinesFile, 'utf8').catch(() => '[]')) as MadeMachine[];
-  const { engineConfig } = await import('infra/config/engine-config');
+  const { engineConfig } = await import('../lib/description/app');
   const { naming, region, zone } = deriveInfra(engineConfig);
   const { DeleteObjectCommand, HeadObjectCommand } = await import('@aws-sdk/client-s3');
   const s3 = await makeS3Client(region, projectAccessKey(accessKey, projectId), secretKey);

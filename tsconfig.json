@@ -19,8 +19,7 @@
     "noEmit": true,
     "declaration": true,
     "composite": false,
-    "types": ["node"],
-    "paths": { "@cellajs/cli/infra": ["./src/infra/exports.ts"] }
+    "types": ["node"]
   },
   "include": ["src", "tests", "index.ts", "index.js", "tsdown.config.ts"]
 }

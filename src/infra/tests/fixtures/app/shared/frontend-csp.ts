@@ -1,24 +1,25 @@
-import type { EngineConfig } from '@cellajs/cli/infra';
-import { appServices } from './services.config.ts';
+import { appConfig } from './index.ts';
+
+type AppConfig = typeof appConfig;
 
 /**
  * Who may frame a document under `/embed/`: the LTI platforms `ltiFrameAncestors` names, nobody while it names none.
  * @throws when an entry is no bare origin: a path or a `;` would change the policy.
  */
-export function embedFrameAncestors(appConfig: EngineConfig): string {
-  for (const entry of appConfig.ltiFrameAncestors) {
+function embedFrameAncestors(config: AppConfig): string {
+  for (const entry of config.ltiFrameAncestors) {
     if (URL.parse(entry)?.origin !== entry) throw new Error(`frontend-csp: ltiFrameAncestors entry '${entry}' is not an origin`);
   }
-  return appConfig.ltiFrameAncestors.join(' ') || "'none'";
+  return config.ltiFrameAncestors.join(' ') || "'none'";
 }
 
 /**
  * The frontend's Content-Security-Policy for one environment's config: the app origin, the services off it, the buckets
  * and the map styles. A document under `/embed/` passes `embedFrameAncestors`; every other one is framed by the app alone.
  */
-export function frontendCsp(appConfig: EngineConfig, frameAncestors = "'self'"): string {
-  const enabledServiceSlugs = new Set(Object.keys(appServices).filter((slug) => appConfig.services[slug]?.enabled !== false));
-  const serviceUrls = appConfig.services as Record<string, { publicUrl?: string }>;
+function frontendCsp(config: AppConfig, frameAncestors = "'self'"): string {
+  const serviceUrls: Record<string, { enabled?: boolean; publicUrl?: string }> = config.services;
+  const enabledServiceSlugs = new Set(Object.keys(serviceUrls).filter((slug) => serviceUrls[slug]?.enabled !== false));
   const servicePublicUrl = (slug: string): string => {
     const url = serviceUrls[slug]?.publicUrl;
     if (!url) throw new Error(`frontend-csp: service '${slug}' has no publicUrl in appConfig.services`);
@@ -26,7 +27,7 @@ export function frontendCsp(appConfig: EngineConfig, frameAncestors = "'self'"):
   };
 
   // Same-origin services collapse into connect-src 'self', so emit an origin only when it differs from the app origin.
-  const appOrigin = new URL(appConfig.frontendUrl).origin;
+  const appOrigin = new URL(config.frontendUrl).origin;
   const originUnlessSelf = (url: string): string => {
     // ws(s):// normalizes to http(s) for the comparison; WebSocket URLs on the app origin are covered by 'self'.
     const origin = new URL(url.replace(/^ws/, 'http')).origin;
@@ -37,14 +38,14 @@ export function frontendCsp(appConfig: EngineConfig, frameAncestors = "'self'"):
     api: originUnlessSelf(servicePublicUrl('backend')),
     yjs: enabledServiceSlugs.has('yjs') ? originUnlessSelf(servicePublicUrl('yjs')).replace(/^http/, 'ws') : '',
     mcp: enabledServiceSlugs.has('mcp') ? originUnlessSelf(servicePublicUrl('mcp')) : '',
-    s3Host: appConfig.s3.host ? `https://${appConfig.s3.host}` : '',
-    s3Buckets: appConfig.s3.host ? `https://*.${appConfig.s3.host}` : '',
-    s3Public: appConfig.s3.publicCDNUrl,
-    s3Private: appConfig.s3.privateCDNUrl,
+    s3Host: config.s3.host ? `https://${config.s3.host}` : '',
+    s3Buckets: config.s3.host ? `https://*.${config.s3.host}` : '',
+    s3Public: config.s3.publicCDNUrl,
+    s3Private: config.s3.privateCDNUrl,
     // The contact map fetches its style, tiles, fonts and icons from each style URL's origin.
     maps: [
       ...new Set(
-        Object.values(appConfig.mapStyleUrls ?? {})
+        Object.values(config.mapStyleUrls ?? {})
           .filter(Boolean)
           .map((url) => new URL(url).origin),
       ),
@@ -81,7 +82,7 @@ export function frontendCsp(appConfig: EngineConfig, frameAncestors = "'self'"):
     `img-src 'self' blob: https: data:`,
     `media-src 'self' blob: data: https://i.ytimg.com *.gleap.io ${cspOrigins.s3Buckets} ${cspOrigins.s3Public} ${cspOrigins.s3Private}`,
     // As an LTI platform the app frames the LTI tools its tenants install, from whatever HTTPS origin they registered.
-    `frame-src 'self' *.youtube.com *.vimeo.com *.gleap.io${appConfig.has.ltiPlatform ? ' https:' : ''}`,
+    `frame-src 'self' *.youtube.com *.vimeo.com *.gleap.io${config.has.ltiPlatform ? ' https:' : ''}`,
     `font-src 'self' data:`,
     `frame-ancestors ${frameAncestors}`,
     `object-src 'none'`,
@@ -94,4 +95,11 @@ export function frontendCsp(appConfig: EngineConfig, frameAncestors = "'self'"):
 }
 
 /** The frontend's Permissions-Policy: a page of the app may use the camera and microphone (the uploader), and none asks for a location. */
-export const frontendPermissionsPolicy = 'camera=(self), microphone=(self), geolocation=()';
+const frontendPermissionsPolicy = 'camera=(self), microphone=(self), geolocation=()';
+
+/** The frontend proxy's header values for this mode's config, which `infra/description.yml` names. */
+export const frontendHeaders = {
+  csp: frontendCsp(appConfig),
+  embedCsp: frontendCsp(appConfig, embedFrameAncestors(appConfig)),
+  permissionsPolicy: frontendPermissionsPolicy,
+};

@@ -1,19 +1,10 @@
-import { readFileSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
-import { infraDir } from '../lib/utils/paths';
 import { composeConfig } from './compose';
 import type { ComposeFile } from './types';
 
 const generatedHeader = [
-  '# DO NOT EDIT: generated from config/services.config.ts by `pnpm --filter infra compose:generate`.',
-  '# Edit the service registry there and re-run the command.',
+  '# Rendered from infra/description.yml by the deploy engine: `cella infra compose` prints it.',
   '# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).',
 ].join('\n');
-
-/** A Compose file without its leading comment lines: a file whose header an older release wrote is still current. */
-function withoutHeader(yaml: string): string {
-  return yaml.replace(/^(?:#.*\n)*/, '');
-}
 
 /** Keys whose array value is rendered as an inline flow sequence, not a block. */
 const flowKeys = new Set(['profiles', 'test']);
@@ -72,7 +63,7 @@ function emitMapping(obj: object, indent: number): string[] {
   return lines;
 }
 
-/** Render a ComposeFile to deterministic YAML text. Pure, exported for tests. */
+/** Render a ComposeFile to deterministic YAML text. */
 export function renderCompose(file: ComposeFile): string {
   const lines: string[] = ['services:'];
   for (const [name, svc] of Object.entries(file.services)) {
@@ -82,43 +73,7 @@ export function renderCompose(file: ComposeFile): string {
   return `${generatedHeader}\n\n${lines.join('\n')}\n`;
 }
 
-/** The generated deploy artifact, read by the deploy and written into each machine's user data. */
-export const outputPath = join(infraDir, 'compose.gen.yml');
-
-/** `compose-generate` writes the file; with `--check`, as `compose-check` runs it, it fails when the file differs. */
-export function main(words: string[]): void {
-  const yaml = renderCompose(composeConfig);
-  if (words.includes('--check')) {
-    const current = readCompose();
-    if (current === undefined) {
-      console.error(`::error::${outputPath} is missing: run \`pnpm --filter infra compose:generate\`.`);
-      process.exit(1);
-    }
-    if (withoutHeader(current) !== withoutHeader(yaml)) {
-      console.error(`::error::${outputPath} is out of date: run \`pnpm --filter infra compose:generate\` and commit.`);
-      process.exit(1);
-    }
-    console.info('compose.gen.yml is up to date.');
-    return;
-  }
-  writeCompose();
-  console.info(`Wrote ${outputPath}`);
-}
-
-/** The Compose file on disk; undefined when it is missing. */
-function readCompose(): string | undefined {
-  try {
-    return readFileSync(outputPath, 'utf-8');
-  } catch {
-    return undefined;
-  }
-}
-
-/** Write the Compose file from the service registry; `unchanged` when the file already holds it, so a caller can stay quiet. */
-export function writeCompose(): 'written' | 'unchanged' {
-  const yaml = renderCompose(composeConfig);
-  const current = readCompose();
-  if (current !== undefined && withoutHeader(current) === withoutHeader(yaml)) return 'unchanged';
-  writeFileSync(outputPath, yaml);
-  return 'written';
+/** The task `compose`: prints the Compose file the deploy renders from the description, which each machine's user data carries. */
+export function main(): void {
+  process.stdout.write(renderCompose(composeConfig));
 }

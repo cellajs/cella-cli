@@ -1,7 +1,7 @@
-import { appServices } from 'infra/config/services.config';
 import { describe, expect, it } from 'vitest';
 import { composeConfig } from '../../compose/compose';
-import { defineServices } from '../../compose/infrastructure';
+import { validateServices } from '../../compose/infrastructure';
+import { appServices } from '../../lib/description';
 import { internalLbPort } from '../../lib/machine-roles';
 import { services } from '../../lib/services';
 import { fakeService as base } from '../helpers/fake-config';
@@ -22,22 +22,25 @@ describe('internal listener routing', () => {
 
   it('must not let the cdc or yjs worker reach the backend through its public URL', () => {
     for (const worker of [appServices.cdc, appServices.yjs]) {
-      expect(worker.bindings).toEqual({ BACKEND_INTERNAL_URL: 'http://@{backend.internalHost}:@{backend.internalPort}' });
+      expect(worker.bindings).toEqual({
+        BACKEND_INTERNAL_URL: 'http://@{backend.internalHost}:@{backend.internalPort}',
+        APP_ORIGIN: '@{frontend.url}',
+      });
     }
   });
 
   it('must not accept an internal listener that shares a port with any service', () => {
-    expect(() => defineServices({ a: { ...base, internalPort: 4000 } })).toThrow(/port of its own/);
-    expect(() => defineServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4005 } })).toThrow(/port of its own/);
-    expect(() => defineServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4001, internalPort: 4005 } })).toThrow(/port of its own/);
-    expect(() => defineServices({ a: { ...base, internalPort: 70000 } })).toThrow(/not a valid port/);
+    expect(() => validateServices({ a: { ...base, internalPort: 4000 } })).toThrow(/port of its own/);
+    expect(() => validateServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4005 } })).toThrow(/port of its own/);
+    expect(() => validateServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4001, internalPort: 4005 } })).toThrow(/port of its own/);
+    expect(() => validateServices({ a: { ...base, internalPort: 70000 } })).toThrow(/not a valid port/);
     // Positive control: a port of its own passes.
-    expect(() => defineServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4001 } })).not.toThrow();
+    expect(() => validateServices({ a: { ...base, internalPort: 4005 }, b: { ...base, port: 4001 } })).not.toThrow();
   });
 
   it("must not accept a service whose agent port is another service's port: the host publishes them side by side", () => {
-    expect(() => defineServices({ a: { ...base, port: 4000 }, b: { ...base, port: 9000 } })).toThrow(/agent port on 9000/);
-    expect(() => defineServices({ a: { ...base, port: 61000 } })).toThrow(/outside the port range/);
+    expect(() => validateServices({ a: { ...base, port: 4000 }, b: { ...base, port: 9000 } })).toThrow(/agent port on 9000/);
+    expect(() => validateServices({ a: { ...base, port: 61000 } })).toThrow(/outside the port range/);
   });
 
   it('shifts the internal listener port into the internal frontend range', () => {

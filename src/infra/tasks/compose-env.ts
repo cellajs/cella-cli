@@ -110,7 +110,7 @@ export async function main(step: ComposeEnvStep): Promise<void> {
   const { projectId } = step;
   const { accessKey, secretKey } = deployS3Key();
   if (!projectId || !secretKey) throw new Error('Required: SCW_SECRET_KEY and the project id');
-  const { engineConfig: appConfig } = await import('infra/config/engine-config');
+  const { engineConfig: appConfig } = await import('../lib/description/app');
   const { naming, region } = deriveInfra(appConfig);
   const machines = machineEnvEntries(appConfig);
 

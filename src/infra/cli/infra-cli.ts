@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs';
 import { escaped, menuSelect } from '../../utils/menu';
-import { writeCompose } from '../compose/synth';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
 import { actionLabel, type MenuRowId, menuRow, type OperatorActionId, pulumiActions } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
@@ -232,9 +231,6 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
 
   // A Ctrl-C at any prompt below ends the run with one line and releases a held lease.
   installPromptAbortHandler();
-
-  // The deploy reads the Compose file the service registry renders: kept current on every run, said only when it changed.
-  if (writeCompose() === 'written') console.info(pc.dim('infra/compose.gen.yml follows the service registry again: commit it.'));
 
   console.info('');
   const environment = await resolveMode(args.mode);

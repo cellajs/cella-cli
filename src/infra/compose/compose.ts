@@ -1,12 +1,12 @@
-import { appServices, processIdentityEnv } from 'infra/config/services.config';
+import { appServices, processIdentityEnv } from '../lib/description';
 import { assembleCompose } from './infrastructure';
 import type { ServiceMeta } from './types';
 
-/** The full Compose model: machinery + app services. Emitted by `synth.ts`. */
+/** The full Compose model: machinery + app services. The task `compose` prints it (`synth.ts`). */
 export const composeConfig = assembleCompose(appServices, { processIdentityEnv });
 
-/** The literal service-name union, derived from the app's service registry. */
-export type ServiceName = keyof typeof appServices;
+/** A service's slug: a key of the description's `services`. */
+export type ServiceName = string;
 
 /** Ordered logical-service metadata, derived from the assembled Compose model. */
 export const services: readonly ServiceMeta[] = Object.values(composeConfig.services)

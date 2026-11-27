@@ -1,6 +1,9 @@
-import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { InfraContext } from '../shared';
+
+// The app stage loads for the APP_MODE an entry point sets, and the fixture holds production alone
+vi.stubEnv('APP_MODE', 'production');
+const { engineConfig: appConfig } = await import('../../lib/description/app');
 
 const input = vi.fn();
 const keyPairPrompt = vi.fn();

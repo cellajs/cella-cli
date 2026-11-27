@@ -1,8 +1,7 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
-import { engineConfig } from 'infra/config/engine-config';
-import { generalConfig } from 'infra/config/general.config';
-import { appStores } from 'infra/config/stores.config';
+import { appStores, generalConfig } from '../../lib/description';
+import { engineConfig } from '../../lib/description/app';
 import { resolvePerMode } from '../../lib/general-config';
 import type { ProvisionContext, StoreOutputs } from '../../lib/stores';
 import { mode, naming, region, zone } from '../../pulumi-context';

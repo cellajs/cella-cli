@@ -56,7 +56,7 @@ export async function ensureSecrets(opts: {
       const source = all.find((candidate) => candidate.id === secretId);
       if (!source) throw new Error(`ensure-secrets: '${definition.id}' derives from unknown secret '${secretId}'`);
       const sourceValue = await resolveValue(source);
-      value = sourceValue === undefined ? undefined : derive(sourceValue);
+      value = sourceValue === undefined ? undefined : await derive(sourceValue);
     } else {
       value = generate();
     }

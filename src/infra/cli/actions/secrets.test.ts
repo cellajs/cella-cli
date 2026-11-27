@@ -2,12 +2,15 @@ import { mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { stripVTControlCharacters } from 'node:util';
-import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { escaped } from '../../../utils/menu';
 import type { InfraContext } from '../shared';
 import { importEnvFile } from './env-import';
 import { offerDeploy, secretsMenu } from './secrets';
+
+// The app stage loads for the APP_MODE an entry point sets, and the fixture holds production alone
+vi.stubEnv('APP_MODE', 'production');
+const { engineConfig: appConfig } = await import('../../lib/description/app');
 
 const prompts = { select: vi.fn(), password: vi.fn(), confirm: vi.fn(), input: vi.fn() };
 

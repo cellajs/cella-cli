@@ -21,7 +21,6 @@ function render(singleVM: boolean, role: string, csp = 'csp') {
       agentDir: '/etc/cella',
       lbInternalAddress: '10.0.0.200',
       suppliers: {
-        APP_ORIGIN: ({ serviceUrl }) => serviceUrl('frontend'),
         FRONTEND_CSP: () => csp,
         FRONTEND_EMBED_CSP: () => 'csp',
         FRONTEND_PERMISSIONS_POLICY: () => 'policy',

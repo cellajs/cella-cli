@@ -359,7 +359,7 @@ export async function main(step: BuildReleaseStep): Promise<void> {
   const distDir = step.distDir || undefined;
   if (!accessKey || !secretKey || !projectId) throw new Error('Required: SCW_ACCESS_KEY, SCW_SECRET_KEY and the project id');
   process.env.APP_MODE = mode;
-  const { engineConfig: appConfig } = await import('infra/config/engine-config');
+  const { engineConfig: appConfig } = await import('../lib/description/app');
   const { naming, region, zones } = deriveInfra(appConfig);
   const pkg = rootPackage(repoRoot);
   const repository = repositoryUrl();

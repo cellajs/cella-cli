@@ -1,14 +1,7 @@
-import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { composeConfig, services } from './compose';
-import { outputPath, renderCompose } from './synth';
 
 describe('compose synth', () => {
-  it('generated compose.gen.yml is up to date (drift check)', () => {
-    const current = readFileSync(outputPath, 'utf-8');
-    expect(current).toBe(renderCompose(composeConfig));
-  });
-
   it('every logical service slug matches a compose profile', () => {
     const profiles = new Set<string>(Object.values(composeConfig.services).flatMap((s) => s.profiles));
     for (const meta of services) expect(profiles.has(meta.slug)).toBe(true);

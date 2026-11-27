@@ -1,10 +1,10 @@
 import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
-import { engineConfig as appConfig } from 'infra/config/engine-config';
 import { bootAccountsPrefix } from '../lib/deploy/boot-accounts';
 import { liveRecordKey } from '../lib/deploy/live-record';
 import { envPrefix, releasesPrefix } from '../lib/deploy/release-archives';
 import { runsPrefix } from '../lib/deploy/run-record';
+import { engineConfig as appConfig } from '../lib/description/app';
 import { appStorageNeeds, services } from '../lib/services';
 import { controlRootPrefix, lockKey, rotationsKey } from '../lib/stack/control-store';
 import { mode, naming, region, serviceUrl, tagsAsMap } from '../pulumi-context';

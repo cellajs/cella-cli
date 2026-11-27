@@ -1,3 +1,4 @@
+import type { ProxyHeaders } from './description/schema';
 import type { EngineConfig } from './engine-config';
 import type { InfraDerivations } from './naming';
 
@@ -14,7 +15,22 @@ export interface EnvSupplierContext {
 /** A supplier for one compose `${VAR}` placeholder, called when a deploy writes a machine's static env. */
 export type EnvSupplier = (ctx: EnvSupplierContext) => string;
 
-/** Typed identity for the pool of compose env suppliers for `${VAR}` placeholders that are not service-to-service `bindings`. Preserves literal keys; the engine reads it generically so app-specific values stay out of engine code. */
-export function defineEnvSuppliers<const T extends Record<string, EnvSupplier>>(suppliers: T): T {
-  return suppliers;
+/** How the engine supplies each variable of the frontend proxy's env: a header value of the app's `headers`, or the frontend bucket's host. */
+const proxySupply = {
+  FRONTEND_CSP: (headers) => headers.csp,
+  FRONTEND_EMBED_CSP: (headers) => headers.embedCsp,
+  FRONTEND_PERMISSIONS_POLICY: (headers) => headers.permissionsPolicy,
+  ORIGIN_HOST: (_headers, { naming, region }) => `${naming.frontendBucket}.s3.${region}.scw.cloud`,
+} satisfies Record<string, (headers: ProxyHeaders, ctx: EnvSupplierContext) => string>;
+
+/** The variables the engine supplies to the frontend proxy's env, which no service of the description may set. */
+export const proxyEnvNames: readonly string[] = Object.keys(proxySupply);
+
+/**
+ * The engine's suppliers for the frontend proxy's env, from the header values the app stage read.
+ * @returns no supplier without header values: the app runs no engine proxy
+ */
+export function proxyEnvSuppliers(headers: ProxyHeaders | undefined): Record<string, EnvSupplier> {
+  if (!headers) return {};
+  return Object.fromEntries(Object.entries(proxySupply).map(([name, supply]) => [name, (ctx: EnvSupplierContext) => supply(headers, ctx)]));
 }

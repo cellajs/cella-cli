@@ -1,0 +1,158 @@
+import { describe, expect, it } from 'vitest';
+import type { z } from 'zod';
+import { type ImportExport, resolveApp, resolveFile } from './resolve';
+import type { descriptionSchema, engineConfigSchema } from './schema';
+
+type File = z.input<typeof descriptionSchema>;
+type AppConfig = z.input<typeof engineConfigSchema>;
+
+const service = { startPeriod: '10s', replacementStrategy: 'start-first', instanceType: 'DEV1-S' } as const;
+
+const baseFile = (): File => ({
+  general: {
+    compute: { image: 'docker' },
+    database: { nodeType: 'DB-DEV-S', volumeSizeGb: 10 },
+    assets: { retentionDays: 14 },
+    schedule: { everyMinutes: 5 },
+  },
+  processIdentityEnv: ['SERVICE'],
+  services: {
+    api: { ...service, port: 4000, dockerfile: 'Dockerfile', lbRoute: 'path', pathPrefix: '/api', env: { APP_ORIGIN: '@{web.url}' } },
+    'bg-jobs': { ...service, port: 4006, reusesImageOf: 'api' },
+    web: { ...service, dockerfile: 'engine:proxy', port: 80, lbRoute: 'default', headers: 'shared/csp.ts#headers' },
+  },
+  runtimeSecrets: {
+    SIGNING_KEY: { description: 'Signs tokens', services: ['api'], generation: 'random', rotatable: true },
+    PUBLIC_KEY: { description: 'Verifies tokens', services: ['bg-jobs'], derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/key.ts#publicKey' } },
+    MAIL_API_KEY: { description: 'Sends mail', services: ['api'], group: 'Mail' },
+  },
+  stores: { primary: { kind: 'postgres-managed', secretConsumers: { runtime: ['api'], admin: ['api'], cdc: [], ca: ['api'] } } },
+  managedKeys: {
+    ai: {
+      suffix: 'ai',
+      label: 'AI',
+      appDescription: 'AI principal',
+      policyDescription: 'AI policy',
+      permissionSets: [],
+      prompt: { message: 'Mint?', default: false },
+      assign: { secretKey: 'MAIL_API_KEY' },
+    },
+  },
+});
+
+const baseAppConfig = (): AppConfig => ({
+  slug: 'app',
+  appSlug: 'app',
+  mode: 'production',
+  domain: 'example.com',
+  frontendUrl: 'https://www.example.com',
+  backendUrl: 'https://www.example.com/api',
+  singleVM: false,
+  s3: { region: 'nl-ams', host: 's3.example.com', publicBucketName: 'p', privateBucketName: 'q', publicCDNUrl: '', privateCDNUrl: '' },
+  services: { api: { port: 4000, publicUrl: 'https://www.example.com/api' }, web: { port: 3000 } },
+  retention: { backupDays: 7 },
+});
+
+const appExports: Record<string, Record<string, unknown>> = {
+  'shared/csp.ts': { headers: { csp: "default-src 'self'", embedCsp: "frame-ancestors 'none'", permissionsPolicy: 'camera=()' }, plain: 'x' },
+  'shared/key.ts': { publicKey: (value: string) => `public:${value}` },
+};
+const importExport: ImportExport = async (path, exportName) => appExports[path]?.[exportName];
+
+/** Both stages, the file's then the app's, for the production `APP_MODE` unless one is given. */
+const resolveWith = async (edit: (file: File, appConfig: AppConfig) => void = () => {}, mode = 'production') => {
+  const file = baseFile();
+  const appConfig = baseAppConfig();
+  edit(file, appConfig);
+  const files = resolveFile(file, importExport);
+  return { ...files, ...(await resolveApp(files, appConfig, mode, importExport)) };
+};
+
+describe('the description refuses', () => {
+  const cases: [refusal: string, keyPath: string, edit: (file: File, appConfig: AppConfig) => void][] = [
+    ['an unknown key', 'services.api.colour', (f) => Object.assign(f.services.api, { colour: 'red' })],
+    ['a service without a port', 'services.bg-jobs.port', (f) => Object.assign(f.services['bg-jobs'], { port: undefined })],
+    ['a port appConfig gives another', 'services.api.port', (_f, c) => Object.assign(c.services.api, { port: 4100 })],
+    ['an internal port appConfig gives another', 'services.api.internalPort', (_f, c) => Object.assign(c.services.api, { internalPort: 4105 })],
+    [
+      'a path appConfig gives another',
+      'services.api.pathPrefix',
+      (_f, c) => Object.assign(c.services.api, { publicUrl: 'https://www.example.com/v2' }),
+    ],
+    ['a path route without a public URL', 'services.api.pathPrefix', (_f, c) => delete c.services.api.publicUrl],
+    [
+      'rotatable without generation: random',
+      'runtimeSecrets.MAIL_API_KEY.rotatable',
+      (f) => Object.assign(f.runtimeSecrets.MAIL_API_KEY, { rotatable: true }),
+    ],
+    [
+      'derivedFrom naming an unknown variable',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.secret',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'MISSING_KEY', with: 'shared/key.ts#publicKey' } }),
+    ],
+    [
+      'a reference that leaves the app root',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/../../key.ts#publicKey' } }),
+    ],
+    [
+      'an export that is no function',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/csp.ts#plain' } }),
+    ],
+    [
+      'headers on a service that is not the proxy',
+      'services.api.headers',
+      (f) => Object.assign(f.services.api, { headers: 'shared/csp.ts#headers' }),
+    ],
+    ['the proxy without headers', 'services.web.headers', (f) => delete f.services.web.headers],
+    ['an unknown store kind', 'stores.primary.kind', (f) => Object.assign(f.stores.primary, { kind: 'redis' })],
+    [
+      'assign naming an unknown variable',
+      'managedKeys.ai.assign.secretKey',
+      (f) => Object.assign(f.managedKeys.ai.assign, { secretKey: 'MISSING_KEY' }),
+    ],
+    [
+      'two secrets with one stored name',
+      'runtimeSecrets.MAIL_API_KEY.secretName',
+      (f) => Object.assign(f.runtimeSecrets.MAIL_API_KEY, { secretName: 'signing-key' }),
+    ],
+  ];
+
+  it.each(cases)('%s at %s', async (_refusal, keyPath, edit) => {
+    await expect(resolveWith(edit)).rejects.toThrow(`: ${keyPath}: `);
+  });
+
+  it("an appConfig of another mode than APP_MODE's", async () => {
+    await expect(resolveWith(undefined, 'staging')).rejects.toThrow("appConfig: mode 'production' loaded where APP_MODE is 'staging'");
+  });
+});
+
+describe('the description defaults', async () => {
+  const { appServices, runtimeSecretsConfig, proxyHeaders } = await resolveWith();
+  const { derivedFrom, ...derived } = runtimeSecretsConfig.publicKey;
+
+  const cases: [fact: string, actual: unknown, expected: unknown][] = [
+    ['the image of a service that builds its own', appServices.api.image, '${REGISTRY}/api:${API_TAG:-latest}'],
+    ['the image of a service that reuses another', appServices['bg-jobs'].image, '${REGISTRY}/api:${BG_JOBS_TAG:-latest}'],
+    ['the stored name', runtimeSecretsConfig.mailApiKey.secretName, 'mail-api-key'],
+    ['the id', Object.keys(runtimeSecretsConfig), ['signingKey', 'publicKey', 'mailApiKey']],
+    [
+      'a generated secret',
+      runtimeSecretsConfig.signingKey,
+      expect.objectContaining({ valueSource: 'engine', generation: 'random', required: true, rotatable: true }),
+    ],
+    ['a derived secret', derived, expect.objectContaining({ valueSource: 'engine', generation: 'manual', required: true })],
+    ['its derivation', { secretId: derivedFrom?.secretId, value: await derivedFrom?.derive('k') }, { secretId: 'signingKey', value: 'public:k' }],
+    ['the proxy header values', proxyHeaders, appExports['shared/csp.ts']?.headers],
+    [
+      'an operator secret',
+      runtimeSecretsConfig.mailApiKey,
+      expect.objectContaining({ valueSource: 'operator', generation: 'manual', required: false }),
+    ],
+  ];
+
+  it.each(cases)('%s', (_fact, actual, expected) => {
+    expect(actual).toEqual(expected);
+  });
+});

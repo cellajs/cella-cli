@@ -81,9 +81,6 @@ importers:
       ajv:
         specifier: ^8.20.0
         version: 8.20.0
-      infra:
-        specifier: link:src/infra/tests/fixtures/app
-        version: link:src/infra/tests/fixtures/app
       playwright:
         specifier: ^1.65.0
         version: 1.65.0

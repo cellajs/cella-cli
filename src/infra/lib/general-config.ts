@@ -24,23 +24,22 @@ export interface GeneralConfig {
 }
 
 /**
- * `config/general.config.ts`, checked as it loads.
+ * Checks the description's general settings, which the description loader runs as it loads.
  * @throws for a schedule cadence that is no whole number of minutes from 1 to 60, which no cron step writes
  */
-export function defineGeneral<const T extends GeneralConfig>(config: T): T {
+export function validateGeneral(config: GeneralConfig): void {
   const every = config.schedule.everyMinutes;
   for (const minutes of typeof every === 'object' ? Object.values(every) : [every]) {
     if (!Number.isInteger(minutes) || minutes < 1 || minutes > 60) {
-      throw new Error(`general.config.ts: schedule.everyMinutes takes a whole number of minutes from 1 to 60, got ${minutes}.`);
+      throw new Error(`takes a whole number of minutes from 1 to 60, got ${minutes}.`);
     }
   }
-  return config;
 }
 
 /** Resolve a `PerMode` value for the active deploy mode (throws if a map omits it). */
 export function resolvePerMode<T extends string | number>(value: PerMode<T>, mode: Environment): T {
   if (typeof value !== 'object') return value;
   const resolved = value[mode];
-  if (resolved === undefined) throw new Error(`general.config.ts: no value for mode '${mode}' in per-mode map ${JSON.stringify(value)}.`);
+  if (resolved === undefined) throw new Error(`general: no value for mode '${mode}' in per-mode map ${JSON.stringify(value)}.`);
   return resolved;
 }

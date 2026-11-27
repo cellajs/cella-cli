@@ -5,11 +5,8 @@ import { repoRoot } from '../utils/paths';
 import { descriptionHash } from './applied-engine';
 import { supplierContext } from './static-env';
 
-/**
- * The fields of the engine config the engine reads, and no other field of the app's config: a change to one of them owes an apply.
- * The switches and the LTI framing origins reach the engine only through the env suppliers' values, which the description holds.
- */
-function engineFields(config: EngineConfig): Omit<EngineConfig, 'has' | 'ltiFrameAncestors'> {
+/** The fields of the engine config the engine reads, and no other field of the app's config: a change to one of them owes an apply. */
+function engineFields(config: EngineConfig): EngineConfig {
   const { s3 } = config;
   return {
     slug: config.slug,
@@ -28,37 +25,33 @@ function engineFields(config: EngineConfig): Omit<EngineConfig, 'has' | 'ltiFram
       privateCDNUrl: s3.privateCDNUrl,
     },
     services: Object.fromEntries(Object.entries(config.services).map(([slug, { enabled, publicUrl }]) => [slug, { enabled, publicUrl }])),
-    mapStyleUrls: config.mapStyleUrls,
     retention: { backupDays: config.retention.backupDays },
   };
 }
 
 /**
- * The app as the engine of one environment sees it: the engine config's fields, every registry under `config/` the apply and the deploy
- * read (the runtime secrets and managed keys as the engine reads them), each env supplier's value, the boot plan's contract version, and
- * the Node, pnpm and repository the root `package.json` names, which the builder and the engine run on. A store is described by its kind and its factory's
- * settings. Run once `APP_MODE` names the environment: the engine config and the registries load here.
+ * The app as the engine of one environment sees it: the engine config's fields, every registry of `infra/description.yml` the apply and the
+ * deploy read (the runtime secrets and managed keys as the engine reads them, each derived secret with the source text of its function),
+ * each value the engine supplies to the proxy's env, the boot plan's contract version, and the Node, pnpm and repository the root
+ * `package.json` names, which the builder and the engine run on. A store is described by its kind and its factory's settings. Run once
+ * `APP_MODE` names the environment: the app stage loads here.
  * @param root the checkout whose `package.json` is read
  */
 export async function appDescription(root = repoRoot): Promise<Record<string, unknown>> {
   const [
-    { engineConfig: config },
+    { appStores, appServices, processIdentityEnv, generalConfig },
+    { engineConfig: config, proxyHeaders, derivationSources },
     { runtimeSecrets },
     { managedKeys },
-    { appStores },
-    { appServices, processIdentityEnv },
-    { generalConfig },
     { healthContract },
-    { appEnvSuppliers },
+    { proxyEnvSuppliers },
   ] = await Promise.all([
-    import('infra/config/engine-config'),
+    import('../description'),
+    import('../description/app'),
     import('../runtime-secrets'),
     import('../managed-keys'),
-    import('infra/config/stores.config'),
-    import('infra/config/services.config'),
-    import('infra/config/general.config'),
     import('../health-contract'),
-    import('infra/config/env-suppliers.config'),
+    import('../env-suppliers'),
   ]);
   const context = supplierContext(config);
   const pkg = rootPackage(root);
@@ -71,10 +64,18 @@ export async function appDescription(root = repoRoot): Promise<Record<string, un
     processIdentityEnv,
     general: generalConfig,
     health: healthContract,
-    runtimeSecrets,
+    // A change to a derivation's function owes an apply: its source text stands where the wrapper that imports it would.
+    runtimeSecrets: runtimeSecrets.map(({ derivedFrom, ...secret }) =>
+      derivedFrom
+        ? {
+            ...secret,
+            derivedFrom: { secretId: derivedFrom.secretId, reference: derivedFrom.reference, source: derivationSources[derivedFrom.reference] },
+          }
+        : secret,
+    ),
     stores: Object.fromEntries(Object.entries(appStores).map(([id, store]) => [id, { kind: store.kind, settings: store.settings }])),
     managedKeys,
-    env: Object.fromEntries(Object.entries(appEnvSuppliers).map(([name, supply]) => [name, supply(context)])),
+    env: Object.fromEntries(Object.entries(proxyEnvSuppliers(proxyHeaders)).map(([name, supply]) => [name, supply(context)])),
   };
 }
 

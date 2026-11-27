@@ -62,7 +62,7 @@ describe('derived runtime secrets', () => {
     valueSource: 'engine',
     generation: 'manual',
     services: ['worker'],
-    derivedFrom: { secretId: 'signingKey', derive },
+    derivedFrom: { secretId: 'signingKey', reference: 'shared/key.ts#publicKey', derive },
     ...overrides,
   });
 
@@ -75,7 +75,10 @@ describe('derived runtime secrets', () => {
     for (const [label, entries] of [
       ['operator source', { signingKey: { ...signingKey, valueSource: 'operator' as const }, publicKey: publicKey() }],
       ['operator-owned derived value', { signingKey, publicKey: publicKey({ valueSource: 'operator' }) }],
-      ['unknown source', { signingKey, publicKey: publicKey({ derivedFrom: { secretId: 'missing', derive } }) }],
+      [
+        'unknown source',
+        { signingKey, publicKey: publicKey({ derivedFrom: { secretId: 'missing', reference: 'shared/key.ts#publicKey', derive } }) },
+      ],
     ] as const) {
       const secrets = buildRuntimeSecrets({}, entries);
       expect(() => validateRuntimeSecrets(secrets, knownServices), label).toThrow(/must be pulumi-owned/);

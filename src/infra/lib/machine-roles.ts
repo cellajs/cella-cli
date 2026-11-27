@@ -108,7 +108,7 @@ export function slotOfMachine(resource: (suffix: string) => string, role: string
 export function instanceTypeOf(role: Pick<ServiceDefinition, 'slug' | 'instanceType'>, mode: Environment): string {
   const size: PerMode<string> = role.instanceType;
   const resolved = typeof size === 'string' ? size : size[mode];
-  if (resolved === undefined) throw new Error(`Service '${role.slug}' has no instanceType for mode '${mode}' in config/services.config.ts.`);
+  if (resolved === undefined) throw new Error(`Service '${role.slug}' has no instanceType for mode '${mode}' in infra/description.yml.`);
   return resolved;
 }
 

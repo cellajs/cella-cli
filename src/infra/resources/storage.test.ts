@@ -9,7 +9,7 @@ let appConfig: EngineConfig;
 beforeAll(async () => {
   // The mock IAM API supplies the application IDs normally absent from stack config.
   h = await installPulumiMocks();
-  ({ engineConfig: appConfig } = await import('infra/config/engine-config'));
+  ({ engineConfig: appConfig } = await import('../lib/description/app'));
   await import('./storage');
   await h.settle();
 });

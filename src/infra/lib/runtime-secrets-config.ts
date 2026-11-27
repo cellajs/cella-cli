@@ -3,7 +3,7 @@ import type { ServiceName } from '../compose/compose';
 export type RuntimeSecretValueSource = 'engine' | 'operator';
 export type RuntimeSecretGeneration = 'manual' | 'random';
 
-/** One runtime secret's mapping data from `runtime-secrets.config.ts`. The `id` is the config object key; `RuntimeSecretDefinition` (lib/runtime-secrets.ts) is the flattened shape. */
+/** One runtime secret as `runtimeSecrets` of `infra/description.yml` resolves it, keyed by its id; `RuntimeSecretDefinition` (lib/runtime-secrets.ts) is the flattened shape. */
 export interface RuntimeSecretConfig {
   /** Scaleway Secret Manager container name (kebab-case). */
   secretName: string;
@@ -34,10 +34,8 @@ export interface RuntimeSecretConfig {
 /** How a derived secret's value follows its source: the source secret's id and a pure function of the source value. */
 export interface RuntimeSecretDerivation {
   secretId: string;
-  derive: (sourceValue: string) => string;
-}
-
-/** Helper for `runtime-secrets.config.ts`: typed identity preserving literal keys. This module imports no registry, so the config that calls it closes no import cycle. */
-export function defineRuntimeSecrets<const T extends Record<string, RuntimeSecretConfig>>(secrets: T): T {
-  return secrets;
+  /** The `'<path>#<export>'` of the app's function `derive` calls. */
+  reference: string;
+  /** Imports the referenced function on its first call. */
+  derive: (sourceValue: string) => string | Promise<string>;
 }

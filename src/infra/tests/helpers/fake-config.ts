@@ -27,13 +27,11 @@ export function fakeConfig(overrides: Partial<EngineConfig> = {}): EngineConfig 
       privateCDNUrl: 'https://cella-private.s3.nl-ams.scw.cloud',
     },
     retention: { backupDays: 7 },
-    has: { ltiPlatform: false },
-    ltiFrameAncestors: [],
     ...overrides,
   };
 }
 
-/** A minimal valid `defineServices` entry to hang port and path variations on. */
+/** A minimal valid service registry entry to hang port and path variations on. */
 export const fakeService = {
   image: 'r/x:latest',
   port: 4000,

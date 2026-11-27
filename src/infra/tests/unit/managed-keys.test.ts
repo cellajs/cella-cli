@@ -1,16 +1,14 @@
 import { describe, expect, it } from 'vitest';
+import { managedKeysConfig } from '../../lib/description';
 import { managedKeys } from '../../lib/managed-keys';
 import { runtimeSecrets } from '../../lib/runtime-secrets';
-
-// The config module and lib/managed-keys form an import cycle, so it must be entered from the lib side; a static import sorts alphabetically ahead of the lib imports.
-const { managedKeysConfig } = await import('infra/config/managed-keys.config');
 
 describe('managed key registry', () => {
   it('derives managedKeys from the app config, keyed by id, preserving order', () => {
     expect(managedKeys.map((key) => key.id)).toEqual(Object.keys(managedKeysConfig));
     for (const key of managedKeys) {
       const { id, ...rest } = key;
-      expect(rest).toEqual(managedKeysConfig[id as keyof typeof managedKeysConfig]);
+      expect(rest).toEqual(managedKeysConfig[id]);
     }
   });
 

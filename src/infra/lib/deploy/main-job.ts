@@ -1,5 +1,5 @@
-import { generalConfig } from 'infra/config/general.config';
 import { rootPackage } from '../../../utils/app';
+import { generalConfig } from '../description';
 import type { EngineConfig } from '../engine-config';
 import { resolvePerMode } from '../general-config';
 import { engineFolder } from '../scaleway/secret-paths';
@@ -38,7 +38,7 @@ export function mainJobOutcome(run: { state: string; exit_code?: number | null }
 
 /** The id of the environment's main job definition, read with `key`; undefined before an apply made it. */
 export async function findMainJob(scope: { appConfig: EngineConfig; projectId: string }, key: { secretKey: string }): Promise<string | undefined> {
-  // Lazy: naming loads the app's services config, and the main job's process imports this file before it sets APP_MODE.
+  // Lazy: naming loads the description's service registry.
   const { deriveInfra } = await import('../naming');
   const { naming, region } = deriveInfra(scope.appConfig);
   return findJobDefinition({ secretKey: key.secretKey }, { region, projectId: scope.projectId, name: naming.resource('main') });
@@ -75,7 +75,7 @@ export interface MainJobSchedule {
 }
 
 /**
- * The minutes between an environment's scheduled runs, `schedule.everyMinutes` of config/general.config.ts.
+ * The minutes between an environment's scheduled runs, `general.schedule.everyMinutes` of infra/description.yml.
  * @throws for a mode that is no environment, which has no main job
  */
 export function scheduleEveryMinutes(mode: string): number {

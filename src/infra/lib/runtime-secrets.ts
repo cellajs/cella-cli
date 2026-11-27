@@ -1,6 +1,5 @@
-import { runtimeSecretsConfig } from 'infra/config/runtime-secrets.config';
-import { appStores } from 'infra/config/stores.config';
 import type { ServiceName } from '../compose/compose';
+import { appStores, runtimeSecretsConfig } from './description';
 import type { RuntimeSecretConfig } from './runtime-secrets-config';
 import { type ServiceDefinition, serviceNames } from './services';
 import type { DatabaseRole, StoreProvisioner } from './stores';
@@ -19,7 +18,7 @@ export interface RuntimeSecretDefinition extends Omit<RuntimeSecretConfig, 'serv
   database?: { role: DatabaseRole };
 }
 
-/** Pure merge of a store registry's secret contributions with `runtime-secrets.config.ts` entries. Store-owned declarations come first, in store-registry order. */
+/** Pure merge of a store registry's secret contributions with the `runtimeSecrets` of `infra/description.yml`. Store-owned declarations come first, in store-registry order. */
 export function buildRuntimeSecrets(
   stores: Record<string, Pick<StoreProvisioner, 'secrets'>>,
   appSecrets: Record<string, Omit<RuntimeSecretDefinition, 'id'>>,
@@ -51,21 +50,21 @@ export function validateRuntimeSecrets(secrets: readonly RuntimeSecretDefinition
     }
     seenIds.add(secret.id);
     if (secret.services.length === 0) {
-      throw new Error(`runtime-secrets.config: secret '${secret.id}' has no services: assign at least one consumer or remove it.`);
+      throw new Error(`runtimeSecrets: secret '${secret.id}' has no services: assign at least one consumer or remove it.`);
     }
     for (const service of secret.services) {
       if (!knownServices.has(service)) {
         throw new Error(
-          `runtime-secrets.config: secret '${secret.id}' targets unknown service '${service}'. Known services: ${[...knownServices].join(', ')}.`,
+          `runtimeSecrets: secret '${secret.id}' targets unknown service '${service}'. Known services: ${[...knownServices].join(', ')}.`,
         );
       }
     }
     if (seenEnvVars.has(secret.envVar)) {
-      throw new Error(`runtime-secrets.config: duplicate envVar '${secret.envVar}' (secret '${secret.id}').`);
+      throw new Error(`runtimeSecrets: duplicate envVar '${secret.envVar}' (secret '${secret.id}').`);
     }
     seenEnvVars.add(secret.envVar);
     if (seenSecretNames.has(secret.secretName)) {
-      throw new Error(`runtime-secrets.config: duplicate secretName '${secret.secretName}' (secret '${secret.id}').`);
+      throw new Error(`runtimeSecrets: duplicate secretName '${secret.secretName}' (secret '${secret.id}').`);
     }
     seenSecretNames.add(secret.secretName);
   }
@@ -74,12 +73,12 @@ export function validateRuntimeSecrets(secrets: readonly RuntimeSecretDefinition
     const source = secrets.find((candidate) => candidate.id === secret.derivedFrom?.secretId);
     // Only Pulumi writes both values, so the derived one can never drift from an out-of-band rotation of its source.
     if (source?.valueSource !== 'engine' || source.derivedFrom || secret.valueSource !== 'engine') {
-      throw new Error(`runtime-secrets.config: secret '${secret.id}' must be pulumi-owned and derive from a pulumi-owned, non-derived secret.`);
+      throw new Error(`runtimeSecrets: secret '${secret.id}' must be pulumi-owned and derive from a pulumi-owned, non-derived secret.`);
     }
   }
 }
 
-/** Flattened runtime secret definitions for this app: store contributions then `runtime-secrets.config.ts` entries, validated at load time. */
+/** Flattened runtime secret definitions for this app: store contributions then the description's `runtimeSecrets`, validated at load time. */
 export const runtimeSecrets: RuntimeSecretDefinition[] = buildRuntimeSecrets(appStores, runtimeSecretsConfig);
 validateRuntimeSecrets(runtimeSecrets, new Set<string>(serviceNames));
 
