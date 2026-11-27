@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import { Ajv2020 } from 'ajv/dist/2020.js';
@@ -17,7 +17,20 @@ const subpathExports: Record<string, string[]> = {
   './pentest': ['definePentestApp', 'definePentestBase'],
   // An app's infra workspace runs these: the Pulumi program, and the engine its own tests check files against
   './infra/program': [],
-  './infra/contract': [],
+  './infra/contract': [
+    'actionLabel',
+    'appServices',
+    'documentedTasks',
+    'engineAssetsDir',
+    'isOperatorActionId',
+    'menuRow',
+    'menuRows',
+    'operatorActions',
+    'redirectedApexOrigin',
+    'runtimeSecretConsumers',
+    'runtimeSecrets',
+    'runtimeSecretsForConsumer',
+  ],
 };
 
 /** The subpaths that name one file: the JSON Schema of `infra/description.yml`, which an app's editor validates the file with. */
@@ -40,6 +53,9 @@ describe('release package', () => {
     mkdirSync(appDir);
     writeFileSync(join(appDir, 'package.json'), '{"type":"module"}\n');
     execFileSync('pnpm', ['add', join(tempRoot, tarball!)], { cwd: appDir, stdio: 'pipe' });
+    // The contract reads the app's description when it loads
+    mkdirSync(join(appDir, 'infra'));
+    copyFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/infra/description.yml'), join(appDir, 'infra/description.yml'));
   });
 
   afterAll(() => {
@@ -74,7 +90,8 @@ describe('release package', () => {
     expect(validate(description), JSON.stringify(validate.errors)).toBe(true);
   });
 
-  const loadsAlone = Object.entries(subpathExports).filter(([subpath]) => subpath !== './infra/program' && subpath !== './infra/contract');
+  // The Pulumi program runs only under Pulumi
+  const loadsAlone = Object.entries(subpathExports).filter(([subpath]) => subpath !== './infra/program');
   it.each(loadsAlone)('%s exports its names', (subpath, names) => {
     const specifier = `@cellajs/cli${subpath.slice(1)}`;
     const script = `console.log(JSON.stringify(Object.keys(await import('${specifier}'))))`;

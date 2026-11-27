@@ -17,8 +17,17 @@ export const referenceSchema = z
   .string()
   .regex(/^(?:shared|infra)\/[^#]+#[A-Za-z_$][\w$]*$/, "takes a reference '<path>#<export>' to a file under shared/ or infra/");
 
+/** A `#` after whitespace, where the unquoted line of a machine's static env file ends its value. */
+const commentStart = /\s#/;
+
+/** An env value: Compose would interpolate a `$` of it, and the static env file it may reach cuts it at a `#` after whitespace. */
+const envValue = z
+  .string()
+  .regex(/^[^$]*$/, 'takes no $, as the file takes no Compose placeholder: write @{<service>.<property>} for a value the engine fills')
+  .refine((value) => !commentStart.test(value), 'takes no # after whitespace: the env file a machine reads would cut the value there');
+
 /** A service's environment: each key becomes a variable of its container. */
-const envMap = z.record(variable, z.string());
+const envMap = z.record(variable, envValue);
 
 const serviceSchema = z.strictObject({
   s3Access: z.boolean().optional(),
@@ -99,8 +108,14 @@ export const descriptionSchema = z.strictObject({
 
 export type DescriptionFile = z.infer<typeof descriptionSchema>;
 
-/** A header value the Caddyfile writes inside double quotes: a quote, a backslash, a placeholder brace, `$` or a backtick would change it. */
-const headerValue = z.string().regex(/^[^"\\{}$`\p{Cc}]*$/u, 'takes no double quote, backslash, brace, $, backtick or control character');
+/**
+ * A header value the Caddyfile writes inside double quotes: a quote, a backslash, a placeholder brace, `$` or a backtick would change it.
+ * It travels in the static env file, which cuts it at a `#` after whitespace.
+ */
+const headerValue = z
+  .string()
+  .regex(/^[^"\\{}$`\p{Cc}]*$/u, 'takes no double quote, backslash, brace, $, backtick or control character')
+  .refine((value) => !commentStart.test(value), 'takes no # after whitespace: the env file a machine reads would cut the value there');
 
 /** The proxy's response headers, which the engine supplies to its env. */
 export const proxyHeadersSchema = z.strictObject({ csp: headerValue, embedCsp: headerValue, permissionsPolicy: headerValue });

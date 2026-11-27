@@ -20,23 +20,36 @@ export interface AppPrincipalNames {
   transloadit: string;
 }
 
+/**
+ * The suffix of each engine principal's name, after the environment's `<slug>-<mode>` or the app's `<appSlug>`. A managed key takes none of
+ * them: its mint would adopt the application of that name, rewrite its policy and delete its other keys.
+ */
+export const principalSuffixes = {
+  ciDeploy: 'ci-deploy',
+  uploads: 'uploads',
+  operator: 'operator',
+  operators: 'operators',
+  observer: 'observer',
+  transloadit: 'transloadit',
+} as const;
+
 /** Derive the principal names of one environment. */
 export function principalNames(slug: string, mode: string): PrincipalNames {
   const prefix = `${slug}-${mode}`;
   return {
     group: prefix,
-    ciDeploy: `${prefix}-ci-deploy`,
-    uploads: `${prefix}-uploads`,
+    ciDeploy: `${prefix}-${principalSuffixes.ciDeploy}`,
+    uploads: `${prefix}-${principalSuffixes.uploads}`,
   };
 }
 
 /** Derive the principal names an app has one of, from its own slug (`appSlug` in the engine config). */
 export function appPrincipalNames(appSlug: string): AppPrincipalNames {
   return {
-    operator: `${appSlug}-operator`,
-    operators: `${appSlug}-operators`,
-    observer: `${appSlug}-observer`,
-    transloadit: `${appSlug}-transloadit`,
+    operator: `${appSlug}-${principalSuffixes.operator}`,
+    operators: `${appSlug}-${principalSuffixes.operators}`,
+    observer: `${appSlug}-${principalSuffixes.observer}`,
+    transloadit: `${appSlug}-${principalSuffixes.transloadit}`,
   };
 }
 

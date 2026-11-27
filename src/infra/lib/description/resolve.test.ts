@@ -55,13 +55,21 @@ const baseAppConfig = (): AppConfig => ({
 
 const headers = { csp: "default-src 'self'", embedCsp: "frame-ancestors 'none'", permissionsPolicy: 'camera=()' };
 const appExports: Record<string, Record<string, unknown>> = {
-  'shared/csp.ts': { headers, placeholder: { ...headers, csp: "default-src 'self' {env.SIGNING_KEY}" }, plain: 'x' },
+  'shared/csp.ts': {
+    headers,
+    placeholder: { ...headers, csp: "default-src 'self' {env.SIGNING_KEY}" },
+    commented: { ...headers, permissionsPolicy: 'camera=() #microphone=()' },
+    plain: 'x',
+  },
   'shared/key.ts': {
     publicKey: (value: string) => `public:${value}`,
     throws: () => {
       throw new Error('no key');
     },
   },
+  // Files a reference must not reach: the rows that name them fail on the reference's form, not on a missing export
+  'backend/key.ts': { publicKey: (value: string) => value },
+  '../key.ts': { publicKey: (value: string) => value },
 };
 const importExport: ImportExport = async (path, exportName) => appExports[path]?.[exportName];
 
@@ -181,19 +189,78 @@ describe('the description refuses', () => {
       'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
       (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'backend/key.ts#publicKey' } }),
     ],
-    // zod drops a record entry keyed __proto__, which the file still shows
+    // The form passes the schema's pattern: the normalized path leaves shared/
+    [
+      'a reference that leaves shared/ through ..',
+      'runtimeSecrets.PUBLIC_KEY.derivedFrom.with',
+      (f) => Object.assign(f.runtimeSecrets.PUBLIC_KEY, { derivedFrom: { secret: 'SIGNING_KEY', with: 'shared/../backend/key.ts#publicKey' } }),
+    ],
+    // zod drops a record entry keyed __proto__, which the file still shows, and keeps one keyed constructor, which a lookup reads wrong
     ['a key named __proto__', 'services.__proto__', (f) => Object.defineProperty(f.services, '__proto__', { value: service, enumerable: true })],
-    ['a key named constructor', 'managedKeys.ai.constructor', (f) => Object.assign(f.managedKeys.ai, { constructor: 'x' })],
+    ['a key named constructor', 'services.constructor', (f) => Object.assign(f.services, { constructor: { ...service, port: 4010 } })],
     [
       "a slug ending in a release companion's suffix",
       'services.api-release',
       (f) => Object.assign(f.services, { 'api-release': { ...service, port: 4010 } }),
     ],
     ["the slug of the engine's agent", 'services.agent', (f) => Object.assign(f.services, { agent: { ...service, port: 4010 } })],
+    // A build deletes every machine whose name starts with <prefix>-builder-
+    ['a slug of the builder machines', 'services.builder-cache', (f) => Object.assign(f.services, { 'builder-cache': { ...service, port: 4010 } })],
+    ["the slug of the builder's security group", 'services.compute', (f) => Object.assign(f.services, { compute: { ...service, port: 4010 } })],
+    ['the slug of a bake group', 'services.services', (f) => Object.assign(f.services, { services: { ...service, port: 4010 } })],
+    [
+      "a slug ending in an internal pool's suffix",
+      'services.api-internal',
+      (f) => Object.assign(f.services, { 'api-internal': { ...service, port: 4010 } }),
+    ],
+    ["a managed key's suffix of an engine principal", 'managedKeys.ai.suffix', (f) => Object.assign(f.managedKeys.ai, { suffix: 'ci-deploy' })],
+    // On the single-process host the static env file serves every container: a binding there would move the proxy's origin
+    ["an env key the engine's proxy takes", 'services.api.env.ORIGIN_HOST', (f) => Object.assign(f.services.api, { env: { ORIGIN_HOST: 'x' } })],
+    ["an env key of the agent's", 'services.api.env.AGENT_DIR', (f) => Object.assign(f.services.api, { env: { AGENT_DIR: '/tmp' } })],
+    [
+      "a release env key of a service's release tag",
+      'services.api.release.env.WEB_TAG',
+      (f) => Object.assign(f.services.api, { release: { env: { WEB_TAG: 'old' } } }),
+    ],
+    // Compose would interpolate it from the static env file
+    [
+      'a Compose placeholder in an env value',
+      'services.api.env.APP_ORIGIN',
+      (f) => Object.assign(f.services.api, { env: { APP_ORIGIN: '${APP_ORIGIN}' } }),
+    ],
+    // The static env file cuts an unquoted value at a # after whitespace
+    ['a # after whitespace in an env value', 'services.api.env.NOTE', (f) => Object.assign(f.services.api, { env: { NOTE: 'a #b' } })],
+    [
+      'a # after whitespace in a header value',
+      'services.web.headers: permissionsPolicy',
+      (f) => Object.assign(f.services.web, { headers: 'shared/csp.ts#commented' }),
+    ],
+    // The builder would bake from outside the checkout
+    [
+      'a dockerfile path with a .. segment',
+      'services.api.dockerfile',
+      (f) => Object.assign(f.services.api, { dockerfile: 'docker/../../Dockerfile' }),
+    ],
+    [
+      'a default stored name that is no kebab-case name',
+      'runtimeSecrets.MAIL__KEY.secretName',
+      (f) => Object.assign(f.runtimeSecrets, { MAIL__KEY: { description: 'Mail', services: ['api'] } }),
+    ],
+    // Its path would fall to the proxy
+    [
+      'a service appConfig serves under a path, without lbRoute: path',
+      'services.bg-jobs.lbRoute',
+      (_f, c) => Object.assign(c.services, { 'bg-jobs': { port: 4006, publicUrl: 'https://www.example.com/jobs' } }),
+    ],
   ];
 
   it.each(cases)('%s at %s', async (_refusal, keyPath, edit) => {
     await expect(resolveWith(edit)).rejects.toThrow(`: ${keyPath}: `);
+  });
+
+  it('a variable whose id every JavaScript object has', async () => {
+    const edit = (f: File) => Object.assign(f.runtimeSecrets, { TO_STRING: { description: 'Text', services: ['api'] } });
+    await expect(resolveWith(edit)).rejects.toThrow("runtimeSecrets.TO_STRING: gives the id 'toString', a member every JavaScript object has");
   });
 
   it("an appConfig of another mode than APP_MODE's", async () => {

@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 import { composeConfig, services } from './compose';
 import { renderCompose } from './synth';
 import type { ComposeService } from './types';
@@ -51,5 +52,30 @@ describe('the rendered Compose file', () => {
 
   it.each(cases)('refuses %s', (_refusal, services) => {
     expect(() => renderCompose({ services })).toThrow(/holds a control character/);
+  });
+
+  // Compose interpolates every $ of the file: only the engine's own placeholders may hold one
+  const interpolated: [refusal: string, services: Record<string, ComposeService>][] = [
+    ['a $ in an environment value', { x: { ...block, environment: { V: 'pa$$word' } } }],
+    ["an environment value naming another variable's placeholder", { x: { ...block, environment: { V: '${OTHER}' } } }],
+    ['a placeholder outside an image, command or mounts', { x: { ...block, profiles: ['${PROFILE}'] } }],
+  ];
+
+  it.each(interpolated)('refuses %s', (_refusal, services) => {
+    expect(() => renderCompose({ services })).toThrow(/holds a \$ the engine did not write/);
+  });
+
+  // YAML reads each of these plain as another type, or as another key
+  const quoted: [form: string, value: string][] = [
+    ['a trailing colon', 'host:'],
+    ['a float without its leading digit', '.5'],
+    ['a signed float without its leading digit', '+.5'],
+    ['infinity', '.inf'],
+    ['not a number', '.NaN'],
+  ];
+
+  it.each(quoted)('keeps %s a string', (_form, value) => {
+    const text = renderCompose({ services: { x: { ...block, environment: { V: value } } } });
+    expect(parse(text).services.x.environment.V).toBe(value);
   });
 });

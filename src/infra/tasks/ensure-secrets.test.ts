@@ -44,6 +44,13 @@ describe('ensureSecrets', () => {
     expect(writes).toEqual({ '/runtime/cookie-secret': 'fresh' });
   });
 
+  // The app's env schema requires at least 32 characters of a generated secret
+  it('makes a generated value of 32 URL-safe characters', async () => {
+    const { client, writes } = fakeClient({ '/runtime/cookie-secret': undefined });
+    await ensureSecrets({ client, secrets: [cookie], log: () => {} });
+    expect(writes['/runtime/cookie-secret']).toMatch(/^[\w-]{32}$/);
+  });
+
   it('must not replace a value that exists', async () => {
     const { client, writes } = fakeClient({ '/runtime/cookie-secret': 'kept' });
     await ensureSecrets({ client, secrets: [cookie], generate: () => 'fresh', log: () => {} });

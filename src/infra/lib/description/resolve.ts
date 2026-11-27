@@ -3,12 +3,13 @@ import type { z } from 'zod';
 import { agentProfile, agentService, validateServices } from '../../compose/infrastructure';
 import type { AppServiceConfig } from '../../compose/types';
 import { postgresManaged } from '../../resources/stores/catalog';
-import { engineAssets, frontendProxyDockerfile } from '../builder/builder-machine';
+import { frontendProxyDockerfile } from '../builder/builder-machine';
 import { repositoryKeyName } from '../deploy/repository-key';
-import { proxyEnvNames } from '../env-suppliers';
+import { engineVariableSetter, proxyEnvNames } from '../env-suppliers';
 import { type GeneralConfig, validateGeneral } from '../general-config';
 import type { ManagedKeyConfig, MintedKeyField } from '../managed-keys-config';
 import { type RuntimeSecretConfig, uploadsKeySecrets } from '../runtime-secrets-config';
+import { principalSuffixes } from '../scaleway/principals';
 import type { StoreProvisioner } from '../stores';
 import { errorMessage } from '../utils/errors';
 import {
@@ -59,8 +60,21 @@ const derivationProbe = 'derivation-probe:the-engine-calls-each-derivation-with-
 /** Keys a JavaScript object reads from its prototype: a parsed file holding one would lose or bend that entry. */
 const prototypeKeys = new Set(['__proto__', 'constructor', 'prototype']);
 
-/** Slugs the engine's agent takes: its compose service, and its compose profile and bake target. */
-const reservedSlugs = new Set([agentService, agentProfile]);
+/** The slugs no service takes, each with the engine name it would collide with. */
+const reservedSlugs: readonly [slug: string | RegExp, collision: string][] = [
+  [agentService, "the agent's compose service and image"],
+  [agentProfile, "the agent's compose profile, bake target and archive"],
+  [/^builder(?:-|$)/, 'the builder machines: a build deletes every machine whose name starts with <prefix>-builder-'],
+  ['compute', "the builder's security group, <prefix>-compute-sg"],
+  ['default', 'a group of the bake definition'],
+  ['services', 'a group of the bake definition'],
+  ['engine', 'a group of the bake definition'],
+  [/-release$/, "the release companion of the service named without '-release'"],
+  [/-internal$/, "the internal load balancer pool of the service named without '-internal'"],
+];
+
+/** Kebab-case with no leading, trailing or doubled hyphen: what a stored name the engine derives must be. */
+const strictKebab = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
 function refuse(path: string, message: string): never {
   throw new Error(`${fileName}: ${path}: ${message}`);
@@ -123,19 +137,23 @@ async function importReference(reference: string, path: string, importExport: Im
   return value;
 }
 
-/** Refuses an env key that is a runtime secret's variable: Compose gives the `environment` line the win over the env file's value. */
-function refuseSecretVariables(path: string, entries: Readonly<Record<string, string>>, secretVariables: ReadonlySet<string>): void {
+/**
+ * Refuses an env key that is a runtime secret's variable, as Compose gives the `environment` line the win over the env file's value, or a
+ * variable the engine sets.
+ */
+function refuseEnvKeys(path: string, entries: Readonly<Record<string, string>>, secretVariables: ReadonlySet<string>): void {
   for (const name of Object.keys(entries)) {
     if (secretVariables.has(name)) refuse(`${path}.${name}`, "is a runtime secret's variable, which the machine's env file holds");
+    const setBy = engineVariableSetter(name);
+    if (setBy) refuse(`${path}.${name}`, `is a variable the engine sets: ${setBy}`);
   }
 }
 
 /** Splits a service's env: a value holding `@{` becomes the placeholder `${NAME}` and a binding, any other value stays literal. */
-function envOf(slug: string, entries: Readonly<Record<string, string>>, proxy: boolean): Pick<AppServiceConfig, 'env' | 'bindings'> {
+function envOf(entries: Readonly<Record<string, string>>, proxy: boolean): Pick<AppServiceConfig, 'env' | 'bindings'> {
   const env: Record<string, string> = {};
   const bindings: Record<string, string> = {};
   for (const [name, value] of Object.entries(entries)) {
-    if (proxy && proxyEnvNames.includes(name)) refuse(`services.${slug}.env.${name}`, 'the engine supplies it to the proxy');
     if (value.includes('@{')) bindings[name] = value;
     env[name] = value.includes('@{') ? `\${${name}}` : value;
   }
@@ -143,13 +161,17 @@ function envOf(slug: string, entries: Readonly<Record<string, string>>, proxy: b
   return { ...(Object.keys(env).length > 0 && { env }), ...(Object.keys(bindings).length > 0 && { bindings }) };
 }
 
-/** A service's Dockerfile: the word `engine:proxy` names the engine's proxy, and no path names a file of the engine's folder. */
+/**
+ * A service's Dockerfile, normalized: the word `engine:proxy` names the engine's proxy, any other value a path inside the app. The builder
+ * would bake from outside the checkout for an absolute path or a `..` segment, so neither is taken.
+ */
 function dockerfileOf(dockerfile: string | undefined, path: string): string | undefined {
+  if (dockerfile === undefined) return undefined;
   if (dockerfile === proxyDockerfile) return frontendProxyDockerfile;
-  if (dockerfile !== undefined && posix.normalize(dockerfile).startsWith(`${engineAssets}/`)) {
-    refuse(path, `names a file of the engine's ${engineAssets}: only ${proxyDockerfile} names the engine's proxy`);
+  if (dockerfile.startsWith('/') || dockerfile.split('/').includes('..')) {
+    refuse(path, `takes ${proxyDockerfile} or a path inside the app, with no leading / and no .. segment`);
   }
-  return dockerfile;
+  return posix.normalize(dockerfile);
 }
 
 function resolveServices(
@@ -160,8 +182,8 @@ function resolveServices(
   let proxyHeadersReference: string | undefined;
   for (const [slug, entry] of Object.entries(file.services)) {
     const path = `services.${slug}`;
-    if (reservedSlugs.has(slug)) refuse(path, "is a name the engine's agent takes");
-    if (slug.endsWith('-release')) refuse(path, "ends in -release, the suffix of a service's release companion");
+    const collision = reservedSlugs.find(([reserved]) => (typeof reserved === 'string' ? reserved === slug : reserved.test(slug)))?.[1];
+    if (collision) refuse(path, `is a name the engine takes for ${collision}`);
     const { dockerfile: stated, env = {}, headers, ...fields } = entry;
     const dockerfile = dockerfileOf(stated, `${path}.dockerfile`);
     const proxy = isProxy({ dockerfile });
@@ -172,13 +194,13 @@ function resolveServices(
       referenceOf(headers, `${path}.headers`);
       proxyHeadersReference = headers;
     }
-    refuseSecretVariables(`${path}.env`, env, secretVariables);
-    refuseSecretVariables(`${path}.release.env`, entry.release?.env ?? {}, secretVariables);
+    refuseEnvKeys(`${path}.env`, env, secretVariables);
+    refuseEnvKeys(`${path}.release.env`, entry.release?.env ?? {}, secretVariables);
     services[slug] = {
       ...fields,
       image: `\${REGISTRY}/${entry.reusesImageOf ?? slug}:\${${imageTagVariable(slug)}:-latest}`,
       ...(dockerfile !== undefined && { dockerfile }),
-      ...envOf(slug, env, proxy),
+      ...envOf(env, proxy),
     };
   }
   try {
@@ -203,11 +225,15 @@ function resolveSecrets(file: DescriptionFile, storedNames: Map<string, string>,
     if (rotatable !== undefined && generation !== 'random') refuse(`${path}.rotatable`, 'takes generation: random');
     if (generation && derivedFrom) refuse(`${path}.derivedFrom`, 'a derived secret takes no generation');
     if (required !== undefined && (generation || derivedFrom)) refuse(`${path}.required`, 'a generated or derived secret is always required');
+    if (entry.secretName === undefined && !strictKebab.test(secretName)) {
+      refuse(`${path}.secretName`, `the default stored name '${secretName}' is no kebab-case name: state secretName`);
+    }
     const owner = storedNames.get(secretName);
     if (owner) refuse(`${path}.secretName`, `'${secretName}' is also the stored name of ${owner}`);
     storedNames.set(secretName, `runtimeSecrets.${variable}`);
     const id = idOf(variable);
-    if (secrets[id]) refuse(path, `gives the id '${id}' of another variable`);
+    if (id in Object.prototype) refuse(path, `gives the id '${id}', a member every JavaScript object has`);
+    if (Object.hasOwn(secrets, id)) refuse(path, `gives the id '${id}' of another variable`);
 
     const base = { secretName, description, envVar: variable, services, ...(group !== undefined && { group }) };
     if (generation === 'random') {
@@ -241,7 +267,11 @@ function resolveSecrets(file: DescriptionFile, storedNames: Map<string, string>,
 
 function resolveManagedKeys(file: DescriptionFile): Record<string, ManagedKeyConfig> {
   const keys: Record<string, ManagedKeyConfig> = {};
+  const engineSuffixes = new Set<string>(Object.values(principalSuffixes));
   for (const [id, entry] of Object.entries(file.managedKeys)) {
+    if (engineSuffixes.has(entry.suffix)) {
+      refuse(`managedKeys.${id}.suffix`, `'${entry.suffix}' names an engine principal, whose application and keys a mint would take over`);
+    }
     const assign: Partial<Record<MintedKeyField, string>> = {};
     for (const field of ['accessKey', 'secretKey'] as const) {
       const variable = entry.assign[field];
@@ -298,10 +328,14 @@ export function resolveFile(file: unknown, importExport: ImportExport): FileRegi
 
 const shown = (value: unknown): string => (value === undefined ? 'none' : JSON.stringify(value));
 
-/** Refuses a port, internal port or path the file states where the mode's `appConfig.services.<slug>` gives another. */
+/**
+ * Refuses a port, internal port or path the file states where the mode's `appConfig.services.<slug>` gives another, and a service without
+ * `lbRoute: path` that an enabled `appConfig` URL serves under a path of the app's host: the load balancer would send that path to the proxy.
+ */
 function checkEndpoints(services: FileRegistries['appServices'], config: DescribedEngineConfig): void {
+  const appHost = URL.parse(config.frontendUrl)?.host;
   for (const [slug, service] of Object.entries(services)) {
-    const endpoint = config.services[slug];
+    const endpoint = Object.hasOwn(config.services, slug) ? config.services[slug] : undefined;
     if (!endpoint) continue;
     const compare = (field: string, stated: unknown, configured: unknown, source = field) => {
       if (stated !== configured) {
@@ -311,9 +345,11 @@ function checkEndpoints(services: FileRegistries['appServices'], config: Describ
     // The proxy listens on a port of its own: appConfig's frontend port is the dev server's.
     if (!isProxy(service)) compare('port', service.port, endpoint.port);
     compare('internalPort', service.internalPort, endpoint.internalPort);
+    const url = endpoint.publicUrl === undefined ? undefined : URL.parse(endpoint.publicUrl);
     if (service.lbRoute === 'path') {
-      const path = endpoint.publicUrl === undefined ? undefined : URL.parse(endpoint.publicUrl)?.pathname;
-      compare('pathPrefix', service.pathPrefix, path, 'publicUrl');
+      compare('pathPrefix', service.pathPrefix, url?.pathname, 'publicUrl');
+    } else if (!isProxy(service) && endpoint.enabled !== false && url && url.host === appHost && url.pathname !== '/') {
+      refuse(`services.${slug}.lbRoute`, `takes 'path', as appConfig.services.${slug}.publicUrl serves it under '${url.pathname}' of the app's host`);
     }
   }
 }

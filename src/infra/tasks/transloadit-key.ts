@@ -3,7 +3,7 @@ import type { DeclaredPolicy } from '../lib/scaleway/declared-identities';
 import { createApiKey, listApiKeys, resolveApplicationIdByName, type ScwApiKey } from '../lib/scaleway/iam-client';
 import { transloaditPermissionSets } from '../lib/scaleway/permissions';
 import { policyReach, readPolicy } from '../lib/scaleway/policy-reach';
-import { appPrincipalNames } from '../lib/scaleway/principals';
+import { appPrincipalNames, principalSuffixes } from '../lib/scaleway/principals';
 import { ensureApplication } from '../lib/scaleway/scaleway-iam';
 import type { SecretManagerSecret } from '../lib/scaleway/scaleway-secret-manager';
 import type { ScwAuth } from '../lib/scaleway/scw-fetch';
@@ -88,7 +88,7 @@ export async function writeTransloadit(opts: {
   const { auth, organizationId, projectId, slug, log } = opts;
   const application = await ensureApplication(
     { callerSecretKey: auth.secretKey, organizationId, projectId, slug, log },
-    { suffix: 'transloadit', description: "Transloadit's key: stores uploaded files in the upload buckets, and reads none" },
+    { suffix: principalSuffixes.transloadit, description: "Transloadit's key: stores uploaded files in the upload buckets, and reads none" },
   );
   await writeDeclaredPolicies(auth, organizationId, [await declaredTransloaditPolicy(auth, organizationId, slug, projectId)], log);
   if ((await listApiKeys(auth, organizationId, application.id)).length > 0) return undefined;

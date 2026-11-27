@@ -25,9 +25,6 @@ export const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
   'repair-certs': async (words) => (await import('./tasks/repair-certs')).main(words),
 };
 
-/** The first words `cella infra` runs as a task: an app's docs test accepts `pnpm cella infra <task>` for each. */
-export const taskNames = Object.keys(tasks);
-
 /** Why the CLI cannot start on `args`, then where the help lists what it takes; undefined when it can. */
 function usageError(args: CliArgs): string | undefined {
   const listed = (line: string, lists: 'actions' | 'options') => `${crossMark} ${line}\n  ${pc.dim(`pnpm cella infra help lists the ${lists}`)}`;
