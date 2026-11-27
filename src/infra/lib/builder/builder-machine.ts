@@ -105,11 +105,11 @@ if [ -n "$FRONTEND" ]; then cp -a /build /frontend; fi
 mkdir -p /var/lib/release/images
 docker buildx bake --file /etc/builder-bake.json services &
 SERVICES=$!
-# Keyless containers: the engine installs at the checkout's root, and the app's frontend builds in its copy.
+# Keyless containers: the engine installs in the checkout's cella package, and the app's frontend builds in its copy.
 docker run --rm -v /build:/build -v /etc/builder-agent.sh:/script.sh:ro -w /build "$NODE_IMAGE" bash -eo pipefail /script.sh
 # The engine's build folders, which the release's engine package ships with the agent bundled. Copied with links resolved, as the package
 # sits behind pnpm's links.
-cp -RL /build/node_modules/@cellajs/cli/dist/infra-assets ${engineAssets}
+cp -RL /build/cella/node_modules/@cellajs/cli/dist/infra-assets ${engineAssets}
 docker buildx bake --file /etc/builder-bake.json engine &
 AGENT=$!
 if [ -n "$FRONTEND" ]; then
@@ -118,7 +118,7 @@ fi
 wait "$SERVICES"
 wait "$AGENT"
 # The release's own description of the app, which the deploy holds against the applied engine's: the target's description-hash task,
-# by the engine its root installed for the agent bundle, in a keyless container. A commit without cella/infra/description.yml reports
+# by the engine its cella package installed for the agent bundle, in a keyless container. A commit without cella/infra/description.yml reports
 # none. Beside the hash goes the description itself only as the text the hash was taken of: a commit older than --json prints its hash
 # again, and no field goes in.
 DESCRIPTION_FIELD=''
@@ -155,11 +155,15 @@ finish ok
 `;
 
 /**
- * The keyless container that installs the engine, whose package ships the agent bundled: the root's production dependencies and
- * `shared`'s, as the engine image installs them.
+ * The keyless container that installs the engine, whose package ships the agent bundled: the production dependencies of the `cella`
+ * package and of `shared`, selected by folder as the engine image installs them.
  */
 export function agentBundleScript(pnpmVersion: string): string {
-  return [`npm install -g --silent pnpm@${pnpmVersion}`, "pnpm install --frozen-lockfile --prod --filter . --filter 'shared...'", ''].join('\n');
+  return [
+    `npm install -g --silent pnpm@${pnpmVersion}`,
+    "pnpm install --frozen-lockfile --prod --filter '{./cella}...' --filter '{./shared}...'",
+    '',
+  ].join('\n');
 }
 
 /**

@@ -3,7 +3,7 @@ import { composeConfig } from './compose';
 import type { ComposeFile } from './types';
 
 const generatedHeader = [
-  '# Rendered from infra/description.yml by the deploy engine: `cella infra compose` prints it.',
+  '# Rendered from cella/infra/description.yml by the deploy engine: `cella infra compose` prints it.',
   '# The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).',
 ].join('\n');
 

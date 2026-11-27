@@ -1,4 +1,4 @@
-# Rendered from infra/description.yml by the deploy engine: `cella infra compose` prints it.
+# Rendered from cella/infra/description.yml by the deploy engine: `cella infra compose` prints it.
 # The deploy machinery and its rationale ship in @cellajs/cli (src/infra/compose/infrastructure.ts).
 
 services:
