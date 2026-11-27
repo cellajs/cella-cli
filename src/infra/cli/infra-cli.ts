@@ -1,7 +1,8 @@
 import { existsSync } from 'node:fs';
+import { commandTitle } from '../../utils/display';
 import { escaped, menuSelect } from '../../utils/menu';
 import { dbExposureConfigured } from '../lib/db-public-endpoint';
-import { actionLabel, type MenuRowId, menuRow, type OperatorActionId, pulumiActions } from '../lib/operator-actions';
+import { type MenuRowId, menuRow, type OperatorActionId, pulumiActions } from '../lib/operator-actions';
 import { resolveOperatorIdentity } from '../lib/scaleway/operator-identity';
 import { detectComputeDeferred, pickStackShort } from '../lib/stack/bootstrap-stack-state';
 import { type Environment, environments, isEnvironment } from '../lib/stack/environment';
@@ -19,7 +20,7 @@ import { backChoice, disabledReason, type MenuState, mainMenuItems, pickItems, q
 import { installPromptAbortHandler } from './prompts/abort';
 import { select } from './prompts/back';
 import { leaveChoice } from './prompts/what-now';
-import { rememberEnvironment, startMenuSession } from './session';
+import { forgetSession, rememberEnvironment, startMenuSession } from './session';
 import type { InfraContext } from './shared';
 import { autoAcceptDefaults, pointTo } from './shared';
 
@@ -101,14 +102,7 @@ function menuState(context: InfraContext, home?: HomeFacts): MenuState {
 /** The header, then the notices that hold for the whole run: key misconfigurations and deferred compute. `menu` when the menu follows. */
 function printStackNotices(context: InfraContext, menu = true): void {
   const host = context.appConfig.frontendUrl ? new URL(context.appConfig.frontendUrl).host : undefined;
-  const [line, divider] = formatHeader({
-    slug: context.appConfig.slug,
-    version: checkoutVersion(),
-    environment: context.environment,
-    state: context.state,
-    host,
-  });
-  console.info(`${line}\n${divider}\n`);
+  console.info(formatHeader({ version: checkoutVersion(), environment: context.environment, state: context.state, host }));
 
   // One line per key misconfiguration (a superseded name in the env file, a key the CLI no longer reads, …) before any action trips over it.
   for (const warning of [...context.envWarnings, ...resolveOperatorIdentity().warnings]) console.warn(`${warningMark} ${warning}`);
@@ -148,7 +142,7 @@ function pulumiReady(action: OperatorActionId): boolean {
   if (!pulumiActions.includes(action)) return true;
   const installed = installedPulumiVersion();
   if (!installed) {
-    printFailureHint(`"${actionLabel(action)}" runs Pulumi, which this machine does not have`, {
+    printFailureHint(`"${action}" runs Pulumi, which this machine does not have`, {
       command: 'brew install pulumi/tap/pulumi',
       description: 'reading (status, logs) works without it',
     });
@@ -176,12 +170,12 @@ function startRow(state: MenuState): MenuRowId | typeof upNext {
 
 /**
  * The menu: the daily rows by use, then More with the rest. A row with one action runs it; a row with several opens a pick, where Esc or
- * Back returns to the list. Esc on the list leaves the CLI. A row that cannot run now stays listed with the reason. A pick opens on its
- * first entry: a stray Enter after an action never starts one that deletes data.
+ * Back returns to the list. Esc on the list leaves the CLI, or with `back` steps back to the package menu. A row that cannot run now stays
+ * listed with the reason. A pick opens on its first entry: a stray Enter after an action never starts one that deletes data.
  */
-async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof quitChoice> {
+async function chooseAction(state: MenuState, back: boolean): Promise<OperatorActionId | typeof quitChoice> {
   while (true) {
-    const picked = await menuSelect({ message: '', items: mainMenuItems(state), default: startRow(state) });
+    const picked = await menuSelect({ message: '', items: mainMenuItems(state, back), default: startRow(state) });
     if (picked === escaped || picked === quitChoice) return quitChoice;
     lastRow = picked;
     if (picked === upNext) {
@@ -189,13 +183,13 @@ async function chooseAction(state: MenuState): Promise<OperatorActionId | typeof
       if (!next) continue;
       const reason = disabledReason(next.action, state);
       if (!reason) return next.action;
-      console.error(`${crossMark} "${actionLabel(next.action)}" cannot run now: ${reason}.`);
+      console.error(`${crossMark} "${next.action}" cannot run now: ${reason}.`);
       continue;
     }
     const row = menuRow(picked);
     const [only] = row.actions;
     if (row.actions.length === 1 && only) return only;
-    const action = await menuSelect({ message: row.label, items: pickItems(picked, state) });
+    const action = await menuSelect({ message: commandTitle('infra'), items: pickItems(picked, state) });
     if (action !== escaped && action !== backChoice) return action;
   }
 }
@@ -217,7 +211,7 @@ function readAhead(environment: Environment): { startedAt: number; context: Prom
 
 /**
  * The infra CLI on a command line `runInfra` accepted: the menu, or one action with `pnpm cella infra <action>`. It ends the process
- * itself, with the action's code or the menu's way out.
+ * itself, with the action's code or the menu's way out. Opened by the package menu (`back`), the menu's `← Back` returns from it.
  */
 export async function runInfraCli(args: CliArgs): Promise<void> {
   // The actions read their flags on process.argv, where `--sha=<sha>` must read as `--sha <sha>` too.
@@ -233,7 +227,7 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
   const droppedFromEnv = dropPromptOnlyEnv();
 
   // A Ctrl-C at any prompt below ends the run with one line and releases a held lease.
-  installPromptAbortHandler();
+  const removeAbortHandler = installPromptAbortHandler();
 
   console.info('');
   const environment = await resolveMode(args.mode);
@@ -284,12 +278,12 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
   /** The action the operator chose from a failure's ways out, run before the menu shows again. */
   let next: OperatorActionId | undefined;
   while (true) {
-    const action = next ?? (await chooseAction(menuState(context, home)));
+    const action = next ?? (await chooseAction(menuState(context, home), args.back === true));
     const reason = next ? disabledReason(next, menuState(context, home)) : undefined;
     next = undefined;
     if (action === quitChoice) break;
     if (reason) {
-      console.error(`${crossMark} "${actionLabel(action)}" cannot run now: ${reason}.`);
+      console.error(`${crossMark} "${action}" cannot run now: ${reason}.`);
       continue;
     }
     let ahead: ReturnType<typeof readAhead> | undefined;
@@ -309,5 +303,9 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
     printStackNotices(context);
     home = await printHome(context, ahead?.home ?? (changed ? undefined : home));
   }
-  process.exit(0);
+  if (!args.back) process.exit(0);
+  // The package menu takes the run back: nothing typed in this session outlives it
+  const held = forgetSession();
+  removeAbortHandler();
+  if (held.length > 0) console.info(pc.dim(`Left infra: the ${held.join(' and ')} key${held.length > 1 ? 's are' : ' is'} forgotten.`));
 }

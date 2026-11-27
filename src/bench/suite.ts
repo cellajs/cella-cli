@@ -4,7 +4,7 @@ import process from 'node:process';
 import { setTimeout as sleep } from 'node:timers/promises';
 import { pathToFileURL } from 'node:url';
 import pc from '../utils/colors';
-import { createSpinner, printStep, spinnerFail, warningMark } from '../utils/display';
+import { commandTitle, createSpinner, printStep, spinnerFail, warningMark } from '../utils/display';
 import { errorMessage } from '../utils/errors';
 import { pickFromMenu } from '../utils/menu';
 import { acquireLock } from './lock';
@@ -66,7 +66,7 @@ async function pickScenario(dir: string): Promise<string | undefined> {
     const { description } = await loadScenario(dir, name);
     entries.push({ value: name, label: name, description });
   }
-  return pickFromMenu([entries], { title: 'bench' });
+  return pickFromMenu([entries], { title: commandTitle('bench') });
 }
 
 async function runRequest<State>(bench: Bench<State>, request: BenchRequest): Promise<number> {

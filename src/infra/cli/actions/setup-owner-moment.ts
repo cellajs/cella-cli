@@ -1,4 +1,4 @@
-import { actionLabel, type OperatorActionId } from '../../lib/operator-actions';
+import type { OperatorActionId } from '../../lib/operator-actions';
 import { declaresUploads, uploadsPolicy } from '../../lib/scaleway/declared-identities';
 import { createApiKey, deleteApiKey, resolveApplicationIdByName } from '../../lib/scaleway/iam-client';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
@@ -171,8 +171,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
   const pair: KeyPair = { accessKey: ownerKey.accessKey, secretKey: ownerKey.secretKey };
   const projectId =
     context.projectId || (await ensureProjectId({ slug: appConfig.slug, mode: environment, secretKey: pair.secretKey, organizationId }));
-  if (mode === 'rotate-keys' && !(await confirmOrDefault({ message: `${actionLabel('rotate-keys')} of ${environment}?`, default: true })))
-    return undefined;
+  if (mode === 'rotate-keys' && !(await confirmOrDefault({ message: `Rotate the keys of ${environment}?`, default: true }))) return undefined;
 
   // The uploads key goes to the runtime folder, where the deploy composes it into the backend's env file; a rotation makes it anew.
   let uploadsKeyKept = false;

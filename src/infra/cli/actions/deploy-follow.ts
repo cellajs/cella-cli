@@ -162,7 +162,7 @@ async function reportEnd(
     return undefined;
   }
   console.error(`${crossMark} ${verdict?.sentence ?? fallback}`);
-  // A crash of the release is read here, without a second screen: the failed machine's own account, as Deploy logs prints it.
+  // A crash of the release is read here, without a second screen: the failed machine's own account, as `logs` prints it.
   const crashed = verdict?.side === 'release' ? record?.boot?.find((entry) => entry.failed && entry.key) : undefined;
   if (crashed?.key) {
     const body = await diag.store.readBootAccount(crashed.key).catch(() => undefined);
@@ -214,7 +214,7 @@ export interface LiveDeploy {
 
 /**
  * The deploy under way, when one is: the newest record says running and a live lease is held under its run. The observer key reads both,
- * so the home and Deploy now find it without a paste. Undefined when no deploy runs.
+ * so the home and `deploy-now` find it without a paste. Undefined when no deploy runs.
  */
 export async function liveDeploy(context: InfraContext, key: KeyPair): Promise<LiveDeploy | undefined> {
   const { store, control, bucket } = await bootDiagOn(context, key);

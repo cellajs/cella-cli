@@ -1,19 +1,22 @@
 import { rootPackage } from '../../utils/app';
+import { commandTitle, header } from '../../utils/display';
 import type { StackState } from '../lib/stack/bootstrap-stack-state';
 import type { Environment } from '../lib/stack/environment';
-import { divider, pc } from '../lib/utils/cli-output';
+import { pc } from '../lib/utils/cli-output';
 import { repoRoot } from '../lib/utils/paths';
 
-/** The header's width, the same as the divider under it and the headers of cella-cli and create-cella. */
-const headerWidth = 60;
-
-/** The environment's name as the header shows it: production bold red, staging cyan. */
+/** The environment's name as a sentence shows it: production bold red, staging cyan. */
 export function environmentName(environment: Environment): string {
   return environment === 'production' ? pc.bold(pc.red(environment)) : pc.cyan(environment);
 }
 
-export interface HeaderFacts {
-  slug: string;
+/** The environment as the title's badge: production white on red, staging black on cyan. */
+export function environmentBadge(environment: Environment): string {
+  const label = ` ${environment.toUpperCase()} `;
+  return environment === 'production' ? pc.bold(pc.bgRed(pc.white(label))) : pc.bold(pc.bgCyan(pc.black(label)));
+}
+
+export interface TitleFacts {
   /** The release this checkout is at, left out when the root package.json names none. */
   version?: string;
   environment: Environment;
@@ -33,15 +36,12 @@ export function checkoutVersion(): string | undefined {
 }
 
 /**
- * The two lines every run opens with: the tool and the checkout's version on the left, the environment and the app's host on the right,
- * then the divider. Production is bold red, so a run against it never looks like a staging run.
+ * The lines every run opens with: the package's header, then the command, the environment's badge, the app's host and the checkout's
+ * release. The badge makes a production run look unlike a staging run before anything runs.
  */
-export function formatHeader(facts: HeaderFacts): [string, string] {
-  const left = `⧈ ${facts.slug} infra`;
-  const version = facts.version ? ` · ${facts.version}` : '';
-  const state = facts.state === 'bootstrapped' ? '' : facts.state === 'fresh' ? ' · new' : ' · setup not finished';
-  const host = facts.host ? ` · ${facts.host}` : '';
-  const padding = ' '.repeat(Math.max(1, headerWidth - `${left}${version}${facts.environment}${state}${host}`.length));
-  const right = `${environmentName(facts.environment)}${pc.dim(state)}${facts.host ? `${pc.dim(' · ')}${pc.cyan(facts.host)}` : ''}`;
-  return [`${pc.cyan(left)}${pc.dim(version)}${padding}${right}`, divider];
+export function formatHeader(facts: TitleFacts): string {
+  const state = facts.state === 'bootstrapped' ? undefined : facts.state === 'fresh' ? 'new' : 'setup not finished';
+  const details = [facts.host && pc.cyan(facts.host), facts.version && pc.dim(`checkout ${facts.version}`), state && pc.dim(state)];
+  const after = details.filter(Boolean).join(pc.dim(' · '));
+  return `${header().trimStart()}\n${commandTitle('infra')}   ${environmentBadge(facts.environment)}${after ? `  ${after}` : ''}\n`;
 }

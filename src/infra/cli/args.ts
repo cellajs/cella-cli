@@ -14,6 +14,8 @@ export interface CliArgs {
   help: boolean;
   /** Why the engine refuses this command line: an unknown flag, a flag without its value, or a second word. */
   refusal?: string;
+  /** The package menu opened the CLI: the menu ends on `← Back`, which hands the run back to it. No word sets it. */
+  back?: boolean;
 }
 
 /** Flags that take the next word as their value, so that word is never read as the action. */

@@ -29,7 +29,8 @@ interface CommandBase<Options, Job extends string | undefined> {
   outsideGit?: true;
   /**
    * Takes every word after its name unparsed, parses them itself and prints all the run shows: the entry adds no
-   * header or closing line, and `--help` after the name is the command's own.
+   * header or closing line, and `--help` after the name is the command's own. Picked in the menu, it ends on `← Back`:
+   * the menu opens again once its run resolves to 0.
    */
   handsOver?: true;
   /** The page `cella help <name>` prints in place of commander's, for a command that hands over. */
@@ -50,7 +51,8 @@ interface CommandBase<Options, Job extends string | undefined> {
   passthrough?: CommandOption;
   /** The options, by attribute name (`json` for `--json`), that keep stdout for the payload: the rest goes to stderr. */
   machineOutput?: string[];
-  parse(input: { job: Job; operands: string[]; opts: Record<string, unknown>; passthrough: string[] }): Options;
+  /** `menu` is true when the menu picked the command. */
+  parse(input: { job: Job; operands: string[]; opts: Record<string, unknown>; passthrough: string[]; menu?: boolean }): Options;
 }
 
 /**

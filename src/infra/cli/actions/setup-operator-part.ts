@@ -1,7 +1,7 @@
 import { spawnSync } from 'node:child_process';
 import { storeDeployKeyCopy } from '../../lib/deploy/main-job';
 import { deriveInfra } from '../../lib/naming';
-import { actionCommand, actionLabel } from '../../lib/operator-actions';
+import { actionCommand } from '../../lib/operator-actions';
 import { ensureDnsZone } from '../../lib/scaleway/ensure-dns-zone';
 import type { KeyPair } from '../../lib/scaleway/operator-identity';
 import { buildProviderEnv } from '../../lib/scaleway/provider-env';
@@ -160,7 +160,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
   }
   if (ctx.context.state !== 'fresh') await endOnOpenDbEndpoint(ctx.context, ctx.secretKey);
 
-  // Lock provisioning against concurrent operators and deploys; every exit path releases it, and abandoned locks expire or clear with "Unlock".
+  // Lock provisioning against concurrent operators and deploys; every exit path releases it, and abandoned locks expire or clear with `unlock`.
   const stackLock = await acquireStackLockOrEnd({
     appConfig: ctx.appConfig,
     accessKey: ctx.stateKey.accessKey,
@@ -257,7 +257,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
   const secrets = createSecretManagerClient({ secretKey: ctx.secretKey, region: ctx.appConfig.s3.region, projectId: ctx.projectId });
   await ensureSecrets({ client: secrets });
 
-  // Seed prompted values only after Pulumi creates the empty secret containers; skipped values stay available through "Env vars & secrets".
+  // Seed prompted values only after Pulumi creates the empty secret containers; skipped values stay available through `env`.
   await seedOperatorSecrets({
     secretKey: ctx.secretKey,
     projectId: ctx.projectId,
@@ -285,7 +285,7 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
     operatorSecrets.adminEmail = await askAdminEmail();
     operatorSecrets.brevoApiKey = await optionalSecret('Brevo API key (optional)');
   }
-  if (!firstSetup && !(await confirmOrDefault({ message: `${actionLabel('resume')} of ${environment}?`, default: true }))) return;
+  if (!firstSetup && !(await confirmOrDefault({ message: `Resume the setup of ${environment}?`, default: true }))) return;
 
   // The operator key serves the state side too, naming this project, as it is made in one environment's. A stack whose buckets predate the
   // operator application lets it in first.

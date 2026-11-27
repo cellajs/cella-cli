@@ -21,7 +21,7 @@ export interface Rotations {
   keys?: RotationRecord;
   /** The last rotation of the secrets the engine checks: database role passwords and generated values. */
   secrets?: RotationRecord;
-  /** The last change of an operator value, in "Env vars & secrets" or by an import: it rotates nothing, only replaces the machines. */
+  /** The last change of an operator value, in `env` or by an import: it rotates nothing, only replaces the machines. */
   values?: RotationRecord;
 }
 

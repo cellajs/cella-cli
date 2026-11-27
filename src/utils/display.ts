@@ -82,6 +82,13 @@ export function header(): string {
   return `\n${pc.cyan(left)}${pc.dim(versionLabel)}${pc.cyan(`${' '.repeat(padding)}${right}`)}\n${divider}\n`;
 }
 
+/** A menu's title: the command its pick runs, as a person types it, with the word the menu adds bold. */
+export function commandTitle(...words: string[]): string {
+  const typed = ['pnpm', 'cella', ...words];
+  const last = typed.pop() ?? '';
+  return `${pc.dim(`$ ${typed.join(' ')} `)}${pc.bold(last)}`;
+}
+
 export function printHeader(): void {
   console.info(header());
 }

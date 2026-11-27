@@ -1,5 +1,5 @@
 import { writeFileSync } from 'node:fs';
-import { actionCommand, actionLabel, menuPath, type OperatorActionId, operatorActions } from '../../lib/operator-actions';
+import { actionCommand, menuPath, type OperatorActionId, operatorActions } from '../../lib/operator-actions';
 import { crossMark, hasPerson, pc, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { debugFile } from '../../lib/utils/paths';
@@ -88,12 +88,12 @@ export interface RunActionOptions {
 function waysOut(id: OperatorActionId, ended: ActionEnded, firstSetup: boolean): Array<WayOut<string>> {
   const retry: WayOut<string> = firstSetup
     ? { value: retryChoice, label: 'Retry this step', description: 'Runs the step again. What is made stays, and only the rest is created.' }
-    : { value: retryChoice, label: ended.retry ?? `Retry ${actionLabel(id)}`, description: 'Runs the action again, from its first question.' };
+    : { value: retryChoice, label: ended.retry ?? `Retry ${id}`, description: 'Runs the action again, from its first question.' };
   const fixes = inMenuSession()
     ? ended.fix.map((fix) => ({
         value: fix,
-        label: actionLabel(fix),
-        hint: menuPath(fix) === actionLabel(fix) ? undefined : menuPath(fix),
+        label: fix,
+        hint: menuPath(fix) === fix ? undefined : menuPath(fix),
         description: operatorActions[fix].description,
       }))
     : [];
@@ -139,7 +139,7 @@ async function tryAction(
       return 'stopped';
     }
     if (error instanceof ActionEnded) return error;
-    log(`\n${crossMark} ${actionLabel(id)} failed: ${errorMessage(error)}`);
+    log(`\n${crossMark} "${id}" failed: ${errorMessage(error)}`);
     const kept = keep(id, error);
     if (kept) log(pc.dim(`  Its stack trace: ${kept}`));
     return new ActionEnded(1);
@@ -184,7 +184,7 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
       }
       if (ended.left) return { code: ended.exitCode };
       if (!inMenuSession() && !firstSetup) {
-        for (const fix of ended.fix) log(pc.dim(`  ${actionLabel(fix)}: ${actionCommand(fix)}`));
+        for (const fix of ended.fix) log(pc.dim(`  ${actionCommand(fix)}: ${operatorActions[fix].summary}`));
         return { code: ended.exitCode };
       }
       const note = firstSetup && rememberedOperatorKey() ? setupKeyNote : keptKeyNote();

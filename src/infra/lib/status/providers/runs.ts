@@ -42,8 +42,8 @@ const startValues = new Set(['TARGET_SHA', 'RETRY']);
 
 /**
  * What a run was started with beyond the target and the retry counter: a value the definition does not set, another value for one it
- * sets, or a startup command or arguments of its own. The schedule sets none, and a rotation, an apply and Deploy now the two only, so anything
- * else is a key holder's own start, which no check inside the job can stop. A run started before the definition's last change ran the values
+ * sets, or a startup command or arguments of its own. The schedule sets none, and a rotation, an apply and `deploy-now` the two only.
+ * Anything else is a key holder's own start, which no check inside the job can stop. A run started before the definition's last change ran the values
  * and command of that time, a key the apply removed included, so nothing is compared for it. Empty for a run started as the engine starts one.
  */
 export function runOverrides(run: JobRun, definition: JobDefinitionFacts): string[] {
@@ -79,7 +79,7 @@ function deployVerdict(
     const verdict = runs.warn(
       `${sha} is blocked: its record names what is owed, an identity update, an apply or a secret`,
       {
-        description: 'Read what is owed; the apply or storing the secret starts this target again, Deploy now after an identity update',
+        description: 'Read what is owed; the apply or storing the secret starts this target again, deploy-now after an identity update',
         command: actionCommand('logs'),
       },
       target,
@@ -95,7 +95,7 @@ function deployVerdict(
 /**
  * How the environment's last deploy went: the newest record, or a run started by hand since that left none. A record that says running
  * is deploying while a deploy holds the lease under its run, and was interrupted otherwise. A blocked one owes an identity update, an apply
- * or a secret, a failed one is read in Deploy logs.
+ * or a secret, a failed one is read in `logs`.
  */
 export const runsProvider: StatusProvider<RunsFacts> = {
   domain: 'runs',
@@ -123,7 +123,7 @@ export const runsProvider: StatusProvider<RunsFacts> = {
         }
         if (record && 'denied' in record) {
           return runs.warn('the run records were not read, as the bucket admits no version read by the observer yet', {
-            description: 'Review & apply changes writes the bucket policy that does',
+            description: 'An apply writes the bucket policy that does',
             command: actionCommand('apply'),
           });
         }

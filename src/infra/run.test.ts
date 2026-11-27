@@ -16,7 +16,7 @@ it('prints a help page that names every action, without loading the app config',
   write.mockRestore();
 });
 
-// `deploy` named both, and `pnpm cella infra deploy` ran the task where the docs promised Deploy now: a task is looked up first
+// `deploy` named both, and `pnpm cella infra deploy` ran the task where the docs promised `deploy-now`: a task is looked up first
 it('names no task by the id of an operator action', () => {
   expect(Object.keys(tasks).filter((name) => Object.hasOwn(operatorActions, name))).toEqual([]);
 });

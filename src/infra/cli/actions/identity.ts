@@ -1,4 +1,3 @@
-import { actionLabel } from '../../lib/operator-actions';
 import type { DeclaredPolicy } from '../../lib/scaleway/declared-identities';
 import { declaredIdentities } from '../../lib/scaleway/declared-identities';
 import { iamBase } from '../../lib/scaleway/iam-client';
@@ -165,7 +164,7 @@ async function ensureTransloaditForEnvironment(context: InfraContext, auth: ScwA
 }
 
 /**
- * Update identities: make the applications the code declares, write their policies and the observer's, make the uploads key and, where
+ * `identities`: make the applications the code declares, write their policies and the observer's, make the uploads key and, where
  * the environment stores a Transloadit auth key, the app's Transloadit application with its key, at an Owner moment. They are IAM, which
  * neither the operator key nor the deploy key writes. An Owner API key is asked for only when something has to change: the plan is read
  * first with the observer key when this machine holds it.
@@ -174,7 +173,7 @@ export async function runIdentity(context: InfraContext): Promise<void> {
   const { appConfig, projectId } = context;
   const registry = { slug: appConfig.slug, mode: context.environment };
   const names = appPrincipalNames(appConfig.appSlug);
-  console.info(pc.dim(`\n${actionLabel('identities')}: write what differs from the declared identities.\n`));
+  console.info(pc.dim('\nidentities: write what differs from the declared identities.\n'));
 
   const show = (plan: IdentityPlan): boolean => {
     if (identityPlanIsEmpty(plan)) {

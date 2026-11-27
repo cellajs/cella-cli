@@ -20,7 +20,7 @@ const defaultLog = (message: string) => console.info(message);
  * Pulumi already creates the empty containers, so this only writes an initial
  * Version for the values the operator typed at the prompt. Containers that already
  * have a version are left untouched, so re-runs never clobber a value set later
- * via "Env vars & secrets".
+ * via `env`.
  *
  * @see resources/secrets.ts
  */

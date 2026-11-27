@@ -95,7 +95,7 @@ export async function mainJob(env: NodeJS.ProcessEnv, fx: MainJobEffects): Promi
     console.info(`[main-job] ${mode}: ${verdict.deploy.source} has no run under retry ${verdict.deploy.retry}: run ${run} deploys it`);
     const { sha, retry } = verdict.deploy;
     const scheduled = effects;
-    // The record this run opened ends with the reason: the schedule starts no target twice, and Deploy logs says why.
+    // The record this run opened ends with the reason: the schedule starts no target twice, and `logs` says why.
     const refused = async (why: string) => {
       const recorder = new RunRecorder({ run: verdict.run, environment: mode, target: sha, retry, now: started });
       recorder.finish('failed', why);

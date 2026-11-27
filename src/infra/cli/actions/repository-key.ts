@@ -1,7 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { gitKeyEnv } from '../../lib/deploy/git-remote';
 import { repositoryKeyName, repositoryUrl } from '../../lib/deploy/repository-key';
-import { actionLabel } from '../../lib/operator-actions';
 import { createSecretManagerClient } from '../../lib/scaleway/scaleway-secret-manager';
 import { runtimeFolder } from '../../lib/scaleway/secret-paths';
 import { checkMark, crossMark, pc } from '../../lib/utils/cli-output';
@@ -20,7 +19,7 @@ export async function runRepositoryKey(context: InfraContext): Promise<void> {
   const repository = repositoryUrl();
   console.info(
     pc.dim(
-      `\n${actionLabel('repository-key')}: lets a deploy fetch a private repository.\n` +
+      '\nrepository-key: lets a deploy fetch a private repository.\n' +
         '  Make a fine-grained GitHub token for this repository only, with "Contents: read" and nothing else, and an expiry.\n',
     ),
   );

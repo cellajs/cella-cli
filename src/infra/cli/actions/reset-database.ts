@@ -28,7 +28,7 @@ function describeTarget(target: ResetTarget, region: string): string {
 }
 
 /**
- * "Reset database": delete + recreate this app's logical database over the Scaleway API with the
+ * `db-reset`: delete + recreate this app's logical database over the Scaleway API with the
  * operator key, then re-grant both roles. The same-name recreate preserves Pulumi state without
  * exposing the database.
  */

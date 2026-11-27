@@ -25,7 +25,7 @@ export interface SetupOperatorsOptions {
 /** What the operators' policy needed: made, its rules replaced in place, or nothing. */
 export type PolicyChange = 'created' | 'updated' | 'unchanged';
 
-/** What Set up operators did; the application and the group log their own creation. */
+/** What `operators` did; the application and the group log their own creation. */
 export interface OperatorsResult {
   policy: PolicyChange;
   /** True when the application held a policy of its own, which was deleted: the group's grants to it as a member. */

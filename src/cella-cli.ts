@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import process from 'node:process';
 import { CommanderError } from 'commander';
-import { parseCommandLine, promptForCommand } from './cli';
+import { parseCommandLine, promptForCommand, type Selection } from './cli';
 import type { MenuContext } from './command';
 import { isUpstreamRepo, loadConfig } from './config/load';
 import { hasInfraFolder } from './infra/command';
@@ -24,15 +24,27 @@ async function readMenuContext(repoRoot: string): Promise<MenuContext> {
 
 /**
  * The CLI's main entry point: picks the command from the command line or the menu, runs it in the working directory and
- * resolves to the code it returns.
+ * resolves to the code it returns. A command that hands over, picked in the menu, opens the menu again when it resolves to 0.
  */
 async function main(): Promise<number> {
   const repoRoot = process.cwd();
   const named = parseCommandLine(process.argv);
-  // The menu opens under the logo and draws the header with its own lines, which a pick erases
-  if (!named) printLogo();
-  const { command, options, machineOutput } = named ?? (await promptForCommand(await readMenuContext(repoRoot)));
+  if (named) return runCommand(repoRoot, named);
 
+  // The menu opens under the logo and draws the header with its own lines, which a pick erases
+  printLogo();
+  const context = await readMenuContext(repoRoot);
+  let start: string | undefined;
+  while (true) {
+    const selection = await promptForCommand(context, start);
+    const code = await runCommand(repoRoot, selection);
+    if (!selection.command.handsOver || code !== 0) return code;
+    start = selection.command.name;
+  }
+}
+
+/** Run a command the command line or the menu picked, and resolve to its exit code. */
+async function runCommand(repoRoot: string, { command, options, machineOutput }: Selection): Promise<number> {
   if (machineOutput) setJsonMode(true);
   // A gate prints its verdict alone: CI logs and agents read it. A command that hands over prints all its output itself
   const quiet = command.group === 'gate' || command.handsOver === true;

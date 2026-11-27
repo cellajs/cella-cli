@@ -1,5 +1,4 @@
 import { spawnSync } from 'node:child_process';
-import { actionLabel } from '../../lib/operator-actions';
 import { stateKeyOf } from '../../lib/scaleway/s3-client';
 import { checkMark, crossMark, pc, warningMark } from '../../lib/utils/cli-output';
 import { infraDir } from '../../lib/utils/paths';
@@ -14,9 +13,7 @@ import { acquireOperatorKey } from './operator-unlock';
  */
 export async function runStatePrune(context: InfraContext): Promise<void> {
   const { appConfig, projectId } = context;
-  console.info(
-    pc.dim(`\n${actionLabel('state-remove')}: one resource out of the state of ${context.environment}; the live object must be gone already.\n`),
-  );
+  console.info(pc.dim(`\nstate-remove: one resource out of the state of ${context.environment}; the live object must be gone already.\n`));
   const urn = (await input({ message: 'The URN to remove (verbatim, as `pulumi stack --show-urns` prints it)' })).trim();
   if (!urn.startsWith('urn:pulumi:')) {
     console.error(`${crossMark} '${urn}' is no Pulumi URN.`);

@@ -7,6 +7,6 @@
 export { documentedTasks } from './cli/help';
 export { appServices } from './lib/description';
 export { redirectedApexOrigin } from './lib/naming';
-export { actionLabel, isOperatorActionId, type MenuRowId, menuRow, menuRows, type OperatorActionId, operatorActions } from './lib/operator-actions';
+export { isOperatorActionId, type MenuRowId, menuRow, menuRows, type OperatorActionId, operatorActions } from './lib/operator-actions';
 export { runtimeSecretConsumers, runtimeSecrets, runtimeSecretsForConsumer } from './lib/runtime-secrets';
 export { engineAssetsDir } from './lib/utils/paths';

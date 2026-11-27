@@ -10,8 +10,8 @@ import { makeControlClient } from '../lib/stack/control-store';
 import { mode, naming, organizationId, projectId, region } from '../pulumi-context';
 
 /**
- * The engine image the definition runs, by digest: the one this apply built and pushed (`INFRA_ENGINE_IMAGE`, set by Review & apply
- * changes and the setup), else the one the last apply recorded in `applied.json`, so an apply that publishes no engine keeps it. None
+ * The engine image the definition runs, by digest: the one this apply built and pushed (`INFRA_ENGINE_IMAGE`, set by `apply`
+ * and the setup), else the one the last apply recorded in `applied.json`: an apply that publishes no engine keeps it. None
  * before the first publish.
  */
 async function engineImage(): Promise<string | undefined> {

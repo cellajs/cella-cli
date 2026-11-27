@@ -114,7 +114,7 @@ export function deployFailureHint(err: unknown, mode: string): { description: st
   }
   if (step && !stepsWithMachines.has(step)) return { description: `${where}Re-running is safe: the live record says what serves.` };
   return {
-    description: `${where}Re-running is safe: a role that switched serves the target and is left as it is. The run's record names each new machine's boot account, and Deploy logs prints a failed one:`,
+    description: `${where}Re-running is safe: a role that switched serves the target and is left as it is. The run's record names each new machine's boot account, and "logs" prints a failed one:`,
     command: `${actionCommand('logs')} --mode ${mode}`,
   };
 }
@@ -294,7 +294,7 @@ export async function runDeploy(opts: DeployOptions, fx: DeployEffects, loadDepl
         say(`[deploy] ${opts.sha.slice(0, 10)} describes the app as the applied engine does`);
       });
 
-      // The deploy writes no value of the app's: the apply makes them, and Update identities the uploads key. Here it reads them from the
+      // The deploy writes no value of the app's: the apply makes them, and `identities` the uploads key. Here it reads them from the
       // runtime folder and writes each role's env file, which only it reads; a value that is empty, not one line or holds `'` ends the run blocked
       // before any machine of the release boots, and storing it starts the target again.
       await step('Compose runtime env', async () => {

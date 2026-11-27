@@ -2,7 +2,7 @@ import process from 'node:process';
 import { Command as CommanderCommand, Option } from 'commander';
 import type { Command, CommandGroup, MenuContext } from './command';
 import { commands } from './commands';
-import { header, version } from './utils/display';
+import { commandTitle, header, version } from './utils/display';
 import { pickFromMenu } from './utils/menu';
 
 /** A command with the options it parsed; `machineOutput` when one of them keeps stdout for the payload. */
@@ -136,8 +136,11 @@ export function parseCommandLine(argv: string[]): Selection | undefined {
   return selection;
 }
 
-/** The command picked from the menu, with a job when it has several the menu can run. Esc or `← Back` at the job returns to the commands. */
-export async function promptForCommand(context: MenuContext): Promise<Selection> {
+/**
+ * The command picked from the menu, with a job when it has several the menu can run. Esc or `← Back` at the job returns to the commands.
+ * `start` is the command the pointer opens on.
+ */
+export async function promptForCommand(context: MenuContext, start?: string): Promise<Selection> {
   const entries = commands.filter((command) => command.group !== 'gate' && (command.inMenu?.(context) ?? true));
   // The help's groups in its order: commander lists a group where its first command is
   const groups = [...new Set(entries.map(({ group }) => group))].map((group) =>
@@ -146,15 +149,15 @@ export async function promptForCommand(context: MenuContext): Promise<Selection>
       .map(({ name, summary, handsOver }) => ({ value: name, label: handsOver ? `${name} ›` : name, description: summary })),
   );
   // A step back from a job pick returns the pointer to the command it left
-  let start: string | undefined;
+  let pointer = start;
   while (true) {
-    const picked = await pickFromMenu(groups, { header: header(), start });
-    start = picked;
+    const picked = await pickFromMenu(groups, { title: commandTitle(), header: header(), start: pointer });
+    pointer = picked;
     const command = entries.find((entry) => entry.name === picked);
     // Quit and Esc leave without a line, as the engine's menu does
     if (!command) process.exit(0);
 
-    const parse = (job: string | undefined) => command.parse({ job, operands: [], opts: {}, passthrough: [] });
+    const parse = (job: string | undefined) => command.parse({ job, operands: [], opts: {}, passthrough: [], menu: true });
     // The menu passes no words: a job that needs them, such as `align show <id>`, runs from the command line only
     const runnable = command.jobs.filter(([job]) => {
       try {
@@ -166,7 +169,7 @@ export async function promptForCommand(context: MenuContext): Promise<Selection>
     });
     if (runnable.length < 2) return { command, options: parse(runnable[0]?.[0]), machineOutput: false };
     const jobs = runnable.map(([name, description]) => ({ value: name, label: name, description }));
-    const job = await pickFromMenu([jobs], { title: command.name, header: header(), back: true });
+    const job = await pickFromMenu([jobs], { title: commandTitle(command.name), header: header(), back: true });
     if (job) return { command, options: parse(job), machineOutput: false };
   }
 }

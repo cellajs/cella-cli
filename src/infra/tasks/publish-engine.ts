@@ -127,7 +127,7 @@ function pushConfig(registry: string, secretKey: string): { dir: string; env: No
 }
 
 /**
- * Build the engine image from this checkout and push it to the environment's registry on the operator key: what Review & apply changes
+ * Build the engine image from this checkout and push it to the environment's registry on the operator key: what `apply`
  * and the setup do before the `up` that writes the main job's definition. Undefined while the registry namespace does not exist, as
  * before the first apply. Needs Docker with buildx, able to build linux/amd64.
  * @throws when the build or the push fails, or the registry names no digest for the tag

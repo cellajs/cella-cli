@@ -27,22 +27,22 @@ describe('mainMenuItems', () => {
 
   it('keeps every row on a stack whose setup is unfinished and says why a row cannot run', () => {
     expect(render(mainMenuItems(partial)).filter((line) => line.startsWith('-'))).toEqual([
-      '- Review & apply changes (needs a set-up environment: run "More → Resume setup")',
-      '- Releases & roll back (needs a set-up environment: run "More → Resume setup")',
-      '- Open DB access (needs a set-up environment: run "More → Resume setup")',
+      '- apply (needs a set-up environment: run "more › resume")',
+      '- releases (needs a set-up environment: run "more › resume")',
+      '- db-open (needs a set-up environment: run "more › resume")',
     ]);
   });
 
   it('shows the close row while the exposure config says open', () => {
     const lines = render(mainMenuItems({ ...bootstrapped, dbExposed: true }));
-    expect(lines.some((line) => line.startsWith('  Close DB access (OPEN)  '))).toBe(true);
-    expect(lines.some((line) => line.includes('Open DB access'))).toBe(false);
+    expect(lines.some((line) => line.startsWith('  db-close (OPEN)  '))).toBe(true);
+    expect(lines.some((line) => line.includes('db-open'))).toBe(false);
   });
 
   it('shows the close row for a live endpoint no exposure config accounts for, and names it', () => {
     const items = mainMenuItems({ ...bootstrapped, liveEndpoints: ['51.15.0.1:5432'] });
     const row = items.find((item) => 'value' in item && item.value === 'db-close');
-    expect(row && 'name' in row ? plain(row.name) : '').toContain('Close DB access (OPEN)');
+    expect(row && 'name' in row ? plain(row.name) : '').toContain('db-close (OPEN)');
     expect(row && 'description' in row ? row.description : '').toContain('51.15.0.1:5432');
   });
 
@@ -73,8 +73,9 @@ describe('mainMenuItems', () => {
     }
   });
 
-  it('ends with the way out', () => {
-    expect(mainMenuItems(bootstrapped).at(-1)).toMatchObject({ value: quitChoice });
+  it('ends with the way out: Quit, or Back when the package menu opened the CLI', () => {
+    expect(mainMenuItems(bootstrapped).at(-1)).toMatchObject({ name: 'Quit', value: quitChoice });
+    expect(mainMenuItems(bootstrapped, true).at(-1)).toMatchObject({ name: '← Back', value: quitChoice });
   });
 });
 
@@ -82,24 +83,24 @@ describe('pickItems', () => {
   it('lists the rare actions with their summaries and a rule between sections, then Back', () => {
     const rule = ` ${'─'.repeat(40)}`;
     expect(render(pickItems('more', { ...bootstrapped, environment: 'production' }))).toEqual([
-      '  Deploy now               without waiting for the scheduled run',
-      '  Preview changes          what Review & apply would change; read-only',
+      '  deploy-now      without waiting for the scheduled run',
+      '  preview         what apply would change; read-only',
       rule,
-      '  Rotate keys              new deploy and uploads keys, then a redeploy',
-      '  Rotate secrets           new passwords and generated values, redeployed',
-      '  Set up operators         make or repair the operator app and group',
-      '  Update identities        write what differs from the declared identities',
-      '  Set repository read key  the GitHub key a private repository needs',
+      '  rotate-keys     new deploy and uploads keys, then a redeploy',
+      '  rotate-secrets  new passwords and generated values, redeployed',
+      '  operators       make or repair the operator app and group',
+      '  identities      write what differs from the declared identities',
+      '  repository-key  the GitHub key a private repository needs',
       rule,
-      '  Unlock                   clear the lease a stopped run left',
-      '  Resume setup             continue an interrupted setup',
-      '  Remove from state        drop a gone resource from the Pulumi state',
+      '  unlock          clear the lease a stopped run left',
+      '  resume          continue an interrupted setup',
+      '  state-remove    drop a gone resource from the Pulumi state',
       rule,
-      '- Seed database (seed data never goes to production)',
-      '  Reset database           wipe and rebuild it empty, after a backup',
+      '- db-seed (seed data never goes to production)',
+      '  db-reset        wipe and rebuild it empty, after a backup',
       rule,
-      '  Import a .env file       set the values a .env file holds',
-      '  Tear down                delete all that runs or costs, after a final dump',
+      '  env-import      set the values a .env file holds',
+      '  teardown        delete all that runs or costs, after a final dump',
       rule,
       '  ← Back to menu',
     ]);
@@ -123,7 +124,7 @@ describe('disabledReason', () => {
 
 describe('rowDisabledReason', () => {
   it('disables a row only when every action behind it is blocked', () => {
-    expect(rowDisabledReason('apply', partial)).toBe('needs a set-up environment: run "More → Resume setup"');
+    expect(rowDisabledReason('apply', partial)).toBe('needs a set-up environment: run "more › resume"');
     expect(rowDisabledReason('more', partial)).toBeUndefined();
   });
 });

@@ -24,7 +24,7 @@ export const rule = new Separator(pc.dim('─'.repeat(40)));
 export const escaped: unique symbol = Symbol('menu-escaped');
 
 export interface MenuSelectOptions<T extends string> {
-  /** The line above the entries: a question ends in `?` and keeps Inquirer's mark, a title shows bold alone, and an empty one shows no line. */
+  /** The line above the entries: a question ends in `?` and shows bold with Inquirer's mark, a title shows as given, and an empty one shows no line. */
   message: string;
   /** Lines drawn as they are above the message, which erase with the menu: the package's header. */
   header?: string;
@@ -57,6 +57,7 @@ export async function menuSelect<T extends string>(options: MenuSelectOptions<T>
   };
   emitKeypressEvents(process.stdin);
   process.stdin.on('keypress', onKeypress);
+  const question = options.message.endsWith('?');
   try {
     return await select<T>(
       {
@@ -67,8 +68,8 @@ export async function menuSelect<T extends string>(options: MenuSelectOptions<T>
         choices: options.items.map((item) => ('group' in item ? new Separator(item.group ? pc.dim(` ${item.group}`) : ' ') : item)),
         // Inquirer bolds an empty message into a line of escape codes alone, which prints as a blank line.
         theme: {
-          ...(options.message.endsWith('?') ? {} : { prefix: '' }),
-          style: { keysHelpTip: () => '', message: (text: string) => [options.header, text && pc.bold(text)].filter(Boolean).join('\n') },
+          ...(question ? {} : { prefix: '' }),
+          style: { keysHelpTip: () => '', message: (text: string) => [options.header, question ? pc.bold(text) : text].filter(Boolean).join('\n') },
         },
       },
       { signal: controller.signal, clearPromptOnDone: true },

@@ -19,12 +19,12 @@ export interface RuntimeSecretConfig {
   generation: RuntimeSecretGeneration;
   /** Services that receive the secret in their machine's `.env.runtime`, which the deploy composes from the runtime folder. */
   services: readonly ServiceName[];
-  /** The row of "Env vars & secrets" an operator value is listed in, with every value that names the same one. Unset, the value is its own row. */
+  /** The row of `env` an operator value is listed in, with every value that names the same one. Unset, the value is its own row. */
   group?: string;
   /** A pulumi-owned value computed from another pulumi-owned secret's value (a public key from its private key), so the two change together. */
   derivedFrom?: RuntimeSecretDerivation;
   /**
-   * A generated value "Rotate secrets" may replace: one that protects no stored data (a signing key, a secret two services share). A key that
+   * A generated value `rotate-secrets` may replace: one that protects no stored data (a signing key, a secret two services share). A key that
    * encrypts or hashes stored data is left out: a new value would leave that data unreadable or unmatched. A value derived from a rotatable
    * one follows it.
    */
@@ -41,7 +41,7 @@ export interface RuntimeSecretDerivation {
 }
 
 /**
- * The uploads key's two halves, which Update identities and Rotate keys write into the runtime folder: the key of the uploads application,
+ * The uploads key's two halves, which `identities` and `rotate-keys` write into the runtime folder: the key of the uploads application,
  * which a service with `s3Access` signs uploads and presigned URLs with. Its consumers are those services.
  */
 export const uploadsKeySecrets = [

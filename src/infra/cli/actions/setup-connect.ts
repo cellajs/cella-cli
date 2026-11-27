@@ -93,7 +93,7 @@ export async function offerFirstDeploy(context: InfraContext): Promise<void> {
     try {
       await runStartDeploy(context, { asked: true });
     } catch (error) {
-      // A first deploy that ends blocked or failed is read in Deploy logs; the setup itself is done.
+      // A first deploy that ends blocked or failed is read in `logs`; the setup itself is done.
       if (!(error instanceof ActionEnded)) throw error;
       console.warn(`${warningMark} The first deploy did not end deployed: ${pointTo('logs')} says why. The setup itself is done.`);
     }

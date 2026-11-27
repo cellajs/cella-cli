@@ -180,7 +180,7 @@ describe('secretsMenu', () => {
     expect(log).toHaveBeenCalledWith(expect.stringContaining('Deletion cancelled'));
   });
 
-  it('opens Rotate secrets from the row of the values infra makes: a declined one returns to the table, a rotation ends it', async () => {
+  it('opens rotate-secrets from the row of the values infra makes: a declined one returns to the table, a rotation ends it', async () => {
     prompts.select.mockResolvedValueOnce('made-by-infra').mockResolvedValueOnce('made-by-infra');
     rotate.mockResolvedValueOnce(false).mockResolvedValueOnce(true);
 

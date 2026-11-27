@@ -4,7 +4,6 @@ import { describe, expect, it } from 'vitest';
 import { documentedTasks } from '../../cli/help';
 import {
   actionCommand,
-  actionLabel,
   isOperatorActionId,
   type MenuRowId,
   menuPath,
@@ -19,10 +18,9 @@ const repoRoot = path.resolve(infraRoot, '..');
 
 const ids = Object.keys(operatorActions) as OperatorActionId[];
 const rowIds = Object.keys(menuRows) as MenuRowId[];
-const labels = ids.map(actionLabel);
 const rowLabels = rowIds.map((id) => menuRow(id).label);
 
-/** Names an action or a submenu carried before the flat menu. None may come back in a message, a comment or the docs. */
+/** Names an action or a submenu carried before the menu showed command words. None may come back in a message, a comment or the docs. */
 const retiredLabels = [
   'Open temporary public DB access',
   'Expose database publicly',
@@ -52,6 +50,23 @@ const retiredLabels = [
   'Keys & operators',
   'Operators & keys',
   'Infrastructure changes',
+  'Full status',
+  'Deploy logs',
+  'Preview changes',
+  'Review & apply',
+  'Set up operators',
+  'Update identities',
+  'Releases & roll back',
+  'Set repository read key',
+  'Env vars & secrets',
+  'Import a .env file',
+  'Open DB access',
+  'Seed database',
+  'Close DB access',
+  'Reset database',
+  'Resume setup',
+  'Remove from state',
+  'More →',
 ];
 
 /** The engine's own docs; the template checks its docs against the same table. */
@@ -68,10 +83,6 @@ function infraSources(dir = infraRoot): string[] {
 }
 
 describe('operator action table', () => {
-  it('gives every action its own label', () => {
-    expect(new Set(labels).size).toBe(labels.length);
-  });
-
   it('uses command-shaped ids: lowercase words joined by hyphens', () => {
     for (const id of ids) expect(id).toMatch(/^[a-z]+(-[a-z]+)*$/);
     expect(isOperatorActionId('apply')).toBe(true);
@@ -98,16 +109,11 @@ describe('menu rows', () => {
     expect(ids.filter((id) => !listed.has(id))).toEqual([]);
   });
 
-  it('says where an action is found: the row, the pick inside a row, or the command', () => {
-    expect(menuPath('status')).toBe('Full status');
-    expect(menuPath('db-open')).toBe('Open DB access');
-    expect(menuPath('db-close')).toBe('Close DB access');
-    expect(menuPath('db-seed')).toBe('More → Seed database');
-    expect(menuPath('apply')).toBe('Review & apply changes');
-    expect(menuPath('preview')).toBe('More → Preview changes');
-    expect(menuPath('unlock')).toBe('More → Unlock');
-    expect(menuPath('deploy-now')).toBe('More → Deploy now');
-    expect(menuPath('rotate-keys')).toBe('More → Rotate keys');
+  it('says where an action is found by its command words: the row, or the pick inside a row', () => {
+    expect(menuPath('status')).toBe('status');
+    expect(menuPath('db-close')).toBe('db-close');
+    expect(menuPath('db-seed')).toBe('more › db-seed');
+    expect(menuPath('rotate-keys')).toBe('more › rotate-keys');
   });
 });
 
@@ -122,7 +128,7 @@ describe('one name per action', () => {
   });
 
   it('points the docs at menu entries and commands that exist', () => {
-    const known = new Set<string>([...labels, ...rowLabels]);
+    const known = new Set<string>([...ids, ...rowLabels]);
     const unknown: string[] = [];
     for (const file of docs) {
       const text = readFileSync(path.join(repoRoot, file), 'utf8');

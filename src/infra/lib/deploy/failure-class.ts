@@ -1,4 +1,3 @@
-import { actionLabel } from '../operator-actions';
 import type { RunRecord } from './run-record';
 
 /** How a run that did not deploy ended, for a person: whose side it is on. */
@@ -39,16 +38,16 @@ export function blockedValues(error: string | undefined): string[] {
  */
 export function classifyRun(record: RunRecord): FailureClass {
   const { outcome, failedStep, error = '' } = record;
-  const theRun = `${actionLabel('logs')} → the run`;
+  const theRun = 'logs › the run';
   if (outcome === 'blocked') {
     const names = blockedValues(error);
     const what = names.length > 0 ? `Waiting for ${names.join(', ')}` : 'A value is missing: the record names it';
-    return { side: 'settings', sentence: `${what}: "${actionLabel('env')}" stores it and deploys again.`, retryLikely: false };
+    return { side: 'settings', sentence: `${what}: "env" stores it and deploys again.`, retryLikely: false };
   }
   if (outcome === 'apply needed') {
     return {
       side: 'settings',
-      sentence: `The release changes the infrastructure: it waits for your go (${actionLabel('apply')}).`,
+      sentence: 'The release changes the infrastructure: it waits for your go (apply).',
       retryLikely: false,
     };
   }

@@ -8,7 +8,7 @@ import { runtimeFolderCondition } from './secret-paths';
  * The deploy key's rules: machines and buckets in the project, secret metadata, and secret values in the runtime folder only.
  * No IAM, no DNS write (the records follow the load balancer's address, which an apply makes), no load balancer or address write, no
  * secret write, no registry, no console, no snapshot. It reads the environment's runtime secrets and composes them into each machine's env
- * file. Update identities writes these rules.
+ * file. `identities` writes these rules.
  */
 export function deployRules(opts: { projectId: string }): PolicyRule[] {
   return [
@@ -17,7 +17,7 @@ export function deployRules(opts: { projectId: string }): PolicyRule[] {
   ];
 }
 
-/** The deploy key's policy as Update identities writes it: the name the setup gave it, so its rules are replaced in place and the key stays. */
+/** The deploy key's policy as `identities` writes it, under the name the setup gave it. Its rules are replaced in place and the key stays. */
 export function deployPolicy(opts: { slug: string; mode: string; projectId: string; organizationId: string }): DeclaredPolicy {
   const names = principalNames(opts.slug, opts.mode);
   return {
