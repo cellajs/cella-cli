@@ -2,7 +2,9 @@ import { execFileSync } from 'node:child_process';
 import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
+import { Ajv2020 } from 'ajv/dist/2020.js';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { parse } from 'yaml';
 
 /** The runtime names each subpath exports, which apps import: a name leaves only in a major release. */
 const subpathExports: Record<string, string[]> = {
@@ -13,21 +15,13 @@ const subpathExports: Record<string, string[]> = {
   './a11y': ['auditContrast', 'defineA11yApp', 'defineA11yBase', 'openState', 'settle'],
   './screenshots': ['defineScreenshotsApp', 'defineScreenshotsBase'],
   './pentest': ['definePentestApp', 'definePentestBase'],
-  './infra': [
-    'defineEngineConfig',
-    'defineEnvSuppliers',
-    'defineGeneral',
-    'defineManagedKeys',
-    'defineRuntimeSecrets',
-    'defineServices',
-    'defineStores',
-    'frontendProxyDockerfile',
-    'postgresManaged',
-  ],
   // An app's infra workspace runs these: the Pulumi program, and the engine its own tests check files against
   './infra/program': [],
   './infra/contract': [],
 };
+
+/** The subpaths that name one file: the JSON Schema of `infra/description.yml`, which an app's editor validates the file with. */
+const fileExports = ['./infra/description.schema.json'];
 
 /**
  * Packs this package and installs the tarball into a throwaway app, so every check runs the files and the dependency
@@ -62,11 +56,22 @@ describe('release package', () => {
   it('ships the built files of every subpath in exports, and the table names each one', () => {
     const { exports } = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'));
     const subpaths = Object.keys(exports).filter((subpath) => subpath !== './package.json');
-    expect(subpaths.sort()).toEqual(Object.keys(subpathExports).sort());
+    expect(subpaths.sort()).toEqual([...Object.keys(subpathExports), ...fileExports].sort());
     for (const subpath of subpaths) {
-      expect(existsSync(join(packageDir, exports[subpath].import)), exports[subpath].import).toBe(true);
-      expect(existsSync(join(packageDir, exports[subpath].types)), exports[subpath].types).toBe(true);
+      const target: string | { import: string; types: string } = exports[subpath];
+      for (const file of typeof target === 'string' ? [target] : [target.import, target.types]) {
+        expect(existsSync(join(packageDir, file)), file).toBe(true);
+      }
     }
+  });
+
+  // An app's editor validates its description with the shipped schema: one stricter than the engine's load marks a valid file wrong
+  it("ships a description JSON Schema that accepts the fixture app's description", () => {
+    const { exports } = JSON.parse(readFileSync(join(packageDir, 'package.json'), 'utf8'));
+    const schema = JSON.parse(readFileSync(join(packageDir, exports['./infra/description.schema.json']), 'utf8'));
+    const validate = new Ajv2020({ allErrors: true }).compile(schema);
+    const description = parse(readFileSync(join(repoRoot, 'src/infra/tests/fixtures/app/infra/description.yml'), 'utf8'));
+    expect(validate(description), JSON.stringify(validate.errors)).toBe(true);
   });
 
   const loadsAlone = Object.entries(subpathExports).filter(([subpath]) => subpath !== './infra/program' && subpath !== './infra/contract');

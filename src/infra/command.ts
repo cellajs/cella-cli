@@ -11,13 +11,18 @@ interface InfraOptions {
 /** The manifest of the app's `infra` workspace, relative to the app's root. */
 const infraManifest = join('infra', 'package.json');
 
-/** Whether `dir` is the app's root with an `infra` workspace, or that workspace itself, where its scripts run. */
-export function hasInfraWorkspace(dir: string): boolean {
-  if (existsSync(join(dir, infraManifest))) return true;
+/** The app's `infra` folder when `dir` is the app's root with an `infra` workspace, or that workspace itself, where its scripts run. */
+function infraWorkspace(dir: string): string | undefined {
+  if (existsSync(join(dir, infraManifest))) return join(dir, 'infra');
   const manifest = join(dir, 'package.json');
-  if (!existsSync(manifest)) return false;
+  if (!existsSync(manifest)) return undefined;
   const parsed: { name?: unknown } = JSON.parse(readFileSync(manifest, 'utf8'));
-  return parsed.name === 'infra';
+  return parsed.name === 'infra' ? dir : undefined;
+}
+
+/** Whether `dir` is the app's root with an `infra` workspace, or that workspace itself. */
+export function hasInfraWorkspace(dir: string): boolean {
+  return infraWorkspace(dir) !== undefined;
 }
 
 export const infraCommand: Command<InfraOptions> = {
@@ -34,7 +39,13 @@ export const infraCommand: Command<InfraOptions> = {
   passthrough: ['words', 'an action and its options, or a task the app runs by script'],
   parse: ({ passthrough }) => ({ words: passthrough }),
   run: async (repoRoot, { words }) => {
-    if (!hasInfraWorkspace(repoRoot)) throw new Error(`this app has no infra workspace: ${infraManifest} is missing`);
+    const workspace = infraWorkspace(repoRoot);
+    if (!workspace) throw new Error(`this app has no infra workspace: ${infraManifest} is missing`);
+    if (!existsSync(join(workspace, 'description.yml'))) {
+      throw new Error(
+        "this app still describes its infra in infra/config/, where the engine reads infra/description.yml. The template's alignment infra-description (cella/alignments/) moves it: `pnpm cella align` lists it after the upgrade.",
+      );
+    }
     // The engine ends its own work on ctrl-c, a stack lease among it, and then the process
     handOverSignals();
     const { runInfra } = await import('./run');

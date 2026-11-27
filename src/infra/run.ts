@@ -15,6 +15,7 @@ export const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
   },
   deploy: async (words) => (await import('./tasks/deploy')).main(words),
   'description-hash': async (words) => (await import('./tasks/description-hash')).main(words),
+  description: async (words) => (await import('./tasks/description-hash')).printDescription(words),
   'builder-script': async (words) => (await import('./tasks/print-builder-script')).main(words),
   compose: async () => (await import('./compose/synth')).main(),
   'privileged-footprint': async (words) => (await import('./tasks/privileged-footprint')).main(words),
@@ -23,6 +24,9 @@ export const tasks: Record<string, (words: string[]) => Promise<unknown>> = {
   'ensure-state-bucket': async () => (await import('./tasks/ensure-state-bucket')).main(),
   'repair-certs': async (words) => (await import('./tasks/repair-certs')).main(words),
 };
+
+/** The first words `cella infra` runs as a task: an app's docs test accepts `pnpm cella infra <task>` for each. */
+export const taskNames = Object.keys(tasks);
 
 /** Why the CLI cannot start on `args`, then where the help lists what it takes; undefined when it can. */
 function usageError(args: CliArgs): string | undefined {

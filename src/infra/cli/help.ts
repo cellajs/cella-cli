@@ -38,7 +38,10 @@ export function infraHelp(): string {
     help.boxWrap("set up, apply and deploy the app's environments; without an action the menu opens on the home screen", 80),
     '',
     ...sections.flatMap(([heading, items]) => [heading, ...items.map(([term, text]) => help.formatItem(term, width, text, help)), '']),
-    help.boxWrap("Other first words are tasks: the app's scripts and the main job run them, and a person does not type them.", 80),
+    help.boxWrap(
+      "Other first words are tasks, which the app's scripts and the main job run. Two are for a person: compose prints the rendered compose file, and description --mode <mode> the app as the engine sees it.",
+      80,
+    ),
     '',
   ].join('\n');
 }

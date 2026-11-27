@@ -55,6 +55,7 @@
       "types": "./dist/infra-contract.d.ts",
       "import": "./dist/infra-contract.js"
     },
+    "./infra/description.schema.json": "./dist/infra-description.schema.json",
     "./package.json": "./package.json"
   },
   "files": [
@@ -68,7 +69,7 @@
   "scripts": {
     "start": "tsx index.ts",
     "clean": "rimraf ./dist",
-    "build": "tsdown",
+    "build": "tsdown --config-loader tsx",
     "test-build": "pnpm run build && node index.js --help",
     "prepublishOnly": "pnpm run test:release",
     "check": "pnpm ts && pnpm biome check --write .",
