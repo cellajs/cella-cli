@@ -1,5 +1,16 @@
 # Changelog
 
+## [0.12.0](https://github.com/cellajs/cella-cli/compare/cli-0.11.0...cli-0.12.0) (2026-11-27)
+
+
+### ⚠ BREAKING CHANGES
+
+* **infra:** infra keeps the cella cli header with a production badge, steps back, and its menus show commands ([#125](https://github.com/cellajs/cella-cli/issues/125))
+
+### 🎉 New features
+
+* **infra:** infra keeps the cella cli header with a production badge, steps back, and its menus show commands ([#125](https://github.com/cellajs/cella-cli/issues/125)) ([e1b7465](https://github.com/cellajs/cella-cli/commit/e1b746560e9b4572f6761de7c4d7157a48bd87e4))
+
 ## [0.11.0](https://github.com/cellajs/cella-cli/compare/cli-0.10.0...cli-0.11.0) (2026-11-27)
 
 
