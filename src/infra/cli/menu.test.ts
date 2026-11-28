@@ -25,11 +25,11 @@ describe('mainMenuItems', () => {
     expect(items[0]).toMatchObject({ value: upNext });
   });
 
-  it('keeps every row on a stack whose setup is unfinished and says why a row cannot run', () => {
+  it('keeps every row on a stack whose install is unfinished and says why a row cannot run', () => {
     expect(render(mainMenuItems(partial)).filter((line) => line.startsWith('-'))).toEqual([
-      '- apply (needs a set-up environment: run "more › resume")',
-      '- releases (needs a set-up environment: run "more › resume")',
-      '- db-open (needs a set-up environment: run "more › resume")',
+      '- apply (needs an installed environment: run "more › resume")',
+      '- releases (needs an installed environment: run "more › resume")',
+      '- db-open (needs an installed environment: run "more › resume")',
     ]);
   });
 
@@ -93,7 +93,7 @@ describe('pickItems', () => {
       '  repository-key  the GitHub key a private repository needs',
       rule,
       '  unlock          clear the lease a stopped run left',
-      '  resume          continue an interrupted setup',
+      '  resume          continue an interrupted install',
       '  state-remove    drop a gone resource from the Pulumi state',
       rule,
       '- db-seed (seed data never goes to production)',
@@ -124,7 +124,7 @@ describe('disabledReason', () => {
 
 describe('rowDisabledReason', () => {
   it('disables a row only when every action behind it is blocked', () => {
-    expect(rowDisabledReason('apply', partial)).toBe('needs a set-up environment: run "more › resume"');
+    expect(rowDisabledReason('apply', partial)).toBe('needs an installed environment: run "more › resume"');
     expect(rowDisabledReason('more', partial)).toBeUndefined();
   });
 });

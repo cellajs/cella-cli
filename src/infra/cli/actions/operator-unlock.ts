@@ -81,7 +81,7 @@ async function bearerVerdict(desc: KeyDescription, pair: KeyPair, names: AppPrin
   return { organizationId };
 }
 
-/** Reads of a key the setup minted after the first, and the pause before each: IAM refuses a new key until its policy holds, about a minute. */
+/** Reads of a key the install minted after the first, and the pause before each: IAM refuses a new key until its policy holds, about a minute. */
 const mintedKeyRetries = 6;
 const mintedKeyPauseMs = 10_000;
 
@@ -190,9 +190,9 @@ export interface OperatorKey extends KeyPair {
 
 /**
  * The key every privileged action runs on: a one-day key of the operator application, or of a member of the operators group, pasted once
- * per session or minted by a setup's Owner moment, and kept in this process's memory. It holds no IAM write, so nothing is minted from it,
- * and it ends by itself within the day, so nothing is left to revoke when the action ends. An Owner key never runs one, as the buckets
- * admit no Owner; an app without operators gets them from `operators` or its setup, with an Owner API key.
+ * per session or minted by an install's Owner moment, and kept in this process's memory. It holds no IAM write: nothing is minted from it.
+ * It ends by itself within the day, and nothing is left to revoke when the action ends. An Owner key never runs one, as the buckets
+ * admit no Owner; an app without operators gets them from `operators` or its install, with an Owner API key.
  */
 export async function acquireOperatorKey(stack: StackRef): Promise<OperatorKey> {
   const unlocked = await unlock(stack);

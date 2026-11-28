@@ -55,7 +55,7 @@ function keptNames(context: InfraContext, kept: readonly KeptResource[]): string
  * writes the final dump of the database into the boot-diag bucket, takes the kept resources out of the state (lib/stack/kept-resources.ts)
  * and destroys the rest. Then it removes the stack, deletes
  * every secret container but the kept ones and the environment's identities, and leaves the project id in `cella/infra/.env.<mode>`, where the
- * next setup finds it and adopts what was kept. A dump that fails deletes nothing.
+ * next install finds it and adopts what was kept. A dump that fails deletes nothing.
  */
 export async function runTeardown(context: InfraContext): Promise<void> {
   const { appConfig } = context;
@@ -68,7 +68,7 @@ export async function runTeardown(context: InfraContext): Promise<void> {
     'database, DNS records, main job, image registry, secrets, and its applications and keys.',
     'The machines stop first, then the database is dumped. If the dump fails, nothing else is deleted.',
     `Keeps ${kept.some(({ name }) => name === 'public-uploads-bucket') ? 'the uploaded files, ' : ''}the final dump and the secrets that protect stored data.`,
-    `A new setup of ${environment} picks them up again.`,
+    `A new install of ${environment} picks them up again.`,
   ]);
   console.info(pc.dim('After the token comes your Owner key: make one in the Scaleway console that ends within hours.'));
 
@@ -112,7 +112,7 @@ function prepareState(stack: string, env: NodeJS.ProcessEnv, kept: readonly Kept
     writeFileSync(join(folder, 'after.json'), JSON.stringify(ready.document));
     const imported = run(['stack', 'import', '--file', join(folder, 'after.json')]);
     if (imported.status !== 0) throw new Error(`pulumi stack import failed: ${imported.stderr.trim()} (the export before is ${folder}/before.json)`);
-    if (ready.kept.length > 0) done.push(`took ${ready.kept.join(', ')} out of the state, where the next setup adopts them`);
+    if (ready.kept.length > 0) done.push(`took ${ready.kept.join(', ')} out of the state, where the next install adopts them`);
   }
   const unprotected = run(['state', 'unprotect', '--all', '--yes']);
   if (unprotected.status !== 0) throw new Error(`pulumi state unprotect failed: ${unprotected.stderr.trim()}`);
@@ -172,7 +172,7 @@ async function destroyStack(context: InfraContext, owner: OwnerKey, kept: readon
         machines.push(...(await removeMachines({ secretKey: owner.secretKey, projectId, zone, prefix: naming.resource(`${role}-`) })));
       }
       if (machines.length > 0) done.push(`deleted the machine(s) ${machines.join(', ')}`);
-      // The kept boot-diag bucket keeps the rotations; the live record names machines that are gone, so the next setup's first deploy
+      // The kept boot-diag bucket keeps the rotations. The live record names machines that are gone: the next install's first deploy
       // boots every role anew, and the applied engine an image the registry loses with its namespace.
       const state = stateKeyOf(owner, projectId);
       const control = await makeControlClient(region, state.accessKey, state.secretKey);
@@ -225,7 +225,7 @@ async function sweepAfterDestroy(context: InfraContext, owner: OwnerKey, kept: r
 
   console.info(`\n${pc.bold('Kept, with their contents:')} ${keptNames(context, kept)}.`);
   if (dump) console.info(`${pc.bold('Final dump:')} ${naming.bootDiagBucket}/${dump} ${pc.dim('(RUNBOOKS.md, "Restore the final dump")')}`);
-  console.info(pc.dim(`A setup again (\`pnpm cella infra --mode ${context.environment}\`) adopts them, in project ${projectId}.`));
+  console.info(pc.dim(`Installing again (\`pnpm cella infra --mode ${context.environment}\`) adopts them, in project ${projectId}.`));
   return true;
 }
 

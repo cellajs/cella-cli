@@ -40,7 +40,7 @@ export function checkoutVersion(): string | undefined {
  * release. The badge makes a production run look unlike a staging run before anything runs.
  */
 export function formatHeader(facts: TitleFacts): string {
-  const state = facts.state === 'bootstrapped' ? undefined : facts.state === 'fresh' ? 'new' : 'setup not finished';
+  const state = facts.state === 'bootstrapped' ? undefined : facts.state === 'fresh' ? 'new' : 'install not finished';
   const details = [facts.host && pc.cyan(facts.host), facts.version && pc.dim(`checkout ${facts.version}`), state && pc.dim(state)];
   const after = details.filter(Boolean).join(pc.dim(' · '));
   return `${header().trimStart()}\n${commandTitle('infra')}   ${environmentBadge(facts.environment)}${after ? `  ${after}` : ''}\n`;

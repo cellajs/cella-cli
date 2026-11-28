@@ -84,8 +84,8 @@ export const operatorActions = {
     description: 'Clear the lease a stopped run left, and review what it left unfinished in the Pulumi state.',
   },
   resume: {
-    summary: 'continue an interrupted setup',
-    description: 'Continue an interrupted setup: re-sync config and self-heal missing keys.',
+    summary: 'continue an interrupted install',
+    description: 'Continue an interrupted install: re-sync config and self-heal missing keys.',
   },
   'state-remove': {
     summary: 'drop a gone resource from the Pulumi state',

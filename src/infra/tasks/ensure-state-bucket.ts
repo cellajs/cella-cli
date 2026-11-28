@@ -57,7 +57,7 @@ export const noncurrentVersionRetentionDays = 90;
 /**
  * Converge the state bucket onto its hardened configuration: versioning so every checkpoint write is recoverable, SSE-ONE default encryption (AES-256,
  * Scaleway-managed keys), and a lifecycle rule bounding noncurrent-version growth. Idempotent, so pre-existing buckets converge too.
- * AccessDenied is tolerated, so a key the bucket's policy keeps from its configuration still finishes the setup's other steps.
+ * AccessDenied is tolerated: a key the bucket's policy keeps from its configuration still finishes the install's other steps.
  */
 export async function hardenStateBucket(
   s3: S3Client,
@@ -140,7 +140,7 @@ export async function assertBucketProject(s3: S3Client, bucketName: string, expe
   }
 }
 
-/** The setup's step: make the bucket in the environment's project and harden it, on the operator key. */
+/** The install's step: make the bucket in the environment's project and harden it, on the operator key. */
 export async function main(): Promise<void> {
   const accessKey = process.env.SCW_ACCESS_KEY;
   const secretKey = process.env.SCW_SECRET_KEY;

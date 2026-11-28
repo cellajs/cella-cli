@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { type ChecklistFacts, checklistRows } from './setup-checklist';
+import { type ChecklistFacts, checklistRows } from './install-checklist';
 
 /** A production stack with every step done. */
 const ready: ChecklistFacts = {

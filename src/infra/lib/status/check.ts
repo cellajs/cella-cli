@@ -2,9 +2,9 @@ import { commitName, type RemoteRef } from '../deploy/target';
 import { actionCommand, menuPath } from '../operator-actions';
 import type { Check, CheckStatus, KeyTier, NextAction } from './types';
 
-/** The local setup/manage entrypoint. */
-export const setupAction: NextAction = {
-  description: 'Run the infra CLI (setup on a fresh stack, operator menu otherwise)',
+/** The local install and manage entrypoint. */
+export const installAction: NextAction = {
+  description: 'Run the infra CLI (install on a fresh stack, operator menu otherwise)',
   command: 'pnpm cella infra',
 };
 export const secretsAction: NextAction = {

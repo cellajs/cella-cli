@@ -24,7 +24,7 @@ function storeSuppliedData(definition: RuntimeSecretDefinition): pulumi.Input<st
 /**
  * A runtime secret's container, one per value, in the runtime folder, which only the deploy key reads: the deploy composes each machine's
  * env file from them. One whose value protects stored data outlives a destroy and a registry entry that disappears, as the final
- * dump of a teardown needs it, and a setup adopts it again (lib/stack/kept-resources.ts).
+ * dump of a teardown needs it, and an install adopts it again (lib/stack/kept-resources.ts).
  */
 function secretContainer(definition: RuntimeSecretDefinition): void {
   const secret = new scaleway.secrets.Secret(

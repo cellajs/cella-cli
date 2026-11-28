@@ -31,7 +31,7 @@ export interface MenuState {
 }
 
 export const backChoice = 'back';
-/** The value of the row that leaves the CLI, or steps back to the package menu: the main menu's, and the frame's after a first setup. */
+/** The value of the row that leaves the CLI, or steps back to the package menu: the main menu's, and the frame's after a first install. */
 export const quitChoice = 'quit';
 /** The label of the row that returns to the menu. */
 export const backToMenuLabel = '← Back to menu';
@@ -60,8 +60,8 @@ export function disabledReason(id: OperatorActionId, state: MenuState, menu = tr
   if (id === 'db-seed' && state.environment === 'production') return `seed data never goes to production${menu ? '' : '.'}`;
   if (needsBootstrappedStack.includes(id) && state.stackState !== 'bootstrapped') {
     return menu
-      ? `needs a set-up environment: run "${menuPath('resume')}"`
-      : `it needs a set-up environment.\n  Run ${pc.cyan(`${actionCommand('resume')} --mode ${state.environment}`)}`;
+      ? `needs an installed environment: run "${menuPath('resume')}"`
+      : `it needs an installed environment.\n  Run ${pc.cyan(`${actionCommand('resume')} --mode ${state.environment}`)}`;
   }
   return undefined;
 }

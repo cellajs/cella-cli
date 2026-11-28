@@ -1,6 +1,6 @@
 # Deploy engine
 
-The engine behind `pnpm cella infra`: it sets up a cella app on [Scaleway](https://www.scaleway.com/) with [Pulumi](https://www.pulumi.com/docs/) and deploys its releases.
+The engine behind `pnpm cella infra`: it installs a cella app on [Scaleway](https://www.scaleway.com/) with [Pulumi](https://www.pulumi.com/docs/) and deploys its releases.
 
 What an operator does with it, how a release flows, the status checks and the vocabulary are in the template's [Infra CLI guide](https://github.com/cellajs/cella/blob/main/cella/infra/README.md), which the docs site shows.
 
