@@ -73,6 +73,17 @@ const reservedSlugs: readonly [slug: string | RegExp, collision: string][] = [
   [/-internal$/, "the internal load balancer pool of the service named without '-internal'"],
 ];
 
+/** The base names a live stack's resources were created under, pinned to the shipped Pulumi URNs and Scaleway display names; renaming replaces the resources. */
+export const createdBaseNames: Partial<Record<string, string>> = { backend: 'api', frontend: 'app' };
+
+/** What a slug collides with only beside other services or on the default route, or undefined when it collides with nothing. */
+function conditionalCollision(slug: string, entry: DescriptionFile['services'][string], file: DescriptionFile): string | undefined {
+  const owner = Object.entries(createdBaseNames).find(([service, base]) => base === slug && Object.hasOwn(file.services, service))?.[0];
+  if (owner) return `the load balancer resources of the service '${owner}', created under the base name '${slug}'`;
+  if (slug === 'apex' && entry.lbRoute === 'default') return "the zone apex's DNS record and certificate, apex-dns and apex-cert";
+  return undefined;
+}
+
 /** Kebab-case with no leading, trailing or doubled hyphen: what a stored name the engine derives must be. */
 const strictKebab = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 
@@ -182,7 +193,9 @@ function resolveServices(
   let proxyHeadersReference: string | undefined;
   for (const [slug, entry] of Object.entries(file.services)) {
     const path = `services.${slug}`;
-    const collision = reservedSlugs.find(([reserved]) => (typeof reserved === 'string' ? reserved === slug : reserved.test(slug)))?.[1];
+    const collision =
+      reservedSlugs.find(([reserved]) => (typeof reserved === 'string' ? reserved === slug : reserved.test(slug)))?.[1] ??
+      conditionalCollision(slug, entry, file);
     if (collision) refuse(path, `is a name the engine takes for ${collision}`);
     const { dockerfile: stated, env = {}, headers, ...fields } = entry;
     const dockerfile = dockerfileOf(stated, `${path}.dockerfile`);

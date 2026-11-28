@@ -40,7 +40,8 @@ function isFrontendScript(file: string): boolean {
   return /^frontend\/src\/.*\.tsx?$/.test(file) && !file.endsWith('.d.ts') && !isGeneratedFile(file);
 }
 
-function isFrontendStylesheet(file: string): boolean {
+/** A stylesheet under frontend/src. */
+export function isFrontendStylesheet(file: string): boolean {
   return /^frontend\/src\/.*\.css$/.test(file);
 }
 
