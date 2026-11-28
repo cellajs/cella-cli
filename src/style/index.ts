@@ -12,6 +12,7 @@ import { docRules } from './doc-rules';
 import { loadExceptions, type StyleExceptions } from './exceptions';
 import { frontendRules, frontendStores } from './frontend-rules';
 import { type Finding, formatFinding, isUnder, type Rule, type StyleRun } from './rule';
+import { childSpacingRule, motionTimingRule } from './spacing-motion-rules';
 import { stampRules } from './stamp-rules';
 import { tailwindClassRule, tailwindContext } from './tailwind-class-rules';
 import { textColorRule } from './text-color-rules';
@@ -37,6 +38,8 @@ export const styleRules: Rule[] = [
   ...stampRules,
   tailwindClassRule,
   textColorRule,
+  childSpacingRule,
+  motionTimingRule,
   tokenContrastRule,
 ];
 

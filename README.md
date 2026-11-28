@@ -306,6 +306,8 @@ Two rules read only what the template has. `alignment` checks the shape of every
 | `product-cache-write` | a query-cache call that clears the refetch mark where synced product rows live; the keepers in `~/query/basic/cache-mutations` replace it | `frontend/src/query/`, product modules and range-fetch registrars |
 | `tailwind-class` | a class that compiles to no CSS and that nothing selects, a variant on a plain CSS class, a stylesheet Tailwind cannot load | `frontend/src` scripts outside tests, and the Tailwind entry stylesheet |
 | `text-color` | a text token with an opacity modifier outside `disabled:`, a palette gray | frontend sources; palette grays pass in the syntax colors the template exempts |
+| `child-spacing` | a `space-x-*`, `space-y-*`, `divide-x` or `divide-y` width utility, which selects through every child | frontend sources |
+| `motion-timing` | an `animate-in` or `animate-out` class, a `cubic-bezier(` easing curve | frontend sources and stylesheets outside `frontend/src/styling/tailwind.css` |
 | `token-contrast` | a token pair below its WCAG ratio, a theme without `--background` or `--edge-raised` | `frontend/src/styling/tailwind.css` |
 | `stamp-clock` | `new Date().toISOString()` | `backend/src`, outside tests, mock builders and the two stamp helpers |
 | `stamp-pair` | an object that writes `updatedAt` with `updatedBy`, or `deletedAt` with `deletedBy`, from a moment written by hand | `backend/src`, outside tests, mock builders and the two stamp helpers |

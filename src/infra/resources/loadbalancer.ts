@@ -2,6 +2,7 @@ import * as pulumi from '@pulumi/pulumi';
 import * as scaleway from '@pulumiverse/scaleway';
 import type { ServiceName } from '../compose/compose';
 import { engineConfig as appConfig } from '../lib/description/app';
+import { createdBaseNames } from '../lib/description/resolve';
 import { agentHealthPath, agentPort, internalLbPort } from '../lib/machine-roles';
 import { apexHostIssue, redirectedApexOrigin, routedHostIssue } from '../lib/naming';
 import { enabledServices, type ServiceDefinition } from '../lib/services';
@@ -17,8 +18,6 @@ import { poolServers } from './slots';
  */
 const frontendWithAclResources: pulumi.CustomResourceOptions = { ignoreChanges: ['acls'] };
 
-/** The base names a live stack's resources were created under, pinned to the shipped Pulumi URNs and Scaleway display names; renaming replaces the resources. */
-const createdBaseNames: Partial<Record<ServiceName, string>> = { backend: 'api', frontend: 'app' };
 const baseName = (slug: ServiceName) => createdBaseNames[slug] ?? slug;
 
 /** The shortest check the API takes: a server whose check fails left a measured pool 1.3 s later, with no failed request. */

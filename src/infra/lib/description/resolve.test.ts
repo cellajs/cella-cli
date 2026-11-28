@@ -214,6 +214,9 @@ describe('the description refuses', () => {
       'services.api-internal',
       (f) => Object.assign(f.services, { 'api-internal': { ...service, port: 4010 } }),
     ],
+    // The load balancer names the backend's resources api-*, and the default route's DNS record and certificate after its base name
+    ["the slug the backend's resources are created under", 'services.api', (f) => Object.assign(f.services, { backend: { ...service, port: 4010 } })],
+    ['apex on the default route', 'services.apex', (f) => Object.assign(f.services, { apex: { ...service, port: 4010, lbRoute: 'default' } })],
     ["a managed key's suffix of an engine principal", 'managedKeys.ai.suffix', (f) => Object.assign(f.managedKeys.ai, { suffix: 'ci-deploy' })],
     // On the single-process host the static env file serves every container: a binding there would move the proxy's origin
     ["an env key the engine's proxy takes", 'services.api.env.ORIGIN_HOST', (f) => Object.assign(f.services.api, { env: { ORIGIN_HOST: 'x' } })],
