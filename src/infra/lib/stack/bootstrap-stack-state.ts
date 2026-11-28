@@ -2,7 +2,7 @@ import { type Environment, environments } from './environment';
 
 export type StackState = 'fresh' | 'partial' | 'bootstrapped';
 
-/** The key a setup writes to the stack yaml once the deploy key is made: with it the stack counts as bootstrapped. */
+/** The key an install writes to the stack yaml once the deploy key is made: with it the stack counts as installed. */
 const bootstrapMarker = 'infra:bootstrapComplete';
 
 /** A stack's state from its stack file's raw YAML text, which is undefined when the file does not exist. */

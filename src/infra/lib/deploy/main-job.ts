@@ -133,7 +133,7 @@ interface DeployKeySecrets {
 }
 
 /**
- * Store the deploy key's copy the main job's definition references, in the engine folder, on the operator key: done when a setup or a
+ * Store the deploy key's copy the main job's definition references, in the engine folder, on the operator key: done when an install or a
  * rotation of keys makes the key, so a run always starts with the key that is valid. The earlier version is disabled.
  */
 export async function storeDeployKeyCopy(secrets: DeployKeySecrets, key: { accessKey: string; secretKey: string }): Promise<void> {

@@ -6,13 +6,14 @@ import { debugFile } from '../../lib/utils/paths';
 import { quitChoice } from '../menu';
 import { isPromptAbort } from '../prompts/abort';
 import { PromptBack } from '../prompts/back';
-import { afterFirstSetup, backToMenu, keptKeyNote, leaveChoice, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
+import { afterFirstInstall, backToMenu, keptKeyNote, leaveChoice, leaveRow, type WayOut, whatNow } from '../prompts/what-now';
 import { forgetAnswers, inMenuSession, rememberedOperatorKey } from '../session';
 import { ActionEnded, type InfraContext, releaseHeldLocks } from '../shared';
 import { runApply } from './apply';
 import { runExposeDatabase, runUnexposeDatabase } from './db-exposure';
 import { runEnvImport } from './env-import';
 import { runIdentity } from './identity';
+import { runInstall } from './install';
 import { runOperators } from './operators';
 import { runPreview } from './preview';
 import { runReleases } from './releases';
@@ -22,7 +23,6 @@ import { runRotateSecrets } from './rotate-secrets';
 import { runRuns } from './runs';
 import { runSecrets } from './secrets';
 import { runSeedDatabase } from './seed-db';
-import { runSetup } from './setup';
 import { runStartDeploy } from './start-deploy';
 import { runStatePrune } from './state-prune';
 import { runTeardown } from './teardown';
@@ -37,7 +37,7 @@ export const actionRunners: ActionRunners = {
   logs: runRuns,
   preview: runPreview,
   apply: runApply,
-  'rotate-keys': (context) => runSetup(context, 'rotate-keys'),
+  'rotate-keys': (context) => runInstall(context, 'rotate-keys'),
   'rotate-secrets': runRotateSecrets,
   operators: runOperators,
   identities: runIdentity,
@@ -51,7 +51,7 @@ export const actionRunners: ActionRunners = {
   'db-close': runUnexposeDatabase,
   'db-reset': runResetDatabase,
   unlock: runUnlock,
-  resume: (context) => runSetup(context, 'resume'),
+  resume: (context) => runInstall(context, 'resume'),
   'state-remove': runStatePrune,
   teardown: runTeardown,
 };
@@ -62,7 +62,7 @@ export interface ActionOutcome {
   next?: OperatorActionId;
   /** The operator stepped back out of the action with Esc, so it changed nothing. */
   back?: boolean;
-  /** The operator chose to quit the CLI at the frame under a first setup. */
+  /** The operator chose to quit the CLI at the frame under a first install. */
   quit?: boolean;
 }
 
@@ -74,19 +74,19 @@ export interface RunActionOptions {
   log?: (line: string) => void;
   /** Keeps the stack of a failure the action did not expect and answers the file's path; a test answers in its place. */
   keep?: (id: OperatorActionId, error: unknown) => string | undefined;
-  /** The action is a first setup, which has no menu to return to: a failure offers a retry of the step or quitting. */
-  firstSetup?: boolean;
+  /** The action is a first install, which has no menu to return to: a failure offers a retry of the step or quitting. */
+  firstInstall?: boolean;
   /** Asks what to do after a failure; a test answers in its place. */
   choose?: typeof whatNow;
-  /** Asks where a first setup goes once it ended by itself; a test answers in its place. */
-  close?: typeof afterFirstSetup;
+  /** Asks where a first install goes once it ended by itself; a test answers in its place. */
+  close?: typeof afterFirstInstall;
   /** Runs once the action ended by itself, before the wait for the way back. */
   onEnded?: () => void;
 }
 
 /** The ways out of a failed action: retry it, each action that fixes it by its menu name (in a menu session), then leave. */
-function waysOut(id: OperatorActionId, ended: ActionEnded, firstSetup: boolean): Array<WayOut<string>> {
-  const retry: WayOut<string> = firstSetup
+function waysOut(id: OperatorActionId, ended: ActionEnded, firstInstall: boolean): Array<WayOut<string>> {
+  const retry: WayOut<string> = firstInstall
     ? { value: retryChoice, label: 'Retry this step', description: 'Runs the step again. What is made stays, and only the rest is created.' }
     : { value: retryChoice, label: ended.retry ?? `Retry ${id}`, description: 'Runs the action again, from its first question.' };
   const fixes = inMenuSession()
@@ -150,7 +150,7 @@ async function tryAction(
 }
 
 /**
- * Run one action to its end and resolve to the exit code of a single-action run. In a menu session (and a first setup) an action that ends
+ * Run one action to its end and resolve to the exit code of a single-action run. In a menu session (and a first install) an action that ends
  * by itself waits under its output for the way back, and a failure asks what now: retry with the answers kept, run the action that fixes
  * it, or leave. Esc at a prompt returns to the menu at once, and Ctrl-C at one returns with the keys kept. A single-action run prints each fix as its command, gives the action's own code, and lets a Ctrl-C through
  * to the handler that ends the run.
@@ -160,18 +160,18 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
     runners = actionRunners,
     log = (line: string) => console.error(line),
     keep = keepStack,
-    firstSetup = false,
+    firstInstall = false,
     choose = whatNow,
-    close = afterFirstSetup,
+    close = afterFirstInstall,
     onEnded,
   } = opts;
   try {
     for (;;) {
       const ended = await tryAction(id, context, runners, log, keep);
       if (ended === 'done' || (ended instanceof ActionEnded && ended.exitCode === 0 && !ended.left)) {
-        if (!inMenuSession() && !(firstSetup && hasPerson())) return { code: 0 };
+        if (!inMenuSession() && !(firstInstall && hasPerson())) return { code: 0 };
         onEnded?.();
-        const way = firstSetup ? await close() : await backToMenu();
+        const way = firstInstall ? await close() : await backToMenu();
         return way === quitChoice ? { code: 0, quit: true } : { code: 0 };
       }
       if (ended === 'back') {
@@ -183,12 +183,12 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
         return { code: 130 };
       }
       if (ended.left) return { code: ended.exitCode };
-      if (!inMenuSession() && !firstSetup) {
+      if (!inMenuSession() && !firstInstall) {
         for (const fix of ended.fix) log(pc.dim(`  ${actionCommand(fix)}: ${operatorActions[fix].summary}`));
         return { code: ended.exitCode };
       }
-      const note = firstSetup && rememberedOperatorKey() ? setupKeyNote : keptKeyNote();
-      const picked = await choose(waysOut(id, ended, firstSetup), note);
+      const note = firstInstall && rememberedOperatorKey() ? installKeyNote : keptKeyNote();
+      const picked = await choose(waysOut(id, ended, firstInstall), note);
       if (picked === retryChoice) continue;
       if (picked === leaveChoice) return { code: ended.exitCode };
       return { code: ended.exitCode, next: ended.fix.find((fix) => fix === picked) };
@@ -198,5 +198,5 @@ export async function runAction(id: OperatorActionId, context: InfraContext, opt
   }
 }
 
-/** The line under a first setup's failure: the operator key its Owner moment made is in memory only. */
-const setupKeyNote = 'The operator key this setup made ends with this run: after quitting, make one in the console.';
+/** The line under a first install's failure: the operator key its Owner moment made is in memory only. */
+const installKeyNote = 'The operator key this install made ends with this run: after quitting, make one in the console.';

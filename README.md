@@ -36,7 +36,7 @@ without a checkout. The upstream commands, `style` and `i18n unused` read
 | | `stats` | Count files by kind, in the repository or in what a branch changed |
 | Security | `audit` | Outdated packages, runtime pins and the security overrides a fresh audit asks for; `audit fix` updates them |
 | | `pentest` | Scan a throwaway testbed: a cross-tenant access probe, then Nuclei and ZAP |
-| Operate | `infra` | Set up, apply and deploy the app's environments on Scaleway: the deploy engine, described in [src/infra/README.md](src/infra/README.md) |
+| Operate | `infra` | Install, apply and deploy the app's environments on Scaleway: the deploy engine, described in [src/infra/README.md](src/infra/README.md) |
 | Upstream | `analyze` | A dry run of the next upgrade |
 | | `upgrade` | Merge upstream onto a fresh branch and open a squash-merge PR |
 | | `align` | The upstream alignments this app has not handled yet: list, read, run their codemods, record them |

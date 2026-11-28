@@ -3,19 +3,19 @@ import { crossMark, warningMark } from '../../lib/utils/cli-output';
 import { errorMessage } from '../../lib/utils/errors';
 import { endAction, endsAction, type InfraContext, pointTo } from '../shared';
 import { printInventory } from '../status';
+import { printLaunchChecklist } from './install-checklist';
+import { copyDeployKeyForMainJob, recordKeyRotation, runOperatorPart } from './install-operator-part';
+import { type InstallMode, runOwnerMoment } from './install-owner-moment';
 import { acquireOperatorKey } from './operator-unlock';
-import { printLaunchChecklist } from './setup-checklist';
-import { copyDeployKeyForMainJob, recordKeyRotation, runOperatorPart } from './setup-operator-part';
-import { runOwnerMoment, type SetupMode } from './setup-owner-moment';
 import { redeployAfterRotation } from './start-deploy';
 
 /**
- * Set up, resume or rotate a stack. A run that makes or replaces identities (a first setup, a setup that never minted its CI key, a key
+ * Install, resume or rotate a stack. A run that makes or replaces identities (a first install, an install that never minted its CI key, a key
  * rotation) starts with an Owner moment: the project and the identities, written with an Owner API key typed at the prompt. Everything else
  * (state, stack, passphrase, the first `pulumi up`, secret values) runs on a one-day operator key, which writes no IAM.
  * A rotation ends after its Owner moment; a resume that only re-syncs needs no Owner key.
  */
-export async function runSetup(context: InfraContext, mode: SetupMode): Promise<void> {
+export async function runInstall(context: InfraContext, mode: InstallMode): Promise<void> {
   if (mode === 'resume') await printLaunchChecklist(context);
   // The operator key that stores the new deploy key's copy is asked before the Owner moment, which deletes the keys it replaces: no
   // prompt then stands between the delete and the copy.

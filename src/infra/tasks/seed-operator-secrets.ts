@@ -15,7 +15,7 @@ export interface SeedOperatorSecretsOptions {
 const defaultLog = (message: string) => console.info(message);
 
 /**
- * Seed operator-managed runtime secrets with their first value during setup.
+ * Seed operator-managed runtime secrets with their first value during the install.
  *
  * Pulumi already creates the empty containers, so this only writes an initial
  * Version for the values the operator typed at the prompt. Containers that already
@@ -43,7 +43,7 @@ export async function seedOperatorSecrets(options: SeedOperatorSecretsOptions): 
       continue;
     }
     const ensured = existing ?? (await client.ensureSecret({ name: secret.secretName, path: runtimeFolder, description: secret.description }));
-    await client.putSecretValue({ secretId: ensured.id, value, description: 'Seeded during setup', disablePrevious: false });
+    await client.putSecretValue({ secretId: ensured.id, value, description: 'Seeded during the install', disablePrevious: false });
     log(`seed ${secret.secretName}`);
   }
 }

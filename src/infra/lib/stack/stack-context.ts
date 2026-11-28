@@ -12,7 +12,7 @@ export interface StackContext {
   stackYaml?: string;
   state: StackState;
   appConfig: EngineConfig;
-  /** Scaleway project id of this environment. Empty when the mode has none of its own yet; the setup wizard picks or creates it. */
+  /** Scaleway project id of this environment. Empty when the mode has none of its own yet; the install wizard picks or creates it. */
   projectId: string;
   /** Where the id comes from. `env-file` is an id the CLI still has to move to the stack file. */
   projectIdSource: ProjectIdSource;

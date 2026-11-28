@@ -6,7 +6,7 @@ import { changeMark, checkMark, pc, warningMark } from '../../lib/utils/cli-outp
 import { errorMessage } from '../../lib/utils/errors';
 import { repoRoot } from '../../lib/utils/paths';
 import { ActionEnded, confirmOrDefault, type InfraContext, pointTo } from '../shared';
-import { defaultBranch, environmentsTarget, gitFileState, gitOutput, newestReleaseTag, printLaunchChecklist } from './setup-checklist';
+import { defaultBranch, environmentsTarget, gitFileState, gitOutput, newestReleaseTag, printLaunchChecklist } from './install-checklist';
 import { runStartDeploy } from './start-deploy';
 
 /** Run one git command in the repository, printed dim first; git's output goes to the terminal. */
@@ -34,7 +34,7 @@ function addEnvironmentsLine(environment: string, branch: string): boolean {
 
 /**
  * Offer to commit the stack file, with the environments line of an environment that deploys a branch, and push it: every checkout and the
- * scheduled runs, which read the default branch, then see the environment set up. A stack file an earlier run committed is pushed as it is.
+ * scheduled runs, which read the default branch, then see the environment installed. A stack file an earlier run committed is pushed as it is.
  * Off the default branch the commit reaches it through a pull request, so nothing is pushed.
  */
 export async function connectRepository(environment: string): Promise<void> {
@@ -78,8 +78,8 @@ function pushToBase(base: string, pullRequest: string): void {
 }
 
 /**
- * The end of a setup of an environment that never deployed. Production deploys releases, so without one it waits for the first; with one,
- * or for an environment that deploys a branch, the setup offers the first deploy and follows it. The checklist closes it.
+ * The end of an install of an environment that never deployed. Production deploys releases: without one it waits for the first. With one,
+ * or for an environment that deploys a branch, the install offers the first deploy and follows it. The checklist closes it.
  */
 export async function offerFirstDeploy(context: InfraContext): Promise<void> {
   const { environment } = context;
@@ -87,15 +87,15 @@ export async function offerFirstDeploy(context: InfraContext): Promise<void> {
   const target = releases ? newestReleaseTag() : environmentsTarget(environment)?.replace(/^branch:/, '');
   if (releases && !target) {
     console.info(
-      `\n${checkMark} ${environment} is set up. Publish your first release: merge the release PR; the first scheduled run deploys it within a minute, and ${pc.cyan('pnpm cella infra')} shows how it went.`,
+      `\n${checkMark} ${environment} is installed. Publish your first release: merge the release PR; the first scheduled run deploys it within a minute, and ${pc.cyan('pnpm cella infra')} shows how it went.`,
     );
   } else if (target && (await confirmOrDefault({ message: `Deploy ${target} now and follow it?`, default: true }))) {
     try {
       await runStartDeploy(context, { asked: true });
     } catch (error) {
-      // A first deploy that ends blocked or failed is read in `logs`; the setup itself is done.
+      // A first deploy that ends blocked or failed is read in `logs`; the install itself is done.
       if (!(error instanceof ActionEnded)) throw error;
-      console.warn(`${warningMark} The first deploy did not end deployed: ${pointTo('logs')} says why. The setup itself is done.`);
+      console.warn(`${warningMark} The first deploy did not end deployed: ${pointTo('logs')} says why. The install itself is done.`);
     }
   }
   await printLaunchChecklist(context);

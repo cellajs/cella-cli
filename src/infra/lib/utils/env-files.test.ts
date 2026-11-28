@@ -118,7 +118,7 @@ describe('writeEnvValues', () => {
 // An operator's key files and exposure overlays are ignored by git, and a stack file the template does not have stays where the move found it
 describe('files left in infra/', () => {
   it.each([
-    // A stack file the engine cannot find reads as a new app, and setup would run against the live stack
+    // A stack file the engine cannot find reads as a new app, and the install would run against the live stack
     [
       'refuses a stack file with no twin in cella/infra/',
       ['infra/Pulumi.staging.yaml'],

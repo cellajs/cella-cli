@@ -169,7 +169,7 @@ describe('the last deploy', () => {
 });
 
 describe('nextAction priority (lifecycle order)', () => {
-  it('a fresh stack points at setup', () => {
+  it('a fresh stack points at the install', () => {
     const report = reportFor(base({ state: { stateBucketExists: false }, secrets: undefined, live: undefined }), {
       stackState: 'fresh',
       projectId: undefined,

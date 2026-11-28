@@ -43,7 +43,7 @@ async function writeOperators(
  * Set up the app's operators: the `<app>-operator` application as a member of the `<app>-operators` group, whose policy holds every
  * product of the app's projects and no condition. No key is made or shown: a person makes a one-day key in the console at each sitting.
  * A run rewrites the policy in place: the caller is the organization Owner (or another IAMManager principal). A new environment is
- * added by its setup.
+ * added by its install.
  */
 export async function runOperators(context: InfraContext): Promise<void> {
   const { appConfig, projectId } = context;

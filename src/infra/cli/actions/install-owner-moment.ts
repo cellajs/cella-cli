@@ -22,7 +22,7 @@ import { ensureObserverForEnvironment } from './observer-key';
 import { ensureOperatorForEnvironment } from './operators';
 import { acquireOwnerKey } from './owner-key';
 
-export type SetupMode = Extract<OperatorActionId, 'resume' | 'rotate-keys'>;
+export type InstallMode = Extract<OperatorActionId, 'resume' | 'rotate-keys'>;
 
 /** Result of the CI-deploy-key phase; empty strings when nothing was minted. */
 export interface CiKeyResult {
@@ -56,7 +56,7 @@ async function mintCiKey(
       });
       return { accessKey: key.accessKey, secretKey: key.secretKey, purgeSkipped: key.purgeSkipped };
     } catch (error) {
-      console.error(`\n${warningMark} CI key setup failed: ${errorMessage(error)}`);
+      console.error(`\n${warningMark} Could not make the CI key: ${errorMessage(error)}`);
       if (!(await confirm({ message: 'Retry?', default: true }))) return { accessKey: '', secretKey: '' };
     }
   }
@@ -68,14 +68,14 @@ function printSummary(opts: { rotated: boolean; ciAccessKey: string; keptKeys: b
   else console.info(`\n${warningMark} ${pc.bold(pc.yellowBright('Done, but the deploy key was not created.'))} Run ${pointTo('rotate-keys')}.`);
 }
 
-/** How long the operator key a setup mints lives: within the day the session accepts. */
-const setupKeyHours = 23;
+/** How long the operator key an install mints lives: within the day the session accepts. */
+const installKeyHours = 23;
 
 /**
- * Mint the one-day operator key the rest of the setup runs on, with the Owner key, so nobody makes one in the console. A failure is a
+ * Mint the one-day operator key the rest of the install runs on, with the Owner key: nobody makes one in the console. A failure is a
  * warning: the operator part then asks for a key.
  */
-async function mintSetupOperatorKey(ownerSecretKey: string, opts: { organizationId: string; projectId: string; appSlug: string }): Promise<void> {
+async function mintInstallOperatorKey(ownerSecretKey: string, opts: { organizationId: string; projectId: string; appSlug: string }): Promise<void> {
   const auth = { secretKey: ownerSecretKey };
   const { operator } = appPrincipalNames(opts.appSlug);
   try {
@@ -84,14 +84,14 @@ async function mintSetupOperatorKey(ownerSecretKey: string, opts: { organization
     const now = new Date();
     const key = await createApiKey(auth, {
       applicationId,
-      description: `setup ${now.toISOString().slice(0, 10)}`,
+      description: `install ${now.toISOString().slice(0, 10)}`,
       defaultProjectId: opts.projectId,
-      expiresAt: new Date(now.getTime() + setupKeyHours * 3_600_000).toISOString(),
+      expiresAt: new Date(now.getTime() + installKeyHours * 3_600_000).toISOString(),
     });
     rememberOperatorKey({ accessKey: key.access_key, secretKey: key.secret_key }, { minted: true });
-    console.info(`  ${checkMark} Operator key made for this setup; it ends in ${setupKeyHours} hours.`);
+    console.info(`  ${checkMark} Operator key made for this install; it ends in ${installKeyHours} hours.`);
   } catch (error) {
-    console.warn(`${warningMark} Could not make the operator key (${errorMessage(error)}): the setup asks for one next.`);
+    console.warn(`${warningMark} Could not make the operator key (${errorMessage(error)}): the install asks for one next.`);
   }
 }
 
@@ -105,7 +105,7 @@ async function offerOwnerKeyRevoke(pair: KeyPair): Promise<void> {
       });
   if (!revokeNow) {
     console.info(
-      `\n${pc.dim('Reminder:')} revoke the Owner API key you pasted (${pair.accessKey}) if it was created for this setup: console → IAM → API keys.`,
+      `\n${pc.dim('Reminder:')} revoke the Owner API key you pasted (${pair.accessKey}) if it was created for this install: console → IAM → API keys.`,
     );
     return;
   }
@@ -138,7 +138,7 @@ async function ensureProjectId(opts: { slug: string; mode: Environment; secretKe
   let projectId = choice;
   if (choice === createChoice) {
     const name = await inputOrDefault({ message: 'New project name', default: opts.slug });
-    const project = await createProject(opts.secretKey, { organizationId, name, description: 'Created by the infra CLI setup wizard' });
+    const project = await createProject(opts.secretKey, { organizationId, name, description: 'Created by the infra CLI install wizard' });
     console.info(`  ${changeMark} Created project ${project.name} (${project.id})`);
     projectId = project.id;
   }
@@ -147,13 +147,13 @@ async function ensureProjectId(opts: { slug: string; mode: Environment; secretKe
 }
 
 /**
- * The Owner moment of a setup: the project and every identity, written with an Owner API key typed at the prompt and checked as every Owner
+ * The Owner moment of an install: the project and every identity, written with an Owner API key typed at the prompt and checked as every Owner
  * action checks one, and nothing else runs on it (no Pulumi, no state, no value of the app's). The uploads application with its policy and
  * key (in the runtime folder), the deploy key (its copy for the main job), and the app's operators and observer: created when the app has
- * none, else given this environment's project in place; the observer's key goes to this machine's env files. A setup also mints the
+ * none, else given this environment's project in place; the observer's key goes to this machine's env files. An install also mints the
  * one-day operator key its operator part runs on. A rotation replaces the deploy key and the uploads key. Undefined when declined.
  */
-export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Promise<OwnerMomentResult | undefined> {
+export async function runOwnerMoment(context: InfraContext, mode: InstallMode): Promise<OwnerMomentResult | undefined> {
   const { appConfig } = context;
   const environment = context.environment;
   console.info(
@@ -196,7 +196,7 @@ export async function runOwnerMoment(context: InfraContext, mode: SetupMode): Pr
   const ciKey = await mintCiKey(pair.secretKey, { projectId, organizationId, appConfig, mode: environment });
   console.info('\n→ Operators');
   await ensureOperatorForEnvironment({ ...context, projectId }, ownerKey, projectId);
-  if (mode !== 'rotate-keys') await mintSetupOperatorKey(pair.secretKey, { organizationId, projectId, appSlug: appConfig.appSlug });
+  if (mode !== 'rotate-keys') await mintInstallOperatorKey(pair.secretKey, { organizationId, projectId, appSlug: appConfig.appSlug });
 
   // A new observer reaches the projects the operator does, so it follows the operator.
   console.info('\n→ Observer');

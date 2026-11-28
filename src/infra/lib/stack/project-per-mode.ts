@@ -7,7 +7,7 @@ import { type Environment, environments } from './environment';
 /** Where a mode's project id comes from: its stack file, an env file that still names it, the shell, or nowhere. */
 export type ProjectIdSource = 'stack-file' | 'env-file' | 'shell' | 'none';
 
-/** A mode's committed stack file, which exists once the mode is set up. */
+/** A mode's committed stack file, which exists once the mode is installed. */
 export const stackFilePath = (mode: string) => resolve(infraDir, `Pulumi.${mode}.yaml`);
 
 /** The project id a stack file names under `infra:projectId`, in plain text: it is no secret, and every checkout needs it. */
@@ -45,7 +45,7 @@ export interface ProjectInputs {
 }
 
 export interface ProjectResolution {
-  /** Empty when the mode has no project yet: its setup asks for one. */
+  /** Empty when the mode has no project yet: its install asks for one. */
   projectId: string;
   source: ProjectIdSource;
   /** True when the process env holds the shared id and this mode must not use it. */
@@ -54,7 +54,7 @@ export interface ProjectResolution {
 
 /**
  * Decide a mode's project. Every environment has a project of its own, so a mode without a stack never takes the id of a file every mode reads:
- * its setup asks. An existing stack keeps that id until it is written to its stack file. An id exported in the shell is the caller's choice for this run.
+ * its install asks. An existing stack keeps that id until it is written to its stack file. An id exported in the shell is the caller's choice for this run.
  */
 export function resolveModeProject(inputs: ProjectInputs): ProjectResolution {
   if (inputs.stack) return { projectId: inputs.stack, source: 'stack-file', dropShared: false };
@@ -98,7 +98,7 @@ export interface ProjectChoice {
   disabled?: string;
 }
 
-/** The setup wizard's project list: create one, or take an existing one that no other environment uses. The project named after the slug is the default when it is free. */
+/** The install wizard's project list: create one, or take an existing one that no other environment uses. The project named after the slug is the default when it is free. */
 export function projectChoices(
   projects: readonly { id: string; name: string }[],
   slug: string,

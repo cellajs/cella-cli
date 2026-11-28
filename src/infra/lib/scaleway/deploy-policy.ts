@@ -17,7 +17,7 @@ export function deployRules(opts: { projectId: string }): PolicyRule[] {
   ];
 }
 
-/** The deploy key's policy as `identities` writes it, under the name the setup gave it. Its rules are replaced in place and the key stays. */
+/** The deploy key's policy as `identities` writes it, under the name the install gave it. Its rules are replaced in place and the key stays. */
 export function deployPolicy(opts: { slug: string; mode: string; projectId: string; organizationId: string }): DeclaredPolicy {
   const names = principalNames(opts.slug, opts.mode);
   return {

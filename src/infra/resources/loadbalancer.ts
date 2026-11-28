@@ -274,7 +274,7 @@ function httpRedirect(lb: scaleway.loadbalancers.LoadBalancer, defaultBackend: s
   });
 }
 
-// Made by the setup's first apply, before any machine: its records and certificates are then in place for the first deploy, whose key
+// Made by the install's first apply, before any machine: its records and certificates are then in place for the first deploy, whose key
 // writes no DNS and no pool.
 
 const lbIp = new scaleway.loadbalancers.Ip('lb-ip', { zone });

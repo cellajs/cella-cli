@@ -12,7 +12,7 @@ import { crossMark, hasPerson, pc, printFailureHint, warningMark, withSpinner } 
 import { dropPromptOnlyEnv, loadRootEnvFile, refuseFilesLeftBehind, removeModeProjectId } from '../lib/utils/env-files';
 import { installedPulumiVersion, pulumiCliLagWarning, sdkPulumiVersion } from '../lib/utils/pulumi-version';
 import { type ActionOutcome, runAction } from './actions';
-import { printLaunchChecklist } from './actions/setup-checklist';
+import { printLaunchChecklist } from './actions/install-checklist';
 import { type CliArgs, splitFlagValues } from './args';
 import { checkoutVersion, formatHeader } from './header';
 import { collectHome, formatHome, type HomeFacts, upNextOf } from './home';
@@ -39,7 +39,7 @@ async function resolveMode(flag: string | undefined): Promise<Environment> {
   const anyStackExists = environments.some((name) => existsSync(stackFilePath(name)));
   if (!anyStackExists && !autoAcceptDefaults()) {
     return select<Environment>({
-      message: 'New app. Which environment do you want to set up?',
+      message: 'New app. Which environment do you want to install?',
       default: 'production',
       choices: [
         {
@@ -72,7 +72,7 @@ async function resolveMode(flag: string | undefined): Promise<Environment> {
 async function loadContext(environment: Environment, log?: (message: string) => void): Promise<InfraContext> {
   rememberEnvironment(environment);
   const stack = await loadStackContext(environment, log);
-  // The project id scopes every Scaleway call. Only a fresh install may lack one: the setup wizard picks or creates the project and writes it to the stack file.
+  // The project id scopes every Scaleway call. Only a fresh install may lack one: the install wizard picks or creates the project and writes it to the stack file.
   if (!stack.projectId && stack.state !== 'fresh') {
     throw new Error(
       `cella/infra/Pulumi.${environment}.yaml names no project: add this environment's project id under config, as infra:projectId, before running the infra CLI.`,
@@ -108,14 +108,14 @@ function printStackNotices(context: InfraContext, menu = true): void {
   for (const warning of [...context.envWarnings, ...resolveOperatorIdentity().warnings]) console.warn(`${warningMark} ${warning}`);
 
   if (detectComputeDeferred(context.stackYaml)) {
-    console.warn(`${warningMark} ${pc.bold('The first setup has not finished')}: ${pointTo('resume', menu)} continues it.\n`);
+    console.warn(`${warningMark} ${pc.bold('The first install has not finished')}: ${pointTo('resume', menu)} continues it.\n`);
   }
 }
 
 /**
  * The home screen: one round of reads under a spinner, then the lines. `read` is either the reads an action started at its end, waited for
  * under the spinner, or the lines of the last round after an action that changed nothing. Resolves to what it read, for the menu. A stack
- * not set up yet gets the launch checklist.
+ * not installed yet gets the launch checklist.
  */
 async function printHome(context: InfraContext, read?: HomeFacts | Promise<HomeFacts | undefined>): Promise<HomeFacts | undefined> {
   if (context.state !== 'bootstrapped') {
@@ -200,7 +200,7 @@ const readOnly: readonly OperatorActionId[] = ['status', 'logs', 'preview'];
 /** How long reads started at an action's end serve the menu: an operator who comes back later sees the stack as it is then. */
 const aheadFreshMs = 30_000;
 
-/** The next round's reads, started while an action's output waits for the way back: the stack, then the home once the stack is set up. */
+/** The next round's reads, started while an action's output waits for the way back: the stack, then the home once the stack is installed. */
 function readAhead(environment: Environment): { startedAt: number; context: Promise<InfraContext>; home: Promise<HomeFacts | undefined> } {
   const read = loadContext(environment);
   const home = read.then((next) => (next.state === 'bootstrapped' ? collectHome(next) : undefined));
@@ -217,7 +217,7 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
   // The actions read their flags on process.argv, where `--sha=<sha>` must read as `--sha <sha>` too.
   process.argv = splitFlagValues(process.argv);
 
-  // A stack file left in infra/ would read as an environment not set up yet. The warnings for old copies print with the stack's notices.
+  // A stack file left in infra/ would read as an environment not installed yet. The warnings for old copies print with the stack's notices.
   refuseFilesLeftBehind();
 
   // Load the repo-root .env so infra child tasks share the app's local config; ambient env keeps precedence over the file.
@@ -261,11 +261,11 @@ export async function runInfraCli(args: CliArgs): Promise<void> {
     process.exit((await runAction(args.action, context)).code);
   }
 
-  // A fresh install has nothing to manage yet and automation has nobody to ask: both go straight to the setup. A person at a terminal
-  // stays in the CLI: a failure offers the step again, and a setup that succeeds opens the menu.
+  // A fresh install has nothing to manage yet and automation has nobody to ask: both go straight to the install. A person at a terminal
+  // stays in the CLI: a failure offers the step again, and an install that succeeds opens the menu.
   if (context.state === 'fresh') {
     if (!pulumiReady('resume')) process.exit(1);
-    const { code, quit } = await runAction('resume', context, { firstSetup: true, ...(args.once ? { close: async () => leaveChoice } : {}) });
+    const { code, quit } = await runAction('resume', context, { firstInstall: true, ...(args.once ? { close: async () => leaveChoice } : {}) });
     if (code !== 0 || quit || args.once || !hasPerson()) process.exit(code);
     context = await loadContext(environment);
     if (context.state === 'fresh') process.exit(0);

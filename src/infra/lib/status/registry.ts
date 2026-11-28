@@ -30,7 +30,7 @@ export const statusProviders: readonly StatusProvider<any>[] = [
   databaseProvider,
 ];
 
-/** Priority order for the single top-level `nextAction`: the earliest problematic check wins, following the setup to deploy to operate lifecycle. A trailing `.` matches by id prefix. */
+/** Priority order for the single top-level `nextAction`: the earliest problematic check wins, following the install to deploy to operate lifecycle. A trailing `.` matches by id prefix. */
 const nextActionPriority = [
   'identity.project',
   'inventory.',
@@ -55,7 +55,7 @@ const groupedCheckKeys: Readonly<Record<string, readonly string[]>> = {
   'Env vars': ['secrets.required'],
   Database: ['db.publicEndpoint'],
   Access: ['inventory.applications', 'inventory.keys', 'inventory.policies', 'inventory.machines', 'identity.keyAges'],
-  Setup: ['config.stackState', 'identity.project', 'state.bucket', 'inventory.mainJob', 'environments.lines'],
+  Install: ['config.stackState', 'identity.project', 'state.bucket', 'inventory.mainJob', 'environments.lines'],
 };
 
 /** The group labels, in screen order. */

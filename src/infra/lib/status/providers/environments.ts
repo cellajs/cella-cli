@@ -10,7 +10,7 @@ import type { StatusProvider } from '../types';
 export type EnvironmentsFacts = { text: string; stacks: string[] };
 
 /**
- * Whether the environments file and the stacks set up agree, the same in every mode: a stack other than production that has no line deploys
+ * Whether the environments file and the stacks installed agree, the same in every mode: a stack other than production that has no line deploys
  * nothing and still costs, and a line without a stack deploys nowhere. It reads this checkout; a scheduled run reads the file once it is merged.
  */
 export const environmentsProvider: StatusProvider<EnvironmentsFacts> = {
@@ -32,13 +32,13 @@ export const environmentsProvider: StatusProvider<EnvironmentsFacts> = {
     const findings = [
       ...facts.stacks
         .filter((name) => name !== 'production' && !lines.includes(name))
-        .map((name) => `${name} is set up but not deployed: it still costs; add \`${name} branch:main\`, or tear it down`),
+        .map((name) => `${name} is installed but not deployed: it still costs; add \`${name} branch:main\`, or tear it down`),
       ...lines
         .filter((name) => !facts.stacks.includes(name))
-        .map((name) => `${name} has a line but is not set up (no cella/infra/Pulumi.${name}.yaml): set it up, or remove the line`),
+        .map((name) => `${name} has a line but is not installed (no cella/infra/Pulumi.${name}.yaml): install it, or remove the line`),
     ];
     if (findings.length > 0) return [environments.warn(findings.join('; '))];
     const stacks = facts.stacks.join(', ') || 'none';
-    return [{ ...environments.ok(`set up and deployed: ${stacks}`), headline: `${stacks} set up` }];
+    return [{ ...environments.ok(`installed and deployed: ${stacks}`), headline: `${stacks} installed` }];
   },
 };
