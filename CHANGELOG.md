@@ -1,5 +1,19 @@
 # Changelog
 
+## [0.12.1](https://github.com/cellajs/cella-cli/compare/cli-0.12.0...cli-0.12.1) (2026-11-28)
+
+
+### 🎉 New features
+
+* **dev:** cella dev runs the app's dev stack with a record, and each tool's details move to its own README ([#130](https://github.com/cellajs/cella-cli/issues/130)) ([b158c0d](https://github.com/cellajs/cella-cli/commit/b158c0db95b79772bc498eebd0e42193938749e2))
+* **infra:** the infra CLI calls the first run of an environment its install ([#129](https://github.com/cellajs/cella-cli/issues/129)) ([9e882c9](https://github.com/cellajs/cella-cli/commit/9e882c922f9da983a8dfcec70824ff95d131ec52))
+* style rules for child spacing and motion timing, and infra refuses a service slug the load balancer names ([#131](https://github.com/cellajs/cella-cli/issues/131)) ([570ceca](https://github.com/cellajs/cella-cli/commit/570ceca8a144f7d56725b06c93fa9bb9d6095f3a))
+
+
+### 🐞 Bug fixes
+
+* **infra:** the machine's agent restarts an app container that stopped answering ([#127](https://github.com/cellajs/cella-cli/issues/127)) ([1d42075](https://github.com/cellajs/cella-cli/commit/1d420754f094b4b2807fc743e021cc1515de2d75))
+
 ## [0.12.0](https://github.com/cellajs/cella-cli/compare/cli-0.11.0...cli-0.12.0) (2026-11-27)
 
 
