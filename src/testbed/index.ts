@@ -10,6 +10,7 @@ import type { Command } from '../command';
 import { loadAppConfig, loadLocalDatabases, toolDir } from '../utils/app';
 import pc from '../utils/colors';
 import { createSpinner, printStep, spinnerFail } from '../utils/display';
+import { isAlive, killGroup } from '../utils/process-group';
 import { onShutdown } from '../utils/signals';
 
 /** Above the checkout's own ports, clear of `pnpm dev` and of a second stack at offset 50 or 60. */
@@ -156,15 +157,6 @@ function heldData(testbed: Testbed): TestbedData | undefined {
 
 const describeData = (data: TestbedData) => (data === 'showcase' ? 'the showcase' : 'the seed data');
 
-function isAlive(pid: number): boolean {
-  try {
-    process.kill(pid, 0);
-    return true;
-  } catch (error) {
-    return (error as NodeJS.ErrnoException).code === 'EPERM';
-  }
-}
-
 /** The lock of a testbed whose process still runs. */
 function readLock(testbed: Testbed): Lock | undefined {
   try {
@@ -216,14 +208,6 @@ function listenerGroups(testbed: Testbed): Set<number> {
     }
   }
   return groups;
-}
-
-function killGroup(group: number, signal: NodeJS.Signals): void {
-  try {
-    process.kill(-group, signal);
-  } catch {
-    // It already exited
-  }
 }
 
 function logTail(testbed: Testbed, lines = 30): string {
