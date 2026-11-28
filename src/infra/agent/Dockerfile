@@ -1,9 +1,10 @@
 # check=skip=InvalidDefaultArgInFrom
 # The agent: the infra-agent Compose service every machine runs. It boots the
 # machine's release (the env file, the archives, compose up with the migrate
-# companion), then answers the load balancer's health checks and drains on
-# its manifest's order. It ships as an archive of the release, which the
-# launcher checks against its digest and loads at the first boot.
+# companion), then answers the load balancer's health checks, restarts an app
+# container that stops answering, and drains on its manifest's order. It
+# ships as an archive of the release, which the launcher checks against its
+# digest and loads at the first boot.
 #
 # It drives the HOST Docker daemon through the mounted socket
 # (/var/run/docker.sock), so it needs the docker CLI + compose plugin; the

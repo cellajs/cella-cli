@@ -73,7 +73,7 @@ function validateAgentPorts(services: AppServices): void {
 /** Standard environment injected into every app service unless opted out. */
 const standardEnv = { NODE_ENV: 'production', APP_MODE: '${APP_MODE:-production}', TZ: 'UTC' } as const;
 
-/** Uniform identity healthcheck injected into every app service. The interval floors how fast `compose up --wait` can observe readiness at boot (the agent's boot waits on it), so it stays short; `start_interval` would scope that to startup but needs a compose/engine version floor the marketplace machine image cannot guarantee. */
+/** Uniform identity healthcheck injected into every app service. The interval floors how fast `compose up --wait` can observe readiness at boot (the agent's boot waits on it), so it stays short; `start_interval` would scope that to startup but needs a compose/engine version floor the marketplace machine image cannot guarantee. After the boot, the agent restarts a container whose checks get no answer several times in a row (agent/src/liveness.ts). */
 function healthcheck(port: number, startPeriod: string): HealthCheck {
   return {
     test: ['CMD', 'wget', '-qO-', `http://127.0.0.1:${port}${healthContract.path}`],
