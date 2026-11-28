@@ -2,6 +2,7 @@ import { a11yCommand } from './a11y';
 import { auditCommand } from './audit';
 import { benchCommand } from './bench';
 import type { Command } from './command';
+import { devCommand } from './dev';
 import { i18nCommand } from './i18n';
 import { infraCommand } from './infra/command';
 import { pentestCommand } from './pentest';
@@ -13,6 +14,7 @@ import { adoptCommand, alignCommand, analyzeCommand, upgradeCommand } from './up
 
 /** Every command, in help and menu order: commander lists a help group where its first command is. */
 export const commands: Command[] = [
+  devCommand,
   testbedCommand,
   benchCommand,
   a11yCommand,
