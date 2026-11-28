@@ -38,7 +38,7 @@ describe('runInstall', () => {
     expect(runOperatorPart).not.toHaveBeenCalled();
   });
 
-  it('leaves the copy to the operator part on a setup, which writes it with the rest of the engine folder', async () => {
+  it('leaves the copy to the operator part on an install, which writes it with the rest of the engine folder', async () => {
     await runInstall({ ...context, hasCiKey: false }, 'resume');
     expect(runOperatorPart).toHaveBeenCalledOnce();
     expect(copyDeployKeyForMainJob).not.toHaveBeenCalled();
