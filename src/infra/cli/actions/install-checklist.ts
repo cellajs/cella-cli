@@ -44,7 +44,7 @@ export interface ChecklistRow {
   /** Undefined when the fact is not known, or cannot be yet. */
   done: boolean | undefined;
   detail: string;
-  /** The first row not done: where the setup is. */
+  /** The first row not done: where the install is. */
   now?: boolean;
 }
 
@@ -87,7 +87,7 @@ export function checklistRows(facts: ChecklistFacts): ChecklistRow[] {
       detail: facts.repository?.replace(/^https:\/\//, '').replace(/\.git$/, '') ?? "set 'repository' in the root package.json",
     },
     { title: 'Domain', done: facts.domain !== '', detail: facts.domain || 'no domain in the app config' },
-    { title: 'Sign in', done: facts.hasCiKey, detail: facts.hasCiKey ? 'deploy keys made' : 'account owner, once, for setup' },
+    { title: 'Sign in', done: facts.hasCiKey, detail: facts.hasCiKey ? 'deploy keys made' : 'account owner, once, for the install' },
     { title: 'Create', done: created, detail: 'database, network, load balancer' },
     {
       title: 'Connect',
@@ -171,7 +171,7 @@ async function readAdminEmailSet(context: InfraContext, stackState: StackState):
   );
 }
 
-/** Read the checklist's facts. The stack file is read again, as a setup earlier in this run changes it. */
+/** Read the checklist's facts. The stack file is read again, as an install earlier in this run changes it. */
 async function collectChecklistFacts(context: InfraContext): Promise<ChecklistFacts> {
   const mode = context.environment;
   const stackYaml = existsSync(context.stackPath) ? readFileSync(context.stackPath, 'utf8') : undefined;

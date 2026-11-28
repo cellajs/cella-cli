@@ -45,7 +45,7 @@ export function infraHelp(): string {
   return [
     'Usage: cella infra [action] [options]',
     '',
-    help.boxWrap("set up, apply and deploy the app's environments; without an action the menu opens on the home screen", 80),
+    help.boxWrap("install, apply and deploy the app's environments; without an action the menu opens on the home screen", 80),
     '',
     ...sections.flatMap(([heading, items]) => [heading, ...items.map(([term, text]) => help.formatItem(term, width, text, help)), '']),
     help.boxWrap("Other first words are tasks, which the app's scripts and the main job run.", 80),

@@ -142,7 +142,7 @@ export function upNextOf(report: StatusReport, refs?: readonly RemoteRef[]): UpN
   return { action: 'status', description: `Review the ${findings.length === 1 ? 'security finding' : `${findings.length} security findings`}` };
 }
 
-/** The checks the home folds into its own lines, or that only setup changes. */
+/** The checks the home folds into its own lines, or that only an install changes. */
 const folded = new Set(['runs.last', 'db.publicEndpoint', 'config.stackState', 'identity.project', 'environments.lines']);
 
 /**

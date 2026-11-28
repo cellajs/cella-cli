@@ -15,7 +15,7 @@ export interface ManagedKeyConfig {
   policyDescription: string;
   /** Project-scoped permission sets granted to the minted key's policy. */
   permissionSets: readonly string[];
-  /** Setup opt-in prompt. Minting is ALWAYS operator-confirmed, never silent. */
+  /** Install opt-in prompt. Minting is ALWAYS operator-confirmed, never silent. */
   prompt: { message: string; default: boolean };
   /** Routes each minted key half to the runtime secret that stores it, keyed by `RuntimeSecretId` so a typo is a compile error. */
   assign: Partial<Record<MintedKeyField, RuntimeSecretId>>;

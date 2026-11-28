@@ -11,7 +11,7 @@ import { checkWaitingRelease } from './releases';
 import { startBlockedTarget } from './start-deploy';
 
 /**
- * End the action while the database has a public endpoint, before an apply or a setup's resume runs `pulumi up`. The committed stack config
+ * End the action while the database has a public endpoint, before an apply or an install's resume runs `pulumi up`. The committed stack config
  * never records an open endpoint: its plan keeps the endpoint and deletes the ACL.
  */
 export async function endOnOpenDbEndpoint(context: InfraContext, secretKey: string): Promise<void> {
@@ -63,7 +63,7 @@ export async function runApply(context: InfraContext): Promise<void> {
 
   console.warn(`${pc.yellow(pc.bold('⚠  Keep this terminal open.'))} ${pc.dim('If it stops, run it again.')}`);
 
-  // An established stack recovers from an interruption by running the apply again; the first-provisioning marker is the setup's alone.
+  // An established stack recovers from an interruption by running the apply again; the first-provisioning marker is the install's alone.
   // `pnpm cella infra --debug-provider` (or INFRA_DEBUG_PROVIDER=true) keeps the engine and provider log of the up under cella/infra/.debug/ for a post-mortem.
   const debugProvider = process.argv.includes('--debug-provider') || process.env.INFRA_DEBUG_PROVIDER === 'true';
   const { completed, verified, declined } = await runOperatorApply(context, {

@@ -18,7 +18,7 @@ import { ensureObserverForEnvironment, type ObserverStep, observerStep } from '.
 import { acquireIdentityKey } from './operator-unlock';
 import { printRevokeReminder } from './owner-key';
 
-/** The uploads application, as the setup and an identity update make it. */
+/** The uploads application, as the install and an identity update make it. */
 export const uploadsApplication = {
   suffix: principalSuffixes.uploads,
   description: "The uploads key: signs the backend's uploads and presigned URLs",
@@ -202,7 +202,7 @@ export async function runIdentity(context: InfraContext): Promise<void> {
     if (!show(plan)) return;
     if (!(await confirmOrDefault({ message: 'Write them?', default: false }))) return;
   }
-  // The setup makes the deploy and uploads applications with their keys; an update makes a missing uploads one as the setup does.
+  // The install makes the deploy and uploads applications with their keys; an update makes a missing uploads one as the install does.
   const { uploads } = principalNames(appConfig.slug, context.environment);
   if (plan.missingApplications.includes(uploads)) {
     await ensureApplication(

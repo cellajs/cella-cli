@@ -24,7 +24,7 @@ describe('resolveModeProject', () => {
     });
   });
 
-  it('gives a mode without a stack no project when only a shared file names one, so its setup asks', () => {
+  it('gives a mode without a stack no project when only a shared file names one, so its install asks', () => {
     expect(resolveModeProject({ resolved: 'shared-1', shared: 'shared-1', hasStack: false })).toEqual({
       projectId: '',
       source: 'none',

@@ -14,7 +14,7 @@ export interface DbEndpointFacts {
   allowed?: string[];
 }
 
-/** The check applies to a bootstrapped stack, whose managed PostgreSQL instance the exposure toggle opens. */
+/** The check applies to an installed stack, whose managed PostgreSQL instance the exposure toggle opens. */
 const applies = (session: ProbeSession): boolean => session.stackState === 'bootstrapped';
 
 /** Public-endpoint check of the managed database: a live endpoint with exposure off warns, as does an open one, with its ACL rule count. */

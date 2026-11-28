@@ -2,7 +2,7 @@ import { listApiKeys, resolveApplicationIdByName } from '../../scaleway/iam-clie
 import { organizationIdOfKey } from '../../scaleway/operator-identity';
 import { allPrincipalNames } from '../../scaleway/principals';
 import { projectsOfOtherModes, projectVerdict } from '../../stack/project-per-mode';
-import { check, probed, setupAction } from '../check';
+import { check, installAction, probed } from '../check';
 import type { StatusProvider } from '../types';
 
 /** One key's age, by the application that bears it. */
@@ -65,7 +65,7 @@ export const identityProvider: StatusProvider<IdentityFacts> = {
     const own = projectVerdict(session.projectId, projectsOfOtherModes(session.mode));
     const checks = [
       own.status === 'missing'
-        ? project.missing(`cella/infra/Pulumi.${session.mode}.yaml names no project; setup picks or creates one`, setupAction)
+        ? project.missing(`cella/infra/Pulumi.${session.mode}.yaml names no project; the install picks or creates one`, installAction)
         : own.status === 'shared'
           ? project.error(`${session.projectId} is also the project of ${own.sharedWith}: every environment needs a project of its own`)
           : { ...project.ok(session.projectId ?? ''), headline: `project ${(session.projectId ?? '').slice(0, 8)}-…` },

@@ -109,8 +109,8 @@ const transloaditStoreAccess = (bucketName: pulumi.Input<string>) =>
       : [],
   );
 
-// The upload buckets and the boot-diag bucket, with their policies, outlive a destroy and keep their contents: a teardown keeps them, and a
-// setup adopts them again (lib/stack/kept-resources.ts). A policy stays so a kept bucket admits no more principals than before.
+// The upload buckets and the boot-diag bucket, with their policies, outlive a destroy and keep their contents: a teardown keeps them, and an
+// install adopts them again (lib/stack/kept-resources.ts). A policy stays so a kept bucket admits no more principals than before.
 const kept = { retainOnDelete: true };
 
 const { backupDays } = appConfig.retention;

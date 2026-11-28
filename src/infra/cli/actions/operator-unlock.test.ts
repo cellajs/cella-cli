@@ -208,7 +208,7 @@ describe('acquireOperatorKey', () => {
   });
 });
 
-describe('acquireOperatorKey with the key a setup minted', () => {
+describe('acquireOperatorKey with the key an install minted', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.spyOn(process.stderr, 'write').mockImplementation(() => true);

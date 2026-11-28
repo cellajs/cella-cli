@@ -109,7 +109,7 @@ export function modeEnvValues(parsed: Record<string, string>, mode: string): { v
 
 /**
  * Refuses the files the move to `cella/infra/` left in `infra/`: each environment's stack file, exposure overlay and key file. The engine reads
- * them from `cella/infra/` alone, and a stack file it cannot find reads as an environment not set up yet.
+ * them from `cella/infra/` alone, and a stack file it cannot find reads as an environment not installed yet.
  * @returns one warning when an old copy sits beside its `cella/infra/` twin, else none
  * @throws for a file in `infra/` whose twin is missing, with one `mv` line per file, relative to the app root
  */

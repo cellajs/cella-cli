@@ -51,8 +51,8 @@ export async function whatNow<T extends string>(rows: ReadonlyArray<WayOut<T>>, 
   return picked === escaped ? leave.value : picked;
 }
 
-/** The frame under a finished first setup, which has shown no menu yet: Open the menu first, on Enter, Esc and Ctrl-C alike, then Quit. */
-export async function afterFirstSetup(): Promise<typeof leaveChoice | typeof quitChoice> {
+/** The frame under a finished first install, which has shown no menu yet: Open the menu first, on Enter, Esc and Ctrl-C alike, then Quit. */
+export async function afterFirstInstall(): Promise<typeof leaveChoice | typeof quitChoice> {
   return whatNow<typeof leaveChoice | typeof quitChoice>([
     { value: leaveChoice, label: 'Open the menu', description: 'Every action of the CLI, under the home screen.' },
     { value: quitChoice, label: 'Quit', description: 'Leave the CLI.' },

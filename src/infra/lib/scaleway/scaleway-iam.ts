@@ -315,7 +315,7 @@ export async function deleteGroup(opts: { callerSecretKey: string; organizationI
   if (group) await scwSend({ secretKey: opts.callerSecretKey }, 'DELETE', `${iamBase}/groups/${group.id}`);
 }
 
-/** Remove the org-wide `<slug>-bootstrap-dns` policy: the widest grant the engine creates, and it must not outlive the setup that needed it. */
+/** Remove the org-wide `<slug>-bootstrap-dns` policy: the widest grant the engine creates, and it must not outlive the install that needed it. */
 export async function removeBootstrapDnsGrant(opts: {
   callerSecretKey: string;
   organizationId: string;

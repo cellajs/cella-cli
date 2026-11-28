@@ -15,14 +15,14 @@ const secretType = 'scaleway:secrets/secret:Secret';
 export interface KeptResource {
   type: string;
   name: string;
-  /** What a setup finds it by: a bucket's name, or a container's name in the runtime folder. None for a bucket policy, which the first `up` writes anew. */
+  /** What an install finds it by: a bucket's name, or a container's name in the runtime folder. None for a bucket policy, which the first `up` writes anew. */
   adopt?: { bucket: string } | { secret: string };
 }
 
 type ListedSecret = Pick<SecretManagerSecret, 'id' | 'name' | 'path'>;
 
 /**
- * What a teardown keeps and a setup adopts: the upload buckets and the boot-diag bucket with their policies, the state bucket's policy, and
+ * What a teardown keeps and an install adopts: the upload buckets and the boot-diag bucket with their policies, the state bucket's policy, and
  * the containers of the values that protect stored data, which the final dump in the boot-diag bucket needs. The program declares each
  * with `retainOnDelete`; the state bucket itself is no resource of the program.
  */
@@ -90,14 +90,14 @@ export function sweptSecrets<Secret extends ListedSecret>(listed: readonly Secre
   return listed.filter((secret) => !keep.has(secret.id) && inFolders(secret.path));
 }
 
-/** What a setup finds live in the environment's project: the bucket names, and the secret containers. */
+/** What an install finds live in the environment's project: the bucket names, and the secret containers. */
 export interface KeptLive {
   buckets: readonly string[];
   secrets: readonly ListedSecret[];
 }
 
 /**
- * The imports a setup runs before its `up`: each kept resource that is live and absent from the state, under the type and name the program
+ * The imports an install runs before its `up`: each kept resource that is live and absent from the state, under the type and name the program
  * declares it with, so the `up` updates it in place where it would otherwise fail to make it again. A bucket is imported as `<region>/<name>`
  * in the provider's default project, the environment's; a container as `<region>/<id>`. Empty for a stack that holds them all.
  */

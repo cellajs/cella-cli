@@ -28,8 +28,8 @@ export function hasInfraFolder(dir: string): boolean {
 export const infraCommand: Command<InfraOptions> = {
   name: 'infra',
   group: 'operate',
-  description: "set up, apply and deploy the app's environments; `cella infra help` lists its actions",
-  summary: 'the deploy console: set up, apply and deploy the environments',
+  description: "install, apply and deploy the app's environments; `cella infra help` lists its actions",
+  summary: 'the deploy console: install, apply and deploy the environments',
   inMenu: ({ hasInfra }) => hasInfra,
   handsOver: true,
   help: infraHelp,

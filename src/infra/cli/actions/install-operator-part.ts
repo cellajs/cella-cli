@@ -36,11 +36,11 @@ import {
   stackNameFor,
 } from '../shared';
 import { endOnOpenDbEndpoint } from './apply';
+import { printLaunchChecklist } from './install-checklist';
+import { connectRepository, offerFirstDeploy } from './install-connect';
+import type { OwnerMomentResult } from './install-owner-moment';
 import { endOnShutOutOfBuckets } from './operator-apply';
 import type { OperatorKey } from './operator-unlock';
-import { printLaunchChecklist } from './setup-checklist';
-import { connectRepository, offerFirstDeploy } from './setup-connect';
-import type { OwnerMomentResult } from './setup-owner-moment';
 import { awaitsFirstDeploy } from './start-deploy';
 
 /** An optional masked value: empty when the prompt cannot run (no terminal), while a Ctrl-C at it still leaves the wizard. */
@@ -73,8 +73,8 @@ async function mustRun(
   }
 }
 
-/** What the operator part of a setup shares. */
-interface SetupContext {
+/** What the operator part of an install shares. */
+interface InstallContext {
   context: InfraContext;
   appConfig: InfraContext['appConfig'];
   projectId: string;
@@ -87,13 +87,13 @@ interface SetupContext {
   childEnv: Record<string, string>;
 }
 
-/** Operator secret values gathered at the first-setup prompts, seeded once the first `pulumi up` made their containers. */
+/** Operator secret values gathered at the first-install prompts, seeded once the first `pulumi up` made their containers. */
 interface OperatorSecretValues {
   adminEmail: string;
   brevoApiKey: string;
 }
 
-/** The admin email, required at a first setup so the first deploy cannot end blocked on it; `--defaults` takes INFRA_ADMIN_EMAIL. */
+/** The admin email, required at a first install so the first deploy cannot end blocked on it; `--defaults` takes INFRA_ADMIN_EMAIL. */
 async function askAdminEmail(): Promise<string> {
   const message = 'Admin email (the first account, signs in with a magic link)';
   const fromEnv = process.env.INFRA_ADMIN_EMAIL?.trim();
@@ -113,7 +113,7 @@ async function askAdminEmail(): Promise<string> {
  * Import what a teardown kept and the state lacks (lib/stack/kept-resources.ts), before the `up` that would otherwise make it again. Nothing
  * on a stack that holds it all. A listing that fails is left to the `up`, which then names what exists.
  */
-async function adoptKept(ctx: SetupContext): Promise<void> {
+async function adoptKept(ctx: InstallContext): Promise<void> {
   const region = ctx.appConfig.s3.region;
   const live = await Promise.all([
     makeS3Client(region, ctx.stateKey.accessKey, ctx.stateKey.secretKey).then(async (s3) => {
@@ -136,7 +136,7 @@ async function adoptKept(ctx: SetupContext): Promise<void> {
 }
 
 /** The engine image of this checkout, published on the operator key; undefined while the registry does not exist or when the build failed. */
-async function publishEngineOrWarn(ctx: SetupContext): Promise<PublishedEngine | undefined> {
+async function publishEngineOrWarn(ctx: InstallContext): Promise<PublishedEngine | undefined> {
   return publishEngine({ appConfig: ctx.appConfig, projectId: ctx.projectId, secretKey: ctx.secretKey }).catch((error) => {
     console.warn(`${warningMark} The engine image could not be published (${errorMessage(error)}): ${pointTo('apply')} publishes it.`);
     return undefined;
@@ -147,7 +147,7 @@ async function publishEngineOrWarn(ctx: SetupContext): Promise<PublishedEngine |
  * Validate DNS, lock the stack, defer fresh compute, and converge Pulumi, on the operator key.
  * Once secret containers exist, seed the operator's values.
  */
-async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSecretValues): Promise<void> {
+async function provisionBaseInfra(ctx: InstallContext, operatorSecrets: OperatorSecretValues): Promise<void> {
   const { dnsZone, hasDomain } = deriveInfra(ctx.appConfig);
   if (hasDomain) {
     try {
@@ -166,7 +166,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
     accessKey: ctx.stateKey.accessKey,
     secretKey: ctx.stateKey.secretKey,
     stack: ctx.stackName,
-    operation: 'setup',
+    operation: 'install',
   });
 
   const firstProvision = ctx.context.state === 'fresh';
@@ -269,7 +269,7 @@ async function provisionBaseInfra(ctx: SetupContext, operatorSecrets: OperatorSe
 }
 
 /**
- * The operator part of a setup, on the operator key: the state bucket and the stack, the first `pulumi up`
+ * The operator part of an install, on the operator key: the state bucket and the stack, the first `pulumi up`
  * and the operator's secret values. It writes no IAM. It ends by connecting the repository while the stack file is not pushed, and at the
  * first deploy while the environment never deployed.
  */
@@ -278,18 +278,18 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   const environment = context.environment;
   const projectId = moment?.projectId ?? context.projectId;
   const stackName = stackNameFor(context);
-  const firstSetup = context.state === 'fresh';
+  const firstInstall = context.state === 'fresh';
 
   const operatorSecrets: OperatorSecretValues = { adminEmail: '', brevoApiKey: '' };
-  if (firstSetup) {
+  if (firstInstall) {
     operatorSecrets.adminEmail = await askAdminEmail();
     operatorSecrets.brevoApiKey = await optionalSecret('Brevo API key (optional)');
   }
-  if (!firstSetup && !(await confirmOrDefault({ message: `Resume the setup of ${environment}?`, default: true }))) return;
+  if (!firstInstall && !(await confirmOrDefault({ message: `Resume the install of ${environment}?`, default: true }))) return;
 
   // The operator key serves the state side too, naming this project, as it is made in one environment's. A stack whose buckets predate the
   // operator application lets it in first.
-  if (!firstSetup) await endOnShutOutOfBuckets(context, operatorKey);
+  if (!firstInstall) await endOnShutOutOfBuckets(context, operatorKey);
   const stateKey: KeyPair = stateKeyOf(operatorKey, projectId);
   const childEnv = buildProviderEnv(infraDir, {
     accessKey: operatorKey.accessKey,
@@ -299,7 +299,7 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
     organizationId: operatorKey.organizationId,
   });
 
-  const ctx: SetupContext = {
+  const ctx: InstallContext = {
     context,
     appConfig,
     projectId,
@@ -317,13 +317,13 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
   if (selected.status !== 0) await mustRun('Pulumi stack init', 'pulumi', ['stack', 'init', stackName], childEnv);
   writeStackFileProjectId(environment, projectId);
 
-  // Identity ids come from the IAM API, so stack config only needs a non-secret bootstrap marker.
+  // Stack config only needs a non-secret install marker: identity ids come from the IAM API.
   const ciKey = moment?.ciKey;
   await copyDeployKeyForMainJob(context, operatorKey, projectId, ciKey);
   // Set once: a new value on each resume would change the committed stack file and offer a commit every time.
   if (!context.hasCiKey && ciKey?.accessKey) {
     await mustRun(
-      'Mark bootstrap complete',
+      'Mark the install complete',
       'pulumi',
       ['config', 'set', 'infra:bootstrapComplete', new Date().toISOString(), '--stack', stackName],
       childEnv,
@@ -332,25 +332,25 @@ export async function runOperatorPart(context: InfraContext, operatorKey: Operat
 
   // Base infrastructure provisioning
   const runNow = await confirmOrDefault({
-    message: firstSetup ? 'Create the database, network and load balancer now?' : 'Bring the foundation up to date now (pulumi up)?',
-    default: firstSetup,
+    message: firstInstall ? 'Create the database, network and load balancer now?' : 'Bring the foundation up to date now (pulumi up)?',
+    default: firstInstall,
   });
   if (!runNow) {
     console.info(
-      `  ${pc.dim(`${pointTo('resume')} creates it later; the stack file is connected now, so every checkout sees ${environment} set up.`)}`,
+      `  ${pc.dim(`${pointTo('resume')} creates it later; the stack file is connected now, so every checkout sees ${environment} installed.`)}`,
     );
     await connectRepository(environment);
     return;
   }
   await provisionBaseInfra(ctx, operatorSecrets);
-  const setUp = { ...context, projectId };
-  if (firstSetup) await printLaunchChecklist(setUp);
+  const installed = { ...context, projectId };
+  if (firstInstall) await printLaunchChecklist(installed);
   await connectRepository(environment);
-  if (firstSetup || (await awaitsFirstDeploy(setUp, operatorKey))) await offerFirstDeploy(setUp);
+  if (firstInstall || (await awaitsFirstDeploy(installed, operatorKey))) await offerFirstDeploy(installed);
 }
 
 /**
- * Copy a deploy key the Owner moment made into the engine folder, where the main job's definition references it. Both a setup
+ * Copy a deploy key the Owner moment made into the engine folder, where the main job's definition references it. Both an install
  * and a rotation of keys make one, and a rotation deletes the key the copy held before, so a rotation that skipped this would leave the
  * main job's runs a dead key. The secret key is shown only when the key is made, so a failed copy takes another rotation of keys.
  * @returns false when the copy failed, which it reports

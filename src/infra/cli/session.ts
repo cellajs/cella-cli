@@ -7,7 +7,7 @@ import type { KeyPair } from '../lib/scaleway/operator-identity';
 const session: {
   ownerKey?: KeyPair;
   operatorKey?: KeyPair;
-  /** The operator key was minted by this run's setup, so IAM may refuse it until its policy holds. */
+  /** The operator key was minted by this run's install: IAM may refuse it until its policy holds. */
   operatorKeyMinted?: boolean;
   /** The run shows the menu: an action that fails or is stopped returns to it. */
   menu?: boolean;
@@ -42,7 +42,7 @@ export function forgetOwnerKey(): void {
   session.ownerKey = undefined;
 }
 
-/** Keep the operator key once Scaleway took it, or once the setup minted it: it serves every action of the session. */
+/** Keep the operator key once Scaleway took it, or once the install minted it: it serves every action of the session. */
 export function rememberOperatorKey(pair: KeyPair, opts: { minted?: boolean } = {}): void {
   session.operatorKey = { accessKey: pair.accessKey, secretKey: pair.secretKey };
   session.operatorKeyMinted = opts.minted === true;
@@ -69,7 +69,7 @@ export function startMenuSession(): void {
   session.menu = true;
 }
 
-/** True once the run shows the menu; false for `pnpm cella infra <action>`, `--once` and a first setup. */
+/** True once the run shows the menu; false for `pnpm cella infra <action>`, `--once` and a first install. */
 export function inMenuSession(): boolean {
   return session.menu === true;
 }
